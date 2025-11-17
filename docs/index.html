@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>ZenPost Studio Wiki</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="ZenPost Studio Documentation - AI-powered file converter and content transformer">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+
+  <!-- Docsify Theme -->
+  <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css">
+
+  <!-- Custom Zen Styling -->
+  <style>
+    :root {
+      --theme-color: #AC8E66;
+      --theme-color-dark: #8A6E4E;
+      --base-background-color: #1A1A1A;
+      --base-color: #e5e5e5;
+      --sidebar-background: #2A2A2A;
+      --code-theme-background: #2A2A2A;
+      --code-theme-text: #e5e5e5;
+    }
+
+    body {
+      font-family: 'IBM Plex Mono', 'Courier Prime', ui-monospace, SFMono-Regular, monospace;
+      background-color: var(--base-background-color);
+      color: var(--base-color);
+    }
+
+    .sidebar {
+      background-color: var(--sidebar-background);
+      border-right: 1px solid #3a3a3a;
+    }
+
+    .sidebar-nav li a {
+      color: #999;
+    }
+
+    .sidebar-nav li.active > a {
+      color: var(--theme-color);
+      font-weight: 600;
+    }
+
+    .sidebar-nav li a:hover {
+      color: var(--theme-color);
+    }
+
+    .app-name {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: var(--theme-color);
+      margin: 0;
+      padding: 1rem 0;
+    }
+
+    .markdown-section {
+      max-width: 900px;
+      padding: 2rem 2rem 4rem;
+    }
+
+    .markdown-section h1 {
+      color: var(--theme-color);
+      border-bottom: 2px solid #3a3a3a;
+      padding-bottom: 0.5rem;
+    }
+
+    .markdown-section h2 {
+      color: #D4AF78;
+      margin-top: 2rem;
+      border-bottom: 1px solid #3a3a3a;
+      padding-bottom: 0.3rem;
+    }
+
+    .markdown-section h3 {
+      color: #C4A578;
+    }
+
+    .markdown-section a {
+      color: var(--theme-color);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+
+    .markdown-section a:hover {
+      border-bottom-color: var(--theme-color);
+    }
+
+    .markdown-section code {
+      background-color: #2A2A2A;
+      color: #AC8E66;
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+
+    .markdown-section pre > code {
+      background-color: #2A2A2A;
+      color: #e5e5e5;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+    }
+
+    .markdown-section table {
+      border-collapse: collapse;
+      border: 1px solid #3a3a3a;
+    }
+
+    .markdown-section table th {
+      background-color: #2A2A2A;
+      color: var(--theme-color);
+      font-weight: 600;
+      border: 1px solid #3a3a3a;
+      padding: 0.6rem 1rem;
+    }
+
+    .markdown-section table td {
+      border: 1px solid #3a3a3a;
+      padding: 0.6rem 1rem;
+    }
+
+    .markdown-section table tr:hover {
+      background-color: #2A2A2A;
+    }
+
+    /* Search Box */
+    .search input {
+      background-color: #2A2A2A;
+      border: 1px solid #3a3a3a;
+      color: var(--base-color);
+    }
+
+    .search input:focus {
+      border-color: var(--theme-color);
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #2A2A2A;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #AC8E66;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #c4a578;
+    }
+
+    /* Firefox */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #AC8E66 #2A2A2A;
+    }
+
+    /* Blockquotes / Tips */
+    .markdown-section blockquote {
+      border-left: 4px solid var(--theme-color);
+      background-color: rgba(172, 142, 102, 0.1);
+      margin: 1.5rem 0;
+      padding: 1rem 1.5rem;
+    }
+
+    .markdown-section blockquote p {
+      margin: 0;
+    }
+
+    /* Badges */
+    .markdown-section em {
+      color: #C4A578;
+    }
+
+    /* Copy button on code blocks */
+    .docsify-copy-code-button {
+      background: var(--theme-color) !important;
+      color: #1A1A1A !important;
+    }
+
+    .docsify-copy-code-button:hover {
+      background: #D4AF78 !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">Loading ZenPost Studio Wiki...</div>
+
+  <script>
+    window.$docsify = {
+      name: 'ZenPost Studio',
+      repo: 'https://github.com/denisbitter/zenpost-studio',
+      loadSidebar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      homepage: 'README.md',
+
+      // Search plugin
+      search: {
+        maxAge: 86400000, // 1 day
+        paths: 'auto',
+        placeholder: 'Suche...',
+        noData: 'Keine Ergebnisse!',
+        depth: 3,
+        hideOtherSidebarContent: false,
+      },
+
+      // Copy to clipboard
+      copyCode: {
+        buttonText: 'Kopieren',
+        errorText: 'Fehler',
+        successText: 'Kopiert!'
+      },
+
+      // Pagination
+      pagination: {
+        previousText: '← Zurück',
+        nextText: 'Weiter →',
+        crossChapter: true,
+        crossChapterText: true,
+      },
+
+      // Tabs plugin
+      tabs: {
+        persist: true,
+        sync: true,
+        theme: 'material',
+        tabComments: true,
+        tabHeadings: true
+      },
+
+      // Footer
+      plugins: [
+        function(hook, vm) {
+          hook.beforeEach(function(html) {
+            return html + '\n\n---\n\n<small>Made with ❤️ by Denis Bitter | [ZenPost Studio](https://github.com/denisbitter/zenpost-studio)</small>';
+          });
+        }
+      ]
+    }
+  </script>
+
+  <!-- Docsify Core -->
+  <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+
+  <!-- Search Plugin -->
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+
+  <!-- Copy Code Plugin -->
+  <script src="//cdn.jsdelivr.net/npm/docsify-copy-code/dist/docsify-copy-code.min.js"></script>
+
+  <!-- Pagination Plugin -->
+  <script src="//cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+
+  <!-- Zoom Image Plugin -->
+  <script src="//cdn.jsdelivr.net/npm/docsify/lib/plugins/zoom-image.min.js"></script>
+
+  <!-- Tabs Plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify-tabs@1"></script>
+
+  <!-- Syntax Highlighting -->
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-typescript.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-javascript.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-python.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="//cdn.jsdelivr.net/npm/prismjs@1/components/prism-markdown.min.js"></script>
+</body>
+</html>
