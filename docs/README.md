@@ -217,7 +217,7 @@ Thank you for using ZenPost Studio! This wiki is **continuously growing** with n
 
 **Can't find what you're looking for?**
 - Check the [Table of Contents](#-table-of-contents) above
-- [Open an issue](https://github.com/denisbitter/zenpost-studio/issues) to request documentation
+- [Open an issue](https://github.com/theoriginalbitter/zenpost-studio/issues) to request documentation
 - Contribute to the wiki yourself! (coming soon)
 
 ---

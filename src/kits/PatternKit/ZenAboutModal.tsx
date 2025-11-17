@@ -16,19 +16,19 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
     {
       icon: faBook,
       label: "Wiki & Docs",
-      url: "https://denisbitter.github.io/zenpost-studio/",
+      url: "https://theoriginalbitter.github.io/zenpost-studio/",
       description: "View documentation and guides",
     },
     {
       icon: faGithub,
       label: "GitHub",
-      url: "https://github.com/denisbitter/zenpost-studio",
+      url: "https://github.com/THEORIGINALBITTER/zenpost-studio",
       description: "View source code",
     },
     {
       icon: faLifeRing,
       label: "Support",
-      url: "https://github.com/denisbitter/zenpost-studio/issues",
+      url: "https://github.com/THEORIGINALBITTER/zenpost-studio/issues",
       description: "Get help & report issues",
     },
   ];
