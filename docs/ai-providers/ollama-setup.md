@@ -386,7 +386,7 @@ ollama --version
 
 **Ollama Discord:** [https://discord.gg/ollama](https://discord.gg/ollama)
 
-**ZenPost Studio Issues:** [GitHub Issues](https://github.com/denisbitter/zenpost-studio/issues)
+**ZenPost Studio Issues:** [GitHub Issues](https://github.com/theoriginalbitter/zenpost-studio/issues)
 
 ---
 

@@ -204,7 +204,7 @@ You can **easily switch** between providers at any time:
 - [Anthropic Troubleshooting](./anthropic-setup.md#common-issues--solutions)
 
 **Still Need Help?**
-- [ZenPost Studio GitHub Issues](https://github.com/denisbitter/zenpost-studio/issues)
+- [ZenPost Studio GitHub Issues](https://github.com/theoriginalbitter/zenpost-studio/issues)
 - [Community Forum](#) (coming soon)
 
 ---

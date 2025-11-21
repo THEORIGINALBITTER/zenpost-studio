@@ -143,8 +143,8 @@ Find guides for specific use cases:
 
 ### Community & Support
 
-- **GitHub Issues:** [Report bugs or request features](https://github.com/denisbitter/zenpost-studio/issues)
-- **Discussions:** [Community forum](https://github.com/denisbitter/zenpost-studio/discussions) (coming soon)
+- **GitHub Issues:** [Report bugs or request features](https://github.com/theoriginalbitter/zenpost-studio/issues)
+- **Discussions:** [Community forum](https://github.com/theoriginalbitter/zenpost-studio/discussions) (coming soon)
 - **Email:** support@zenpost.studio (coming soon)
 
 ### Additional Resources

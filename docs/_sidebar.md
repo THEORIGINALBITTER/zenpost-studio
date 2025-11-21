@@ -25,5 +25,5 @@
   - [Design System](#) 🚧
 
 - **Links**
-  - [GitHub Repo](https://github.com/denisbitter/zenpost-studio)
-  - [Report Issue](https://github.com/denisbitter/zenpost-studio/issues)
+  - [GitHub Repo](https://github.com/theoriginalbitter/zenpost-studio)
+  - [Report Issue](https://github.com/theoriginalbitter/zenpost-studio/issues)

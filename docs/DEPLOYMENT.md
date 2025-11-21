@@ -19,7 +19,7 @@ git push origin main
 ### Step 2: Enable GitHub Pages
 
 1. **Go to your GitHub repository:**
-   - `https://github.com/denisbitter/zenpost-studio`
+   - `https://github.com/theoriginalbitter/zenpost-studio`
 
 2. **Navigate to Settings:**
    - Click **"Settings"** tab (top right)
@@ -236,7 +236,7 @@ window.$docsify = {
 - https://docsify.js.org/
 
 **ZenPost Studio Issues:**
-- https://github.com/denisbitter/zenpost-studio/issues
+- https://github.com/theoriginalbitter/zenpost-studio/issues
 
 ---
 
