@@ -1,5 +1,11 @@
+/**
+ * PatternKit - Zen Design Components Collection
+ */
+
+// Existing exports
 export { PaperBG } from "../DesignKit/PaperBG";
 export { ZenCard } from "./ZenCard";
 export { ZenButton } from "./ZenButton";
-export {ZenRoughButton} from "./ZenRoughButton";
-export { ZenModal } from "./ZenModal";
+
+// ZenModal System - Re-export everything from the organized package
+export * from './ZenModalSystem';

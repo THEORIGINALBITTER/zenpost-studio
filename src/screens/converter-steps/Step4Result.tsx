@@ -2,7 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
+import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { SupportedFormat } from '../../utils/fileConverter';
 
 interface Step4ResultProps {

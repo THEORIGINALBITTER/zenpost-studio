@@ -50,7 +50,7 @@ export const ZenModal = ({ isOpen, onClose, children }: ZenModalProps) => {
 
       {/* 📦 Inhalt */}
       <div
-        className="relative max-w-lg w-[90%] z-20 pointer-events-auto"
+        className="fixed max-w-lg w-[90%] z-20 pointer-events-auto"
         onClick={(e) => e.stopPropagation()} // Schutz für Innen-Buttons
       >
         <div

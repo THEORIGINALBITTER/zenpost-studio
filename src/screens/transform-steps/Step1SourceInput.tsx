@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faEye, faPencil } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
+import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
 
 interface Step1SourceInputProps {
   sourceContent: string;
@@ -20,6 +22,8 @@ export const Step1SourceInput = ({
   onFileNameChange,
   onNext,
 }: Step1SourceInputProps) => {
+  const [showPreview, setShowPreview] = useState(false);
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -40,18 +44,27 @@ export const Step1SourceInput = ({
         {/* Title */}
         <div className="mb-4">
           <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-            Schritt 1: Quelle eingeben
+           <span className='text-[#AC8E66]'> Schritt 1:</span> Quelle eingeben
           </h2>
         </div>
 
         {/* Subtitle */}
-        <div className="mb-20">
+        <div className="mb-8">
           <ZenSubtitle>
             Füge deinen Markdown-Inhalt ein oder lade eine Datei hoch
           </ZenSubtitle>
         </div>
 
-             <div className="mb-8">
+    {/* Info Text */}
+<div className="text-center max-w-xl mb-8 px-4">
+  <p className="text-[#777] font-mono text-[11px] leading-relaxed whitespace-normal">
+    <span className='text-[#AC8E66]'>Tipp:  </span>Du kannst hier deine README.md, Blog-Entwürfe oder technische Dokumentation einfügen.
+    Die AI formatiert und optimiert den Inhalt automatisch für die von dir gewählte Plattform.
+  </p>
+</div>
+
+        {/* File Upload Button */}
+        <div className="mb-8">
           <label htmlFor="file-upload">
             <div className="cursor-pointer">
               <ZenRoughButton
@@ -70,53 +83,57 @@ export const Step1SourceInput = ({
           />
         </div>
 
-        {/* Textarea */}
-        <div className="w-full mt-[8px]">
-          <textarea
+        {/* Markdown Editor */}
+        <div className="w-full mb-8"
+         style={{ paddingTop: 10, marginTop: 20 }}
+        >
+          <ZenMarkdownEditor
             value={sourceContent}
-            onChange={(e) => onSourceContentChange(e.target.value)}
-            placeholder="# Dein Markdown Inhalt hier einfügen..."
-            className="w-full h-[400px] bg-[#2A2A2A] text-[#e5e5e5] font-mono text-sm
-              border border-[#AC8E66] rounded-lg
-              focus:outline-none focus:border-[#AC8E66]
-              resize-none transition-colors zen-scrollbar"
-            style={{ padding: '5px' }}
+            onChange={onSourceContentChange}
+            placeholder="# Dein Markdown Inhalt hier einfügen... mit shift+/ Menu öffnen" 
+            height="400px"
+            showCharCount={false}
+            showPreview={showPreview}
+            onPreviewToggle={setShowPreview}
           />
         </div>
-
-        {/* File Upload Button */}
-   
 
         {/* Error Message */}
         {error && (
-          <div className="mb-8 text-center">
-            <p className="text-red-400 font-mono text-sm">{error}</p>
+          <div className="mb-4 text-center">
+            <p className="text-[#E89B5A] font-mono text-[10px]">{error}</p>
           </div>
         )}
 
-        {/* Character Count */}
-        <div className="mb-8">
-          <p className="text-[#777] font-mono text-xs">
-            {sourceContent.length} Zeichen
-          </p>
+        {/* Action Buttons */}
+        <div className="mb-8 flex gap-4 items-center"
+        
+         style={{ paddingTop: 10, marginTop: 20 }}
+        >
+          {showPreview ? (
+            // When in preview mode, show both "Weiter verfassen" and "Weiter" buttons
+            <>
+              <ZenRoughButton
+                label="Weiter verfassen"
+                icon={<FontAwesomeIcon icon={faPencil} className="text-[#AC8E66]" />}
+                onClick={() => setShowPreview(false)}
+              />
+              <ZenRoughButton
+                label="Weiter"
+                icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
+                onClick={onNext}
+              />
+            </>
+          ) : (
+            // When in editor mode, show "Preview" button
+            <ZenRoughButton
+              label="Preview"
+              icon={<FontAwesomeIcon icon={faEye} className="text-[#AC8E66]" />}
+              onClick={() => setShowPreview(true)}
+            />
+          )}
         </div>
 
-        {/* Next Button */}
-        <div className="mb-8">
-          <ZenRoughButton
-            label="Weiter"
-            icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
-            onClick={onNext}
-          />
-        </div>
-
-        {/* Info Text */}
-        <div className="text-center max-w-xl mt-[20px]">
-          <p className="text-[#777] font-mono text-[10px] leading-relaxed mt-[10px]">
-            Tipp: Füge deine README.md, Blog-Entwürfe oder technische Dokumentation ein.
-            Die AI wird den Inhalt für die gewählte Plattform optimieren.
-          </p>
-        </div>
         <div className='mt-[50px]'></div>
       </div>
     </div>

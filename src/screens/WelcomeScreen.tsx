@@ -3,12 +3,10 @@ import { useState } from "react";
 
 import { ZenLogoFlip } from "../kits/DesignKit/ZenLogoFlip";
 import { ZenSubtitle } from "../kits/PatternKit/ZenSubtitle";
-import { ZenRoughButton } from "../kits/PatternKit/ZenRoughButton";
+import { ZenRoughButton, ZenFooterText, ZenAboutModal } from "../kits/PatternKit/ZenModalSystem";
 import { ZenInfoText } from "../kits/PatternKit/ZenInfoText";
 import { ZenHeader } from "../kits/PatternKit/ZenHeader";
 import { ZenInfoFooter } from "../kits/PatternKit/ZenInfoFooter";
-import { ZenFooterText } from "../kits/PatternKit/ZenFooterText";
-import { ZenAboutModal } from "../kits/PatternKit/ZenAboutModal";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFileLines, faCode, faMagicWandSparkles } from "@fortawesome/free-solid-svg-icons";
 

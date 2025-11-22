@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faRotateLeft, faCopy, faDownload, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
+import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { ContentPlatform } from '../../services/aiService';
 
 interface Step4TransformResultProps {

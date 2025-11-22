@@ -329,14 +329,20 @@ async function callOllama(
   const baseUrl = config.baseUrl || 'http://localhost:11434';
 
   try {
-    const response = await fetch(`${baseUrl}/api/generate`, {
+    // Use /api/chat for better compatibility with modern models
+    const response = await fetch(`${baseUrl}/api/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: config.model || 'llama2',
-        prompt: prompt,
+        model: config.model || 'qwen2.5-coder',
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
         stream: false,
         options: {
           temperature: config.temperature || 0.3,
@@ -345,14 +351,15 @@ async function callOllama(
     });
 
     if (!response.ok) {
+      const errorText = await response.text().catch(() => response.statusText);
       return {
         success: false,
-        error: `Ollama Fehler: ${response.status} - ${response.statusText}`,
+        error: `Ollama Fehler: ${response.status} - ${errorText}`,
       };
     }
 
     const data = await response.json();
-    const readme = data.response;
+    const readme = data.message?.content;
 
     if (!readme) {
       return {

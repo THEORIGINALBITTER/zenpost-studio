@@ -1,0 +1,87 @@
+{
+  "name": "@zenpost/modal-system",
+  "version": "1.0.0",
+  "description": "A powerful, configuration-driven modal system for React with TypeScript support",
+  "main": "dist/index.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "CONFIG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts,.tsx",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "react",
+    "modal",
+    "dialog",
+    "popup",
+    "typescript",
+    "configuration",
+    "ui-components",
+    "react-components",
+    "design-system",
+    "tailwind",
+    "zen",
+    "zen-design",
+    "modal-system",
+    "reusable-components"
+  ],
+  "author": {
+    "name": "Denis Bitter",
+    "email": "contact@denisbitter.de",
+    "url": "https://denisbitter.de"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/THEORIGINALBITTER/zenpost-studio.git",
+    "directory": "src/kits/PatternKit"
+  },
+  "bugs": {
+    "url": "https://github.com/THEORIGINALBITTER/zenpost-studio/issues"
+  },
+  "homepage": "https://github.com/THEORIGINALBITTER/zenpost-studio#readme",
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.4.0",
+    "@fortawesome/free-solid-svg-icons": "^6.4.0",
+    "@fortawesome/react-fontawesome": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "@rollup/plugin-typescript": "^11.0.0",
+    "rollup": "^3.20.0",
+    "rollup-plugin-peer-deps-external": "^2.2.4",
+    "rollup-plugin-postcss": "^4.0.2",
+    "typescript": "^5.0.0",
+    "eslint": "^8.40.0",
+    "prettier": "^2.8.0",
+    "jest": "^29.5.0",
+    "@testing-library/react": "^14.0.0",
+    "@testing-library/jest-dom": "^5.16.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  }
+}

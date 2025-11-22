@@ -8,9 +8,9 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenAISettingsModal } from '../kits/PatternKit/ZenAISettingsModal';
+import { ZenAISettingsModal } from '../kits/PatternKit/ZenModalSystem';
 import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
-import { ZenFooterText } from '../kits/PatternKit/ZenFooterText';
+import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1FormatSelection } from './converter-steps/Step1FormatSelection';
 import { Step2ContentInput } from './converter-steps/Step2ContentInput';
 import { Step3Convert } from './converter-steps/Step3Convert';

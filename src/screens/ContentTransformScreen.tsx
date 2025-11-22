@@ -9,9 +9,8 @@ import {
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenAISettingsModal } from '../kits/PatternKit/ZenAISettingsModal';
-import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
-import { ZenFooterText } from '../kits/PatternKit/ZenFooterText';
+import { ZenAISettingsModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
 import { Step3StyleOptions } from './transform-steps/Step3StyleOptions';
@@ -103,6 +102,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
 
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsNotification, setShowSettingsNotification] = useState(false);
 
   // Navigation Handlers
   const handleBack = () => {
@@ -117,6 +117,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
   const handleNextFromStep1 = () => {
     if (!sourceContent.trim()) {
       setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
+    
       return;
     }
     setError(null);
@@ -144,10 +145,34 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
         setTransformedContent(result.data);
         setCurrentStep(4);
       } else {
-        setError(result.error || 'Transformation fehlgeschlagen');
+        const errorMsg = result.error || 'Transformation fehlgeschlagen';
+        setError(errorMsg);
+        // Show notification if error is related to AI configuration
+        if (
+          errorMsg.includes('API') ||
+          errorMsg.includes('konfiguriert') ||
+          errorMsg.includes('Konfiguration') ||
+          errorMsg.includes('fehlt') ||
+          errorMsg.includes('Einstellungen') ||
+          errorMsg.includes('Key')
+        ) {
+          setShowSettingsNotification(true);
+        }
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unbekannter Fehler');
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      setError(errorMsg);
+      // Show notification if error is related to AI configuration
+      if (
+        errorMsg.includes('API') ||
+        errorMsg.includes('konfiguriert') ||
+        errorMsg.includes('Konfiguration') ||
+        errorMsg.includes('fehlt') ||
+        errorMsg.includes('Einstellungen') ||
+        errorMsg.includes('Key')
+      ) {
+        setShowSettingsNotification(true);
+      }
     } finally {
       setIsTransforming(false);
     }
@@ -166,14 +191,16 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     switch (currentStep) {
       case 1:
         return (
-          <Step1SourceInput
+          <Step1SourceInput       
             sourceContent={sourceContent}
             fileName={fileName}
             error={error}
+     
             onSourceContentChange={setSourceContent}
             onFileNameChange={setFileName}
             onNext={handleNextFromStep1}
           />
+                 
         );
       case 2:
         return (
@@ -186,8 +213,13 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
           />
         );
       case 3:
+        const selectedPlatformOption = platformOptions.find(
+          (option) => option.value === selectedPlatform
+        );
         return (
           <Step3StyleOptions
+            selectedPlatform={selectedPlatform}
+            platformLabel={selectedPlatformOption?.label || 'Plattform'}
             tone={tone}
             length={length}
             audience={audience}
@@ -195,6 +227,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             onLengthChange={setLength}
             onAudienceChange={setAudience}
             onBack={() => setCurrentStep(2)}
+            onBackToEditor={() => setCurrentStep(1)}
             onTransform={handleTransform}
             isTransforming={isTransforming}
             error={error}
@@ -229,14 +262,19 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             : 'Ergebnis'
         }`}
         onBack={handleBack}
+        onSettings={() => {
+          setShowSettings(true);
+          setShowSettingsNotification(false);
+        }}
+        showSettingsNotification={showSettingsNotification}
+        onDismissNotification={() => setShowSettingsNotification(false)}
       />
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
 
       {/* Footer */}
-      <div className="relative">
-        <ZenInfoFooter onClick={() => setShowSettings(true)} iconType="settings" />
+      <div className="relative border-t border-[#AC8E66] py-3">
         <ZenFooterText />
       </div>
 

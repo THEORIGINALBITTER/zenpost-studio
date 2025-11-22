@@ -7,9 +7,10 @@ interface ZenDropdownProps {
   onChange: (value: string) => void;
   options: { value: string; label: string }[];
   label?: string;
-  className?: string;
+  className?: string; // z.B. "max-w-[200px] items-center", "w-1/2 items-center"
   fullWidth?: boolean;
   variant?: 'default' | 'compact';
+  labelSize?: string; // z.B. "text-sm", "text-base", "text-lg" oder direkt "14px", "16px"
 }
 
 export const ZenDropdown = ({
@@ -20,6 +21,7 @@ export const ZenDropdown = ({
   className = "",
   fullWidth = false,
   variant = 'default',
+  labelSize,
 }: ZenDropdownProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -76,10 +78,33 @@ export const ZenDropdown = ({
   const handleMouseEnter = () => drawRect("#AC8E66");
   const handleMouseLeave = () => drawRect("#3a3a3a");
 
+  // Helper function to determine label styling
+  const getLabelStyle = () => {
+    if (!labelSize) {
+      return isCompact ? 'text-sm' : 'text-sm';
+    }
+    // If labelSize contains px, use it as inline style
+    if (labelSize.includes('px')) {
+      return '';
+    }
+    // Otherwise assume it's a Tailwind class
+    return labelSize;
+  };
+
+  const getInlineLabelStyle = () => {
+    if (labelSize?.includes('px')) {
+      return { fontSize: labelSize };
+    }
+    return {};
+  };
+
   return (
-    <div className={`flex flex-col ${fullWidth ? 'w-full' : 'items-center'} ${className}`}>
+    <div className={`flex flex-col ${fullWidth ? 'w-full' : ''} ${className}`}>
       {label && (
-        <label className={`text-[#999] text-sm font-mono ${isCompact ? 'mb-2 block' : 'mb-3'}`}>
+        <label
+          className={`text-[#999] font-mono ${getLabelStyle()} ${isCompact ? 'mb-2 block' : 'mb-3'} text-center`}
+          style={getInlineLabelStyle()}
+        >
           {label}
         </label>
       )}

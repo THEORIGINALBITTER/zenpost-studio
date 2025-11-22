@@ -2,8 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenDropdown } from '../../kits/PatternKit/ZenDropdown';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
+import { ZenDropdown, ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { SupportedFormat } from '../../utils/fileConverter';
 
 interface FormatOption {
@@ -84,15 +83,7 @@ export const Step1FormatSelection = ({
           />
         </div>
 
-        {/* Next Button */}
-        <div className="mb-8 w-[vw] mt-[20px] ">
-          <ZenRoughButton
-            label="Weiter"
-            
-            icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
-            onClick={onNext}
-          />
-        </div>
+
 
         {/* Info Text */}
         <div className="text-[9px] leading-relaxed max-w-md text-center text-[#777]">

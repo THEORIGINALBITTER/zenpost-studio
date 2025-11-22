@@ -1,11 +1,12 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMagicWandSparkles } from '@fortawesome/free-solid-svg-icons';
+import { faMagicWandSparkles, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
-import { ZenDropdown } from '../../kits/PatternKit/ZenDropdown';
-import { ContentTone, ContentLength, ContentAudience } from '../../services/aiService';
+import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
+import { ContentTone, ContentLength, ContentAudience, ContentPlatform } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
+  selectedPlatform: ContentPlatform;
+  platformLabel: string;
   tone: ContentTone;
   length: ContentLength;
   audience: ContentAudience;
@@ -13,6 +14,7 @@ interface Step3StyleOptionsProps {
   onLengthChange: (length: ContentLength) => void;
   onAudienceChange: (audience: ContentAudience) => void;
   onBack: () => void;
+  onBackToEditor: () => void;
   onTransform: () => void;
   isTransforming: boolean;
   error: string | null;
@@ -38,6 +40,8 @@ const audienceOptions = [
 ];
 
 export const Step3StyleOptions = ({
+  selectedPlatform,
+  platformLabel,
   tone,
   length,
   audience,
@@ -45,6 +49,7 @@ export const Step3StyleOptions = ({
   onLengthChange,
   onAudienceChange,
   onBack,
+  onBackToEditor,
   onTransform,
   isTransforming,
   error,
@@ -53,9 +58,11 @@ export const Step3StyleOptions = ({
     <div className="flex-1 flex flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center w-full max-w-2xl">
         {/* Title */}
-        <div className="mb-4">
+        <div className="mb-4"
+          style={{ padding: "20px" }}>
+        
           <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-            Schritt 3: Stil anpassen
+            {platformLabel}
           </h2>
         </div>
 
@@ -67,7 +74,7 @@ export const Step3StyleOptions = ({
         </div>
 
         {/* Tone Selection */}
-        <div className="mb-32">
+        <div className="text-[12px]" style={{ paddingTop: "20px" }}>
           <ZenDropdown
             label="Tonalität:"
             value={tone}
@@ -77,7 +84,7 @@ export const Step3StyleOptions = ({
         </div>
 
         {/* Length Selection */}
-        <div className="mb-32">
+        <div className="text-[12px]" style={{ padding: "5px" }}>
           <ZenDropdown
             label="Länge:"
             value={length}
@@ -87,7 +94,7 @@ export const Step3StyleOptions = ({
         </div>
 
         {/* Audience Selection */}
-        <div className="mb-32">
+         <div className="text-[12px]" style={{ padding: "5px" }}>
           <ZenDropdown
             label="Zielgruppe:"
             value={audience}
@@ -99,11 +106,35 @@ export const Step3StyleOptions = ({
         {/* Error Message */}
         {error && (
           <div className="mb-8 text-center">
-            <p className="text-red-400 font-mono text-sm">{error}</p>
+            <p className="text-[#E89B5A] font-mono text-sm">{error}</p>
+            {/* Show "Back to Edit" button if content is too short or empty */}
+            {(error.includes('kurz') || error.includes('leer') || error.includes('empty') || error.includes('short')) && (
+              <div style={{ marginTop: '16px' }}>
+                <ZenRoughButton
+                  label="Zurück weiter verfassen"
+                  icon={
+                    <FontAwesomeIcon
+                      icon={faArrowLeft}
+                      className="text-[#AC8E66]"
+                    />
+                  }
+                  onClick={onBackToEditor}
+                />
+              </div>
+            )}
           </div>
         )}
 
         {/* Transform Button */}
+
+        {/* Info Text */}
+        <div className="text-center max-w-xl"
+        style={{paddingLeft: "40px" , paddingRight: "40px", paddingTop: "20px"}}
+        >
+          <p className="text-[#777] font-mono text-[11px]" style={{ lineHeight: '1.6' }}>
+            Die AI berücksichtigt deine gewählten Optionen und passt den Content entsprechend an. <br />Dies kann einige Sekunden dauern.
+          </p>
+        </div>
         <div className="mb-8">
           <ZenRoughButton
             label={isTransforming ? 'Transformiere...' : 'Transformieren'}
@@ -117,13 +148,7 @@ export const Step3StyleOptions = ({
           />
         </div>
 
-        {/* Info Text */}
-        <div className="text-center max-w-xl">
-          <p className="text-[#777] font-mono text-xs leading-relaxed">
-            Die AI berücksichtigt deine gewählten Optionen und passt den Content
-            entsprechend an. Dies kann einige Sekunden dauern.
-          </p>
-        </div>
+        
       </div>
     </div>
   );

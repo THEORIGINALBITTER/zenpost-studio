@@ -1,6 +1,6 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faHeart } from "@fortawesome/free-solid-svg-icons";
-import { useOpenExternal } from "../../hooks/useOpenExternal";
+import { useOpenExternal } from "../../../../hooks/useOpenExternal";
 
 interface ZenFooterTextProps {
   text?: string;

@@ -1,7 +1,5 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenRoughButton';
 import { ContentPlatform } from '../../services/aiService';
 
 interface PlatformOption {
@@ -26,6 +24,12 @@ export const Step2PlatformSelection = ({
   onBack,
   onNext,
 }: Step2PlatformSelectionProps) => {
+  const handlePlatformClick = (platform: ContentPlatform) => {
+    onPlatformChange(platform);
+    // Automatically proceed to next step
+    onNext();
+  };
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center w-full max-w-4xl">
@@ -43,12 +47,32 @@ export const Step2PlatformSelection = ({
           </ZenSubtitle>
         </div>
 
+        {/* Info Text */}
+        <div className="text-center max-w-2xl"
+        style={{paddingLeft: "10px", paddingRight: "10px"}}
+        >
+          <p className="text-[#777] font-mono text-[11px] leading-relaxed">
+            Jede Plattform hat ihre eigenen Best Practices. Die AI wird deinen Content
+            entsprechend anpassen - von Tonalität über Formatierung bis hin zur Länge.
+          </p>
+        </div>
+
         {/* Platform Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-32 w-full">
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '24px',
+            width: '80%',
+            marginTop: '40px',
+            marginBottom: '80px',
+            justifyContent: 'center',
+          }}
+        >
           {platformOptions.map((option) => (
             <button
               key={option.value}
-              onClick={() => onPlatformChange(option.value)}
+              onClick={() => handlePlatformClick(option.value)}
               className={`
                 relative p-6 rounded-lg border-2 transition-all
                 ${
@@ -57,6 +81,11 @@ export const Step2PlatformSelection = ({
                     : 'border-[#3a3a3a] bg-[#1F1F1F] hover:border-[#AC8E66]/50'
                 }
               `}
+              style={{
+                flex: '1 1 200px',
+                minWidth: '200px',
+                maxWidth: '250px',
+              }}
             >
               {/* Icon */}
               <div className="mb-4 flex justify-center">
@@ -70,7 +99,7 @@ export const Step2PlatformSelection = ({
 
               {/* Label */}
               <h3
-                className={`font-mono text-lg mb-2 ${
+                className={`font-mono text-[12px] mb-2 ${
                   selectedPlatform === option.value ? 'text-[#e5e5e5]' : 'text-[#999]'
                 }`}
               >
@@ -78,7 +107,7 @@ export const Step2PlatformSelection = ({
               </h3>
 
               {/* Description */}
-              <p className="text-[#777] font-mono text-xs leading-relaxed">
+              <p className="text-[#777] font-mono text-[10px] leading-relaxed">
                 {option.description}
               </p>
 
@@ -92,22 +121,7 @@ export const Step2PlatformSelection = ({
           ))}
         </div>
 
-        {/* Next Button */}
-        <div className="mb-8">
-          <ZenRoughButton
-            label="Weiter"
-            icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
-            onClick={onNext}
-          />
-        </div>
-
-        {/* Info Text */}
-        <div className="text-center max-w-2xl">
-          <p className="text-[#777] font-mono text-xs leading-relaxed">
-            Jede Plattform hat ihre eigenen Best Practices. Die AI wird deinen Content
-            entsprechend anpassen - von Tonalität über Formatierung bis hin zur Länge.
-          </p>
-        </div>
+        
       </div>
     </div>
   );
