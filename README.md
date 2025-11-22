@@ -51,6 +51,14 @@ Beautiful, minimalist interface:
 - **Generous Spacing** - Breathable layouts
 - **Gold Accents** - Elegant color palette (#AC8E66)
 
+### 💻 Cross-Platform
+- **Web App** - Run in any modern browser
+- **Desktop App** - Native desktop application with Tauri (coming soon)
+  - Windows, macOS, Linux support
+  - Smaller bundle size (~3MB vs ~100MB with Electron)
+  - Better performance with Rust backend
+  - Native system integration
+
 ---
 
 ## 🚀 Quick Start
@@ -70,6 +78,10 @@ npm run dev
 
 # Build for production
 npm run build
+
+# Desktop App (Tauri - coming soon)
+npm run tauri dev        # Development
+npm run tauri build      # Production
 ```
 
 ### Configuration
@@ -115,6 +127,11 @@ npm run build
 - Multiple provider support via unified service layer
 - LocalStorage for configuration persistence
 - Direct API calls (no backend required)
+
+### Desktop (Coming Soon)
+- **Tauri** - Native desktop application framework
+- **Rust** - High-performance backend
+- Cross-platform support (Windows, macOS, Linux)
 
 ---
 
