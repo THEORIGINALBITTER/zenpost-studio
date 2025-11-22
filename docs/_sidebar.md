@@ -16,13 +16,16 @@
   - [Supported Formats](#) 🚧
 
 - **Troubleshooting**
-  - [Common Issues](#) 🚧
-  - [API Errors](#) 🚧
+  - [General Issues](troubleshooting/general.md)
+  - [Ollama Troubleshooting](ai-providers/ollama-setup.md#common-issues--solutions)
+  - [OpenAI Troubleshooting](ai-providers/openai-setup.md#common-issues--solutions)
+  - [Anthropic Troubleshooting](ai-providers/anthropic-setup.md#common-issues--solutions)
 
-- **Development**
-  - [Architecture](#) 🚧
-  - [Contributing](#) 🚧
-  - [Design System](#) 🚧
+- **Developer**
+  - [Architecture Overview](developer/architecture.md)
+  - [Component Library](developer/components.md)
+  - [API Reference](developer/api.md)
+  - [Contributing Guide](developer/contributing.md)
 
 - **Links**
   - [GitHub Repo](https://github.com/theoriginalbitter/zenpost-studio)
