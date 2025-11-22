@@ -76,7 +76,7 @@ Happy to answer questions about architecture, AI integration, or design decision
 Compared to commercial tools at $50-100/month, this is significantly cheaper."
 
 **If asked about business model:**
-"No monetization plans for the core tool. It's open source. Might add optional paid hosting/support later, but the tool itself stays free forever. I built it primarily for myself and figured others might find it useful."
+"Core tool is free forever (MIT licensed). We're building sustainable open source with optional cloud hosting ($9-29/month) for non-technical users who don't want to self-host. Also offering enterprise support contracts. Self-hosted version has ALL features - no feature gating. Think GitLab or Sentry model."
 
 **If asked about Ollama:**
 "Ollama lets you run AI models locally (llama3.1, mistral, codellama). Download once (~5GB), runs offline, 100% free. Privacy is perfect - your content never leaves your machine. Performance is good on modern hardware (M1 Mac, decent GPU)."

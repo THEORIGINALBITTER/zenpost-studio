@@ -53,11 +53,12 @@ ZenPost Studio uses AI to transform your content automatically:
 - Your content never leaves your browser
 - 100% transparent (open source)
 
-💰 **Truly Free**
-- MIT licensed open source
-- No subscriptions ($0/month)
-- Pay only AI provider costs
-- Or use local Ollama (completely free)
+💰 **Free Core + Optional Cloud**
+- MIT licensed open source (free forever)
+- Self-host: $0/month
+- Cloud hosting: $9-29/month (optional, for convenience)
+- Enterprise support: Custom pricing
+- Or use local Ollama (completely free AI)
 
 🤖 **Flexible AI**
 - OpenAI (GPT-4, GPT-4o-mini)
@@ -99,16 +100,23 @@ Saved me 2+ hours. Content is perfectly optimized for each platform.
 
 **Cost Comparison:**
 
-**ZenPost Studio:**
-- Tool: $0 forever
+**ZenPost Studio (Self-Hosted):**
+
+- Tool: $0 forever (open source)
 - AI: ~$0.01-0.05 per transformation (or $0 with Ollama)
 
+**ZenPost Studio (Cloud Hosting):**
+
+- Tool: $9-29/month (includes hosting + support)
+- AI: Included in price
+
 **Commercial Alternatives:**
+
 - Tool A: $29-99/month
 - Tool B: $49-199/month
 - Tool C: $15-75/month
 
-**Yearly savings: $180-1,200**
+**Yearly savings with self-hosting: $348-1,188**
 
 **What's Next:**
 
@@ -237,7 +245,7 @@ Saved 2 hours."
 ## FAQ (Prepare Answers)
 
 **Q: Is this really free?**
-A: Yes! MIT licensed open source. No hidden costs, no freemium trap. Tool is free forever. You only pay your AI provider (or $0 with local Ollama).
+A: Yes! The core tool is MIT licensed open source - free forever. Self-host it for $0/month. We also offer optional cloud hosting ($9-29/month) for non-technical users who want convenience. No freemium trap - the self-hosted version has ALL features.
 
 **Q: How is this different from ChatGPT?**
 A: ZenPost Studio is specialized for content transformation. It knows platform-specific best practices (LinkedIn hooks, Twitter threads, dev.to formatting). ChatGPT is general-purpose. Also, we're privacy-first with no backend.
@@ -260,8 +268,8 @@ A: Currently: LinkedIn, dev.to, Twitter/X, Medium, Reddit, GitHub Discussions, Y
 **Q: Can I customize transformations?**
 A: Prompts are currently hardcoded but configurable in source. Planning template system where you can save custom transformation styles.
 
-**Q: Will you add subscriptions later?**
-A: No. Core tool stays free forever. Might add optional paid hosting/support for enterprises, but tool itself is always free.
+**Q: Will the free version lose features later?**
+A: Never. The self-hosted open source version has ALL features and will remain free forever. We're building a sustainable business with optional cloud hosting and enterprise support - but the core stays free. This is our commitment.
 
 **Q: How good is the AI quality?**
 A: Depends on provider. Claude 3.5 produces excellent quality. GPT-4o-mini is fast and good. Ollama is surprisingly capable for being free.

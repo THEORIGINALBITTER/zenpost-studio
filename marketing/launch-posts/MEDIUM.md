@@ -268,10 +268,12 @@ Open source was the right call.
 - Analytics dashboard
 - Internationalization
 
-**Maybe:**
-- Optional paid hosting for non-technical users
-- Enterprise support contracts
-- But the core tool stays free forever
+**Monetization (Sustainable Open Source):**
+
+- **Free Forever:** Core tool, self-hosted, MIT licensed
+- **Cloud Hosting:** $9-29/month for non-technical users (no setup needed)
+- **Enterprise Support:** Custom pricing for large teams with SLA guarantees
+- **The Promise:** Open source core never goes behind a paywall
 
 ---
 
@@ -301,9 +303,9 @@ Getting AI to consistently produce good output took weeks of iteration. It's not
 
 Even for developer tools. People appreciate beauty. rough.js was extra work but worth it.
 
-### 7. Free Can Work
+### 7. Sustainable Open Source Works
 
-I don't need to monetize everything. Sometimes, creating value and building community is enough.
+You can be open source AND profitable. Keep the core free, offer premium hosting and support. Everyone wins - community gets free tool, non-technical users get convenience, you build a sustainable business.
 
 ---
 
