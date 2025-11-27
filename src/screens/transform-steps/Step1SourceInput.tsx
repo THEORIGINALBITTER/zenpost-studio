@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faEye, faPencil } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faEye, faPencil, faUser } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
@@ -12,6 +12,7 @@ interface Step1SourceInputProps {
   onSourceContentChange: (content: string) => void;
   onFileNameChange: (name: string) => void;
   onNext: () => void;
+  onOpenMetadata?: () => void;
 }
 
 export const Step1SourceInput = ({
@@ -21,6 +22,7 @@ export const Step1SourceInput = ({
   onSourceContentChange,
   onFileNameChange,
   onNext,
+  onOpenMetadata,
 }: Step1SourceInputProps) => {
   const [showPreview, setShowPreview] = useState(false);
 
@@ -63,8 +65,8 @@ export const Step1SourceInput = ({
   </p>
 </div>
 
-        {/* File Upload Button */}
-        <div className="mb-8">
+        {/* File Upload and Metadata Buttons */}
+        <div className="mb-8 flex gap-4 items-center justify-center">
           <label htmlFor="file-upload">
             <div className="cursor-pointer">
               <ZenRoughButton
@@ -81,6 +83,15 @@ export const Step1SourceInput = ({
             onChange={handleFileUpload}
             className="hidden"
           />
+
+          {onOpenMetadata && (
+            <ZenRoughButton
+              label="Metadaten"
+              icon={<FontAwesomeIcon icon={faUser} className="text-[#AC8E66]" />}
+              onClick={onOpenMetadata}
+              title="Deine Daten für [yourName] usw."
+            />
+          )}
         </div>
 
         {/* Markdown Editor */}

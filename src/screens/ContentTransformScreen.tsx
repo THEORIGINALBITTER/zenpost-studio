@@ -9,7 +9,7 @@ import {
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenSettingsModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenMetadataModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
@@ -116,6 +116,48 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsNotification, setShowSettingsNotification] = useState(false);
 
+  // Metadata Modal
+  const [showMetadata, setShowMetadata] = useState(false);
+  const [metadata, setMetadata] = useState<ProjectMetadata>({
+    authorName: '',
+    authorEmail: '',
+    companyName: '',
+    license: 'MIT',
+    year: new Date().getFullYear().toString(),
+    website: '',
+    repository: '',
+    contributingUrl: '',
+  });
+
+  // Replace placeholders in content with metadata
+  const replacePlaceholders = (content: string): string => {
+    let result = content;
+
+    // Replace common placeholders
+    const replacements: Record<string, string> = {
+      '[yourName]': metadata.authorName || '[yourName]',
+      '[Your Name]': metadata.authorName || '[Your Name]',
+      '[authorName]': metadata.authorName || '[authorName]',
+      '[yourEmail]': metadata.authorEmail || '[yourEmail]',
+      '[Your Email]': metadata.authorEmail || '[Your Email]',
+      '[authorEmail]': metadata.authorEmail || '[authorEmail]',
+      '[companyName]': metadata.companyName || '[companyName]',
+      '[Company Name]': metadata.companyName || '[Company Name]',
+      '[website]': metadata.website || '[website]',
+      '[Website]': metadata.website || '[Website]',
+      '[repository]': metadata.repository || '[repository]',
+      '[Repository]': metadata.repository || '[Repository]',
+      '[year]': metadata.year || '[year]',
+      '[Year]': metadata.year || '[Year]',
+    };
+
+    Object.entries(replacements).forEach(([placeholder, value]) => {
+      result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+    });
+
+    return result;
+  };
+
   // Navigation Handlers
   const handleBack = () => {
     if (currentStep === 1) {
@@ -146,7 +188,10 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     setError(null);
 
     try {
-      const result = await transformContent(sourceContent, {
+      // Replace placeholders in source content before transforming
+      const processedContent = replacePlaceholders(sourceContent);
+
+      const result = await transformContent(processedContent, {
         platform: selectedPlatform,
         tone,
         length,
@@ -362,14 +407,14 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     switch (currentStep) {
       case 1:
         return (
-          <Step1SourceInput       
+          <Step1SourceInput
             sourceContent={sourceContent}
             fileName={fileName}
             error={error}
-     
             onSourceContentChange={setSourceContent}
             onFileNameChange={setFileName}
             onNext={handleNextFromStep1}
+            onOpenMetadata={() => setShowMetadata(true)}
           />
                  
         );
@@ -457,6 +502,17 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
         onClose={() => setShowSettings(false)}
         onSave={() => setError(null)}
         defaultTab="ai"
+      />
+
+      {/* Metadata Modal */}
+      <ZenMetadataModal
+        isOpen={showMetadata}
+        onClose={() => setShowMetadata(false)}
+        metadata={metadata}
+        onSave={(newMetadata) => {
+          setMetadata(newMetadata);
+          setShowMetadata(false);
+        }}
       />
     </div>
   );
