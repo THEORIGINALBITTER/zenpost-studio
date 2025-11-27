@@ -5,9 +5,16 @@ interface ZenModalProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export const ZenModal = ({ isOpen, onClose, children }: ZenModalProps) => {
+export const ZenModal = ({ isOpen, onClose, children, size = 'md' }: ZenModalProps) => {
+  const sizeClasses = {
+    sm: 'max-w-sm',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+  };
   const modalRoot = document.getElementById("zen-modal-root");
 
   useEffect(() => {
@@ -50,7 +57,7 @@ export const ZenModal = ({ isOpen, onClose, children }: ZenModalProps) => {
 
       {/* 📦 Inhalt */}
       <div
-        className="fixed max-w-lg w-[90%] z-20 pointer-events-auto"
+        className={`fixed ${sizeClasses[size]} w-[90%] z-20 pointer-events-auto`}
         onClick={(e) => e.stopPropagation()} // Schutz für Innen-Buttons
       >
         <div

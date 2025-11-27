@@ -1,7 +1,8 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMagicWandSparkles, faArrowLeft } from '@fortawesome/free-solid-svg-icons';
+import { faMagicWandSparkles, faArrowLeft, faRocket, faRedo } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenPlusMenu, type ZenPlusMenuItem } from '../../kits/PatternKit/ZenPlusMenu';
 import { ContentTone, ContentLength, ContentAudience, ContentPlatform } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
@@ -16,7 +17,9 @@ interface Step3StyleOptionsProps {
   onBack: () => void;
   onBackToEditor: () => void;
   onTransform: () => void;
+  onPostDirectly: () => void;
   isTransforming: boolean;
+  isPosting: boolean;
   error: string | null;
 }
 
@@ -51,11 +54,53 @@ export const Step3StyleOptions = ({
   onBack,
   onBackToEditor,
   onTransform,
+  onPostDirectly,
   isTransforming,
+  isPosting,
   error,
 }: Step3StyleOptionsProps) => {
+  // Plus Menu Items for quick actions
+  const plusMenuItems: ZenPlusMenuItem[] = [
+    {
+      id: 'transform',
+      label: 'Transformieren',
+      icon: faMagicWandSparkles,
+      description: 'Content mit AI transformieren',
+      action: onTransform,
+    },
+    {
+      id: 'post',
+      label: 'Direkt Posten',
+      icon: faRocket,
+      description: 'Direkt auf Plattform posten',
+      action: onPostDirectly,
+    },
+    {
+      id: 'back-editor',
+      label: 'Zurück zum Editor',
+      icon: faArrowLeft,
+      description: 'Content weiter bearbeiten',
+      action: onBackToEditor,
+    },
+    {
+      id: 'back-platform',
+      label: 'Plattform ändern',
+      icon: faRedo,
+      description: 'Andere Plattform wählen',
+      action: onBack,
+    },
+  ];
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6">
+    <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ position: 'relative' }}>
+      {/* Plus Menu */}
+      <ZenPlusMenu
+        items={plusMenuItems}
+        position="top-right"
+        size="medium"
+        variant="floating"
+      />
+
       <div className="flex flex-col items-center w-full max-w-2xl">
         {/* Title */}
         <div className="mb-4"
@@ -125,17 +170,16 @@ export const Step3StyleOptions = ({
           </div>
         )}
 
-        {/* Transform Button */}
-
-        {/* Info Text */}
+        {/* Action Buttons */}
         <div className="text-center max-w-xl"
         style={{paddingLeft: "40px" , paddingRight: "40px", paddingTop: "20px"}}
         >
           <p className="text-[#777] font-mono text-[11px]" style={{ lineHeight: '1.6' }}>
-            Die AI berücksichtigt deine gewählten Optionen und passt den Content entsprechend an. <br />Dies kann einige Sekunden dauern.
+            Transformiere den Content mit AI oder poste ihn direkt auf die gewählte Plattform.
           </p>
         </div>
-        <div className="mb-8">
+
+        <div style={{ display: 'flex', gap: 16, marginBottom: 32, marginTop: 16, flexWrap: 'wrap', justifyContent: 'center' }}>
           <ZenRoughButton
             label={isTransforming ? 'Transformiere...' : 'Transformieren'}
             icon={
@@ -145,10 +189,24 @@ export const Step3StyleOptions = ({
               />
             }
             onClick={onTransform}
+            disabled={isTransforming || isPosting}
+          />
+
+          <ZenRoughButton
+            label={isPosting ? 'Poste...' : 'Direkt Posten'}
+            icon={
+              <FontAwesomeIcon
+                icon={faRocket}
+                className="text-[#AC8E66]"
+              />
+            }
+            onClick={onPostDirectly}
+            disabled={isTransforming || isPosting}
+            variant="active"
           />
         </div>
 
-        
+
       </div>
     </div>
   );

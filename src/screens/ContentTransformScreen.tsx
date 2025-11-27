@@ -9,7 +9,7 @@ import {
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenAISettingsModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
@@ -22,6 +22,17 @@ import {
   type ContentLength,
   type ContentAudience,
 } from '../services/aiService';
+import {
+  postToSocialMedia,
+  loadSocialConfig,
+  isPlatformConfigured,
+  type SocialPlatform,
+  type LinkedInPostOptions,
+  type TwitterPostOptions,
+  type RedditPostOptions,
+  type DevToPostOptions,
+  type MediumPostOptions,
+} from '../services/socialMediaService';
 
 interface PlatformOption {
   value: ContentPlatform;
@@ -98,6 +109,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
   // Step 4: Result
   const [transformedContent, setTransformedContent] = useState<string>('');
   const [isTransforming, setIsTransforming] = useState<boolean>(false);
+  const [isPosting, setIsPosting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // Settings Modal
@@ -186,6 +198,165 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     setError(null);
   };
 
+  const handlePostDirectly = async () => {
+    setIsPosting(true);
+    setError(null);
+
+    try {
+      // Check if content exists
+      if (!sourceContent.trim()) {
+        setError('Kein Content zum Posten vorhanden');
+        setIsPosting(false);
+        return;
+      }
+
+      // Load social media config
+      const config = loadSocialConfig();
+
+      // Map ContentPlatform to SocialPlatform
+      const platformMap: Record<ContentPlatform, SocialPlatform | null> = {
+        'linkedin': 'linkedin',
+        'twitter': 'twitter',
+        'reddit': 'reddit',
+        'devto': 'devto',
+        'medium': 'medium',
+        'github-discussion': 'github',
+        'youtube': null, // YouTube is not supported for direct posting
+      };
+
+      const socialPlatform = platformMap[selectedPlatform];
+
+      if (!socialPlatform) {
+        setError('Diese Plattform unterstützt kein direktes Posten');
+        setIsPosting(false);
+        return;
+      }
+
+      // Check if platform is configured
+      if (!isPlatformConfigured(socialPlatform, config)) {
+        setError(`${selectedPlatform} ist nicht konfiguriert. Bitte füge deine API-Credentials in den Einstellungen hinzu.`);
+        setShowSettingsNotification(true);
+        setIsPosting(false);
+        return;
+      }
+
+      // Prepare content based on platform
+      let postContent: any;
+
+      switch (socialPlatform) {
+        case 'linkedin':
+          postContent = {
+            text: sourceContent,
+            visibility: 'PUBLIC',
+          } as LinkedInPostOptions;
+          break;
+
+        case 'twitter':
+          // Split content into thread if too long
+          const maxTweetLength = 280;
+          if (sourceContent.length > maxTweetLength) {
+            const sentences = sourceContent.split(/[.!?]+/).filter(s => s.trim());
+            const thread: string[] = [];
+            let currentTweet = '';
+
+            for (const sentence of sentences) {
+              if ((currentTweet + sentence).length > maxTweetLength) {
+                if (currentTweet) thread.push(currentTweet.trim());
+                currentTweet = sentence;
+              } else {
+                currentTweet += sentence + '.';
+              }
+            }
+            if (currentTweet) thread.push(currentTweet.trim());
+
+            postContent = {
+              text: thread[0],
+              thread: thread.slice(1),
+            } as TwitterPostOptions;
+          } else {
+            postContent = {
+              text: sourceContent,
+            } as TwitterPostOptions;
+          }
+          break;
+
+        case 'reddit':
+          // Extract title (first line or first 100 chars)
+          const lines = sourceContent.split('\n');
+          const title = lines[0] || sourceContent.substring(0, 100);
+          const body = lines.length > 1 ? lines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            subreddit: 'test', // User would need to specify subreddit
+            title: title,
+            text: body,
+          } as RedditPostOptions;
+
+          // For Reddit, we need subreddit - show error
+          setError('Für Reddit Posts muss ein Subreddit angegeben werden. Nutze die Transform-Funktion für mehr Optionen.');
+          setIsPosting(false);
+          return;
+
+        case 'devto':
+          // Extract title
+          const devtoLines = sourceContent.split('\n');
+          const devtoTitle = devtoLines[0] || 'Untitled';
+          const devtoBody = devtoLines.length > 1 ? devtoLines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            title: devtoTitle,
+            body_markdown: devtoBody,
+            published: false, // Save as draft by default
+            tags: [],
+          } as DevToPostOptions;
+          break;
+
+        case 'medium':
+          const mediumLines = sourceContent.split('\n');
+          const mediumTitle = mediumLines[0] || 'Untitled';
+          const mediumContent = mediumLines.length > 1 ? mediumLines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            title: mediumTitle,
+            content: mediumContent,
+            contentFormat: 'markdown',
+            publishStatus: 'draft', // Save as draft by default
+            tags: [],
+          } as MediumPostOptions;
+          break;
+
+        case 'github':
+          setError('GitHub Discussions benötigt Repository-Informationen. Nutze die Transform-Funktion für mehr Optionen.');
+          setIsPosting(false);
+          return;
+
+        default:
+          setError('Plattform nicht unterstützt');
+          setIsPosting(false);
+          return;
+      }
+
+      // Post to social media
+      const result = await postToSocialMedia(socialPlatform, postContent, config);
+
+      if (result.success) {
+        // Show success message
+        alert(`✓ Erfolgreich auf ${selectedPlatform} gepostet!\n${result.url || ''}`);
+        handleReset();
+      } else {
+        setError(result.error || 'Posting fehlgeschlagen');
+        if (result.error?.includes('configuration') || result.error?.includes('not found')) {
+          setShowSettingsNotification(true);
+        }
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler beim Posten';
+      setError(errorMsg);
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
   // Render Step Content
   const renderStepContent = () => {
     switch (currentStep) {
@@ -229,7 +400,9 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             onBack={() => setCurrentStep(2)}
             onBackToEditor={() => setCurrentStep(1)}
             onTransform={handleTransform}
+            onPostDirectly={handlePostDirectly}
             isTransforming={isTransforming}
+            isPosting={isPosting}
             error={error}
           />
         );
@@ -278,11 +451,12 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
         <ZenFooterText />
       </div>
 
-      {/* AI Settings Modal */}
-      <ZenAISettingsModal
+      {/* Settings Modal */}
+      <ZenSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
         onSave={() => setError(null)}
+        defaultTab="ai"
       />
     </div>
   );

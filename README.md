@@ -1,63 +1,82 @@
 # ZenPost Studio
 
-**AI-powered content transformation and file conversion tool with a beautiful Zen-inspired interface.**
+**AI-powered content studio for markdown conversion, content transformation, and documentation generation.**
 
-Transform your markdown content for different platforms (LinkedIn, dev.to, Twitter, Medium, etc.) or convert code into professional documentation - all powered by AI.
+Transform your markdown for social media, convert files, or generate professional documentation - all with a beautiful Zen-inspired interface and AI support.
 
 [![Live Demo](https://img.shields.io/badge/demo-live-success)](https://zenpost-studio.vercel.app)
-[![Documentation](https://img.shields.io/badge/docs-wiki-blue)](https://theoriginalbitter.github.io/zenpost-studio/)
-[![GitHub](https://img.shields.io/github/stars/theoriginalbitter/zenpost-studio?style=social)](https://github.com/theoriginalbitter/zenpost-studio)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/theoriginalbitter/zenpost-studio)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 ---
 
-## ✨ Features
+## ✨ Three Studios, One Platform
 
-### 🎯 Content Transform
-Transform your markdown content for specific platforms with AI:
+### 🔄 Converter Studio
+Convert and clean markdown & Editor.js files:
+- **Markdown (.md)** - Parse, clean, and convert markdown files
+- **Editor.js Block-JSON** - Convert Editor.js JSON to markdown
+- **Smart Cleaning** - Remove special characters, fix formatting
+- **Multiple Export Formats** - Markdown, HTML, Text
+
+### 🎯 Content AI Studio
+Transform content with AI for social media platforms:
 - **LinkedIn** - Professional posts with hooks and hashtags
 - **dev.to** - Technical articles with proper formatting
 - **Twitter/X** - Thread-optimized content
 - **Medium** - Long-form storytelling format
 - **Reddit** - Community-focused discussions
 - **GitHub Discussions** - Technical Q&A format
-- **YouTube** - Video script format with timestamps
+- **YouTube** - Video descriptions with timestamps
+- **Style Options** - Choose tone, length, and target audience
+- **Direct Publishing** - Optional API integration for direct posting
 
-### 📝 Markdown Editor
-Real-time markdown editor with live preview:
-- **Live Preview Toggle** - See rendered output instantly
-- **Syntax Highlighting** - Code blocks with proper highlighting
-- **GitHub Flavored Markdown** - Full GFM support
-- **Auto-growing Textarea** - Expands as you type
+### 📚 Doc Studio
+AI-powered documentation generator:
+- **README.md** - Professional project documentation
+- **CHANGELOG.md** - Version history following Keep a Changelog
+- **API Docs** - Comprehensive API documentation
+- **CONTRIBUTING.md** - Contributor guidelines
+- **Blog Posts** - Dev.to, Medium, Hashnode ready articles
+- **Data Room** - Investor-ready documentation suite
+- **Project Analysis** - Automatic project structure detection
+- **Metadata Management** - Author info, license, repository details
 
-### 🔄 File Converter
-AI-powered code documentation generator:
-- **Multi-Language Support** - TypeScript, JavaScript, Python, Java, C++, Go, Rust, PHP, Ruby, Swift, Kotlin
-- **Intelligent Analysis** - AI understands your code structure
-- **Professional Documentation** - Generate comprehensive README files
-- **Multiple Export Formats** - Markdown, HTML, Text, PDF
+---
 
-### 🤖 AI Provider Support
+## 🤖 AI Provider Support
+
 Use your preferred AI provider:
 - **OpenAI** - GPT-4o, GPT-4o-mini, GPT-3.5-turbo
 - **Anthropic** - Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
 - **Ollama** - Local AI (llama3.1, mistral, codellama, qwen2.5-coder)
 - **Custom API** - Bring your own AI endpoint
 
-### 🎨 Zen Design System
-Beautiful, minimalist interface:
-- **Hand-drawn Aesthetics** - Powered by rough.js
-- **Dark Theme** - Easy on the eyes
-- **Monospace Typography** - IBM Plex Mono, Courier Prime
-- **Generous Spacing** - Breathable layouts
-- **Gold Accents** - Elegant color palette (#AC8E66)
+---
 
-### 💻 Cross-Platform
+## 🎨 Zen Design System
+
+Beautiful, minimalist interface inspired by Japanese aesthetics:
+- **Hand-drawn Aesthetics** - Powered by rough.js
+- **Dark Theme** - Easy on the eyes (#1A1A1A)
+- **Gold Accents** - Elegant color palette (#AC8E66)
+- **Monospace Typography** - Clean, technical feel
+- **Generous Spacing** - Breathable layouts
+- **Custom Components** - ZenDropdown, ZenRoughButton, ZenModal
+- **Hover Tooltips** - Helpful contextual information
+- **Responsive Design** - Works on all screen sizes
+
+---
+
+## 💻 Cross-Platform
+
 - **Web App** - Run in any modern browser
-- **Desktop App** - Native desktop application with Tauri (coming soon)
+- **Desktop App** - Native desktop application with Tauri
   - Windows, macOS, Linux support
   - Smaller bundle size (~3MB vs ~100MB with Electron)
   - Better performance with Rust backend
-  - Native system integration
+  - Native file system integration
+  - Offline support
 
 ---
 
@@ -79,7 +98,7 @@ npm run dev
 # Build for production
 npm run build
 
-# Desktop App (Tauri - coming soon)
+# Desktop App (Tauri)
 npm run tauri dev        # Development
 npm run tauri build      # Production
 ```
@@ -87,51 +106,44 @@ npm run tauri build      # Production
 ### Configuration
 
 1. **Open ZenPost Studio** in your browser (http://localhost:5173)
-2. **Click Settings** (⚙️ icon in bottom right)
-3. **Select AI Provider** (OpenAI, Anthropic, Ollama, or Custom)
-4. **Enter API Key** (if required)
-5. **Choose Model** (e.g., gpt-4o-mini, claude-3-5-sonnet-20241022)
-6. **Save Settings**
-
----
-
-## 📚 Documentation
-
-**Complete documentation available at:** [https://theoriginalbitter.github.io/zenpost-studio/](https://theoriginalbitter.github.io/zenpost-studio/)
-
-- [Quick Start Guide](https://theoriginalbitter.github.io/zenpost-studio/#/)
-- [AI Provider Setup](https://theoriginalbitter.github.io/zenpost-studio/#/ai-providers/README)
-  - [OpenAI Setup](https://theoriginalbitter.github.io/zenpost-studio/#/ai-providers/openai-setup)
-  - [Anthropic Setup](https://theoriginalbitter.github.io/zenpost-studio/#/ai-providers/anthropic-setup)
-  - [Ollama Setup](https://theoriginalbitter.github.io/zenpost-studio/#/ai-providers/ollama-setup)
-- [Troubleshooting](https://theoriginalbitter.github.io/zenpost-studio/#/troubleshooting/general)
-- [Developer Docs](https://theoriginalbitter.github.io/zenpost-studio/#/developer/architecture)
+2. **Click Settings** (⚙️ icon in header)
+3. **AI Settings Tab**:
+   - Select AI Provider (OpenAI, Anthropic, Ollama, or Custom)
+   - Enter API Key (if required)
+   - Choose Model (e.g., gpt-4o-mini, claude-3-5-sonnet)
+4. **Social Media Settings Tab** (optional):
+   - Configure API credentials for direct posting
+   - Supports Twitter, Reddit, LinkedIn, dev.to, Medium, GitHub
+5. **Save Settings**
 
 ---
 
 ## 🛠️ Tech Stack
 
 ### Frontend
-- **React 18.3** - UI framework
-- **TypeScript 5.6** - Type safety
-- **Vite 6.0** - Build tool & dev server
-- **Tailwind CSS 3.4** - Utility-first CSS
+- **React 19.1** - UI framework
+- **TypeScript 5.8** - Type safety
+- **Vite 7.0** - Build tool & dev server
+- **Tailwind CSS 4.1** - Utility-first CSS
 
 ### Design & UI
 - **Rough.js 4.6** - Hand-drawn graphics
-- **react-markdown 9.0** - Markdown rendering
-- **react-syntax-highlighter 15.6** - Code highlighting
-- **Font Awesome 6.7** - Icons
+- **react-markdown 10.1** - Markdown rendering
+- **rehype-highlight 7.0** - Code syntax highlighting
+- **Font Awesome 7.1** - Icons
+- **Framer Motion 12.23** - Smooth animations
 
-### AI Integration
-- Multiple provider support via unified service layer
-- LocalStorage for configuration persistence
-- Direct API calls (no backend required)
+### AI & Content
+- **OpenAI, Anthropic, Ollama** - Multiple AI providers
+- **Marked 17.0** - Markdown parsing
+- **Turndown 7.2** - HTML to markdown conversion
+- **DOMPurify 3.3** - Secure HTML sanitization
 
-### Desktop (Coming Soon)
-- **Tauri** - Native desktop application framework
+### Desktop (Tauri)
+- **Tauri 2.9** - Native desktop application framework
 - **Rust** - High-performance backend
-- Cross-platform support (Windows, macOS, Linux)
+- Cross-platform file system operations
+- Native dialogs and system integration
 
 ---
 
@@ -139,56 +151,63 @@ npm run tauri build      # Production
 
 ```
 zenpost-studio/
-├── docs/                           # Documentation (Docsify)
-│   ├── ai-providers/              # AI setup guides
-│   ├── developer/                 # Developer documentation
-│   └── troubleshooting/           # Troubleshooting guides
-│
 ├── src/
-│   ├── screens/                   # Main application screens
-│   │   ├── WelcomeScreen.tsx     # Landing page
-│   │   ├── ConverterScreen.tsx   # File converter orchestrator
-│   │   ├── ContentTransformScreen.tsx  # Content transformer
-│   │   ├── converter-steps/      # File converter wizard
-│   │   └── transform-steps/      # Content transform wizard
+│   ├── screens/                    # Main application screens
+│   │   ├── WelcomeScreen.tsx      # Landing page with studio selection
+│   │   ├── ConverterScreen.tsx    # File converter
+│   │   ├── ContentTransformScreen.tsx  # Content AI Studio
+│   │   ├── DocStudioScreen.tsx    # Documentation generator
+│   │   ├── converter-steps/       # Converter wizard components
+│   │   └── transform-steps/       # Transform wizard components
 │   │
-│   ├── kits/                      # Reusable component kits
-│   │   ├── DesignKit/            # Low-level primitives
+│   ├── kits/                       # Reusable component kits
+│   │   ├── DesignKit/             # Low-level primitives
 │   │   │   ├── ZenBackButton.tsx
-│   │   │   ├── ZenCloseButton.tsx
-│   │   │   ├── ZenSaveButton.tsx
-│   │   │   ├── ZenSettingsButton.tsx
-│   │   │   ├── RoughBorder.tsx
+│   │   │   ├── ZenLogoFlip.tsx
 │   │   │   └── RoughCircle.tsx
 │   │   │
-│   │   └── PatternKit/           # High-level patterns
+│   │   └── PatternKit/            # High-level patterns
 │   │       ├── ZenHeader.tsx
-│   │       ├── ZenButton.tsx
-│   │       ├── ZenCard.tsx
-│   │       ├── ZenMarkdownEditor.tsx    # NEW
-│   │       ├── ZenMarkdownPreview.tsx   # NEW
-│   │       ├── ZenSettingsNotification.tsx
-│   │       └── ZenModalSystem/          # NEW - Complete modal system
+│   │       ├── ZenMarkdownEditor.tsx
+│   │       ├── ZenPlusMenu.tsx
+│   │       ├── ZenProcessTimer.tsx
+│   │       └── ZenModalSystem/
 │   │           ├── components/
 │   │           │   ├── ZenModal.tsx
-│   │           │   ├── ZenModalHeader.tsx
-│   │           │   ├── ZenModalFooter.tsx
 │   │           │   ├── ZenDropdown.tsx
-│   │           │   ├── ZenSlider.tsx
-│   │           │   └── ZenInfoBox.tsx
+│   │           │   ├── ZenRoughButton.tsx
+│   │           │   └── ZenSlider.tsx
 │   │           ├── modals/
-│   │           │   ├── ZenAISettingsModal.tsx
-│   │           │   └── ZenAboutModal.tsx
-│   │           ├── config/
-│   │           │   └── ZenModalConfig.ts
-│   │           └── docs/
+│   │           │   ├── ZenSettingsModal.tsx
+│   │           │   ├── ZenMetadataModal.tsx
+│   │           │   ├── ZenGeneratingModal.tsx
+│   │           │   ├── ZenContentCalendar.tsx
+│   │           │   └── ZenPublishScheduler.tsx
+│   │           └── config/
+│   │               └── ZenModalConfig.ts
 │   │
 │   ├── services/
-│   │   └── aiService.ts          # AI provider abstraction
+│   │   ├── aiService.ts           # AI provider abstraction
+│   │   └── socialMediaService.ts  # Social media API integration
 │   │
-│   ├── App.tsx                   # Main app & routing
-│   └── main.tsx                  # Entry point
+│   ├── types/
+│   │   └── scheduling.ts          # TypeScript types
+│   │
+│   ├── utils/
+│   │   └── calendarExport.ts      # Calendar/ICS export
+│   │
+│   ├── App1.tsx                   # Main app router
+│   └── main.tsx                   # Entry point
 │
+├── src-tauri/                     # Tauri desktop app
+│   ├── src/
+│   │   └── lib.rs                # Rust backend
+│   ├── Cargo.toml                # Rust dependencies
+│   └── capabilities/
+│
+├── docs/                          # Documentation
+├── data-room/                     # Data Room content
+├── marketing/                     # Marketing materials
 ├── package.json
 ├── tsconfig.json
 ├── tailwind.config.js
@@ -197,58 +216,37 @@ zenpost-studio/
 
 ---
 
-## 🎨 Design System - Zen Kit
+## 🎯 Key Features in Detail
 
-### Philosophy
+### Content AI Studio - Style Options
+- **Tone**: Professional, Casual, Technical, Enthusiastic
+- **Length**: Short (1-2 paragraphs), Medium (3-5 paragraphs), Long (article)
+- **Audience**: Beginner, Intermediate, Expert
+- **Platform-Specific Optimization**: Each platform gets tailored formatting
 
-The Zen Design System emphasizes:
-- **Generous Spacing** - Breathable layouts with ample whitespace
-- **Hand-Drawn Aesthetics** - rough.js for organic, sketchy borders
-- **Minimal Color Palette** - Dark theme with gold accents
-- **Monospace Typography** - Clean, technical feel
-- **Accessibility** - ARIA labels, keyboard navigation
+### Doc Studio - Smart Analysis
+- **Automatic Detection**: Analyzes your project structure
+- **File Type Detection**: Identifies programming languages
+- **Dependency Analysis**: Reads package.json, Cargo.toml, etc.
+- **Test Detection**: Checks for test directories
+- **API Detection**: Finds API routes and endpoints
 
-### Color Palette
-
-```css
---theme-color: #AC8E66        /* Primary gold */
---theme-color-dark: #8A6E4E   /* Darker gold */
---accent-color: #D4AF78       /* Light gold */
---base-background: #1A1A1A    /* Dark background */
---secondary-bg: #2A2A2A       /* Lighter dark */
---border-color: #3a3a3a       /* Subtle borders */
---text-primary: #e5e5e5       /* Light text */
---text-secondary: #999        /* Gray text */
---text-muted: #777            /* Muted text */
-```
-
-### Component Kits
-
-**DesignKit** (Low-level primitives):
-- Buttons (Close, Back, Save, Settings)
-- Borders (RoughBorder, RoughCircle)
-- Backgrounds (PaperBG)
-- Logo components
-
-**PatternKit** (High-level patterns):
-- Headers, Cards, Buttons
-- Markdown Editor & Preview
-- Modal System (complete)
-- Form components
-- Notification components
-
-**Full component documentation:** [Component Library](https://theoriginalbitter.github.io/zenpost-studio/#/developer/components)
+### Converter Studio - Intelligent Cleaning
+- **Smart Quotes**: Converts special quotes to standard ASCII
+- **Link Extraction**: Pulls out and formats URLs
+- **Code Block Preservation**: Maintains code formatting
+- **Metadata Stripping**: Removes unnecessary frontmatter
 
 ---
 
 ## 🏗️ Architecture
 
-### Layered Architecture
+### Layered Design
 
 ```
 ┌─────────────────────────────────────┐
 │         Screens Layer               │
-│  (WelcomeScreen, ConverterScreen)   │
+│    (WelcomeScreen, Studios)         │
 └─────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────┐
@@ -263,25 +261,22 @@ The Zen Design System emphasizes:
               ↓
 ┌─────────────────────────────────────┐
 │        Services Layer               │
-│      (aiService, storage)           │
+│   (aiService, socialMediaService)   │
 └─────────────────────────────────────┘
 ```
 
-### Key Design Patterns
-
-1. **Configuration-Driven Design** - Centralized configs for modals, providers, sliders
-2. **Component Composition** - Build complex UIs from simple primitives
+### Design Patterns
+1. **Configuration-Driven Design** - Centralized modal configs
+2. **Component Composition** - Build complex UIs from primitives
 3. **Service Layer Abstraction** - Unified AI provider interface
-4. **Step Wizard Pattern** - Multi-step processes with isolated components
-5. **Provider Abstraction** - Support multiple AI providers through single interface
-
-**Full architecture documentation:** [Architecture Overview](https://theoriginalbitter.github.io/zenpost-studio/#/developer/architecture)
+4. **Step Wizard Pattern** - Multi-step processes
+5. **Custom Tooltips** - Zen-styled hover tooltips with animations
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](https://theoriginalbitter.github.io/zenpost-studio/#/developer/contributing) for details.
+We welcome contributions! Here's how to get started:
 
 ### Development Setup
 
@@ -305,39 +300,88 @@ git commit -m "feat: add your feature"
 git push origin feature/your-feature-name
 ```
 
-### Code Style
-
+### Code Style Guidelines
 - **TypeScript** for all new code
-- **Inline styles** for React Native compatibility
-- **Zen color palette** - No random colors
-- **Accessibility** - ARIA labels, keyboard navigation
-- **Component documentation** - Update docs for new components
+- **Inline styles** for Tauri/React Native compatibility
+- **Zen color palette** - Use #AC8E66 for accents, #1A1A1A for backgrounds
+- **Component naming** - Prefix with "Zen" (e.g., ZenButton, ZenModal)
+- **Accessibility** - Always include ARIA labels and keyboard navigation
+- **Documentation** - Add JSDoc comments for public APIs
+
+### Pull Request Process
+1. Update documentation if adding new features
+2. Add tests if applicable
+3. Ensure all existing tests pass
+4. Update README.md with details of changes
+5. Request review from maintainers
+
+---
+
+## 🐛 Known Issues & Roadmap
+
+### Current Limitations
+- Social media direct posting requires API credentials
+- Ollama requires local installation
+- Some AI providers have rate limits
+
+### Upcoming Features
+- [ ] More AI providers (Google Gemini, Cohere)
+- [ ] Batch processing for multiple files
+- [ ] Custom template support
+- [ ] Plugin system for extensions
+- [ ] Mobile app (React Native)
+- [ ] Collaborative editing
+- [ ] Version history
 
 ---
 
 ## 📝 License
 
-MIT License - Made with ❤️ by [Denis Bitter](https://github.com/theoriginalbitter)
+MIT License - See [LICENSE](LICENSE) file for details
+
+**Made with ❤️ by [Denis Bitter](https://github.com/theoriginalbitter)**
 
 ---
 
 ## 🔗 Links
 
 - **Live Demo:** [https://zenpost-studio.vercel.app](https://zenpost-studio.vercel.app)
-- **Documentation:** [https://theoriginalbitter.github.io/zenpost-studio/](https://theoriginalbitter.github.io/zenpost-studio/)
 - **GitHub Repository:** [https://github.com/theoriginalbitter/zenpost-studio](https://github.com/theoriginalbitter/zenpost-studio)
 - **Issues & Bug Reports:** [GitHub Issues](https://github.com/theoriginalbitter/zenpost-studio/issues)
-- **Discussions & Questions:** [GitHub Discussions](https://github.com/theoriginalbitter/zenpost-studio/discussions)
+- **Discussions:** [GitHub Discussions](https://github.com/theoriginalbitter/zenpost-studio/discussions)
+- **Author:** [Denis Bitter](https://github.com/theoriginalbitter)
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **Rough.js** - Beautiful hand-drawn graphics
-- **OpenAI, Anthropic, Ollama** - AI provider support
-- **React Community** - Amazing ecosystem
-- **All Contributors** - Thank you!
+- **Rough.js** - Beautiful hand-drawn graphics by [Preet Shihn](https://github.com/rough-stuff/rough)
+- **OpenAI, Anthropic, Ollama** - Amazing AI providers
+- **Tauri** - Modern desktop app framework
+- **React Community** - Incredible ecosystem
+- **All Contributors** - Thank you for your support!
 
 ---
 
-**ZenPost Studio** - Transform your content with AI, beautifully.
+## 💡 Tips & Tricks
+
+### For Content AI Studio
+- Use "Professional" tone for LinkedIn and Medium
+- Use "Technical" tone for dev.to and GitHub
+- Use "Casual" tone for Twitter and Reddit
+- Experiment with different lengths for optimal engagement
+
+### For Doc Studio
+- Fill out project metadata for better documentation
+- Use "Technical" tone for API docs
+- Use "Casual" tone for README files
+- Generate multiple versions with different audiences
+
+### For Converter Studio
+- Clean markdown before transforming for best results
+- Use the preview to verify formatting
+- Download cleaned versions for backup
+
+---
+
+**ZenPost Studio** - Transform your content with AI, beautifully. 🎨✨

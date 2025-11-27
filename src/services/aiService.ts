@@ -3,6 +3,8 @@
  * Unterstützt mehrere AI-Provider
  */
 
+import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+
 export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'custom';
 
 export interface AIConfig {
@@ -329,37 +331,67 @@ async function callOllama(
   const baseUrl = config.baseUrl || 'http://localhost:11434';
 
   try {
-    // Use /api/chat for better compatibility with modern models
-    const response = await fetch(`${baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: config.model || 'qwen2.5-coder',
-        messages: [
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        stream: false,
-        options: {
-          temperature: config.temperature || 0.3,
+    console.log('[Ollama] Making request to:', `${baseUrl}/api/chat`);
+    console.log('[Ollama] Model:', config.model || 'qwen2.5-coder');
+
+    let response;
+    try {
+      // Use Tauri's fetch to avoid CORS issues with localhost
+      response = await tauriFetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      }),
-    });
+        body: JSON.stringify({
+          model: config.model || 'qwen2.5-coder',
+          messages: [
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          stream: false,
+          options: {
+            temperature: config.temperature || 0.3,
+          },
+        }),
+      });
+      console.log('[Ollama] Response received:', response);
+      console.log('[Ollama] Response status:', response.status);
+      console.log('[Ollama] Response ok:', response.ok);
+    } catch (fetchError) {
+      console.error('[Ollama] Fetch error:', fetchError);
+      return {
+        success: false,
+        error: `Fetch Fehler: ${fetchError instanceof Error ? fetchError.message : JSON.stringify(fetchError)}`,
+      };
+    }
 
     if (!response.ok) {
+      console.log('[Ollama] Response not OK, getting error text...');
       const errorText = await response.text().catch(() => response.statusText);
+      console.error('[Ollama] Error response:', errorText);
       return {
         success: false,
         error: `Ollama Fehler: ${response.status} - ${errorText}`,
       };
     }
 
-    const data = await response.json();
+    console.log('[Ollama] Parsing JSON response...');
+    let data;
+    try {
+      data = await response.json();
+      console.log('[Ollama] Parsed data:', data);
+    } catch (jsonError) {
+      console.error('[Ollama] JSON parse error:', jsonError);
+      return {
+        success: false,
+        error: `JSON Parse Fehler: ${jsonError instanceof Error ? jsonError.message : 'Could not parse response'}`,
+      };
+    }
+
     const readme = data.message?.content;
+    console.log('[Ollama] Content extracted:', readme ? `${readme.substring(0, 100)}...` : 'NO CONTENT');
 
     if (!readme) {
       return {
@@ -373,6 +405,9 @@ async function callOllama(
       readme: readme.trim(),
     };
   } catch (error) {
+    console.error('[Ollama] Unexpected error:', error);
+    console.error('[Ollama] Error type:', typeof error);
+    console.error('[Ollama] Error details:', JSON.stringify(error, null, 2));
     return {
       success: false,
       error: `Ollama Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}. Stelle sicher, dass Ollama läuft (http://localhost:11434)`,
@@ -748,5 +783,27 @@ export async function transformContent(
   const prompt = buildTransformPrompt(content, transformConfig);
 
   // Call AI
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Generate content directly from a prompt (for Doc Studio)
+ */
+export async function generateFromPrompt(
+  prompt: string,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  // Validation
+  if (!prompt || prompt.trim().length < 10) {
+    return {
+      success: false,
+      error: 'Prompt ist zu kurz oder leer',
+    };
+  }
+
+  // Load AI configuration
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+
+  // Call AI directly with the prompt
   return await callAIForTransform(aiConfig, prompt);
 }

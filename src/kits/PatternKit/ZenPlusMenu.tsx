@@ -1,0 +1,289 @@
+import { useState, useRef, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faPlus, faTimes } from '@fortawesome/free-solid-svg-icons';
+
+export interface ZenPlusMenuItem {
+  id: string;
+  label: string;
+  icon: any;
+  description?: string;
+  action: () => void;
+  shortcut?: string;
+}
+
+interface ZenPlusMenuProps {
+  items: ZenPlusMenuItem[];
+  position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
+  size?: 'small' | 'medium' | 'large';
+  variant?: 'floating' | 'inline';
+}
+
+export const ZenPlusMenu = ({
+  items,
+  position = 'top-right',
+  size = 'medium',
+  variant = 'floating',
+}: ZenPlusMenuProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [filter, setFilter] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Filter items based on search
+  const filteredItems = items.filter((item) =>
+    item.label.toLowerCase().includes(filter.toLowerCase()) ||
+    item.description?.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  // Handle click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setFilter('');
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      // Focus input when menu opens
+      setTimeout(() => inputRef.current?.focus(), 50);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!isOpen) return;
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.min(prev + 1, filteredItems.length - 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setSelectedIndex((prev) => Math.max(prev - 1, 0));
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (filteredItems[selectedIndex]) {
+            filteredItems[selectedIndex].action();
+            setIsOpen(false);
+            setFilter('');
+          }
+          break;
+        case 'Escape':
+          e.preventDefault();
+          setIsOpen(false);
+          setFilter('');
+          break;
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, selectedIndex, filteredItems]);
+
+  // Reset selected index when filter changes
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [filter]);
+
+  const sizeStyles = {
+    small: { width: 48, height: 48, iconSize: 14 },
+    medium: { width: 56, height: 56, iconSize: 16 },
+    large: { width: 64, height: 64, iconSize: 20 },
+  };
+
+  const positionStyles = {
+    'top-left': { top: 16, left: 16 },
+    'top-right': { top: 16, right: 16 },
+    'bottom-left': { bottom: 16, left: 16 },
+    'bottom-right': { bottom: 16, right: 16 },
+    'center': { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
+  };
+
+  const currentSize = sizeStyles[size];
+  const currentPosition = variant === 'floating' ? positionStyles[position] : {};
+
+  return (
+    <div
+      ref={menuRef}
+      style={{
+        position: variant === 'floating' ? 'fixed' : 'relative',
+        ...currentPosition,
+        zIndex: 1000,
+      }}
+    >
+      {/* Plus Button */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: currentSize.width,
+          height: currentSize.height,
+          borderRadius: '50%',
+          backgroundColor: isOpen ? '#AC8E66' : '#2A2A2A',
+          border: '1px solid #AC8E66',
+          color: isOpen ? '#1E1E1E' : '#AC8E66',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          boxShadow: isOpen
+            ? '0 8px 16px rgba(172, 142, 102, 0.3)'
+            : '0 4px 8px rgba(0, 0, 0, 0.3)',
+        }}
+        className="hover:scale-110 active:scale-95"
+      >
+        <FontAwesomeIcon
+          icon={isOpen ? faTimes : faPlus}
+          style={{ fontSize: currentSize.iconSize }}
+        />
+      </button>
+
+      {/* Dropdown Menu */}
+      {isOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: variant === 'floating' ? currentSize.height + 8 : '100%',
+            right: position.includes('right') ? 0 : 'auto',
+            left: position.includes('left') ? 0 : 'auto',
+            marginTop: variant === 'inline' ? 8 : 0,
+            width: 320,
+            maxHeight: 400,
+            backgroundColor: '#1E1E1E',
+            border: '1px solid #AC8E66',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {/* Search Input */}
+          <div style={{ padding: 12, borderBottom: '1px solid #3a3a3a' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Suchen..."
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                backgroundColor: '#2A2A2A',
+                border: '1px solid #3a3a3a',
+                borderRadius: 4,
+                color: '#e5e5e5',
+                fontSize: 12,
+                fontFamily: 'monospace',
+                outline: 'none',
+              }}
+              className="focus:border-[#AC8E66]"
+            />
+          </div>
+
+          {/* Menu Items */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: 8,
+            }}
+          >
+            {filteredItems.length === 0 ? (
+              <div
+                style={{
+                  padding: 16,
+                  textAlign: 'center',
+                  color: '#777',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                }}
+              >
+                Keine Ergebnisse gefunden
+              </div>
+            ) : (
+              filteredItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    item.action();
+                    setIsOpen(false);
+                    setFilter('');
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    backgroundColor:
+                      index === selectedIndex ? '#AC8E66' : 'transparent',
+                    color: index === selectedIndex ? '#1E1E1E' : '#e5e5e5',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 4,
+                    transition: 'all 0.15s ease',
+                  }}
+                  className="hover:bg-[#AC8E66] hover:text-[#1E1E1E]"
+                >
+                  <FontAwesomeIcon
+                    icon={item.icon}
+                    style={{ fontSize: 14, width: 16 }}
+                  />
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
+                      {item.label}
+                    </div>
+                    {item.description && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          opacity: 0.7,
+                          marginTop: 2,
+                        }}
+                      >
+                        {item.description}
+                      </div>
+                    )}
+                  </div>
+                  {item.shortcut && (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                        opacity: 0.5,
+                        padding: '2px 6px',
+                        backgroundColor:
+                          index === selectedIndex ? '#1E1E1E' : '#2A2A2A',
+                        borderRadius: 3,
+                      }}
+                    >
+                      {item.shortcut}
+                    </div>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

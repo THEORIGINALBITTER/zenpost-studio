@@ -8,18 +8,22 @@ import { ZenInfoText } from "../kits/PatternKit/ZenInfoText";
 import { ZenHeader } from "../kits/PatternKit/ZenHeader";
 import { ZenInfoFooter } from "../kits/PatternKit/ZenInfoFooter";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFileLines, faCode, faMagicWandSparkles } from "@fortawesome/free-solid-svg-icons";
+import { faFileLines, faCode, faMagicWandSparkles, faFolderOpen, faBook } from "@fortawesome/free-solid-svg-icons";
 
 interface WelcomeScreenProps {
   onSelectMarkdown?: () => void;
   onSelectEditorJS?: () => void;
   onSelectContentTransform?: () => void;
+  onSelectDataRoom?: () => void;
+  onSelectDocStudio?: () => void;
 }
 
 export const WelcomeScreen = ({
   onSelectMarkdown,
   onSelectEditorJS,
   onSelectContentTransform,
+  onSelectDataRoom,
+  onSelectDocStudio,
 }: WelcomeScreenProps) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -50,6 +54,16 @@ export const WelcomeScreen = ({
             label="Content Transform"
             icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
             onClick={onSelectContentTransform}
+          />
+          <ZenRoughButton
+            label="Data Room Manager"
+            icon={<FontAwesomeIcon icon={faFolderOpen} className="text-[#AC8E66]" />}
+            onClick={onSelectDataRoom}
+          />
+          <ZenRoughButton
+            label="Doc Studio"
+            icon={<FontAwesomeIcon icon={faBook} className="text-[#AC8E66]" />}
+            onClick={onSelectDocStudio}
           />
         </div>
 

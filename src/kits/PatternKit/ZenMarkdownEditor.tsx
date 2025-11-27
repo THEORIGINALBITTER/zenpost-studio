@@ -10,10 +10,9 @@ import {
   faLink,
   faCode,
   faQuoteRight,
-  faEye,
-  faEyeSlash,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
+import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -22,7 +21,6 @@ interface ZenMarkdownEditorProps {
   height?: string;
   showCharCount?: boolean;
   showPreview?: boolean;
-  onPreviewToggle?: (show: boolean) => void;
 }
 
 interface ToolbarButton {
@@ -286,6 +284,10 @@ export const ZenMarkdownEditor = ({
   };
   const makeQuote = () => insertAtLineStart('> ');
 
+  // Detect if Mac or Windows/Linux for keyboard shortcuts
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const modKey = isMac ? '⌘' : 'Ctrl';
+
   // Command Menu Items
   const commandMenuItems: CommandMenuItem[] = [
     { command: 'bold', label: 'Bold', description: 'Fetter Text', icon: faBold, action: makeBold },
@@ -295,6 +297,19 @@ export const ZenMarkdownEditor = ({
     { command: 'code', label: 'Code', description: 'Code-Block', icon: faCode, action: makeCode },
     { command: 'link', label: 'Link', description: 'Hyperlink', icon: faLink, action: makeLink },
     { command: 'quote', label: 'Quote', description: 'Zitat', icon: faQuoteRight, action: makeQuote },
+  ];
+
+  // Plus Menu Items (similar to command menu but different format)
+  const plusMenuItems: ZenPlusMenuItem[] = [
+    { id: 'bold', label: 'Bold', icon: faBold, description: 'Fetter Text', action: makeBold, shortcut: `${modKey}+B` },
+    { id: 'italic', label: 'Italic', icon: faItalic, description: 'Kursiver Text', action: makeItalic, shortcut: `${modKey}+I` },
+    { id: 'strikethrough', label: 'Strikethrough', icon: faStrikethrough, description: 'Durchgestrichen', action: makeStrikethrough },
+    { id: 'heading', label: 'Heading', icon: faHeading, description: 'Überschrift', action: makeHeading },
+    { id: 'ul-list', label: 'Unordered List', icon: faListUl, description: 'Aufzählungsliste', action: makeUnorderedList },
+    { id: 'ol-list', label: 'Ordered List', icon: faListOl, description: 'Nummerierte Liste', action: makeOrderedList },
+    { id: 'link', label: 'Link', icon: faLink, description: 'Hyperlink', action: makeLink, shortcut: `${modKey}+K` },
+    { id: 'code', label: 'Code', icon: faCode, description: 'Code-Block', action: makeCode },
+    { id: 'quote', label: 'Quote', icon: faQuoteRight, description: 'Zitat', action: makeQuote },
   ];
 
   // Filter commands based on user input
@@ -431,17 +446,13 @@ export const ZenMarkdownEditor = ({
 
   // Toolbar buttons configuration
   const toolbarButtons: ToolbarButton[] = [
-    { icon: faBold, label: 'Bold', action: makeBold, shortcut: 'Cmd+B' },
-    { icon: faItalic, label: 'Italic', action: makeItalic, shortcut: 'Cmd+I' },
+    { icon: faBold, label: 'Bold', action: makeBold, shortcut: `${modKey}+B` },
+    { icon: faItalic, label: 'Italic', action: makeItalic, shortcut: `${modKey}+I` },
     { icon: faHeading, label: 'Heading', action: makeHeading },
     { icon: faListUl, label: 'List', action: makeUnorderedList },
     { icon: faCode, label: 'Code', action: makeCode },
-    { icon: faLink, label: 'Link', action: makeLink, shortcut: 'Cmd+K' },
+    { icon: faLink, label: 'Link', action: makeLink, shortcut: `${modKey}+K` },
   ];
-
-  // Detect if Mac or Windows/Linux
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-  const modKey = isMac ? '⌘' : 'Ctrl';
 
   return (
     <div className="w-full relative">
@@ -524,28 +535,40 @@ export const ZenMarkdownEditor = ({
         </div>
       )}
 
-      {/* Editor Textarea */}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={handleInput}
-        onKeyDown={handleKeyDown}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => {
-          setIsFocused(false);
-          setTimeout(() => {
-            setShowToolbar(false);
-            setShowCommandMenu(false);
-          }, 200);
-        }}
-        placeholder={placeholder}
-        className={`w-full bg-[#2A2A2A] text-[#e5e5e5] font-mono text-sm
-          border rounded-lg
-          focus:outline-none
-          resize-none transition-colors zen-scrollbar
-          ${isFocused ? 'border-[#AC8E66]' : 'border-[#3a3a3a]'}`}
-        style={{ height, padding: '12px' }}
-      />
+      {/* Plus Menu Button */}
+      <div style={{ position: 'relative', width: '100%' }}>
+        <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}>
+          <ZenPlusMenu
+            items={plusMenuItems}
+            position="top-right"
+            size="small"
+            variant="inline"
+          />
+        </div>
+
+        {/* Editor Textarea */}
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => {
+            setIsFocused(false);
+            setTimeout(() => {
+              setShowToolbar(false);
+              setShowCommandMenu(false);
+            }, 200);
+          }}
+          placeholder={placeholder}
+          className={`w-full bg-[#2A2A2A] text-[#e5e5e5] font-mono text-sm
+            border rounded-lg
+            focus:outline-none
+            resize-none transition-colors zen-scrollbar
+            ${isFocused ? 'border-[#AC8E66]' : 'border-[#3a3a3a]'}`}
+          style={{ height, padding: '12px', paddingRight: '60px' }}
+        />
+      </div>
 
         {/* Shortcut Footer - Always visible */}
         <div className="mt-2 flex items-center justify-between border-t border-[#3a3a3a] pt-2">

@@ -6,6 +6,27 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "fs:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "fs:allow-read-dir",
+    "fs:allow-read-file",
+    "fs:allow-read-text-file",
+    "fs:allow-write-file",
+    "fs:allow-write-text-file",
+    "http:default",
+    "http:allow-fetch",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "http://localhost:11434/*"
+        },
+        {
+          "url": "https://*"
+        }
+      ]
+    }
   ]
 }

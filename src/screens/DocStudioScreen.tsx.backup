@@ -1,0 +1,491 @@
+import { useState } from 'react';
+import { readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { open } from '@tauri-apps/plugin-dialog';
+import { ZenHeader } from '../kits/PatternKit/ZenHeader';
+import { ZenSettingsModal, ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
+import { ZenMarkdownEditor } from '../kits/PatternKit/ZenMarkdownEditor';
+import { transformContent } from '../services/aiService';
+
+interface DocStudioScreenProps {
+  onBack: () => void;
+}
+
+type DocTemplate = 'readme' | 'changelog' | 'api-docs' | 'contributing' | 'blog-post';
+
+interface ProjectInfo {
+  name: string;
+  description: string;
+  version: string;
+  dependencies: string[];
+  fileTypes: string[];
+  hasTests: boolean;
+  hasApi: boolean;
+}
+
+export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
+  // Step Management
+  const [currentStep, setCurrentStep] = useState<number>(1);
+
+  // Project state
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // Template & Generation state
+  const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate | null>(null);
+  const [generatedContent, setGeneratedContent] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // Settings
+  const [showSettings, setShowSettings] = useState(false);
+  const [showSettingsNotification, setShowSettingsNotification] = useState(false);
+
+  const templates = [
+    {
+      id: 'readme' as DocTemplate,
+      icon: '📄',
+      title: 'README.md',
+      description: 'Complete project documentation with installation, usage, and examples',
+    },
+    {
+      id: 'changelog' as DocTemplate,
+      icon: '📝',
+      title: 'CHANGELOG.md',
+      description: 'Version history and release notes',
+    },
+    {
+      id: 'api-docs' as DocTemplate,
+      icon: '🔌',
+      title: 'API Documentation',
+      description: 'Detailed API endpoints, parameters, and responses',
+    },
+    {
+      id: 'contributing' as DocTemplate,
+      icon: '🤝',
+      title: 'CONTRIBUTING.md',
+      description: 'Guidelines for contributors',
+    },
+    {
+      id: 'blog-post' as DocTemplate,
+      icon: '✍️',
+      title: 'Blog Post',
+      description: 'Dev.to, Medium, or Hashnode ready article',
+    },
+  ];
+
+  const selectProject = async () => {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: 'Select your project folder',
+      });
+
+      if (selected && typeof selected === 'string') {
+        setProjectPath(selected);
+        await analyzeProject(selected);
+      }
+    } catch (error) {
+      console.error('Error selecting project:', error);
+      alert('Could not open folder picker');
+    }
+  };
+
+  const analyzeProject = async (path: string) => {
+    setIsAnalyzing(true);
+    try {
+      // Analyze project structure
+      const entries = await readDir(path);
+
+      // Look for package.json, Cargo.toml, etc.
+      let projectName = path.split('/').pop() || 'Unknown Project';
+      let projectDescription = 'No description available';
+      let version = '0.1.0';
+      let dependencies: string[] = [];
+      let hasTests = false;
+      let hasApi = false;
+
+      for (const entry of entries) {
+        const fileName = entry.name || '';
+
+        // Check for package.json (Node.js project)
+        if (fileName === 'package.json') {
+          try {
+            const content = await readTextFile(`${path}/package.json`);
+            const pkg = JSON.parse(content);
+            projectName = pkg.name || projectName;
+            projectDescription = pkg.description || projectDescription;
+            version = pkg.version || version;
+            dependencies = Object.keys(pkg.dependencies || {});
+          } catch (err) {
+            console.error('Error reading package.json:', err);
+          }
+        }
+
+        // Check for Cargo.toml (Rust project)
+        if (fileName === 'Cargo.toml') {
+          try {
+            const content = await readTextFile(`${path}/Cargo.toml`);
+            const nameMatch = content.match(/name\s*=\s*"([^"]+)"/);
+            const versionMatch = content.match(/version\s*=\s*"([^"]+)"/);
+            if (nameMatch) projectName = nameMatch[1];
+            if (versionMatch) version = versionMatch[1];
+          } catch (err) {
+            console.error('Error reading Cargo.toml:', err);
+          }
+        }
+
+        // Check for tests
+        if (fileName.includes('test') || fileName === '__tests__') {
+          hasTests = true;
+        }
+
+        // Check for API-related files
+        if (fileName.includes('api') || fileName.includes('routes') || fileName.includes('controllers')) {
+          hasApi = true;
+        }
+      }
+
+      // Detect file types
+      const fileTypes = new Set<string>();
+      const scanFiles = async (dirPath: string) => {
+        try {
+          const items = await readDir(dirPath);
+          for (const item of items) {
+            if (item.isDirectory && !item.name?.startsWith('.') && item.name !== 'node_modules') {
+              await scanFiles(`${dirPath}/${item.name}`);
+            } else if (item.isFile) {
+              const ext = item.name?.split('.').pop();
+              if (ext) fileTypes.add(ext);
+            }
+          }
+        } catch (err) {
+          // Skip directories we can't access
+        }
+      };
+
+      await scanFiles(path);
+
+      setProjectInfo({
+        name: projectName,
+        description: projectDescription,
+        version,
+        dependencies,
+        fileTypes: Array.from(fileTypes),
+        hasTests,
+        hasApi,
+      });
+    } catch (error) {
+      console.error('Error analyzing project:', error);
+      alert('Could not analyze project structure');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const generateDocumentation = async (template: DocTemplate) => {
+    if (!projectInfo) return;
+
+    setSelectedTemplate(template);
+    setIsGenerating(true);
+
+    try {
+      // Create a prompt based on the template and project info
+      let prompt = '';
+
+      switch (template) {
+        case 'readme':
+          prompt = `Create a professional README.md for the following project:
+
+Project Name: ${projectInfo.name}
+Description: ${projectInfo.description}
+Version: ${projectInfo.version}
+File Types: ${projectInfo.fileTypes.join(', ')}
+Has Tests: ${projectInfo.hasTests ? 'Yes' : 'No'}
+Has API: ${projectInfo.hasApi ? 'Yes' : 'No'}
+Dependencies: ${projectInfo.dependencies.slice(0, 10).join(', ')}
+
+Include:
+- Project title and description
+- Installation instructions
+- Usage examples
+- Features list
+- Technology stack
+${projectInfo.hasApi ? '- API documentation section' : ''}
+${projectInfo.hasTests ? '- Testing instructions' : ''}
+- Contributing guidelines
+- License information
+
+Make it clear, professional, and ready to use on GitHub.`;
+          break;
+
+        case 'changelog':
+          prompt = `Create a CHANGELOG.md file for ${projectInfo.name} (version ${projectInfo.version}).
+
+Follow the "Keep a Changelog" format with:
+- [Unreleased] section
+- Version ${projectInfo.version} with today's date
+- Categories: Added, Changed, Deprecated, Removed, Fixed, Security
+- Professional tone
+- Clear, concise descriptions`;
+          break;
+
+        case 'api-docs':
+          prompt = `Create API documentation for ${projectInfo.name}.
+
+Include:
+- API Overview
+- Base URL and Authentication
+- Common endpoints structure
+- Request/Response examples
+- Error handling
+- Rate limiting information
+- Code examples in multiple languages
+
+Make it comprehensive and developer-friendly.`;
+          break;
+
+        case 'contributing':
+          prompt = `Create a CONTRIBUTING.md guide for ${projectInfo.name}.
+
+Include:
+- Welcome message
+- Code of conduct reference
+- How to set up development environment
+- Coding standards and style guide
+- Testing requirements
+- Pull request process
+- Issue reporting guidelines
+- Community and support info`;
+          break;
+
+        case 'blog-post':
+          prompt = `Write an engaging blog post about ${projectInfo.name}.
+
+Description: ${projectInfo.description}
+Tech Stack: ${projectInfo.fileTypes.slice(0, 5).join(', ')}
+
+Include:
+- Catchy title and introduction
+- Problem statement
+- Solution overview
+- Key features and benefits
+- Technical highlights
+- Code examples
+- Conclusion and call-to-action
+- Relevant tags
+
+Make it engaging for developers and suitable for Dev.to, Medium, or Hashnode.`;
+          break;
+      }
+
+      // Use the existing AI service
+      const result = await transformContent(
+        prompt,
+        'github-discussion', // Use a platform that generates good markdown
+        {
+          tone: 'professional',
+          length: 'long',
+          audience: 'developers',
+          includeEmoji: false,
+          includeHashtags: false,
+        }
+      );
+
+      setGeneratedContent(result.content);
+      setIsEditing(true);
+    } catch (error) {
+      console.error('Error generating documentation:', error);
+      alert('Could not generate documentation. Please check your AI service configuration.');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const saveDocumentation = async () => {
+    if (!projectPath || !selectedTemplate || !generatedContent) return;
+
+    try {
+      const fileName = selectedTemplate === 'blog-post'
+        ? `blog-post-${Date.now()}.md`
+        : `${selectedTemplate.toUpperCase()}.md`;
+
+      const filePath = `${projectPath}/${fileName}`;
+      await writeTextFile(filePath, generatedContent);
+
+      alert(`✅ Documentation saved to: ${fileName}`);
+    } catch (error) {
+      console.error('Error saving documentation:', error);
+      alert('Could not save documentation file');
+    }
+  };
+
+  const closeEditor = () => {
+    setIsEditing(false);
+    setSelectedTemplate(null);
+    setGeneratedContent('');
+  };
+
+  // Editor View
+  if (isEditing && generatedContent) {
+    return (
+      <div className="min-h-screen bg-amber-50 flex flex-col">
+        <ZenHeader />
+
+        <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-6">
+          <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-slate-800">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">
+                {templates.find(t => t.id === selectedTemplate)?.title}
+              </h2>
+              <p className="text-sm text-slate-600 mt-1">
+                {projectInfo?.name} • Edit and save your documentation
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={saveDocumentation}
+                className="px-6 py-2 bg-green-500 text-white font-bold rounded hover:bg-green-600 transition-colors border-2 border-slate-800"
+              >
+                💾 Save to Project
+              </button>
+              <button
+                onClick={closeEditor}
+                className="px-6 py-2 bg-pink-400 text-slate-800 font-bold rounded hover:bg-pink-500 transition-colors border-2 border-slate-800"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 bg-white rounded-lg border-2 border-slate-800 p-4 overflow-hidden">
+            <ZenMarkdownEditor
+              value={generatedContent}
+              onChange={setGeneratedContent}
+              placeholder="Your documentation will appear here..."
+            />
+          </div>
+        </div>
+
+        <ZenFooterText />
+      </div>
+    );
+  }
+
+  // Main View
+  return (
+    <div className="min-h-screen bg-amber-50 flex flex-col">
+      <ZenHeader />
+
+      <div className="flex-1 max-w-7xl mx-auto w-full p-6">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h1 className="text-4xl font-bold text-slate-800">
+              📚 Doc Studio
+            </h1>
+            <p className="text-slate-600 mt-2">
+              AI-powered documentation generator for your projects
+            </p>
+          </div>
+          <button
+            onClick={selectProject}
+            className="px-6 py-3 bg-cyan-400 text-slate-800 font-bold rounded hover:bg-cyan-500 transition-colors border-2 border-slate-800"
+          >
+            📂 Select Project
+          </button>
+        </div>
+
+        {!projectPath ? (
+          <div className="flex flex-col items-center justify-center py-20 bg-white rounded-lg border-2 border-slate-800 p-6 shadow-lg">
+            <div className="text-6xl mb-6">📚</div>
+            <h2 className="text-2xl font-bold text-slate-800 mb-4">No Project Selected</h2>
+            <p className="text-slate-600 mb-6 text-center max-w-md">
+              Select your project folder to analyze its structure and generate professional documentation automatically.
+            </p>
+            <button
+              onClick={selectProject}
+              className="px-8 py-4 bg-indigo-500 text-white font-bold rounded hover:bg-indigo-600 transition-colors border-2 border-slate-800 text-lg"
+            >
+              📂 Select Project Folder
+            </button>
+          </div>
+        ) : isAnalyzing ? (
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600 mb-4"></div>
+            <p className="text-xl text-slate-600">Analyzing project structure...</p>
+          </div>
+        ) : projectInfo ? (
+          <div className="space-y-6">
+            {/* Project Info Card */}
+            <div className="bg-white rounded-lg border-2 border-slate-800 p-6 shadow-lg">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">📦 Project Information</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-slate-600">Name</p>
+                  <p className="font-bold text-slate-800">{projectInfo.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-600">Version</p>
+                  <p className="font-bold text-slate-800">{projectInfo.version}</p>
+                </div>
+                <div className="col-span-2">
+                  <p className="text-sm text-slate-600">Description</p>
+                  <p className="text-slate-800">{projectInfo.description}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-600">File Types</p>
+                  <p className="text-slate-800">{projectInfo.fileTypes.slice(0, 5).join(', ')}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-slate-600">Features</p>
+                  <p className="text-slate-800">
+                    {projectInfo.hasTests ? '✅ Tests' : '❌ No Tests'} •
+                    {projectInfo.hasApi ? ' ✅ API' : ' ❌ No API'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Template Selection */}
+            <div className="bg-white rounded-lg border-2 border-slate-800 p-6 shadow-lg">
+              <h3 className="text-xl font-bold text-slate-800 mb-4">📝 Choose Documentation Type</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {templates.map((template) => (
+                  <button
+                    key={template.id}
+                    onClick={() => generateDocumentation(template.id)}
+                    disabled={isGenerating}
+                    className="p-6 bg-amber-50 rounded-lg border-2 border-slate-800 hover:bg-amber-100 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <div className="text-4xl mb-3">{template.icon}</div>
+                    <h4 className="font-bold text-slate-800 mb-2">{template.title}</h4>
+                    <p className="text-sm text-slate-600">{template.description}</p>
+                  </button>
+                ))}
+              </div>
+
+              {isGenerating && (
+                <div className="mt-6 p-4 bg-indigo-50 rounded-lg border-2 border-indigo-300">
+                  <div className="flex items-center gap-3">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+                    <p className="text-indigo-800 font-medium">
+                      Generating documentation with AI... This may take a moment.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-6 p-4 bg-pink-400 rounded-lg border-2 border-slate-800 text-center">
+          <p className="text-slate-800 font-medium">
+            💡 Select a template to generate AI-powered documentation • Edit and export
+          </p>
+        </div>
+      </div>
+
+      <ZenFooterText />
+    </div>
+  );
+}

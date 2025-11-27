@@ -9,6 +9,7 @@ interface ZenRoughButtonProps {
   href?: string;
   target?: string;
   rel?: string;
+  disabled?: boolean;
 }
 
 export const ZenRoughButton = ({
@@ -19,6 +20,7 @@ export const ZenRoughButton = ({
   href,
   target,
   rel,
+  disabled = false,
 }: ZenRoughButtonProps) => {
   const [isHovered, setIsHovered] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -81,9 +83,9 @@ export const ZenRoughButton = ({
   };
 
   const commonProps = {
-    onMouseEnter: () => setIsHovered(true),
-    onMouseLeave: () => setIsHovered(false),
-    className: `${baseClasses} ${variantClasses[variant]}`,
+    onMouseEnter: () => !disabled && setIsHovered(true),
+    onMouseLeave: () => !disabled && setIsHovered(false),
+    className: `${baseClasses} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`,
     style: {
       width,
       height,
@@ -132,7 +134,7 @@ export const ZenRoughButton = ({
   }
 
   return (
-    <button onClick={onClick} {...commonProps}>
+    <button onClick={onClick} {...commonProps} disabled={disabled}>
       {content}
     </button>
   );

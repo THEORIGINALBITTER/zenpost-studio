@@ -8,7 +8,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenAISettingsModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal } from '../kits/PatternKit/ZenModalSystem';
 import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1FormatSelection } from './converter-steps/Step1FormatSelection';
@@ -271,11 +271,12 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
 
       <ZenFooterText className="mb-8" />
 
-      {/* AI Settings Modal */}
-      <ZenAISettingsModal
+      {/* Settings Modal */}
+      <ZenSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSave={() => setError(null)}
+        defaultTab="ai"
       />
     </div>
   );
