@@ -20,8 +20,7 @@ export function ZenSaveConfirmationModal({
     <ZenModal
       isOpen={isOpen}
       onClose={onClose}
-      title="✅ Erfolgreich gespeichert"
-      size="medium"
+      size="md"
     >
       <div
         style={{

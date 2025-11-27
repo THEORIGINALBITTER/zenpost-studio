@@ -2,7 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenDropdown, ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { SupportedFormat } from '../../utils/fileConverter';
 
 interface FormatOption {
@@ -25,7 +25,6 @@ export const Step1FormatSelection = ({
   formatOptions,
   onFromFormatChange,
   onToFormatChange,
-  onNext,
 }: Step1FormatSelectionProps) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">

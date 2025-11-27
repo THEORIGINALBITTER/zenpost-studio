@@ -50,7 +50,6 @@ export const ZenMarkdownEditor = ({
   height = '400px',
   showCharCount = true,
   showPreview = false,
-  onPreviewToggle,
 }: ZenMarkdownEditorProps) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -211,7 +210,7 @@ export const ZenMarkdownEditor = ({
     const info = getSelectionInfo();
     if (!info) return;
 
-    const { start, end, selectedText, beforeText, afterText } = info;
+    const { start, selectedText, beforeText, afterText } = info;
     const textToWrap = selectedText || placeholderText;
     const newText = beforeText + before + textToWrap + after + afterText;
 
@@ -233,7 +232,7 @@ export const ZenMarkdownEditor = ({
     const info = getSelectionInfo();
     if (!info) return;
 
-    const { start, end, beforeText, afterText } = info;
+    const { end, beforeText } = info;
 
     const lineStart = beforeText.lastIndexOf('\n') + 1;
     const lineEnd = value.indexOf('\n', end);

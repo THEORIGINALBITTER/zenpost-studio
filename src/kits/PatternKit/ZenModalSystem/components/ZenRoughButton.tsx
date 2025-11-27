@@ -10,6 +10,7 @@ interface ZenRoughButtonProps {
   target?: string;
   rel?: string;
   disabled?: boolean;
+  title?: string; // Tooltip text for hover
 }
 
 export const ZenRoughButton = ({
@@ -21,9 +22,12 @@ export const ZenRoughButton = ({
   target,
   rel,
   disabled = false,
+  title,
 }: ZenRoughButtonProps) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const tooltipTimerRef = useRef<number | null>(null);
   const width = 320;
   const height = 56;
 
@@ -82,9 +86,38 @@ export const ZenRoughButton = ({
     active: "bg-[#AC8E66]/10 text-[#AC8E66]",
   };
 
+  const handleMouseEnter = () => {
+    if (!disabled) {
+      setIsHovered(true);
+      if (title) {
+        tooltipTimerRef.current = window.setTimeout(() => setShowTooltip(true), 500); // Show tooltip after 500ms delay
+      }
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (!disabled) {
+      setIsHovered(false);
+      setShowTooltip(false);
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+        tooltipTimerRef.current = null;
+      }
+    }
+  };
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tooltipTimerRef.current) {
+        clearTimeout(tooltipTimerRef.current);
+      }
+    };
+  }, []);
+
   const commonProps = {
-    onMouseEnter: () => !disabled && setIsHovered(true),
-    onMouseLeave: () => !disabled && setIsHovered(false),
+    onMouseEnter: handleMouseEnter,
+    onMouseLeave: handleMouseLeave,
     className: `${baseClasses} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`,
     style: {
       width,
@@ -125,17 +158,74 @@ export const ZenRoughButton = ({
     </>
   );
 
-  if (href) {
-    return (
-      <a href={href} target={target} rel={rel} {...commonProps}>
-        {content}
-      </a>
-    );
-  }
-
-  return (
+  const buttonElement = href ? (
+    <a href={href} target={target} rel={rel} {...commonProps}>
+      {content}
+    </a>
+  ) : (
     <button onClick={onClick} {...commonProps} disabled={disabled}>
       {content}
     </button>
   );
+
+  // Wrap with tooltip container if title is provided
+  if (title) {
+    return (
+      <div style={{ position: 'relative', display: 'inline-block' }}>
+        {buttonElement}
+        {showTooltip && (
+          <div
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              left: '50%',
+              transform: 'translateX(-50%) translateY(-8px)',
+              backgroundColor: '#2A2A2A',
+              color: '#e5e5e5',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              fontSize: '11px',
+              fontFamily: 'monospace',
+              whiteSpace: 'nowrap',
+              zIndex: 1000,
+              border: '1px solid #AC8E66',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
+              pointerEvents: 'none',
+              animation: 'fadeIn 0.2s ease-in',
+            }}
+          >
+            {title}
+            {/* Tooltip arrow */}
+            <div
+              style={{
+                position: 'absolute',
+                top: '100%',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: 0,
+                height: 0,
+                borderLeft: '6px solid transparent',
+                borderRight: '6px solid transparent',
+                borderTop: '6px solid #AC8E66',
+              }}
+            />
+          </div>
+        )}
+        <style>{`
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: translateX(-50%) translateY(-4px);
+            }
+            to {
+              opacity: 1;
+              transform: translateX(-50%) translateY(-8px);
+            }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  return buttonElement;
 };

@@ -2,7 +2,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faMagicWandSparkles, faArrowLeft, faRocket, faRedo } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
-import { ZenPlusMenu, type ZenPlusMenuItem } from '../../kits/PatternKit/ZenPlusMenu';
+
 import { ContentTone, ContentLength, ContentAudience, ContentPlatform } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
@@ -43,7 +43,6 @@ const audienceOptions = [
 ];
 
 export const Step3StyleOptions = ({
-  selectedPlatform,
   platformLabel,
   tone,
   length,
@@ -60,7 +59,7 @@ export const Step3StyleOptions = ({
   error,
 }: Step3StyleOptionsProps) => {
   // Plus Menu Items for quick actions
-  const plusMenuItems: ZenPlusMenuItem[] = [
+  [] = [
     {
       id: 'transform',
       label: 'Transformieren',
@@ -92,14 +91,8 @@ export const Step3StyleOptions = ({
   ];
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6" style={{ position: 'relative' }}>
-      {/* Plus Menu */}
-      <ZenPlusMenu
-        items={plusMenuItems}
-        position="top-right"
-        size="medium"
-        variant="floating"
-      />
+  
+
 
       <div className="flex flex-col items-center w-full max-w-2xl">
         {/* Title */}
@@ -208,6 +201,6 @@ export const Step3StyleOptions = ({
 
 
       </div>
-    </div>
+
   );
 };

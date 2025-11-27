@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useState } from 'react';
+import type { ReactElement } from 'react';
 import { readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
@@ -18,7 +18,7 @@ interface DataRoomScreenProps {
   onBack: () => void;
 }
 
-export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
+export function DataRoomScreen({}: DataRoomScreenProps) {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string>('');
@@ -64,7 +64,6 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
       const nodes: FileNode[] = [];
 
       for (const entry of entries) {
-        // Skip hidden files
         if (entry.name?.startsWith('.')) continue;
 
         const fullPath = `${path}/${entry.name}`;
@@ -83,9 +82,7 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
       }
 
       return nodes.sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === 'directory' ? -1 : 1;
-        }
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
     } catch (error) {
@@ -106,7 +103,6 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
         return node;
       });
     };
-
     setFileTree(updateTree(fileTree));
   };
 
@@ -150,10 +146,9 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
     alert(
       'Generate Index with AI\n\nThis feature will analyze your Data Room structure and generate a navigable HTML index.\n\nComing soon!'
     );
-    // TODO: Implement AI-powered index generation
   };
 
-  const renderFileNode = (node: FileNode, depth: number = 0): JSX.Element => {
+  const renderFileNode = (node: FileNode, depth: number = 0): ReactElement => {
     const isDirectory = node.type === 'directory';
     const isMarkdown = node.name.endsWith('.md');
     const indentStyle = { marginLeft: `${depth * 20}px` };
@@ -162,23 +157,19 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
       <div key={node.path}>
         <button
           onClick={() => {
-            if (isDirectory) {
-              toggleDirectory(node.path);
-            } else if (isMarkdown) {
-              loadFile(node.path);
-            }
+            if (isDirectory) toggleDirectory(node.path);
+            else if (isMarkdown) loadFile(node.path);
           }}
-          style={indentStyle}
+          style={{ ...indentStyle, display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0.75rem', width: '100%', textAlign: 'left' }}
           className={`
-            flex items-center gap-2 py-2 px-3 w-full text-left
             hover:bg-amber-100 transition-colors rounded
             ${selectedFile === node.path ? 'bg-amber-200 font-bold' : ''}
           `}
         >
-          <span className="text-xl">
+          <span style={{ fontSize: '1.25rem' }}>
             {isDirectory ? (node.isExpanded ? '📂' : '📁') : '📄'}
           </span>
-          <span className={`${isMarkdown ? 'text-indigo-600 font-medium' : 'text-slate-800'}`}>
+          <span className={isMarkdown ? 'text-indigo-600 font-medium' : 'text-slate-800'}>
             {node.name}
           </span>
         </button>
@@ -196,30 +187,31 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
     return (
       <div className="min-h-screen bg-amber-50 flex flex-col">
         <ZenHeader />
-
-        <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full p-6">
-          <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-slate-800">
+        <div className="flex-1 flex flex-col max-w-7xl mx-auto w-full" style={{ padding: '1.5rem' }}>
+          <div className="flex justify-between items-center mb-4 pb-4 border-b-2 border-slate-800" style={{ marginBottom: '1rem', paddingBottom: '1rem' }}>
             <h2 className="text-2xl font-bold text-slate-800">
               {selectedFile.split('/').pop()}
             </h2>
-            <div className="flex gap-3">
+            <div className="flex" style={{ gap: '0.75rem' }}>
               <button
                 onClick={saveFile}
                 disabled={isSaving}
-                className="px-6 py-2 bg-cyan-400 text-slate-800 font-bold rounded hover:bg-cyan-500 disabled:opacity-50 transition-colors border-2 border-slate-800"
+                className="bg-cyan-400 text-slate-800 font-bold rounded hover:bg-cyan-500 disabled:opacity-50 transition-colors border-2 border-slate-800"
+                style={{ padding: '0.5rem 1.5rem' }}
               >
                 {isSaving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={closeEditor}
-                className="px-6 py-2 bg-pink-400 text-slate-800 font-bold rounded hover:bg-pink-500 transition-colors border-2 border-slate-800"
+                className="bg-pink-400 text-slate-800 font-bold rounded hover:bg-pink-500 transition-colors border-2 border-slate-800"
+                style={{ padding: '0.5rem 1.5rem' }}
               >
                 Close
               </button>
             </div>
           </div>
 
-          <div className="flex-1 bg-white rounded-lg border-2 border-slate-800 p-4 overflow-hidden">
+          <div className="flex-1 bg-white rounded-lg border-2 border-slate-800 overflow-hidden" style={{ padding: '1rem' }}>
             <ZenMarkdownEditor
               value={fileContent}
               onChange={setFileContent}
@@ -227,7 +219,6 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
             />
           </div>
         </div>
-
         <ZenFooterText />
       </div>
     );
@@ -236,24 +227,25 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
   return (
     <div className="min-h-screen bg-amber-50 flex flex-col">
       <ZenHeader />
-
-      <div className="flex-1 max-w-7xl mx-auto w-full p-6">
-        <div className="flex justify-between items-center mb-6">
+      <div className="flex-1 max-w-7xl mx-auto w-full" style={{ padding: '1.5rem' }}>
+        <div className="flex justify-between items-center mb-6" style={{ marginBottom: '1.5rem' }}>
           <h1 className="text-4xl font-bold text-slate-800">
             📁 Data Room Manager
           </h1>
-          <div className="flex gap-3">
+          <div className="flex" style={{ gap: '0.75rem' }}>
             {rootPath && (
               <button
                 onClick={generateIndex}
-                className="px-6 py-3 bg-indigo-500 text-white font-bold rounded hover:bg-indigo-600 transition-colors border-2 border-slate-800"
+                className="bg-indigo-500 text-white font-bold rounded hover:bg-indigo-600 transition-colors border-2 border-slate-800"
+                style={{ padding: '0.75rem 1.5rem' }}
               >
                 🤖 Generate Index (AI)
               </button>
             )}
             <button
               onClick={selectFolder}
-              className="px-6 py-3 bg-cyan-400 text-slate-800 font-bold rounded hover:bg-cyan-500 transition-colors border-2 border-slate-800"
+              className="bg-cyan-400 text-slate-800 font-bold rounded hover:bg-cyan-500 transition-colors border-2 border-slate-800"
+              style={{ padding: '0.75rem 1.5rem' }}
             >
               📂 Select Folder
             </button>
@@ -261,44 +253,44 @@ export function DataRoomScreen({ onBack }: DataRoomScreenProps) {
         </div>
 
         {!rootPath ? (
-          <div className="flex flex-col items-center justify-center py-20 bg-white rounded-lg border-2 border-slate-800 p-6 shadow-lg">
-            <div className="text-6xl mb-6">📁</div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-4">No Folder Selected</h2>
-            <p className="text-slate-600 mb-6 text-center max-w-md">
+          <div className="flex flex-col items-center justify-center bg-white rounded-lg border-2 border-slate-800 shadow-lg" style={{ padding: '1.5rem', paddingTop: '5rem', paddingBottom: '5rem' }}>
+            <div style={{ fontSize: '3.75rem', marginBottom: '1.5rem' }}>📁</div>
+            <h2 className="text-2xl font-bold text-slate-800" style={{ marginBottom: '1rem' }}>No Folder Selected</h2>
+            <p className="text-slate-600 text-center" style={{ marginBottom: '1.5rem', maxWidth: '24rem' }}>
               Click "Select Folder" to choose your Data Room directory from your file system.
             </p>
             <button
               onClick={selectFolder}
-              className="px-8 py-4 bg-indigo-500 text-white font-bold rounded hover:bg-indigo-600 transition-colors border-2 border-slate-800 text-lg"
+              className="bg-indigo-500 text-white font-bold rounded hover:bg-indigo-600 transition-colors border-2 border-slate-800"
+              style={{ padding: '1rem 2rem', fontSize: '1.125rem' }}
             >
               📂 Select Data Room Folder
             </button>
           </div>
         ) : isLoading && !isEditing ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600 mb-4"></div>
+          <div className="flex flex-col items-center justify-center" style={{ paddingTop: '5rem', paddingBottom: '5rem' }}>
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600" style={{ marginBottom: '1rem' }}></div>
             <p className="text-xl text-slate-600">Loading Data Room...</p>
           </div>
         ) : (
-          <div className="bg-white rounded-lg border-2 border-slate-800 p-6 shadow-lg">
-            <div className="mb-4 p-3 bg-amber-100 rounded border border-amber-300">
+          <div className="bg-white rounded-lg border-2 border-slate-800 shadow-lg" style={{ padding: '1.5rem' }}>
+            <div className="mb-4 bg-amber-100 rounded border border-amber-300" style={{ marginBottom: '1rem', padding: '0.75rem' }}>
               <p className="text-sm text-slate-700">
                 <strong>Current folder:</strong> {rootPath}
               </p>
             </div>
-            <div className="space-y-1">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
               {fileTree.map(node => renderFileNode(node))}
             </div>
           </div>
         )}
 
-        <div className="mt-6 p-4 bg-pink-400 rounded-lg border-2 border-slate-800 text-center">
+        <div className="mt-6 bg-pink-400 rounded-lg border-2 border-slate-800 text-center" style={{ marginTop: '1.5rem', padding: '1rem' }}>
           <p className="text-slate-800 font-medium">
             💡 Click on any .md file to edit • Changes are saved locally
           </p>
         </div>
       </div>
-
       <ZenFooterText />
     </div>
   );

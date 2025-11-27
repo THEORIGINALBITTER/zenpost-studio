@@ -44,6 +44,9 @@ export { ZenMetadataModal } from './modals/ZenMetadataModal';
 export type { ProjectMetadata } from './modals/ZenMetadataModal';
 export { ZenGeneratingModal } from './modals/ZenGeneratingModal';
 export { ZenSaveConfirmationModal } from './modals/ZenSaveConfirmationModal';
+export { ZenPublishScheduler } from './modals/ZenPublishScheduler';
+export { ZenContentCalendar } from './modals/ZenContentCalendar';
+export { ZenTodoChecklist } from './modals/ZenTodoChecklist';
 
 /**
  * Version information

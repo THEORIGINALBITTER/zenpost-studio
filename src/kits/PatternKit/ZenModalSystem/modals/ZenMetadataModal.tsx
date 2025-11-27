@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
+import { ZenRoughButton } from '../components/ZenRoughButton';
+import { getModalPreset } from '../config/ZenModalConfig';
 
 export interface ProjectMetadata {
   authorName: string;
@@ -34,6 +36,7 @@ const defaultMetadata: ProjectMetadata = {
 
 export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetadataModalProps) {
   const [formData, setFormData] = useState<ProjectMetadata>(metadata || defaultMetadata);
+  const modalPreset = getModalPreset('metadata');
 
   useEffect(() => {
     if (isOpen) {
@@ -53,11 +56,17 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
   if (!isOpen) return null;
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
-      <div className="bg-[#1A1A1A] rounded-lg w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+    <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
+      <div className="bg-[#1A1A1A] rounded-lg w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
+      style={{paddingTop: "100px"}}
+      >
         <ZenModalHeader
-          title="📋 Projekt-Metadaten"
-          subtitle="Gib deine Projekt-Informationen ein. Diese werden in die generierten Dokumente eingefügt."
+          title={modalPreset.title}
+          subtitle={modalPreset.subtitle}
+          titleColor={modalPreset.titleColor}
+          subtitleColor={modalPreset.subtitleColor}
+          titleSize={modalPreset.titleSize}
+          subtitleSize={modalPreset.subtitleSize}
           onClose={onClose}
         />
 
@@ -192,18 +201,27 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
         </div>
 
         <ZenModalFooter>
-          <button
-            onClick={onClose}
-            className="px-6 py-2 bg-[#2A2A2A] text-[#e5e5e5] rounded hover:bg-[#3A3A3A] transition-colors font-medium"
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              gap: 12,
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: '100%',
+              flexWrap: 'wrap',
+            }}
           >
-            Abbrechen
-          </button>
-          <button
-            onClick={handleSave}
-            className="px-6 py-2 bg-[#AC8E66] text-[#1A1A1A] rounded hover:bg-[#C4A576] transition-colors font-bold"
-          >
-            💾 Speichern
-          </button>
+            <ZenRoughButton
+              label="Abbrechen"
+              onClick={onClose}
+            />
+            <ZenRoughButton
+              label="💾 Speichern"
+              onClick={handleSave}
+              variant="active"
+            />
+          </div>
         </ZenModalFooter>
       </div>
     </ZenModal>

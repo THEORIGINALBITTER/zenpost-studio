@@ -8,28 +8,28 @@ import { ZenInfoText } from "../kits/PatternKit/ZenInfoText";
 import { ZenHeader } from "../kits/PatternKit/ZenHeader";
 import { ZenInfoFooter } from "../kits/PatternKit/ZenInfoFooter";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFileLines, faCode, faMagicWandSparkles, faFolderOpen, faBook } from "@fortawesome/free-solid-svg-icons";
+import { faFileLines, faMagicWandSparkles, faBook } from "@fortawesome/free-solid-svg-icons";
 
 interface WelcomeScreenProps {
-  onSelectMarkdown?: () => void;
-  onSelectEditorJS?: () => void;
+  onSelectConverter?: () => void;
   onSelectContentTransform?: () => void;
-  onSelectDataRoom?: () => void;
   onSelectDocStudio?: () => void;
 }
 
 export const WelcomeScreen = ({
-  onSelectMarkdown,
-  onSelectEditorJS,
+  onSelectConverter,
   onSelectContentTransform,
-  onSelectDataRoom,
   onSelectDocStudio,
 }: WelcomeScreenProps) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
-      <ZenHeader />
+      <ZenHeader
+        leftText="ZenPost Studio"
+        rightText="Content konvertieren, mit KI transformieren oder Dokumentation generieren"
+        leftTextHighlight={true}
+      />
 
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         {/* Logo Flip Card */}
@@ -41,35 +41,28 @@ export const WelcomeScreen = ({
 
         <div className="flex flex-col gap-3 mt-6">
           <ZenRoughButton
-            label="Markdown (.md)"
+            label="Converter Studio"
             icon={<FontAwesomeIcon icon={faFileLines} className="text-[#AC8E66]" />}
-            onClick={onSelectMarkdown}
+            onClick={onSelectConverter}
+            title="Markdown & Editor.js konvertieren und bereinigen"
           />
           <ZenRoughButton
-            label="Editor.js Block-JSON"
-            icon={<FontAwesomeIcon icon={faCode} className="text-[#AC8E66]" />}
-            onClick={onSelectEditorJS}
-          />
-          <ZenRoughButton
-            label="Content Transform"
+            label="Content AI Studio"
             icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
             onClick={onSelectContentTransform}
-          />
-          <ZenRoughButton
-            label="Data Room Manager"
-            icon={<FontAwesomeIcon icon={faFolderOpen} className="text-[#AC8E66]" />}
-            onClick={onSelectDataRoom}
+            title="Content mit KI für Social Media transformieren"
           />
           <ZenRoughButton
             label="Doc Studio"
             icon={<FontAwesomeIcon icon={faBook} className="text-[#AC8E66]" />}
             onClick={onSelectDocStudio}
+            title="Projekt-Dokumentation automatisch generieren"
           />
         </div>
 
         <div className="mt-16 text-[9px] leading-relaxed max-w-xs text-center text-[#777]">
           <ZenInfoText>
-            Hier kannst du Markdown-Dateien bereinigen und in Editor.js-JSON umwandeln …
+            Wähle dein Studio: Content konvertieren, mit KI transformieren oder Dokumentation generieren …
           </ZenInfoText>
         </div>
       </div>

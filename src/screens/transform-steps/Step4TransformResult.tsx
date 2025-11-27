@@ -217,25 +217,9 @@ export const Step4TransformResult = ({
         {/* Result Container */}
         <div className="w-full bg-[#2A2A2A] border border-[#3a3a3a] rounded-lg p-6 mb-8">
           <div className="flex justify-between items-center mb-4">
-            <h3 className="font-mono text-sm text-[#AC8E66]">Transformierter Content:</h3>
-            <div className="flex gap-3">
-              {/* Copy Button */}
-              <button
-                onClick={handleCopy}
-                className="text-[#777] hover:text-[#AC8E66] transition-colors"
-                title="In Zwischenablage kopieren"
-              >
-                <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-lg" />
-              </button>
-
-              {/* Download Button */}
-              <button
-                onClick={handleDownload}
-                className="text-[#777] hover:text-[#AC8E66] transition-colors"
-                title="Als Datei herunterladen"
-              >
-                <FontAwesomeIcon icon={faDownload} className="text-lg" />
-              </button>
+            <h3 className="font-mono text-sm text-[#AC8E66]">📋 Vorschau - Transformierter Content:</h3>
+            <div className="font-mono text-xs text-[#777] bg-[#1F1F1F] px-3 py-1 rounded">
+              💡 Preview-Modus
             </div>
           </div>
 
@@ -294,7 +278,30 @@ export const Step4TransformResult = ({
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-6 mb-8 justify-center">
+        <div className="flex flex-wrap gap-4 mb-8 justify-center">
+          {/* Copy Button */}
+          <ZenRoughButton
+            label={copied ? '✓ Kopiert!' : 'Kopieren'}
+            icon={<FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-[#AC8E66]" />}
+            onClick={handleCopy}
+            variant={copied ? 'active' : 'default'}
+          />
+
+          {/* Download Button */}
+          <ZenRoughButton
+            label="Download"
+            icon={<FontAwesomeIcon icon={faDownload} className="text-[#AC8E66]" />}
+            onClick={handleDownload}
+          />
+
+          {/* Edit Button - zurück zum Content Transform */}
+          <ZenRoughButton
+            label="Nachbearbeiten"
+            icon="✏️"
+            onClick={onBack}
+            variant="active"
+          />
+
           {socialPlatform && (
             <div className="flex items-center gap-3">
               <ZenRoughButton
@@ -319,6 +326,7 @@ export const Step4TransformResult = ({
               )}
             </div>
           )}
+
           <ZenRoughButton
             label="Neuer Transform"
             icon={<FontAwesomeIcon icon={faRotateLeft} className="text-[#AC8E66]" />}

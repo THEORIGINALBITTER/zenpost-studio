@@ -1,19 +1,25 @@
 import React, { useEffect } from "react";
 import ReactDOM from "react-dom";
+import { ZenCloseButton } from "../../../DesignKit/ZenCloseButton";
 
 interface ZenModalProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'small' | 'medium' | 'large';
+  title?: string;
+  showCloseButton?: boolean;
 }
 
-export const ZenModal = ({ isOpen, onClose, children, size = 'md' }: ZenModalProps) => {
+export const ZenModal = ({ isOpen, onClose, children, size = 'md', title, showCloseButton = true }: ZenModalProps) => {
   const sizeClasses = {
     sm: 'max-w-sm',
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    small: 'max-w-sm',
+    medium: 'max-w-lg',
+    large: 'max-w-4xl',
   };
   const modalRoot = document.getElementById("zen-modal-root");
 
@@ -66,6 +72,43 @@ export const ZenModal = ({ isOpen, onClose, children, size = 'md' }: ZenModalPro
                      animate-zenModalEnter overflow-hidden transition-transform duration-300 ease-out"
           style={{ borderRadius: "24px" }}
         >
+          {/* Close Button */}
+          {showCloseButton && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '16px',
+                right: '16px',
+                zIndex: 10,
+              }}
+            >
+              <ZenCloseButton onClick={onClose} size="md" />
+            </div>
+          )}
+
+          {/* Title */}
+          {title && (
+            <div
+              style={{
+                marginBottom: '24px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #3A3A3A',
+              }}
+            >
+              <h2
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: '#e5e5e5',
+                  margin: 0,
+                }}
+              >
+                {title}
+              </h2>
+            </div>
+          )}
+
           {children}
         </div>
       </div>

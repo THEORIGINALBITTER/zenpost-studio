@@ -46,7 +46,7 @@ export const ZenSettingsModal = ({
   ];
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose} size="xl">
+    <ZenModal isOpen={isOpen} onClose={onClose} size="xl" showCloseButton={false}>
       <div
         style={{
           position: 'relative',
@@ -80,7 +80,6 @@ export const ZenSettingsModal = ({
             titleSize="24px"
             subtitleSize="11px"
             onClose={onClose}
-            onSave={handleSave}
           />
 
           {/* Tabs */}
@@ -121,21 +120,33 @@ export const ZenSettingsModal = ({
 
         {/* Footer */}
         <ZenModalFooter>
-          <ZenRoughButton label="Abbrechen" onClick={onClose} />
-          <ZenRoughButton
-            label={
-              saveStatus === 'saving'
-                ? 'Speichern...'
-                : saveStatus === 'saved'
-                ? '✓ Gespeichert!'
-                : saveStatus === 'error'
-                ? 'Fehler beim Speichern'
-                : 'Speichern'
-            }
-            onClick={handleSave}
-            disabled={saveStatus === 'saving'}
-            variant="active"
-          />
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              gap: 12,
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: '100%',
+              flexWrap: 'wrap',
+            }}
+          >
+            <ZenRoughButton label="Abbrechen" onClick={onClose} />
+            <ZenRoughButton
+              label={
+                saveStatus === 'saving'
+                  ? 'Speichern...'
+                  : saveStatus === 'saved'
+                  ? '✓ Gespeichert!'
+                  : saveStatus === 'error'
+                  ? 'Fehler beim Speichern'
+                  : 'Speichern'
+              }
+              onClick={handleSave}
+              disabled={saveStatus === 'saving'}
+              variant="active"
+            />
+          </div>
         </ZenModalFooter>
       </div>
     </ZenModal>

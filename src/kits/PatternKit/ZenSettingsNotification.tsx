@@ -4,6 +4,7 @@ import { faArrowUp } from '@fortawesome/free-solid-svg-icons';
 interface ZenSettingsNotificationProps {
   show: boolean;
   message?: string;
+  onDismiss?: () => void;
 }
 
 export const ZenSettingsNotification = ({

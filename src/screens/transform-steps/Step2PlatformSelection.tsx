@@ -21,7 +21,6 @@ export const Step2PlatformSelection = ({
   selectedPlatform,
   platformOptions,
   onPlatformChange,
-  onBack,
   onNext,
 }: Step2PlatformSelectionProps) => {
   const handlePlatformClick = (platform: ContentPlatform) => {

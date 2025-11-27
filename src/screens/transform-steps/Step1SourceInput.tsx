@@ -90,11 +90,10 @@ export const Step1SourceInput = ({
           <ZenMarkdownEditor
             value={sourceContent}
             onChange={onSourceContentChange}
-            placeholder="# Dein Markdown Inhalt hier einfügen... mit shift+/ Menu öffnen" 
+            placeholder="# Dein Markdown Inhalt hier einfügen... mit shift+/ Menu öffnen"
             height="400px"
             showCharCount={false}
             showPreview={showPreview}
-            onPreviewToggle={setShowPreview}
           />
         </div>
 
