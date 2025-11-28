@@ -74,7 +74,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   },
   'metadata': {
     id: 'metadata',
-    title: '📋 Projekt-Metadaten',
+    title: 'Projekt-Metadaten',
     subtitle: 'Gib deine Projekt-Informationen ein. Diese werden in die generierten Dokumente eingefügt.',
     titleColor: '#AC8E66',
     subtitleColor: '#999',

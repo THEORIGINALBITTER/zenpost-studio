@@ -832,7 +832,7 @@ Make it professional and investor-ready.`;
               textAlign: 'center',
             }}
           >
-           Step01: Stil-Optionen deiner KI
+           Step01:  <span className="text-[#AC8E66]">Stil-Optionen deiner KI</span>
           </h3>
           <div
             style={{

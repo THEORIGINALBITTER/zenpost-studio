@@ -91,7 +91,7 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
     if (isOpen) {
       setFormData(metadata || defaultMetadata);
     }
-  }, [isOpen, metadata]);
+  }, [isOpen]);
 
   const handleSave = () => {
     onSave(formData);
@@ -167,6 +167,7 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#AC8E66] focus:outline-none"
+        autoComplete="off"
         style={{
           width: '100%',
           padding: '10px 12px',
