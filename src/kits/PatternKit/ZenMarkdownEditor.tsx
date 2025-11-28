@@ -570,9 +570,13 @@ export const ZenMarkdownEditor = ({
       </div>
 
         {/* Shortcut Footer - Always visible */}
-        <div className="mt-2 flex items-center justify-between border-t border-[#3a3a3a] pt-2">
+        <div className="mt-2 flex items-center justify-between border-t border-[#3a3a3a] "
+        style={{ paddingTop: '2px', paddingLeft: '4px',  }}
+        >
           {/* Shortcuts */}
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex "
+            style={{ marginTop: '8px' , paddingLeft: '10px', textAlign: 'center' }}
+          >
             <span className="text-[#777] font-mono text-[10px]">
               <span className="text-[#AC8E66]">{modKey}+B</span> Bold
             </span>
@@ -594,7 +598,7 @@ export const ZenMarkdownEditor = ({
           <div className="flex items-center gap-3">
             {/* Character Count */}
             {showCharCount && (
-              <span className="text-[#777] font-mono text-xs">
+              <span className="text-[#777] font-mono text-[10px]">
                 {value.length} Zeichen
               </span>
             )}

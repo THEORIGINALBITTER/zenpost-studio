@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent } from '../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownEditor } from '../kits/PatternKit/ZenMarkdownEditor';
 import { generateFromPrompt } from '../services/aiService';
 import type { ScheduledPost } from '../types/scheduling';
@@ -215,6 +215,28 @@ export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
           }
         }
 
+        // Check for README.md and extract metadata
+        if (fileName.toLowerCase() === 'readme.md' || fileName.toLowerCase() === 'readme.markdown') {
+          try {
+            const content = await readTextFile(`${path}/${fileName}`);
+            const extractedMetadata = extractMetadataFromContent(content);
+
+            // Merge extracted metadata with existing metadata (filter out undefined values)
+            if (Object.keys(extractedMetadata).length > 0) {
+              const validMetadata = Object.fromEntries(
+                Object.entries(extractedMetadata).filter(([_, value]) => value !== undefined && value !== '')
+              ) as Record<string, string>;
+
+              setMetadata(prev => ({
+                ...prev,
+                ...validMetadata,
+              } as ProjectMetadata));
+            }
+          } catch (err) {
+            console.error('Error reading README:', err);
+          }
+        }
+
         // Check for tests
         if (fileName.includes('test') || fileName === '__tests__') {
           hasTests = true;
@@ -283,16 +305,21 @@ export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
       // Create a prompt based on the template and project info
       let prompt = '';
 
-      // Build metadata context
+      // Build metadata context - use actual values, not placeholders
       const metadataContext = `
-Author: ${metadata.authorName || '[Your Name]'}
-Email: ${metadata.authorEmail || '[your@email.com]'}
-${metadata.companyName ? `Company: ${metadata.companyName}` : ''}
-License: ${metadata.license}
-Year: ${metadata.year}
-${metadata.website ? `Website: ${metadata.website}` : ''}
-${metadata.repository ? `Repository: ${metadata.repository}` : ''}
-${metadata.contributingUrl ? `Contributing Guide: ${metadata.contributingUrl}` : ''}
+IMPORTANT - USE THESE EXACT VALUES (DO NOT USE PLACEHOLDERS):
+- Author Name: ${metadata.authorName || 'Project Author'}
+- Email: ${metadata.authorEmail || 'author@example.com'}
+${metadata.companyName ? `- Company: ${metadata.companyName}` : ''}
+- License: ${metadata.license}
+- Copyright Year: ${metadata.year}
+${metadata.website ? `- Website: ${metadata.website}` : ''}
+${metadata.repository ? `- Repository: ${metadata.repository}` : ''}
+${metadata.contributingUrl ? `- Contributing Guide: ${metadata.contributingUrl}` : ''}
+
+CRITICAL: Replace ALL placeholders in your output with these actual values above.
+Do NOT output [Author Name], [your@email.com], [Insert X], or any other placeholders.
+Use the real metadata values provided.
 `;
 
       // Create style context based on selected options
@@ -341,7 +368,8 @@ Dependencies: ${projectInfo.dependencies.slice(0, 10).join(', ')}
 ${metadataContext}
 
 Include:
-- Project title and description
+- Project title: "${projectInfo.name}"
+- Description: "${projectInfo.description}"
 - Installation instructions
 - Usage examples
 - Features list
@@ -349,11 +377,12 @@ Include:
 ${projectInfo.hasApi ? '- API documentation section' : ''}
 ${projectInfo.hasTests ? '- Testing instructions' : ''}
 - Contributing guidelines
-- License information (use ${metadata.license} license with copyright ${metadata.year} ${metadata.authorName || '[Author Name]'})
+- License section with copyright notice: "Copyright (c) ${metadata.year} ${metadata.authorName || 'Project Author'}"
 
-IMPORTANT: Use the metadata provided above. Replace placeholders like [Year] with ${metadata.year} and [Your Name] with ${metadata.authorName || 'the author name from metadata'}.
+${metadataContext}
 
-Make it clear, professional, and ready to use on GitHub.`;
+Make it clear, professional, and ready to use on GitHub.
+DO NOT use any placeholders - use the actual metadata values provided above.`;
           break;
 
         case 'changelog':
@@ -444,7 +473,51 @@ Make it professional and investor-ready.`;
         throw new Error(result.error || 'No content generated');
       }
 
-      setGeneratedContent(result.data);
+      // Post-processing: Replace all placeholders with actual metadata values
+      let processedContent = result.data;
+
+      // Replace common placeholder patterns
+      const replacements: Record<string, string> = {
+        // Author placeholders
+        '\\[Author Name\\]': metadata.authorName || '',
+        '\\[author name\\]': metadata.authorName || '',
+        '\\[Your Name\\]': metadata.authorName || '',
+        '\\[your name\\]': metadata.authorName || '',
+
+        // Email placeholders
+        '\\[your@email\\.com\\]': metadata.authorEmail || '',
+        '\\[your-email\\]': metadata.authorEmail || '',
+        '\\[Author Email\\]': metadata.authorEmail || '',
+        '\\[author email\\]': metadata.authorEmail || '',
+
+        // GitHub/Repository placeholders
+        '\\[your-github-username\\]': metadata.repository ? metadata.repository.split('/').slice(-2)[0] : '',
+        '\\[github-username\\]': metadata.repository ? metadata.repository.split('/').slice(-2)[0] : '',
+
+        // Company placeholders
+        '\\[Company Name\\]': metadata.companyName || '',
+        '\\[company name\\]': metadata.companyName || '',
+
+        // Year placeholders
+        '\\[Year\\]': metadata.year || '',
+        '\\[year\\]': metadata.year || '',
+        '\\[YYYY\\]': metadata.year || '',
+
+        // Generic placeholders
+        '\\[Insert example code here\\]': '',
+        '\\[Insert programming language here\\]': projectInfo.fileTypes[0] || 'JavaScript',
+        '\\[Insert X\\]': '',
+      };
+
+      // Apply all replacements
+      Object.entries(replacements).forEach(([pattern, replacement]) => {
+        if (replacement) { // Only replace if we have a value
+          const regex = new RegExp(pattern, 'g');
+          processedContent = processedContent.replace(regex, replacement);
+        }
+      });
+
+      setGeneratedContent(processedContent);
       setCurrentStep(3);
     } catch (error) {
       console.error('Error generating documentation:', error);
@@ -583,7 +656,7 @@ Make it professional and investor-ready.`;
               >
               <ZenRoughButton
                 label="Projekt-Ordner wählen"
-                icon="📂"
+              
                 onClick={selectProject}
                 variant="active"
                 
@@ -661,14 +734,16 @@ Make it professional and investor-ready.`;
             >
               <h3
                 style={{
-                  fontFamily: 'monospace',
-                  fontSize: '14px',
+              
                   fontWeight: 'bold',
-                  color: '#e5e5e5',
+              
                   margin: 0,
+                     fontFamily: 'monospace',
+              fontSize: '16px',
+              color: '#AC8E66',
                 }}
               >
-                📦 Projekt-Informationen
+            Projekt-Informationen
               </h3>
               <button
                 onClick={() => setShowMetadata(true)}
@@ -695,8 +770,8 @@ Make it professional and investor-ready.`;
                   e.currentTarget.style.color = '#999';
                 }}
               >
-                <span>✏️</span>
-                <span>Bearbeiten</span>
+             
+                <span>Projekt Info Bearbeiten</span>
               </button>
             </div>
 
@@ -742,8 +817,8 @@ Make it professional and investor-ready.`;
         <div
           style={{
             backgroundColor: '#2A2A2A',
-            borderRadius: '8px',
-            border: '1px solid #3A3A3A',
+           borderRadius: '8px',
+            border: '1px solid #AC8E66',
             padding: '24px',
             marginBottom: '24px',
           }}
@@ -757,7 +832,7 @@ Make it professional and investor-ready.`;
               textAlign: 'center',
             }}
           >
-            🎨 Stil-Optionen
+           Step01: Stil-Optionen deiner KI
           </h3>
           <div
             style={{
@@ -819,20 +894,25 @@ Make it professional and investor-ready.`;
           style={{
             backgroundColor: '#2A2A2A',
             borderRadius: '8px',
-            border: '2px solid #AC8E66',
+            border: '1px solid #AC8E66',
             padding: '24px',
+
+               fontFamily: 'monospace',
+              fontSize: '16px',
+              color: '#AC8E66',
           }}
         >
           <h3
             style={{
-              fontFamily: 'monospace',
-              fontSize: '20px',
-              color: '#e5e5e5',
+             
               marginBottom: '24px',
               textAlign: 'center',
+                 fontFamily: 'monospace',
+              fontSize: '16px',
+              color: '#AC8E66',
             }}
           >
-            📝 Dokumentationstyp wählen
+          Step02: Dokumentationstyp wählen
           </h3>
 
           <div
@@ -853,7 +933,7 @@ Make it professional and investor-ready.`;
                   position: 'relative',
                   padding: '24px',
                   borderRadius: '8px',
-                  border: `2px solid ${selectedTemplate === template.id ? '#AC8E66' : '#3a3a3a'}`,
+                  border: `1px solid ${selectedTemplate === template.id ? '#AC8E66' : '#3a3a3a'}`,
                   backgroundColor: selectedTemplate === template.id ? '#2A2A2A' : '#1F1F1F',
                   flex: '1 1 200px',
                   minWidth: '200px',
@@ -1337,15 +1417,16 @@ Generate the complete ${platform} post now:`;
           >
             {templates.find(t => t.id === selectedTemplate)?.title}
           </h2>
-          <p
-            style={{
-              fontSize: '14px',
-              color: '#999',
-              marginTop: '4px',
-            }}
-          >
-            {projectInfo?.name} • Bearbeite und speichere deine Dokumentation
-          </p>
+     <p
+  style={{
+    fontSize: "14px",
+    color: "#999",
+    marginTop: "4px",
+  }}
+>
+  <span style={{ color: "#AC8E66" }}>{projectInfo?.name}</span>
+  {" "}• Bearbeite und speichere deine Dokumentation
+</p>
         </div>
 
         {/* Editor - nimmt den verfügbaren Platz */}
@@ -2201,8 +2282,16 @@ Generate the complete ${platform} post now:`;
       }}
     >
       <ZenHeader
-        leftText="ZenPost Studio • Doc Studio"
-        rightText={`Schritt ${currentStep}/${selectedTemplate === 'blog-post' ? '5' : '3'} • ${getStepTitle()}`}
+        leftText={
+    <>
+      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Doc Studio</span>
+    </>
+  }
+        rightText={
+          <>
+            Schritt {currentStep}/{selectedTemplate === 'blog-post' ? '5' : '3'} • <span style={{ color: "#AC8E66" }}>{getStepTitle()}</span>
+          </>
+        }
         onBack={handleBack}
         onSettings={() => setShowSettings(true)}
         showSettingsNotification={showSettingsNotification}

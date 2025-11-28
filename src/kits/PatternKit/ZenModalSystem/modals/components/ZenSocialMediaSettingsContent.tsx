@@ -139,33 +139,99 @@ export const ZenSocialMediaSettingsContent = () => {
     }
   };
 
+  // Reusable Input Field Component
+  const InputField = ({
+    type,
+    value,
+    onChange,
+    placeholder,
+  }: {
+    type: string;
+    value: string;
+    onChange: (value: string) => void;
+    placeholder: string;
+  }) => (
+    <input
+      type={type}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#D4AF78] focus:outline-none"
+      style={{
+        width: '100%',
+        padding: '14px 16px',
+        border: '2px solid #AC8E66',
+        borderRadius: '8px',
+        fontSize: '13px',
+        transition: 'border-color 0.2s',
+      }}
+    />
+  );
+
   return (
-    <div className="px-8 py-6">
-      <ZenInfoBox
-        type="info"
-        title="Optional"
-        description="Social Media API-Integration ist optional. Du kannst Content auch ohne APIs kopieren und manuell posten."
-      />
+    <div style={{ padding: '24px 32px' }}>
+      <div style={{ marginBottom: '24px' }}>
+        <ZenInfoBox
+          type="info"
+          title="Optional"
+          description="Social Media API-Integration ist optional. Du kannst Content auch ohne APIs kopieren und manuell posten."
+        />
+      </div>
 
       {/* Sub-Tabs */}
-      <div className="flex flex-wrap gap-2 mt-6 mb-6 border-b border-[#3a3a3a] justify-center">
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginTop: '32px',
+          marginBottom: '32px',
+          borderBottom: '1px solid #3a3a3a',
+          justifyContent: 'center',
+          paddingBottom: '8px',
+        }}
+      >
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-3 py-1.5 text-xs font-mono transition-colors relative ${
-              activeTab === tab.id
-                ? 'text-[#AC8E66]'
-                : 'text-[#777] hover:text-[#999]'
-            }`}
+            className="font-mono transition-colors"
+            style={{
+              padding: '10px 16px',
+              fontSize: '13px',
+              position: 'relative',
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: activeTab === tab.id ? '#AC8E66' : '#777',
+            }}
           >
-            <FontAwesomeIcon icon={tab.icon} className="mr-1.5" />
+            <FontAwesomeIcon icon={tab.icon} style={{ marginRight: '8px' }} />
             {tab.label}
             {isConfigValid(tab.id) && (
-              <span className="absolute top-0 right-0 w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+              <span
+                style={{
+                  position: 'absolute',
+                  top: '4px',
+                  right: '4px',
+                  width: '6px',
+                  height: '6px',
+                  backgroundColor: '#22c55e',
+                  borderRadius: '50%',
+                }}
+              />
             )}
             {activeTab === tab.id && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#AC8E66]"></div>
+              <div
+                style={{
+                  position: 'absolute',
+                  bottom: '-8px',
+                  left: 0,
+                  right: 0,
+                  height: '2px',
+                  backgroundColor: '#AC8E66',
+                }}
+              />
             )}
           </button>
         ))}
@@ -173,42 +239,52 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* Twitter Config */}
       {activeTab === 'twitter' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.twitter?.apiKey || ''}
-            onChange={(e) => updateTwitterConfig('apiKey', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="API Key"
-          />
-          <input
-            type="password"
-            value={config.twitter?.apiSecret || ''}
-            onChange={(e) => updateTwitterConfig('apiSecret', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="API Secret"
-          />
-          <input
-            type="password"
-            value={config.twitter?.accessToken || ''}
-            onChange={(e) => updateTwitterConfig('accessToken', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Access Token"
-          />
-          <input
-            type="password"
-            value={config.twitter?.accessTokenSecret || ''}
-            onChange={(e) => updateTwitterConfig('accessTokenSecret', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Access Token Secret"
-          />
-          <input
-            type="password"
-            value={config.twitter?.bearerToken || ''}
-            onChange={(e) => updateTwitterConfig('bearerToken', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Bearer Token (optional)"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.twitter?.apiKey || ''}
+              onChange={(value) => updateTwitterConfig('apiKey', value)}
+              placeholder="API Key"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.twitter?.apiSecret || ''}
+              onChange={(value) => updateTwitterConfig('apiSecret', value)}
+              placeholder="API Secret"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.twitter?.accessToken || ''}
+              onChange={(value) => updateTwitterConfig('accessToken', value)}
+              placeholder="Access Token"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.twitter?.accessTokenSecret || ''}
+              onChange={(value) => updateTwitterConfig('accessTokenSecret', value)}
+              placeholder="Access Token Secret"
+            />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="password"
+              value={config.twitter?.bearerToken || ''}
+              onChange={(value) => updateTwitterConfig('bearerToken', value)}
+              placeholder="Bearer Token (optional)"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="API Credentials"
@@ -225,42 +301,52 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* Reddit Config */}
       {activeTab === 'reddit' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.reddit?.clientId || ''}
-            onChange={(e) => updateRedditConfig('clientId', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Client ID"
-          />
-          <input
-            type="password"
-            value={config.reddit?.clientSecret || ''}
-            onChange={(e) => updateRedditConfig('clientSecret', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Client Secret"
-          />
-          <input
-            type="text"
-            value={config.reddit?.username || ''}
-            onChange={(e) => updateRedditConfig('username', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Username"
-          />
-          <input
-            type="password"
-            value={config.reddit?.password || ''}
-            onChange={(e) => updateRedditConfig('password', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Password"
-          />
-          <input
-            type="text"
-            value={config.reddit?.userAgent || 'ZenPostStudio/1.0'}
-            onChange={(e) => updateRedditConfig('userAgent', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="User Agent"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.reddit?.clientId || ''}
+              onChange={(value) => updateRedditConfig('clientId', value)}
+              placeholder="Client ID"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.reddit?.clientSecret || ''}
+              onChange={(value) => updateRedditConfig('clientSecret', value)}
+              placeholder="Client Secret"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="text"
+              value={config.reddit?.username || ''}
+              onChange={(value) => updateRedditConfig('username', value)}
+              placeholder="Username"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.reddit?.password || ''}
+              onChange={(value) => updateRedditConfig('password', value)}
+              placeholder="Password"
+            />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="text"
+              value={config.reddit?.userAgent || 'ZenPostStudio/1.0'}
+              onChange={(value) => updateRedditConfig('userAgent', value)}
+              placeholder="User Agent"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="API Credentials"
@@ -277,28 +363,36 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* LinkedIn Config */}
       {activeTab === 'linkedin' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.linkedin?.clientId || ''}
-            onChange={(e) => updateLinkedInConfig('clientId', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Client ID"
-          />
-          <input
-            type="password"
-            value={config.linkedin?.clientSecret || ''}
-            onChange={(e) => updateLinkedInConfig('clientSecret', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Client Secret"
-          />
-          <input
-            type="password"
-            value={config.linkedin?.accessToken || ''}
-            onChange={(e) => updateLinkedInConfig('accessToken', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Access Token"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.linkedin?.clientId || ''}
+              onChange={(value) => updateLinkedInConfig('clientId', value)}
+              placeholder="Client ID"
+            />
+          </div>
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.linkedin?.clientSecret || ''}
+              onChange={(value) => updateLinkedInConfig('clientSecret', value)}
+              placeholder="Client Secret"
+            />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="password"
+              value={config.linkedin?.accessToken || ''}
+              onChange={(value) => updateLinkedInConfig('accessToken', value)}
+              placeholder="Access Token"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="API Credentials"
@@ -315,14 +409,20 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* dev.to Config */}
       {activeTab === 'devto' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.devto?.apiKey || ''}
-            onChange={(e) => updateDevToConfig('apiKey', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="API Key"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="password"
+              value={config.devto?.apiKey || ''}
+              onChange={(value) => updateDevToConfig('apiKey', value)}
+              placeholder="API Key"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="API Key"
@@ -339,14 +439,20 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* Medium Config */}
       {activeTab === 'medium' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.medium?.integrationToken || ''}
-            onChange={(e) => updateMediumConfig('integrationToken', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Integration Token"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="password"
+              value={config.medium?.integrationToken || ''}
+              onChange={(value) => updateMediumConfig('integrationToken', value)}
+              placeholder="Integration Token"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="Integration Token"
@@ -363,21 +469,28 @@ export const ZenSocialMediaSettingsContent = () => {
 
       {/* GitHub Config */}
       {activeTab === 'github' && (
-        <div className="space-y-4 max-w-md mx-auto">
-          <input
-            type="password"
-            value={config.github?.accessToken || ''}
-            onChange={(e) => updateGitHubConfig('accessToken', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="Personal Access Token"
-          />
-          <input
-            type="text"
-            value={config.github?.username || ''}
-            onChange={(e) => updateGitHubConfig('username', e.target.value)}
-            className="w-full px-4 py-2 bg-[#2A2A2A] border border-[#AC8E66] rounded text-[#e5e5e5] font-mono text-xs focus:outline-none focus:border-[#D4AF78]"
-            placeholder="GitHub Username"
-          />
+        <div
+          style={{
+            maxWidth: '600px',
+            margin: '0 auto',
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <InputField
+              type="password"
+              value={config.github?.accessToken || ''}
+              onChange={(value) => updateGitHubConfig('accessToken', value)}
+              placeholder="Personal Access Token"
+            />
+          </div>
+          <div style={{ marginBottom: '24px' }}>
+            <InputField
+              type="text"
+              value={config.github?.username || ''}
+              onChange={(value) => updateGitHubConfig('username', value)}
+              placeholder="GitHub Username"
+            />
+          </div>
           <ZenInfoBox
             type="warning"
             title="Personal Access Token"

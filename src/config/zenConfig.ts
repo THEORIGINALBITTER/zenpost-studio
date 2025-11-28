@@ -146,7 +146,7 @@ export const zenConfig: ZenConfig = {
     {
       icon: faInstagram,
       label: "Instagram",
-      url: "https://instagram.com/theoriginalbitter",
+      url: "https://instagram.com/denisbitter",
       description: "Follow on Instagram",
     },
   ],

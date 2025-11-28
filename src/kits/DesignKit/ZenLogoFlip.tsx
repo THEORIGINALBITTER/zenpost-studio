@@ -1,5 +1,5 @@
 import React from "react";
-import BLogoIcon from "../../assets/ZenLogo_B.png?url";
+import BLogoIcon from "../../assets/branding/logo-main.png?url";
 import ZenPostLogo from "../../assets/ZenPost.png?url";
 
 interface ZenLogoFlipProps {
@@ -21,17 +21,28 @@ export const ZenLogoFlip: React.FC<ZenLogoFlipProps> = ({ className = "" }) => {
 
         {/* Rückseite */}
 <div className="zen-logo-flip-back">
-  <div className="flex flex-col items-center justify-center gap-1">
+  <div className="flex flex-col items-center justify-center gap-1"
+    style={{marginTop: "10px"}}
+  >
     <img
       src={ZenPostLogo}
       alt="ZenPost Studio"
       className="object-contain max-w-[50%] max-h-[50%]"
     />
-    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold">
+    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
+      style={{paddingTop: "-10px"}}
+    >
       ZenPost Studio
     </span>
-    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold">
+    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
+    style={{marginTop: "-10px"}}
+    >
       Version 1.0.0
+    </span>
+        <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
+    style={{marginTop: "-10px"}}
+    >
+      by Denis Bitter
     </span>
   </div>
 </div>

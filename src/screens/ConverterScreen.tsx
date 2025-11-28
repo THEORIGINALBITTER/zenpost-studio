@@ -7,8 +7,10 @@ import {
   faRobot,
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenSettingsModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenGeneratingModal } from '../kits/PatternKit/ZenModalSystem';
 import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1FormatSelection } from './converter-steps/Step1FormatSelection';
@@ -33,6 +35,7 @@ const formatOptions: FormatOption[] = [
   { value: 'json', label: 'JSON', icon: faFileCode },
   { value: 'md', label: 'Markdown', icon: faFileLines },
   { value: 'gfm', label: 'Markdown (GitHub)', icon: faGithub },
+  { value: 'editorjs', label: 'Editor.js', icon: faFileCode },
   { value: 'html', label: 'HTML', icon: faFileAlt },
   { value: 'txt', label: 'Text', icon: faFileAlt },
   { value: 'pdf', label: 'PDF', icon: faFilePdf },
@@ -123,40 +126,66 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
 
   // Step titles for header
   const getStepTitle = () => {
-    switch (currentStep) {
-      case 1:
-        return 'Step 1/4 · Format wählen';
-      case 2:
-        return 'Step 2/4 · Inhalt bereitstellen';
-      case 3:
-        return 'Step 3/4 · Konvertierung';
-      case 4:
-        return 'Step 4/4 · Fertig!';
-      default:
-        return 'Step 1/4 · Format wählen';
-    }
+    const stepText = () => {
+      switch (currentStep) {
+        case 1:
+          return 'Format wählen';
+        case 2:
+          return 'Inhalt bereitstellen';
+        case 3:
+          return 'Konvertierung';
+        case 4:
+          return 'Fertig!';
+        default:
+          return 'Format wählen';
+      }
+    };
+
+    return (
+      <>
+        Step {currentStep}/4 · <span style={{ color: "#AC8E66" }}>{stepText()}</span>
+      </>
+    );
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!outputContent) {
       setError('Keine Ausgabe zum Herunterladen verfügbar');
       return;
     }
 
-    const blob = new Blob([outputContent], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
+    try {
+      // Bestimme den Standarddateinamen
+      const baseFileName = fileName
+        ? fileName.replace(/\.[^/.]+$/, '')
+        : 'converted';
+      const defaultFileName = `${baseFileName}${getFileExtension(toFormat)}`;
 
-    const baseFileName = fileName
-      ? fileName.replace(/\.[^/.]+$/, '')
-      : 'converted';
-    link.download = `${baseFileName}${getFileExtension(toFormat)}`;
+      // Öffne Save-Dialog mit Tauri
+      const filePath = await save({
+        defaultPath: defaultFileName,
+        filters: [
+          {
+            name: `${toFormat.toUpperCase()} Datei`,
+            extensions: [getFileExtension(toFormat).replace('.', '')],
+          },
+        ],
+      });
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      if (!filePath) {
+        // Benutzer hat abgebrochen
+        return;
+      }
+
+      // Speichere die Datei
+      await writeTextFile(filePath, outputContent);
+
+      // Erfolg - entferne mögliche vorherige Fehler
+      setError(null);
+    } catch (error) {
+      console.error('Download-Fehler:', error);
+      setError(`Download fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`);
+    }
   };
 
 
@@ -237,7 +266,11 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
       <ZenHeader
-        leftText="ZenPost Studio Converter"
+          leftText={
+    <>
+      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Converter Studio</span>
+    </>
+  }
         rightText={getStepTitle()}
         onBack={onBack}
       />
@@ -277,6 +310,12 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
         onClose={() => setIsSettingsOpen(false)}
         onSave={() => setError(null)}
         defaultTab="ai"
+      />
+
+      {/* Generating Modal */}
+      <ZenGeneratingModal
+        isOpen={isConverting}
+        templateName={`${toFormat.toUpperCase()} Konvertierung`}
       />
     </div>
   );

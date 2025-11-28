@@ -1,12 +1,15 @@
 /**
  * File Converter Utilities
- * Unterstützt Konvertierungen zwischen JSON, Markdown, HTML, TXT und PDF
+ * Unterstützt Konvertierungen zwischen JSON, Markdown, HTML, TXT, PDF und Editor.js
  */
 
 import { marked } from 'marked';
 import TurndownService from 'turndown';
 import DOMPurify from 'dompurify';
+import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import { codeToReadme } from '../services/aiService';
+import { markdownToEditorJS, editorJSToMarkdown, isValidEditorJSData } from './editorjsConverter';
 
 // Konfiguriere marked für sichere HTML-Generierung
 marked.setOptions({
@@ -23,7 +26,7 @@ const turndownService = new TurndownService({
 /**
  * Typ-Definitionen
  */
-export type SupportedFormat = 'json' | 'md' | 'gfm' | 'html' | 'txt' | 'pdf' | 'code';
+export type SupportedFormat = 'json' | 'md' | 'gfm' | 'html' | 'txt' | 'pdf' | 'code' | 'editorjs' | 'docx' | 'doc' | 'pages';
 
 export interface ConversionResult {
   success: boolean;
@@ -225,6 +228,118 @@ export function jsonToGithubMarkdown(jsonData: string | JSONContent): Conversion
 }
 
 /**
+ * DOCX → Markdown
+ * Konvertiert Microsoft Word-Dokumente zu Markdown (via HTML)
+ */
+export async function docxToMarkdown(arrayBuffer: ArrayBuffer): Promise<ConversionResult> {
+  try {
+    // Mammoth konvertiert DOCX → HTML
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+
+    if (!result.value) {
+      return {
+        success: false,
+        error: 'DOCX-Konvertierung lieferte keinen Inhalt',
+      };
+    }
+
+    // Dann HTML → Markdown mit Turndown
+    const markdown = turndownService.turndown(result.value);
+
+    return {
+      success: true,
+      data: markdown,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `DOCX→Markdown Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+    };
+  }
+}
+
+/**
+ * Pages → Markdown
+ * Konvertiert Apple Pages-Dokumente zu Markdown
+ * Pages-Dateien sind ZIP-Archive mit index.html darin
+ */
+export async function pagesToMarkdown(arrayBuffer: ArrayBuffer): Promise<ConversionResult> {
+  try {
+    // Lade das ZIP-Archiv
+    const zip = await JSZip.loadAsync(arrayBuffer);
+
+    console.log('Pages ZIP loaded. Files in archive:', Object.keys(zip.files));
+
+    // Suche nach index.html im Archiv (neuere Pages-Versionen)
+    let indexHtml = zip.file('index.html');
+
+    // Fallback: Suche nach Data/index.html (ältere Pages-Versionen)
+    if (!indexHtml) {
+      indexHtml = zip.file('Data/index.html');
+    }
+
+    // Fallback: Suche im QuickLook-Ordner
+    if (!indexHtml) {
+      indexHtml = zip.file('QuickLook/index.html');
+    }
+
+    if (!indexHtml) {
+      // Debug: Liste alle Dateien im Archiv
+      const fileList = Object.keys(zip.files).join(', ');
+      console.error('Available files in Pages archive:', fileList);
+
+      // Prüfe ob es .iwa Dateien gibt (neueres Pages-Format)
+      const hasIwaFiles = Object.keys(zip.files).some(name => name.endsWith('.iwa'));
+
+      if (hasIwaFiles) {
+        return {
+          success: false,
+          error: 'Dieses Pages-Dokument verwendet ein neueres Format (.iwa), das nicht direkt konvertiert werden kann. Bitte exportiere das Dokument aus Pages als DOCX (Datei → Exportieren → Word) und lade die DOCX-Datei hoch.',
+        };
+      }
+
+      return {
+        success: false,
+        error: `Keine konvertierbare HTML-Datei in Pages-Dokument gefunden. Bitte exportiere das Dokument als DOCX aus Pages.`,
+      };
+    }
+
+    // Extrahiere HTML-Inhalt
+    const htmlContent = await indexHtml.async('string');
+    console.log('HTML content extracted, length:', htmlContent.length);
+
+    if (!htmlContent || htmlContent.trim().length === 0) {
+      return {
+        success: false,
+        error: 'Pages HTML-Inhalt ist leer',
+      };
+    }
+
+    // Konvertiere HTML → Markdown
+    const markdown = turndownService.turndown(htmlContent);
+    console.log('Markdown converted, length:', markdown.length);
+
+    if (!markdown || markdown.trim().length === 0) {
+      return {
+        success: false,
+        error: 'Markdown-Konvertierung ergab keinen Inhalt. Pages-Dokument könnte ein nicht unterstütztes Format verwenden.',
+      };
+    }
+
+    return {
+      success: true,
+      data: markdown,
+    };
+  } catch (error) {
+    console.error('Pages conversion error:', error);
+    return {
+      success: false,
+      error: `Pages→Markdown Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+    };
+  }
+}
+
+/**
  * Markdown → Plain Text
  * Entfernt alle Markdown-Syntax
  */
@@ -388,7 +503,7 @@ export async function markdownToPDF(markdown: string): Promise<ConversionResult>
  * Hauptkonvertierungsfunktion
  */
 export async function convertFile(
-  content: string,
+  content: string | ArrayBuffer,
   fromFormat: SupportedFormat,
   toFormat: SupportedFormat,
   fileName?: string
@@ -397,11 +512,53 @@ export async function convertFile(
   if (fromFormat === toFormat) {
     return {
       success: true,
-      data: content,
+      data: typeof content === 'string' ? content : '',
     };
   }
 
   try {
+    // DOCX/DOC → Markdown (dann zu anderen Formaten)
+    if ((fromFormat === 'docx' || fromFormat === 'doc') && content instanceof ArrayBuffer) {
+      const docxResult = await docxToMarkdown(content);
+
+      if (!docxResult.success || !docxResult.data) {
+        return docxResult;
+      }
+
+      // Wenn Zielformat Markdown ist, direkt zurückgeben
+      if (toFormat === 'md' || toFormat === 'gfm') {
+        return docxResult;
+      }
+
+      // Sonst weiter zu anderem Format konvertieren
+      return await convertFile(docxResult.data, 'md', toFormat, fileName);
+    }
+
+    // Pages → Markdown (dann zu anderen Formaten)
+    if (fromFormat === 'pages' && content instanceof ArrayBuffer) {
+      const pagesResult = await pagesToMarkdown(content);
+
+      if (!pagesResult.success || !pagesResult.data) {
+        return pagesResult;
+      }
+
+      // Wenn Zielformat Markdown ist, direkt zurückgeben
+      if (toFormat === 'md' || toFormat === 'gfm') {
+        return pagesResult;
+      }
+
+      // Sonst weiter zu anderem Format konvertieren
+      return await convertFile(pagesResult.data, 'md', toFormat, fileName);
+    }
+
+    // Stelle sicher, dass content ein String ist für alle anderen Konvertierungen
+    if (typeof content !== 'string') {
+      return {
+        success: false,
+        error: 'Ungültiger Inhaltstyp für diese Konvertierung',
+      };
+    }
+
     // Code → README (AI-gestützt)
     if (fromFormat === 'code' && toFormat === 'md') {
       const result = await codeToReadme(content, fileName);
@@ -464,6 +621,80 @@ export async function convertFile(
       // GFM wird wie Standard MD behandelt
       return await convertFile(content, 'md', toFormat);
     }
+
+    // ====================================
+    // Editor.js Konvertierungen
+    // ====================================
+
+    // Markdown → Editor.js
+    if (fromFormat === 'md' && toFormat === 'editorjs') {
+      try {
+        const editorData = markdownToEditorJS(content);
+        return {
+          success: true,
+          data: JSON.stringify(editorData, null, 2),
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: `Markdown→Editor.js Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+        };
+      }
+    }
+
+    // Editor.js → Markdown
+    if (fromFormat === 'editorjs' && toFormat === 'md') {
+      try {
+        const markdown = editorJSToMarkdown(content);
+        return {
+          success: true,
+          data: markdown,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: `Editor.js→Markdown Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+        };
+      }
+    }
+
+    // Editor.js → andere Formate (via Markdown)
+    if (fromFormat === 'editorjs' && toFormat !== 'md') {
+      try {
+        const markdown = editorJSToMarkdown(content);
+        return await convertFile(markdown, 'md', toFormat);
+      } catch (error) {
+        return {
+          success: false,
+          error: `Editor.js Konvertierung fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+        };
+      }
+    }
+
+    // Andere Formate → Editor.js (via Markdown)
+    if (toFormat === 'editorjs') {
+      // Erst zu Markdown konvertieren, dann zu Editor.js
+      const mdResult = await convertFile(content, fromFormat, 'md');
+      if (mdResult.success && mdResult.data) {
+        try {
+          const editorData = markdownToEditorJS(mdResult.data);
+          return {
+            success: true,
+            data: JSON.stringify(editorData, null, 2),
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Editor.js Konvertierung fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+          };
+        }
+      }
+      return mdResult;
+    }
+
+    // ====================================
+    // Standard Konvertierungen
+    // ====================================
 
     // Konvertierungs-Matrix
     if (fromFormat === 'json' && toFormat === 'md') {
@@ -533,6 +764,10 @@ export function getFileExtension(format: SupportedFormat): string {
     txt: '.txt',
     pdf: '.pdf',
     code: '.md',
+    editorjs: '.json',
+    docx: '.docx',
+    doc: '.doc',
+    pages: '.pages',
   };
   return extensions[format];
 }
@@ -545,6 +780,8 @@ export function detectFormatFromFilename(filename: string): SupportedFormat | nu
 
   switch (ext) {
     case 'json':
+      // Versuche zu erkennen ob es Editor.js JSON ist
+      // Dies wird in der convertFile-Funktion genauer geprüft
       return 'json';
     case 'md':
     case 'markdown':
@@ -557,6 +794,12 @@ export function detectFormatFromFilename(filename: string): SupportedFormat | nu
       return 'txt';
     case 'pdf':
       return 'pdf';
+    case 'docx':
+      return 'docx';
+    case 'doc':
+      return 'doc';
+    case 'pages':
+      return 'pages';
     // Code-Dateien
     case 'js':
     case 'jsx':
@@ -579,5 +822,16 @@ export function detectFormatFromFilename(filename: string): SupportedFormat | nu
       return 'code';
     default:
       return null;
+  }
+}
+
+/**
+ * Helper: Erkenne ob JSON-String Editor.js Format ist
+ */
+export function detectEditorJSFormat(content: string): boolean {
+  try {
+    return isValidEditorJSData(content);
+  } catch {
+    return false;
   }
 }

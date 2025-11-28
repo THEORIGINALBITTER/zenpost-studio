@@ -14,6 +14,7 @@
   - [File Converter](#) 🚧
   - [Content Transform](#) 🚧
   - [Supported Formats](#) 🚧
+  - [Pages Export Guide](pages-export.md)
 
 - **Troubleshooting**
   - [General Issues](troubleshooting/general.md)

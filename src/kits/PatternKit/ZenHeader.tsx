@@ -4,9 +4,8 @@ import { ZenSettingsButton } from "../DesignKit/ZenSettingsButton";
 import { ZenSettingsNotification } from "./ZenSettingsNotification";
 
 interface ZenHeaderProps {
-  leftText?: string;
-  rightText?: string;
-  leftTextHighlight?: boolean; // If true, use gold color for left text
+  leftText?: React.ReactNode;   // <-- früher string
+  rightText?: React.ReactNode;  // optional auch erweitern
   onBack?: () => void;
   onSettings?: () => void;
   showSettingsNotification?: boolean;
@@ -16,7 +15,6 @@ interface ZenHeaderProps {
 export const ZenHeader = ({
   leftText = "ZenPost Markdown → JSON Editor",
   rightText = "Step 0/5 · JSON Format oder Markdown",
-  leftTextHighlight = false,
   onBack,
   onSettings,
   showSettingsNotification = false,
@@ -29,7 +27,7 @@ export const ZenHeader = ({
           {onBack && (
             <ZenBackButton onClick={onBack} size="sm" />
           )}
-          <p className={`font-mono text-[9px] tracking-tight ${leftTextHighlight ? 'text-[#AC8E66] font-semibold' : 'text-[#777]'}`}>
+          <p className="font-mono text-[9px] tracking-tight text-[#777]">
             {leftText}
           </p>
         </div>

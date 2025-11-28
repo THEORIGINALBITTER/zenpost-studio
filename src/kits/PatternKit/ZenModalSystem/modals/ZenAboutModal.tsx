@@ -6,6 +6,7 @@ import { getModalPreset } from "../config/ZenModalConfig";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
 import { faBook, faLifeRing } from "@fortawesome/free-solid-svg-icons";
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 interface ZenAboutModalProps {
   isOpen: boolean;
@@ -51,7 +52,6 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
             subtitleColor={modalPreset.subtitleColor}
             titleSize={modalPreset.titleSize}
             subtitleSize={modalPreset.subtitleSize}
-            onClose={onClose}
           />
 
           {/* Description */}
@@ -70,9 +70,13 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
                 key={link.label}
                 label={link.label}
                 icon={<FontAwesomeIcon icon={link.icon} />}
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
+                onClick={async () => {
+                  try {
+                    await openUrl(link.url);
+                  } catch (error) {
+                    console.error('Failed to open URL:', error);
+                  }
+                }}
               />
             ))}
           </div>

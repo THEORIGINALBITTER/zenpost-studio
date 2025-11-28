@@ -9,7 +9,7 @@ import {
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenSettingsModal, ZenMetadataModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
@@ -79,6 +79,12 @@ const platformOptions: PlatformOption[] = [
     description: 'Technical collaborative discussion',
   },
   {
+    value: 'github-blog',
+    label: 'GitHub Blog Post',
+    icon: faGithub,
+    description: 'Markdown blog post for GitHub Pages',
+  },
+  {
     value: 'youtube',
     label: 'YouTube Description',
     icon: faYoutube,
@@ -128,6 +134,17 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     repository: '',
     contributingUrl: '',
   });
+
+  // Extract metadata from content (auto-detect from document)
+  // TODO: Implement auto-extraction feature
+  // const extractMetadataFromContent = (content: string): Partial<ProjectMetadata> => {
+  //   const extracted: Partial<ProjectMetadata> = {};
+  //   // Extract GitHub repository URL
+  //   const repoMatch = content.match(/https?:\/\/github\.com\/[\w-]+\/[\w-]+/i);
+  //   if (repoMatch) extracted.repository = repoMatch[0];
+  //   // ... weitere Extractions
+  //   return extracted;
+  // };
 
   // Replace placeholders in content with metadata
   const replacePlaceholders = (content: string): string => {
@@ -266,6 +283,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
         'devto': 'devto',
         'medium': 'medium',
         'github-discussion': 'github',
+        'github-blog': 'github',
         'youtube': null, // YouTube is not supported for direct posting
       };
 
@@ -415,6 +433,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             onFileNameChange={setFileName}
             onNext={handleNextFromStep1}
             onOpenMetadata={() => setShowMetadata(true)}
+            onError={setError}
           />
                  
         );
@@ -469,16 +488,24 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     <div className="flex flex-col h-screen bg-[#1A1A1A] text-[#e5e5e5] overflow-hidden">
       {/* Header */}
       <ZenHeader
-        leftText="ZenPost Studio • Content Transform"
-        rightText={`Schritt ${currentStep}/4 • ${
-          currentStep === 1
-            ? 'Quelle eingeben'
-            : currentStep === 2
-            ? 'Plattform wählen'
-            : currentStep === 3
-            ? 'Stil anpassen'
-            : 'Ergebnis'
-        }`}
+        leftText={
+    <>
+      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Content AI Studio</span>
+    </>
+  }
+        rightText={
+          <>
+            Step {currentStep}/4 • <span style={{ color: "#AC8E66" }}>
+              {currentStep === 1
+                ? 'Quelle eingeben'
+                : currentStep === 2
+                ? 'Plattform wählen'
+                : currentStep === 3
+                ? 'Stil anpassen'
+                : 'Ergebnis'}
+            </span>
+          </>
+        }
         onBack={handleBack}
         onSettings={() => {
           setShowSettings(true);
@@ -513,6 +540,12 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
           setMetadata(newMetadata);
           setShowMetadata(false);
         }}
+      />
+
+      {/* Generating Modal */}
+      <ZenGeneratingModal
+        isOpen={isTransforming}
+        templateName={`${selectedPlatform} Content`}
       />
     </div>
   );

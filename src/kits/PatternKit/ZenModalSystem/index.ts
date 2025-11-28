@@ -40,7 +40,7 @@ export type {
 export { ZenAISettingsModal } from './modals/ZenAISettingsModal';
 export { ZenAboutModal } from './modals/ZenAboutModal';
 export { ZenSettingsModal } from './modals/ZenSettingsModal';
-export { ZenMetadataModal } from './modals/ZenMetadataModal';
+export { ZenMetadataModal, extractMetadataFromContent } from './modals/ZenMetadataModal';
 export type { ProjectMetadata } from './modals/ZenMetadataModal';
 export { ZenGeneratingModal } from './modals/ZenGeneratingModal';
 export { ZenSaveConfirmationModal } from './modals/ZenSaveConfirmationModal';

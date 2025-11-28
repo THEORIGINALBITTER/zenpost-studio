@@ -63,7 +63,8 @@ export const ZenModal = ({ isOpen, onClose, children, size = 'md', title, showCl
 
       {/* 📦 Inhalt */}
       <div
-        className={`fixed ${sizeClasses[size]} w-[90%] z-20 pointer-events-auto`}
+        className={`relative ${sizeClasses[size]} z-20 pointer-events-auto`}
+        style={{ width: '100%', maxWidth: '90vw' }}
         onClick={(e) => e.stopPropagation()} // Schutz für Innen-Buttons
       >
         <div

@@ -3,6 +3,12 @@ import { ReactNode } from 'react';
 export interface ModalHeaderConfig {
   title: string;
   subtitle?: string | ReactNode;
+
+  // ⭐ NEU: Zweite Subtitle-Zeile
+  subtitle2?: string | ReactNode;
+  subtitleColor2?: string;
+  subtitleSize2?: string;
+
   titleColor?: string;
   subtitleColor?: string;
   titleSize?: string;

@@ -34,9 +34,10 @@ export const Step2PlatformSelection = ({
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-            Schritt 2: Plattform wählen
-          </h2>
+     <h2 className="font-mono text-3xl text-center font-normal">
+  <span className="text-[#AC8E66]">Step 02:</span>
+  <span className="text-[#e5e5e5]"> Plattform wählen</span>
+</h2>
         </div>
 
         {/* Subtitle */}
@@ -50,7 +51,10 @@ export const Step2PlatformSelection = ({
         <div className="text-center max-w-2xl"
         style={{paddingLeft: "10px", paddingRight: "10px"}}
         >
-          <p className="text-[#777] font-mono text-[11px] leading-relaxed">
+          <p className="text-[#777] font-mono text-[11px] leading-relaxed"
+          
+          style={{paddingTop: "50px"}}
+          >
             Jede Plattform hat ihre eigenen Best Practices. Die AI wird deinen Content
             entsprechend anpassen - von Tonalität über Formatierung bis hin zur Länge.
           </p>

@@ -2,7 +2,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenDropdown, ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { SupportedFormat } from '../../utils/fileConverter';
 
 interface FormatOption {
@@ -25,15 +25,17 @@ export const Step1FormatSelection = ({
   formatOptions,
   onFromFormatChange,
   onToFormatChange,
+  onNext,
 }: Step1FormatSelectionProps) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#e5e5e5] font-normal">
-            Schritt 1: Format wählen
-          </h2>
+     <h2 className="font-mono text-3xl font-normal">
+  <span style={{ color: '#AC8E66' }}>Step01:</span>
+  <span className="text-[#e5e5e5]"> Format wählen</span>
+</h2>
         </div>
 
         {/* Subtitle */}
@@ -85,8 +87,20 @@ export const Step1FormatSelection = ({
 
 
         {/* Info Text */}
-        <div className="text-[9px] leading-relaxed max-w-md text-center text-[#777]">
+        <div className="text-[9px] leading-relaxed max-w-md text-center text-[#777] mb-6">
           CODE (AI) nutzt AI für intelligente Konvertierungen
+        </div>
+
+        {/* Weiter Button */}
+        <div className="mt-6"
+    style={{paddingTop: "15px"}}
+        >
+          <ZenRoughButton
+            label="Weiter zum Inhalt"
+            icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
+            onClick={onNext}
+            variant="active"
+          />
         </div>
       </div>
 

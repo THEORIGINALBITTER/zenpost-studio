@@ -31,6 +31,7 @@ export type ContentPlatform =
   | 'medium'
   | 'reddit'
   | 'github-discussion'
+  | 'github-blog'
   | 'youtube';
 
 export type ContentTone = 'professional' | 'casual' | 'technical' | 'enthusiastic';
@@ -686,6 +687,25 @@ Guidelines:
 
 Style: ${config.tone || 'technical'}
 Length: ${config.length || 'medium'}
+Target Audience: ${config.audience || 'intermediate'}
+`,
+    'github-blog': `
+Transform this markdown content into a GitHub Blog Post (for GitHub Pages):
+
+Guidelines:
+- Professional, technical blog post format
+- Add YAML frontmatter with title, date, tags, description
+- Use proper markdown headers (##, ###)
+- Include syntax-highlighted code blocks
+- Add relevant images/diagrams as markdown links
+- Create table of contents for long posts
+- Use callouts/blockquotes for important info
+- Link to related GitHub repos or docs
+- SEO-friendly meta description
+- End with "Further Reading" section
+
+Style: ${config.tone || 'professional'}
+Length: ${config.length || 'long'}
 Target Audience: ${config.audience || 'intermediate'}
 `,
     youtube: `

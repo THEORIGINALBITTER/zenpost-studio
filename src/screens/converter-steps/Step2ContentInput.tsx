@@ -30,9 +30,9 @@ export const Step2ContentInput = ({
 }: Step2ContentInputProps) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
-      <h2 className="font-mono text-3xl text-[#e5e5e5] font-normal">
-        Schritt 2: Inhalt bereitstellen
-      </h2>
+     <h2 className="font-mono text-3xl text-[#e5e5e5] font-normal">
+  <span className="text-[#AC8E66]">Step 02:</span> Inhalt bereitstellen
+</h2>
       <ZenSubtitle className="text-center max-w-md">
         Lade eine Datei hoch oder gib den Inhalt direkt ein
       </ZenSubtitle>

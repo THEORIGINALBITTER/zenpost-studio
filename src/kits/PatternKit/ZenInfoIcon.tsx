@@ -6,11 +6,14 @@ import { faInfo, faCog } from "@fortawesome/free-solid-svg-icons";
 interface ZenInfoIconProps {
   onClick?: () => void;
   iconType?: 'info' | 'settings';
+  pulseSpeed?: number; // Animation speed multiplier (default: 1, higher = faster)
 }
 
-export const ZenInfoIcon = ({ onClick, iconType = 'info' }: ZenInfoIconProps) => {
+export const ZenInfoIcon = ({ onClick, iconType = 'info', pulseSpeed = 1 }: ZenInfoIconProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const pulseCanvasRef = useRef<HTMLCanvasElement>(null);
   const size = 40;
+  const pulseSize = 60;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -46,6 +49,62 @@ export const ZenInfoIcon = ({ onClick, iconType = 'info' }: ZenInfoIconProps) =>
     };
   }, []);
 
+  // Pulsing rough circle animation for settings only
+  useEffect(() => {
+    // Early return if not settings icon
+    if (iconType !== 'settings') return;
+
+    const pulseCanvas = pulseCanvasRef.current;
+    // Early return if canvas ref doesn't exist (shouldn't happen but safety check)
+    if (!pulseCanvas) return;
+
+    const rc = rough.canvas(pulseCanvas);
+    const ctx = pulseCanvas.getContext("2d");
+    if (!ctx) return;
+
+    let scale = 0.95;
+    let opacity = 1;
+    let growing = true;
+
+    // Calculate speed increments based on pulseSpeed prop (much slower base values)
+    const scaleIncrement = 0.002 * pulseSpeed;
+    const opacityIncrement = 0.005 * pulseSpeed;
+
+    const animate = () => {
+      ctx.clearRect(0, 0, pulseSize, pulseSize);
+
+      // Animate scale and opacity
+      if (growing) {
+        scale += scaleIncrement;
+        opacity -= opacityIncrement;
+        if (scale >= 1.15) growing = false;
+      } else {
+        scale -= scaleIncrement;
+        opacity += opacityIncrement;
+        if (scale <= 0.95) growing = true;
+      }
+
+      ctx.save();
+      ctx.globalAlpha = Math.max(0.3, opacity);
+
+      const radius = (pulseSize - 10) * scale;
+      rc.circle(pulseSize / 2, pulseSize / 2, radius, {
+        stroke: "#AC8E66",
+        roughness: 0.4,
+        strokeWidth: 1.5,
+      });
+
+      ctx.restore();
+      requestAnimationFrame(animate);
+    };
+
+    const animationFrame = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(animationFrame);
+    };
+  }, [iconType, pulseSpeed]);
+
   const icon = iconType === 'settings' ? faCog : faInfo;
   const label = iconType === 'settings' ? 'Einstellungen' : 'Info';
 
@@ -65,15 +124,33 @@ export const ZenInfoIcon = ({ onClick, iconType = 'info' }: ZenInfoIconProps) =>
         WebkitTapHighlightColor: "transparent",
       }}
     >
+      {/* Pulsing Rough Circle Animation for Settings Icon */}
+      {iconType === 'settings' && (
+        <canvas
+          ref={pulseCanvasRef}
+          width={pulseSize}
+          height={pulseSize}
+          className="absolute pointer-events-none"
+          style={{
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 0,
+          }}
+        />
+      )}
+
       <canvas
         ref={canvasRef}
         width={size}
         height={size}
         className="absolute top-0 left-0 pointer-events-none"
+        style={{ zIndex: 1 }}
       />
       <FontAwesomeIcon
         icon={icon}
         className="w-[10px] h-[10px] z-10 pointer-events-none"
+        style={{ zIndex: 2 }}
       />
     </button>
   );

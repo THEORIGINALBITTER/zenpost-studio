@@ -26,9 +26,8 @@ export const WelcomeScreen = ({
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
       <ZenHeader
-        leftText="ZenPost Studio"
+        leftText={<span style={{ color: "#AC8E66" }}>ZenPost Studio</span>}
         rightText="Content konvertieren, mit KI transformieren oder Dokumentation generieren"
-        leftTextHighlight={true}
       />
 
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
@@ -36,8 +35,11 @@ export const WelcomeScreen = ({
         <div style={{ width: '130px', height: '130px' }}>
           <ZenLogoFlip />
         </div>
-        <h4 className="font-mono text-2xl text-[#e5e5e5] font-normal mt-2">Willkommen</h4>
-        <ZenSubtitle>ZenPost – dein Markdown kann mehr.</ZenSubtitle>
+        <h4 className="font-mono text-2xl text-[#e5e5e5] font-normal "
+        
+        style={{padding: "10px"}}
+        >Willkommen</h4>
+        <ZenSubtitle>Content konvertieren, mit KI transformieren oder Dokumentation generieren</ZenSubtitle>
 
         <div className="flex flex-col gap-3 mt-6">
           <ZenRoughButton

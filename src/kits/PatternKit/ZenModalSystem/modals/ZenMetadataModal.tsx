@@ -3,9 +3,55 @@ import { ZenModal } from '../components/ZenModal';
 import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
+import { ZenDropdown } from '../components/ZenDropdown';
 import { getModalPreset } from '../config/ZenModalConfig';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faUser,
+  faEnvelope,
+  faBuilding,
+  faFileContract,
+  faCalendar,
+  faGlobe,
+  faCodeBranch,
+  faBook,
+  faSave,
+  faTimes
+} from '@fortawesome/free-solid-svg-icons';
+
+/**
+ * Extrahiert Metadaten aus Markdown-Frontmatter oder Dokument-Header
+ * Beispiel:
+ * ---
+ * title: My Article
+ * author: John Doe
+ * tags: react, typescript
+ * ---
+ */
+export function extractMetadataFromContent(content: string): Partial<ProjectMetadata> {
+  const metadata: Partial<ProjectMetadata> = {};
+
+  // YAML Frontmatter Pattern
+  const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+
+  if (frontmatterMatch) {
+    const frontmatter = frontmatterMatch[1];
+    const lines = frontmatter.split('\n');
+
+    lines.forEach(line => {
+      const match = line.match(/^(\w+):\s*(.+)$/);
+      if (match) {
+        const [, key, value] = match;
+        metadata[key] = value.trim();
+      }
+    });
+  }
+
+  return metadata;
+}
 
 export interface ProjectMetadata {
+  // Standard-Felder (immer vorhanden)
   authorName: string;
   authorEmail: string;
   companyName: string;
@@ -14,6 +60,9 @@ export interface ProjectMetadata {
   website: string;
   repository: string;
   contributingUrl: string;
+
+  // Dynamische Felder aus Dokument
+  [key: string]: string;
 }
 
 interface ZenMetadataModalProps {
@@ -53,12 +102,114 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  // Standard-Felder (immer gleich)
+  const standardFields = [
+    'authorName',
+    'authorEmail',
+    'companyName',
+    'license',
+    'year',
+    'website',
+    'repository',
+    'contributingUrl',
+  ];
+
+  // Dynamische Felder aus dem Dokument extrahieren
+  const dynamicFields = Object.keys(formData).filter(
+    (key) => !standardFields.includes(key)
+  );
+
   if (!isOpen) return null;
+
+  // Konfigurierbare Schriftgrößen
+  const typography = {
+    sectionTitle: '15px',
+    label: '12px',
+    input: '13px',
+    iconSize: '13px',
+  };
+
+  // Wiederverwendbares Input Field Component
+  const InputField = ({
+    label,
+    icon,
+    value,
+    onChange,
+    placeholder,
+    type = 'text',
+  }: {
+    label: string;
+    icon: any;
+    value: string;
+    onChange: (value: string) => void;
+    placeholder: string;
+    type?: string;
+  }) => (
+    <div style={{ marginBottom: '16px' }}>
+      <label
+        className="font-mono text-[#999] flex items-center"
+        style={{
+          fontSize: typography.label,
+          marginBottom: '8px',
+          gap: '6px',
+        }}
+      >
+        <FontAwesomeIcon
+          icon={icon}
+          className="text-[#AC8E66]"
+          style={{ fontSize: typography.iconSize }}
+        />
+        {label}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#AC8E66] focus:outline-none"
+        style={{
+          width: '100%',
+          padding: '10px 12px',
+          border: '2px solid #3A3A3A',
+          borderRadius: '6px',
+          fontSize: typography.input,
+          transition: 'border-color 0.2s',
+        }}
+      />
+    </div>
+  );
+
+  // Section Header Component
+  const SectionHeader = ({ icon, title }: { icon: any; title: string }) => (
+    <h3
+      className="font-mono text-[#AC8E66] flex items-center"
+      style={{
+        fontSize: typography.sectionTitle,
+        fontWeight: 'bold',
+        borderBottom: '1px solid #AC8E66',
+        paddingBottom: '8px',
+        marginBottom: '16px',
+        gap: '8px',
+      }}
+    >
+      <FontAwesomeIcon
+        icon={icon}
+        style={{ fontSize: typography.iconSize }}
+      />
+      {title}
+    </h3>
+  );
 
   return (
     <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
-      <div className="bg-[#1A1A1A] rounded-lg w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
-      style={{paddingTop: "100px"}}
+      <div
+        className="bg-[#1A1A1A] rounded-lg flex flex-col"
+        style={{
+          width: '100%',
+          maxWidth: '700px',
+          height: '80vh',
+          overflow: 'hidden',
+        }}
       >
         <ZenModalHeader
           title={modalPreset.title}
@@ -70,136 +221,136 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
           onClose={onClose}
         />
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+        {/* Scrollable Content */}
+        <div
+          className="zen-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            padding: '20px 28px',
+            marginTop: '80px',
+          }}
+        >
           {/* Author Information */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-[#AC8E66] border-b border-[#AC8E66] pb-2">
-              👤 Autor-Informationen
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.authorName}
-                  onChange={(e) => handleChange('authorName', e.target.value)}
-                  placeholder="Max Mustermann"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  E-Mail
-                </label>
-                <input
-                  type="email"
-                  value={formData.authorEmail}
-                  onChange={(e) => handleChange('authorEmail', e.target.value)}
-                  placeholder="max@example.com"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                />
-              </div>
-            </div>
+          <div style={{ marginBottom: '32px' }}>
+            <SectionHeader icon={faUser} title="Autor-Informationen" />
+            <InputField
+              label="Name"
+              icon={faUser}
+              value={formData.authorName}
+              onChange={(value) => handleChange('authorName', value)}
+              placeholder="Max Mustermann"
+            />
+            <InputField
+              label="E-Mail"
+              icon={faEnvelope}
+              value={formData.authorEmail}
+              onChange={(value) => handleChange('authorEmail', value)}
+              placeholder="max@example.com"
+              type="email"
+            />
           </div>
 
           {/* Company & Legal */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-[#AC8E66] border-b border-[#AC8E66] pb-2">
-              🏢 Unternehmen & Lizenz
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Firmenname
-                </label>
-                <input
-                  type="text"
-                  value={formData.companyName}
-                  onChange={(e) => handleChange('companyName', e.target.value)}
-                  placeholder="Meine Firma GmbH"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
+          <div style={{ marginBottom: '32px' }}>
+            <SectionHeader icon={faBuilding} title="Unternehmen & Lizenz" />
+            <InputField
+              label="Firmenname"
+              icon={faBuilding}
+              value={formData.companyName}
+              onChange={(value) => handleChange('companyName', value)}
+              placeholder="Meine Firma GmbH"
+            />
+            <div style={{ marginBottom: '16px' }}>
+              <label
+                className="font-mono text-[#999] flex items-center"
+                style={{
+                  fontSize: typography.label,
+                  marginBottom: '8px',
+                  gap: '6px',
+                }}
+              >
+                <FontAwesomeIcon
+                  icon={faFileContract}
+                  className="text-[#AC8E66]"
+                  style={{ fontSize: typography.iconSize }}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Lizenz
-                </label>
-                <select
+                Lizenz
+              </label>
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
+                <ZenDropdown
                   value={formData.license}
-                  onChange={(e) => handleChange('license', e.target.value)}
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                >
-                  <option value="MIT">MIT</option>
-                  <option value="Apache-2.0">Apache 2.0</option>
-                  <option value="GPL-3.0">GPL 3.0</option>
-                  <option value="BSD-3-Clause">BSD 3-Clause</option>
-                  <option value="ISC">ISC</option>
-                  <option value="Proprietary">Proprietary</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Jahr
-                </label>
-                <input
-                  type="text"
-                  value={formData.year}
-                  onChange={(e) => handleChange('year', e.target.value)}
-                  placeholder="2024"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
+                  onChange={(value) => handleChange('license', value)}
+                  options={[
+                    { value: 'MIT', label: 'MIT' },
+                    { value: 'Apache-2.0', label: 'Apache 2.0' },
+                    { value: 'GPL-3.0', label: 'GPL 3.0' },
+                    { value: 'BSD-3-Clause', label: 'BSD 3-Clause' },
+                    { value: 'ISC', label: 'ISC' },
+                    { value: 'Proprietary', label: 'Proprietary' },
+                  ]}
+                  variant="compact"
                 />
               </div>
             </div>
+            <InputField
+              label="Jahr"
+              icon={faCalendar}
+              value={formData.year}
+              onChange={(value) => handleChange('year', value)}
+              placeholder="2024"
+            />
           </div>
 
           {/* Links & URLs */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold text-[#AC8E66] border-b border-[#AC8E66] pb-2">
-              🔗 Links & URLs
-            </h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Website
-                </label>
-                <input
-                  type="url"
-                  value={formData.website}
-                  onChange={(e) => handleChange('website', e.target.value)}
-                  placeholder="https://example.com"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Repository URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.repository}
-                  onChange={(e) => handleChange('repository', e.target.value)}
-                  placeholder="https://github.com/username/repo"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-[#999] mb-2">
-                  Contributing Guide URL
-                </label>
-                <input
-                  type="url"
-                  value={formData.contributingUrl}
-                  onChange={(e) => handleChange('contributingUrl', e.target.value)}
-                  placeholder="https://github.com/username/repo/blob/main/CONTRIBUTING.md"
-                  className="w-full px-4 py-2 bg-[#2A2A2A] border-2 border-[#3A3A3A] rounded text-[#e5e5e5] focus:border-[#AC8E66] focus:outline-none"
-                />
-              </div>
-            </div>
+          <div style={{ marginBottom: '16px' }}>
+            <SectionHeader icon={faGlobe} title="Links & URLs" />
+            <InputField
+              label="Website"
+              icon={faGlobe}
+              value={formData.website}
+              onChange={(value) => handleChange('website', value)}
+              placeholder="https://example.com"
+              type="url"
+            />
+            <InputField
+              label="Repository URL"
+              icon={faCodeBranch}
+              value={formData.repository}
+              onChange={(value) => handleChange('repository', value)}
+              placeholder="https://github.com/username/repo"
+              type="url"
+            />
+            <InputField
+              label="Contributing Guide URL"
+              icon={faBook}
+              value={formData.contributingUrl}
+              onChange={(value) => handleChange('contributingUrl', value)}
+              placeholder="https://github.com/username/repo/blob/main/CONTRIBUTING.md"
+              type="url"
+            />
           </div>
+
+          {/* Dynamische Felder aus Dokument */}
+          {dynamicFields.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <SectionHeader icon={faBook} title="Dokument-Metadaten" />
+              {dynamicFields.map((fieldKey) => (
+                <InputField
+                  key={fieldKey}
+                  label={fieldKey.charAt(0).toUpperCase() + fieldKey.slice(1).replace(/([A-Z])/g, ' $1')}
+                  icon={faBook}
+                  value={formData[fieldKey]}
+                  onChange={(value) => handleChange(fieldKey as keyof ProjectMetadata, value)}
+                  placeholder={`Enter ${fieldKey}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
+        {/* Footer */}
         <ZenModalFooter>
           <div
             style={{
@@ -214,10 +365,12 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
           >
             <ZenRoughButton
               label="Abbrechen"
+              icon={<FontAwesomeIcon icon={faTimes} className="text-[#AC8E66]" />}
               onClick={onClose}
             />
             <ZenRoughButton
-              label="💾 Speichern"
+              label="Speichern"
+              icon={<FontAwesomeIcon icon={faSave} className="text-[#AC8E66]" />}
               onClick={handleSave}
               variant="active"
             />

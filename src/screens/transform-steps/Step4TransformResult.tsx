@@ -34,6 +34,7 @@ const platformLabels: Record<ContentPlatform, string> = {
   medium: 'Medium Blog',
   reddit: 'Reddit Post',
   'github-discussion': 'GitHub Discussion',
+  'github-blog': 'GitHub Blog Post',
   youtube: 'YouTube Description',
 };
 
@@ -45,6 +46,7 @@ const platformMapping: Record<ContentPlatform, SocialPlatform | null> = {
   devto: 'devto',
   medium: 'medium',
   'github-discussion': 'github',
+  'github-blog': 'github',
   youtube: null, // YouTube doesn't have direct posting API in this implementation
 };
 
@@ -198,7 +200,13 @@ export const Step4TransformResult = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12"
+        style={{ padding: '0.5rem 1.5rem' }}
+    
+    >
+
+
+
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
@@ -215,16 +223,28 @@ export const Step4TransformResult = ({
         </div>
 
         {/* Result Container */}
-        <div className="w-full bg-[#2A2A2A] border border-[#3a3a3a] rounded-lg p-6 mb-8">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-mono text-sm text-[#AC8E66]">📋 Vorschau - Transformierter Content:</h3>
-            <div className="font-mono text-xs text-[#777] bg-[#1F1F1F] px-3 py-1 rounded">
-              💡 Preview-Modus
+        <div className="w-full bg-[#2A2A2A] border border-[#AC8E66] "
+          style={{
+    width: "100%",
+    backgroundColor: "#2A2A2A",
+    border: "1px solid #AC8E66",
+    borderRadius: "1.5rem",
+            padding: '0.5rem 0',
+  }}
+        >
+          <div className="flex justify-between items-center mb-4"
+              style={{ padding: '0.5rem 1.5rem' }}
+          >
+            <h3 className="font-mono text-sm text-[#AC8E66]">Vorschau - Transformierter Content:</h3>
+            <div className="font-mono text-xs text-[#AC8E66]  px-3 py-1 rounded">
+             Preview-Modus
             </div>
           </div>
 
           {/* Content Display */}
-          <div className="bg-[#1F1F1F] rounded p-4 max-h-[500px] overflow-y-auto">
+          <div className="bg-[#1F1F1F] rounded p-4 max-h-[500px] overflow-y-auto"
+              style={{ padding: '0.5rem 1.5rem' }}
+          >
             <pre className="font-mono text-sm text-[#e5e5e5] whitespace-pre-wrap break-words">
               {transformedContent}
             </pre>
@@ -246,6 +266,8 @@ export const Step4TransformResult = ({
                 ? 'bg-green-900/20 border-green-600'
                 : 'bg-red-900/20 border-red-600'
             }`}
+              style={{ padding: '0.5rem 1.5rem' }}
+          
           >
             <div className="flex items-center gap-3">
               <FontAwesomeIcon
@@ -278,7 +300,9 @@ export const Step4TransformResult = ({
         )}
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-4 mb-8 justify-center">
+        <div className="flex flex-wrap gap-4 mb-8 justify-center"
+            style={{ padding: '0.5rem 1.5rem' }}
+        >
           {/* Copy Button */}
           <ZenRoughButton
             label={copied ? '✓ Kopiert!' : 'Kopieren'}

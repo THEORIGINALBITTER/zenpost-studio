@@ -1,4 +1,5 @@
 import { InfoBoxConfig } from '../config/ZenModalConfig';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 interface ZenInfoBoxProps extends InfoBoxConfig {
   className?: string;
@@ -12,6 +13,7 @@ interface ZenInfoBoxProps extends InfoBoxConfig {
  * - Konfigurierbare Links
  * - Konsistentes Styling
  * - Zen-Design konform
+ * - Tauri-kompatible URL-Öffnung
  */
 export const ZenInfoBox = ({
   title,
@@ -20,60 +22,112 @@ export const ZenInfoBox = ({
   type = 'info',
   className = '',
 }: ZenInfoBoxProps) => {
-  // Type-basierte Farben
-  const typeColors = {
+  const handleLinkClick = async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch (error) {
+      console.error('Failed to open URL:', error);
+    }
+  };
+  // Type-basierte Farben für style={{}}
+  const colorStyles = {
     info: {
-      bg: 'bg-[#AC8E66]/10',
-      border: 'border-[#AC8E66]/30',
-      text: 'text-[#AC8E66]',
-      hover: 'hover:text-[#D4AF78]',
+      bg: 'rgba(172, 142, 102, 0.1)',
+      border: 'rgba(172, 142, 102, 0.3)',
+      text: '#AC8E66',
+      hover: '#D4AF78',
     },
     warning: {
-      bg: 'bg-[#FFA726]/10',
-      border: 'border-[#FFA726]/30',
-      text: 'text-[#FFA726]',
-      hover: 'hover:text-[#FFB74D]',
+      bg: 'rgba(255, 167, 38, 0.1)',
+      border: 'rgba(255, 167, 38, 0.3)',
+      text: '#FFA726',
+      hover: '#FFB74D',
     },
     success: {
-      bg: 'bg-[#4CAF50]/10',
-      border: 'border-[#4CAF50]/30',
-      text: 'text-[#4CAF50]',
-      hover: 'hover:text-[#66BB6A]',
+      bg: 'rgba(76, 175, 80, 0.1)',
+      border: 'rgba(76, 175, 80, 0.3)',
+      text: '#4CAF50',
+      hover: '#66BB6A',
     },
     error: {
-      bg: 'bg-[#FF6B6B]/10',
-      border: 'border-[#FF6B6B]/30',
-      text: 'text-[#FF6B6B]',
-      hover: 'hover:text-[#FF8787]',
+      bg: 'rgba(255, 107, 107, 0.1)',
+      border: 'rgba(255, 107, 107, 0.3)',
+      text: '#FF6B6B',
+      hover: '#FF8787',
     },
   };
 
-  const colors = typeColors[type];
+  const colorStyle = colorStyles[type];
 
   return (
-    <div className="flex flex-col items-center w-full">
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        width: '100%',
+      }}
+    >
       <div
-        className={`w-full max-w-[300px] p-3 ${colors.bg} border ${colors.border} rounded-lg ${className}`}
+        className={className}
+        style={{
+          width: '100%',
+          maxWidth: '400px',
+          padding: '20px 24px',
+          backgroundColor: colorStyle.bg,
+          border: `2px solid ${colorStyle.border}`,
+          borderRadius: '12px',
+        }}
       >
-        <div className={`${colors.text} text-[11px] leading-relaxed text-center`}>
+        <div
+          style={{
+            color: colorStyle.text,
+            fontSize: '13px',
+            lineHeight: '1.6',
+            textAlign: 'center',
+          }}
+        >
           {/* Title */}
-          <p className="mb-2">
+          <p style={{ marginBottom: '12px' }}>
             <strong>{title}:</strong> {description}
           </p>
 
           {/* Links */}
           {links.length > 0 && (
-            <div className="flex flex-col gap-1 mt-2">
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+                marginTop: '16px',
+                alignItems: 'center',
+              }}
+            >
               {links.map((link, index) => (
-                <a
+                <button
                   key={index}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={`underline ${colors.hover} block transition-colors duration-200`}
+                  onClick={() => handleLinkClick(link.url)}
+                  className={`transition-colors duration-200`}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = colorStyle.hover;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = colorStyle.text;
+                  }}
+                  style={{
+                    padding: 0,
+                    font: 'inherit',
+                    textAlign: 'center',
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                    color: colorStyle.text,
+                    fontSize: '13px',
+                  }}
                 >
                   → {link.label}
-                </a>
+                </button>
               ))}
             </div>
           )}
