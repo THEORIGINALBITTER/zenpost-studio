@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faEye, faPencil, faUser, faQuestionCircle, faCheckCircle, faExternalLinkAlt } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faEye, faPencil, faUser, faQuestionCircle, faCheckCircle, faExternalLinkAlt, faRocket } from '@fortawesome/free-solid-svg-icons';
 import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
@@ -20,6 +20,8 @@ interface Step1SourceInputProps {
   onNext: () => void;
   onOpenMetadata?: () => void;
   onError?: (error: string) => void;
+  cameFromEdit?: boolean; // Flag to show "Back to Posting" button
+  onBackToPosting?: () => void; // Callback to go directly to Step 4
 }
 
 // Helper component for rough circle
@@ -161,6 +163,8 @@ export const Step1SourceInput = ({
   onNext,
   onOpenMetadata,
   onError,
+  cameFromEdit = false,
+  onBackToPosting,
 }: Step1SourceInputProps) => {
   const [showPreview, setShowPreview] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
@@ -330,7 +334,7 @@ export const Step1SourceInput = ({
 
         {/* Action Buttons */}
         <div className="mb-8 flex gap-4 items-center"
-        
+
          style={{ paddingTop: 10, marginTop: 20 }}
         >
           {showPreview ? (
@@ -341,19 +345,38 @@ export const Step1SourceInput = ({
                 icon={<FontAwesomeIcon icon={faPencil} className="text-[#AC8E66]" />}
                 onClick={() => setShowPreview(false)}
               />
-              <ZenRoughButton
-                label="Weiter"
-                icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
-                onClick={onNext}
-              />
+              {cameFromEdit && onBackToPosting ? (
+                <ZenRoughButton
+                  label="Zurück zum Posten"
+                  icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
+                  onClick={onBackToPosting}
+                  variant="active"
+                />
+              ) : (
+                <ZenRoughButton
+                  label="Weiter"
+                  icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
+                  onClick={onNext}
+                />
+              )}
             </>
           ) : (
             // When in editor mode, show "Preview" button
-            <ZenRoughButton
-              label="Preview"
-              icon={<FontAwesomeIcon icon={faEye} className="text-[#AC8E66]" />}
-              onClick={() => setShowPreview(true)}
-            />
+            <>
+              <ZenRoughButton
+                label="Preview"
+                icon={<FontAwesomeIcon icon={faEye} className="text-[#AC8E66]" />}
+                onClick={() => setShowPreview(true)}
+              />
+              {cameFromEdit && onBackToPosting && (
+                <ZenRoughButton
+                  label="Zurück zum Posten"
+                  icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
+                  onClick={onBackToPosting}
+                  variant="active"
+                />
+              )}
+            </>
           )}
         </div>
 

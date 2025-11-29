@@ -118,6 +118,9 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
   const [isPosting, setIsPosting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Track if user came from "Nachbearbeiten" flow
+  const [cameFromEdit, setCameFromEdit] = useState<boolean>(false);
+
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
   const [showSettingsNotification, setShowSettingsNotification] = useState(false);
@@ -434,8 +437,15 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             onNext={handleNextFromStep1}
             onOpenMetadata={() => setShowMetadata(true)}
             onError={setError}
+            cameFromEdit={cameFromEdit}
+            onBackToPosting={() => {
+              // User edited content, go directly to Step 4 for posting
+              setTransformedContent(sourceContent); // Use edited content
+              setCameFromEdit(false); // Reset flag
+              setCurrentStep(4);
+            }}
           />
-                 
+
         );
       case 2:
         return (
@@ -479,6 +489,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             onBack={() => {
               // Nachbearbeiten: Zum Editor mit transformiertem Content
               setSourceContent(transformedContent);
+              setCameFromEdit(true); // Mark that user came from edit
               setCurrentStep(1);
             }}
           />

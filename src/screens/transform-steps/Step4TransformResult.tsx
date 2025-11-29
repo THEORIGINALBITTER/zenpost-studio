@@ -267,14 +267,14 @@ export const Step4TransformResult = ({
                 : 'bg-red-900/20 border-red-600'
             }`}
               style={{ padding: '0.5rem 1.5rem' }}
-          
+
           >
             <div className="flex items-center gap-3">
               <FontAwesomeIcon
                 icon={postResult.success ? faCheck : faRotateLeft}
                 className={postResult.success ? 'text-green-500' : 'text-red-500'}
               />
-              <div className="flex-1">
+              <div className="flex-1 flex items-center gap-2">
                 <p
                   className={`font-mono text-sm ${
                     postResult.success ? 'text-green-400' : 'text-red-400'
@@ -284,12 +284,21 @@ export const Step4TransformResult = ({
                     ? `Erfolgreich auf ${platformLabels[platform]} gepostet!`
                     : `Fehler beim Posten: ${postResult.error}`}
                 </p>
+                {!postResult.success && (
+                  <button
+                    onClick={() => setShowSettings(true)}
+                    className="text-[#777] hover:text-[#AC8E66] transition-colors"
+                    title="Social Media API konfigurieren"
+                  >
+                    <FontAwesomeIcon icon={faCog} className="text-lg" />
+                  </button>
+                )}
                 {postResult.success && postResult.url && (
                   <a
                     href={postResult.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-400 hover:underline"
+                    className="text-xs text-blue-400 hover:underline ml-2"
                   >
                     Post öffnen →
                   </a>
@@ -327,28 +336,17 @@ export const Step4TransformResult = ({
           />
 
           {socialPlatform && (
-            <div className="flex items-center gap-3">
-              <ZenRoughButton
-                label={hasConfig ? 'Direkt posten' : 'API konfigurieren (optional)'}
-                icon={
-                  <FontAwesomeIcon
-                    icon={hasConfig ? faRocket : faCog}
-                    className="text-[#AC8E66]"
-                  />
-                }
-                onClick={hasConfig ? handlePost : () => setShowSettings(true)}
-                disabled={isPosting}
-              />
-              {hasConfig && (
-                <button
-                  onClick={() => setShowSettings(true)}
-                  className="text-[#777] hover:text-[#AC8E66] transition-colors"
-                  title="API-Einstellungen bearbeiten"
-                >
-                  <FontAwesomeIcon icon={faCog} className="text-xl" />
-                </button>
-              )}
-            </div>
+            <ZenRoughButton
+              label="Direkt posten"
+              icon={
+                <FontAwesomeIcon
+                  icon={faRocket}
+                  className="text-[#AC8E66]"
+                />
+              }
+              onClick={handlePost}
+              disabled={isPosting}
+            />
           )}
 
           <ZenRoughButton
@@ -373,7 +371,7 @@ export const Step4TransformResult = ({
         </div>
       </div>
 
-      {/* Settings Modal */}
+      {/* Settings Modal - Open directly to platform's social tab */}
       <ZenSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
