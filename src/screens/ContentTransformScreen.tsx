@@ -492,6 +492,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
               setCameFromEdit(true); // Mark that user came from edit
               setCurrentStep(1);
             }}
+            onOpenSettings={() => setShowSettings(true)}
           />
         );
       default:

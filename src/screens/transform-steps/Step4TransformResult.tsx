@@ -18,13 +18,13 @@ import {
   SocialPlatform,
   PostResult,
 } from '../../services/socialMediaService';
-import { ZenSettingsModal } from '../../kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal';
 
 interface Step4TransformResultProps {
   transformedContent: string;
   platform: ContentPlatform;
   onReset: () => void;
   onBack: () => void;
+  onOpenSettings: () => void;
 }
 
 const platformLabels: Record<ContentPlatform, string> = {
@@ -55,11 +55,11 @@ export const Step4TransformResult = ({
   platform,
   onReset,
   onBack,
+  onOpenSettings,
 }: Step4TransformResultProps) => {
   const [copied, setCopied] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
 
   const socialPlatform = platformMapping[platform];
   const config = loadSocialConfig();
@@ -99,7 +99,7 @@ export const Step4TransformResult = ({
         'Hinweis: Die API-Integration ist optional. Du kannst den Content auch manuell kopieren und posten.'
       );
       if (shouldConfigure) {
-        setShowSettings(true);
+        onOpenSettings();
       }
       return;
     }
@@ -286,7 +286,7 @@ export const Step4TransformResult = ({
                 </p>
                 {!postResult.success && (
                   <button
-                    onClick={() => setShowSettings(true)}
+                    onClick={onOpenSettings}
                     className="text-[#777] hover:text-[#AC8E66] transition-colors"
                     title="Social Media API konfigurieren"
                   >
@@ -371,12 +371,6 @@ export const Step4TransformResult = ({
         </div>
       </div>
 
-      {/* Settings Modal - Open directly to platform's social tab */}
-      <ZenSettingsModal
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
-        defaultTab="social"
-      />
     </div>
   );
 };
