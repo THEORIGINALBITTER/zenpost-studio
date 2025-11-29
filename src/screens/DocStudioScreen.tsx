@@ -832,7 +832,7 @@ Make it professional and investor-ready.`;
               textAlign: 'center',
             }}
           >
-           Step01:  <span className="text-[#AC8E66]">Stil-Optionen deiner KI</span>
+           Step01:  <span className="text-[#aaa]">Stil-Optionen deiner KI</span>
           </h3>
           <div
             style={{
@@ -912,7 +912,9 @@ Make it professional and investor-ready.`;
               color: '#AC8E66',
             }}
           >
-          Step02: Dokumentationstyp wählen
+          Step02: <span className="text-[#aaa] font-mono "
+        
+          >Dokumentationstyp wählen</span>
           </h3>
 
           <div

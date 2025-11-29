@@ -476,7 +476,11 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             transformedContent={transformedContent}
             platform={selectedPlatform}
             onReset={handleReset}
-            onBack={() => setCurrentStep(3)}
+            onBack={() => {
+              // Nachbearbeiten: Zum Editor mit transformiertem Content
+              setSourceContent(transformedContent);
+              setCurrentStep(1);
+            }}
           />
         );
       default:

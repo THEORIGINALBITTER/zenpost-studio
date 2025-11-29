@@ -220,7 +220,7 @@ export function ZenGeneratingModal({ isOpen, templateName }: ZenGeneratingModalP
               lineHeight: '1.6',
             }}
           >
-            💡 Die KI analysiert deine Projektstruktur und erstellt maßgeschneiderte Dokumentation
+            💡 Die KI {"name der KI"} analysiert und erstellt maßgeschneiderte Dokumentation
           </p>
         </div>
 

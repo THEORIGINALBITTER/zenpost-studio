@@ -43,6 +43,7 @@ export interface ModalPreset extends ModalHeaderConfig {
   minHeight?: string;
   maxHeight?: string;
   minWidth?: string;
+  maxWidth?: string;
 }
 
 /**
@@ -72,17 +73,20 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
     subtitleSize: '9px',
     minHeight: '480px',
   },
-  'metadata': {
-    id: 'metadata',
-    title: 'Projekt-Metadaten',
-    subtitle: 'Gib deine Projekt-Informationen ein. Diese werden in die generierten Dokumente eingefügt.',
-    titleColor: '#AC8E66',
-    subtitleColor: '#999',
-    titleSize: '24px',
-    subtitleSize: '11px',
-    minHeight: '600px',
-    maxHeight: '90vh',
-  },
+ 'metadata': {
+  id: 'metadata',
+  title: 'Projekt-Metadaten',
+  subtitle: 'Gib deine Projekt-Informationen ein. Diese werden in die generierten Dokumente eingefügt.',
+  titleColor: '#AC8E66',
+  subtitleColor: '#999',
+  titleSize: '24px',
+  subtitleSize: '11px',
+  minHeight: '700px',   // vorher 600
+  maxHeight: '90vh',
+  minWidth: '800px',
+  maxWidth: "900px"    // vorher undefined
+   // optional
+},
   // Weitere Modal-Presets können hier hinzugefügt werden
   'default': {
     id: 'default',

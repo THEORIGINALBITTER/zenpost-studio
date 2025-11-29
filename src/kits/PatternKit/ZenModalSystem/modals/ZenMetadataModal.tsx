@@ -16,7 +16,6 @@ import {
   faCodeBranch,
   faBook,
   faSave,
-  faTimes
 } from '@fortawesome/free-solid-svg-icons';
 
 /**
@@ -130,22 +129,23 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
   };
 
   // Wiederverwendbares Input Field Component
-  const InputField = ({
-    label,
-    icon,
-    value,
-    onChange,
-    placeholder,
-    type = 'text',
-  }: {
-    label: string;
-    icon: any;
-    value: string;
-    onChange: (value: string) => void;
-    placeholder: string;
-    type?: string;
-  }) => (
-    <div style={{ marginBottom: '16px' }}>
+const InputField = ({
+  label,
+  icon,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+}: {
+  label: string;
+  icon: any;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  type?: string;
+}) => (
+  <div style={{ marginBottom: '16px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+    <div style={{ width: '400px', maxWidth: '90%' }}> {/* Hier die max-Breite setzen */}
       <label
         className="font-mono text-[#999] flex items-center"
         style={{
@@ -169,16 +169,18 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
         className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#AC8E66] focus:outline-none"
         autoComplete="off"
         style={{
-          width: '100%',
+          width: '100%', // bleibt 100% vom Wrapper
           padding: '10px 12px',
-          border: '2px solid #3A3A3A',
+          border: '1px solid #3A3A3A',
           borderRadius: '6px',
           fontSize: typography.input,
           transition: 'border-color 0.2s',
         }}
       />
     </div>
-  );
+  </div>
+);
+
 
   // Section Header Component
   const SectionHeader = ({ icon, title }: { icon: any; title: string }) => (
@@ -205,12 +207,13 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
     <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
       <div
         className="bg-[#1A1A1A] rounded-lg flex flex-col"
-        style={{
-          width: '100%',
-          maxWidth: '700px',
-          height: '80vh',
-          overflow: 'hidden',
-        }}
+    style={{
+    width: modalPreset.minWidth,
+    maxWidth: modalPreset.maxWidth,
+    minHeight: modalPreset.minHeight,
+    maxHeight: modalPreset.maxHeight,
+    overflow: 'hidden',
+  }}
       >
         <ZenModalHeader
           title={modalPreset.title}
@@ -222,12 +225,15 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
           onClose={onClose}
         />
 
+        
+
         {/* Scrollable Content */}
         <div
           className="zen-scrollbar"
           style={{
             flex: 1,
             overflowY: 'auto',
+            maxHeight: "70vh",
             overflowX: 'hidden',
             padding: '20px 28px',
             marginTop: '80px',
@@ -364,11 +370,7 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
               flexWrap: 'wrap',
             }}
           >
-            <ZenRoughButton
-              label="Abbrechen"
-              icon={<FontAwesomeIcon icon={faTimes} className="text-[#AC8E66]" />}
-              onClick={onClose}
-            />
+          
             <ZenRoughButton
               label="Speichern"
               icon={<FontAwesomeIcon icon={faSave} className="text-[#AC8E66]" />}
@@ -380,4 +382,5 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
       </div>
     </ZenModal>
   );
+
 }

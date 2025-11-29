@@ -18,7 +18,7 @@ export const ZenSettingsNotification = ({
       style={{
         position: 'absolute',
         top: '100%',
-        right: '0',
+        right: '-20px',
         marginTop: '8px',
         display: 'flex',
         flexDirection: 'column',
@@ -32,10 +32,19 @@ export const ZenSettingsNotification = ({
         style={{
           color: '#AC8E66',
           fontSize: '24px',
-          marginBottom: '4px',
+          marginBottom: '20px',
+          
         }}
       >
-        <FontAwesomeIcon icon={faArrowUp} />
+        <FontAwesomeIcon icon={faArrowUp} 
+            style={{
+      position: 'absolute',
+      
+      right: '28px', // Abstand von rechts
+      fontSize: '20px', // Größe ändern
+      color: '#AC8E66',
+    }}
+        />
       </div>
 
       {/* Toast Message */}
@@ -47,6 +56,7 @@ export const ZenSettingsNotification = ({
           padding: '8px 16px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.4)',
           whiteSpace: 'nowrap',
+          
         }}
       >
         <p

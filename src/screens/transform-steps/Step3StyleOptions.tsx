@@ -144,7 +144,7 @@ export const Step3StyleOptions = ({
         {/* Error Message */}
         {error && (
           <div className="mb-8 text-center">
-            <p className="text-[#E89B5A] font-mono text-sm">{error}</p>
+            <p className="zen-error">{error}</p>
             {/* Show "Back to Edit" button if content is too short or empty */}
             {(error.includes('kurz') || error.includes('leer') || error.includes('empty') || error.includes('short')) && (
               <div style={{ marginTop: '16px' }}>
