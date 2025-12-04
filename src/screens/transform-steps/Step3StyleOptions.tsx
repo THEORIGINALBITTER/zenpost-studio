@@ -3,7 +3,7 @@ import { faMagicWandSparkles, faArrowLeft, faRocket, faRedo } from '@fortawesome
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 
-import { ContentTone, ContentLength, ContentAudience, ContentPlatform } from '../../services/aiService';
+import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
   selectedPlatform: ContentPlatform;
@@ -11,9 +11,11 @@ interface Step3StyleOptionsProps {
   tone: ContentTone;
   length: ContentLength;
   audience: ContentAudience;
+  targetLanguage?: TargetLanguage;
   onToneChange: (tone: ContentTone) => void;
   onLengthChange: (length: ContentLength) => void;
   onAudienceChange: (audience: ContentAudience) => void;
+  onTargetLanguageChange?: (language: TargetLanguage) => void;
   onBack: () => void;
   onBackToEditor: () => void;
   onTransform: () => void;
@@ -42,14 +44,28 @@ const audienceOptions = [
   { value: 'expert', label: 'Experten' },
 ];
 
+const languageOptions = [
+  { value: 'deutsch', label: 'Deutsch 🇩🇪' },
+  { value: 'english', label: 'English 🇬🇧' },
+  { value: 'español', label: 'Español 🇪🇸' },
+  { value: 'français', label: 'Français 🇫🇷' },
+  { value: 'italiano', label: 'Italiano 🇮🇹' },
+  { value: 'português', label: 'Português 🇵🇹' },
+  { value: '中文', label: '中文 🇨🇳' },
+  { value: '日本語', label: '日本語 🇯🇵' },
+  { value: '한국어', label: '한국어 🇰🇷' },
+];
+
 export const Step3StyleOptions = ({
   platformLabel,
   tone,
   length,
   audience,
+  targetLanguage,
   onToneChange,
   onLengthChange,
   onAudienceChange,
+  onTargetLanguageChange,
   onBack,
   onBackToEditor,
   onTransform,
@@ -91,9 +107,7 @@ export const Step3StyleOptions = ({
   ];
 
   return (
-  
-
-
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
       <div className="flex flex-col items-center w-full max-w-2xl">
         {/* Title */}
         <div className="mb-4"
@@ -138,6 +152,16 @@ export const Step3StyleOptions = ({
             value={audience}
             onChange={(value) => onAudienceChange(value as ContentAudience)}
             options={audienceOptions}
+          />
+        </div>
+
+        {/* Language Selection */}
+        <div className="text-[12px]" style={{ padding: "5px" }}>
+          <ZenDropdown
+            label="Sprache:"
+            value={targetLanguage || 'deutsch'}
+            onChange={(value) => onTargetLanguageChange?.(value as TargetLanguage)}
+            options={languageOptions}
           />
         </div>
 
@@ -199,8 +223,7 @@ export const Step3StyleOptions = ({
           />
         </div>
 
-
       </div>
-
+    </div>
   );
 };

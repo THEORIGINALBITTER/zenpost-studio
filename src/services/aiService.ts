@@ -55,8 +55,9 @@ export interface TransformResult {
  * Standardkonfiguration
  */
 const defaultConfig: AIConfig = {
-  provider: 'openai',
-  model: 'gpt-4o-mini',
+  provider: 'ollama',
+  model: 'llama3.1:latest',
+  baseUrl: 'http://localhost:11434',
   temperature: 0.3,
 };
 
@@ -333,7 +334,7 @@ async function callOllama(
 
   try {
     console.log('[Ollama] Making request to:', `${baseUrl}/api/chat`);
-    console.log('[Ollama] Model:', config.model || 'qwen2.5-coder');
+    console.log('[Ollama] Model:', config.model || 'llama3.1:latest');
 
     let response;
     try {
@@ -344,7 +345,7 @@ async function callOllama(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: config.model || 'qwen2.5-coder',
+          model: config.model || 'llama3.1:latest',
           messages: [
             {
               role: 'user',
@@ -825,5 +826,113 @@ export async function generateFromPrompt(
   const aiConfig = { ...loadAIConfig(), ...customAIConfig };
 
   // Call AI directly with the prompt
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Convert plain text to formatted Markdown
+ */
+export async function textToMarkdown(
+  plainText: string,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  // Validation
+  if (!plainText || plainText.trim().length < 10) {
+    return {
+      success: false,
+      error: 'Text ist zu kurz oder leer',
+    };
+  }
+
+  // Load AI configuration
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+
+  // Build prompt for text-to-markdown conversion
+  const prompt = `Du bist ein Experte für Markdown-Formatierung. Konvertiere den folgenden Plain-Text in gut strukturiertes Markdown.
+
+Regeln:
+- Erkenne Überschriften und formatiere sie mit # (H1), ## (H2), ### (H3)
+- Erkenne Listen und formatiere sie mit - oder 1. 2. 3.
+- Erkenne wichtige Wörter und mache sie **fett**
+- Erkenne Code-Snippets und formatiere sie mit \`code\` oder \`\`\`code-block\`\`\`
+- Erkenne Links und formatiere sie als [Text](URL)
+- Erkenne Zitate und formatiere sie mit >
+- Füge sinnvolle Absätze und Zeilenumbrüche hinzu
+- Behalte die ursprüngliche Bedeutung und Reihenfolge bei
+- Verbessere die Lesbarkeit durch Struktur
+
+Wichtig:
+- Gib NUR das formatierte Markdown aus, keine Erklärungen
+- Keine Meta-Kommentare wie "Hier ist das Markdown"
+- Behalte die Sprache des Originaltexts bei
+
+Original Text:
+${plainText}
+
+Formatiertes Markdown:`;
+
+  // Call AI
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Supported languages for translation
+ */
+export type TargetLanguage =
+  | 'deutsch'
+  | 'english'
+  | 'español'
+  | 'français'
+  | 'italiano'
+  | 'português'
+  | '中文'
+  | '日本語'
+  | '한국어';
+
+/**
+ * Translate content to target language while preserving Markdown formatting
+ */
+export async function translateContent(
+  content: string,
+  targetLanguage: TargetLanguage,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  // Validation
+  if (!content || content.trim().length < 10) {
+    return {
+      success: false,
+      error: 'Content ist zu kurz oder leer',
+    };
+  }
+
+  // Load AI configuration
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+
+  // Build translation prompt
+  const prompt = `Du bist ein professioneller Übersetzer mit Expertise in technischer Dokumentation und Marketing-Texten.
+
+Übersetze den folgenden Markdown-Content in ${targetLanguage}.
+
+Wichtige Regeln:
+- Behalte ALLE Markdown-Formatierungen bei (Überschriften #, Listen -, Fett **, Code \`, etc.)
+- Übersetze den Inhalt präzise und natürlich
+- Behalte technische Begriffe bei, wenn sie im Zielkontext üblich sind
+- Übersetze Code-Kommentare, aber NICHT den Code selbst
+- Bewahre die Struktur, Absätze und Zeilenumbrüche
+- Übersetze URLs und Links NICHT
+- Bei Fachbegriffen: Verwende die etablierte Terminologie der Zielsprache
+- Achte auf kulturelle Angemessenheit und natürlichen Sprachgebrauch
+
+Wichtig:
+- Gib NUR den übersetzten Content aus, keine Erklärungen
+- Keine Meta-Kommentare wie "Hier ist die Übersetzung"
+- Die Ausgabe muss direkt verwendbar sein
+
+Original Content:
+${content}
+
+Übersetzung in ${targetLanguage}:`;
+
+  // Call AI
   return await callAIForTransform(aiConfig, prompt);
 }

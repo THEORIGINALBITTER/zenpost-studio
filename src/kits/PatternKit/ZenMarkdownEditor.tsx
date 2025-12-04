@@ -10,9 +10,11 @@ import {
   faLink,
   faCode,
   faQuoteRight,
+  faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
+import { textToMarkdown } from '../../services/aiService';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -71,6 +73,10 @@ export const ZenMarkdownEditor = ({
   const [commandFilter, setCommandFilter] = useState('');
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [slashCommandStart, setSlashCommandStart] = useState(-1);
+
+  // AI Formatting State
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
 
   // Helper: Get current selection or cursor position
   const getSelectionInfo = () => {
@@ -283,6 +289,36 @@ export const ZenMarkdownEditor = ({
   };
   const makeQuote = () => insertAtLineStart('> ');
 
+  // AI-powered Markdown Formatting
+  const handleAutoFormat = async () => {
+    if (!value || value.trim().length < 10) {
+      setFormatError('Text ist zu kurz zum Formatieren');
+      setTimeout(() => setFormatError(null), 3000);
+      return;
+    }
+
+    setIsFormatting(true);
+    setFormatError(null);
+
+    try {
+      const result = await textToMarkdown(value);
+
+      if (result.success && result.data) {
+        onChange(result.data);
+        setFormatError(null);
+      } else {
+        setFormatError(result.error || 'Formatierung fehlgeschlagen');
+        setTimeout(() => setFormatError(null), 5000);
+      }
+    } catch (error) {
+      console.error('Auto-format error:', error);
+      setFormatError('Formatierung fehlgeschlagen');
+      setTimeout(() => setFormatError(null), 5000);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
   // Detect if Mac or Windows/Linux for keyboard shortcuts
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const modKey = isMac ? '⌘' : 'Ctrl';
@@ -300,6 +336,7 @@ export const ZenMarkdownEditor = ({
 
   // Plus Menu Items (similar to command menu but different format)
   const plusMenuItems: ZenPlusMenuItem[] = [
+    { id: 'auto-format', label: 'Als Markdown formatieren', icon: faWandMagicSparkles, description: 'KI formatiert Text automatisch', action: handleAutoFormat },
     { id: 'bold', label: 'Bold', icon: faBold, description: 'Fetter Text', action: makeBold, shortcut: `${modKey}+B` },
     { id: 'italic', label: 'Italic', icon: faItalic, description: 'Kursiver Text', action: makeItalic, shortcut: `${modKey}+I` },
     { id: 'strikethrough', label: 'Strikethrough', icon: faStrikethrough, description: 'Durchgestrichen', action: makeStrikethrough },
@@ -545,6 +582,38 @@ export const ZenMarkdownEditor = ({
           />
         </div>
 
+        {/* Loading Overlay */}
+        {isFormatting && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(26, 26, 26, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+            borderRadius: '8px'
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                border: '3px solid #AC8E66',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                margin: '0 auto 12px'
+              }} />
+              <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66' }}>
+                Formatiere mit KI...
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Editor Textarea */}
         <textarea
           ref={textareaRef}
@@ -568,6 +637,13 @@ export const ZenMarkdownEditor = ({
           style={{ height, padding: '12px', paddingRight: '60px' }}
         />
       </div>
+
+        {/* Error Message */}
+        {formatError && (
+          <div className="mt-2 p-2 bg-red-900/20 border border-red-600 rounded text-center">
+            <p className="text-red-400 font-mono text-[10px]">{formatError}</p>
+          </div>
+        )}
 
         {/* Shortcut Footer - Always visible */}
         <div className="mt-2 flex items-center justify-between border-t border-[#3a3a3a] "
@@ -612,6 +688,14 @@ export const ZenMarkdownEditor = ({
           <ZenMarkdownPreview content={value} height={height} />
         </div>
       )}
+
+      {/* CSS Animation for Spinner */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
     </div>
   );

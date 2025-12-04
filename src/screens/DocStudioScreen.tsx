@@ -1,15 +1,33 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
-import { ZenHeader } from '../kits/PatternKit/ZenHeader';
-import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent } from '../kits/PatternKit/ZenModalSystem';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faFolder, faBook, faPencil, faFileLines, faRotateLeft, faLightbulb, faNoteSticky, faSave, faUser } from '@fortawesome/free-solid-svg-icons';
+import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenSaveSuccessModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent } from '../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownEditor } from '../kits/PatternKit/ZenMarkdownEditor';
-import { generateFromPrompt } from '../services/aiService';
+import { generateFromPrompt, translateContent, type TargetLanguage } from '../services/aiService';
 import type { ScheduledPost } from '../types/scheduling';
 import { downloadICSFile, getScheduleStats } from '../utils/calendarExport';
 
+interface DocStudioState {
+  projectPath: string | null;
+  projectInfo: ProjectInfo | null;
+  selectedTemplate: DocTemplate | null;
+  generatedContent: string;
+  tone: 'professional' | 'casual' | 'technical' | 'enthusiastic';
+  length: 'short' | 'medium' | 'long';
+  audience: 'beginner' | 'intermediate' | 'expert';
+  targetLanguage: TargetLanguage;
+  metadata: ProjectMetadata;
+}
+
 interface DocStudioScreenProps {
   onBack: () => void;
+  onTransferToContentStudio?: (content: string, currentStep: number, state: DocStudioState) => void;
+  onStepChange?: (step: number) => void;
+  initialStep?: number;
+  savedState?: DocStudioState | null;
+  onStateChange?: (state: DocStudioState) => void;
 }
 
 type DocTemplate = 'readme' | 'changelog' | 'api-docs' | 'contributing' | 'blog-post' | 'data-room';
@@ -34,32 +52,44 @@ interface ProjectInfo {
   hasApi: boolean;
 }
 
-export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
+export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChange, initialStep = 1, savedState, onStateChange }: DocStudioScreenProps) {
   // Step Management
-  const [currentStep, setCurrentStep] = useState<number>(1);
+  const [currentStep, setCurrentStep] = useState<number>(initialStep);
+
+  // Update currentStep when initialStep changes (e.g., when returning from Content AI Studio)
+  useEffect(() => {
+    if (initialStep !== currentStep) {
+      setCurrentStep(initialStep);
+    }
+  }, [initialStep]);
+
+  // Notify parent about step changes
+  useEffect(() => {
+    onStepChange?.(currentStep);
+  }, [currentStep, onStepChange]);
 
   // Project state
-  const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
+  const [projectPath, setProjectPath] = useState<string | null>(savedState?.projectPath || null);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(savedState?.projectInfo || null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   // Template & Generation state
-  const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate | null>(null);
-  const [generatedContent, setGeneratedContent] = useState<string>('');
+  const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate | null>(savedState?.selectedTemplate || null);
+  const [generatedContent, setGeneratedContent] = useState<string>(savedState?.generatedContent || '');
   const [isGenerating, setIsGenerating] = useState(false);
 
   // Style options (like in Content Transform)
-  const [tone, setTone] = useState<'professional' | 'casual' | 'technical' | 'enthusiastic'>('professional');
-  const [length, setLength] = useState<'short' | 'medium' | 'long'>('medium');
-  const [audience, setAudience] = useState<'beginner' | 'intermediate' | 'expert'>('intermediate');
+  const [tone, setTone] = useState<'professional' | 'casual' | 'technical' | 'enthusiastic'>(savedState?.tone || 'professional');
+  const [length, setLength] = useState<'short' | 'medium' | 'long'>(savedState?.length || 'medium');
+  const [audience, setAudience] = useState<'beginner' | 'intermediate' | 'expert'>(savedState?.audience || 'intermediate');
+  const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>(savedState?.targetLanguage || 'deutsch');
 
   // Settings
   const [showSettings, setShowSettings] = useState(false);
-  const [showSettingsNotification, setShowSettingsNotification] = useState(false);
 
   // Metadata
   const [showMetadata, setShowMetadata] = useState(false);
-  const [metadata, setMetadata] = useState<ProjectMetadata>({
+  const [metadata, setMetadata] = useState<ProjectMetadata>(savedState?.metadata || {
     authorName: '',
     authorEmail: '',
     companyName: '',
@@ -73,6 +103,10 @@ export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
   // Save Confirmation
   const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
   const [savedFileName, setSavedFileName] = useState<string>('');
+
+  // Save Success Modal
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedFilePath, setSavedFilePath] = useState<string>('');
 
   // Multi-Platform Blog Posts
   const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([]);
@@ -89,22 +123,6 @@ export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
   // Step 4: Editing Posts
   const [editingPost, setEditingPost] = useState<SocialPlatform | null>(null);
 
-  const getStepTitle = () => {
-    switch (currentStep) {
-      case 1: return 'Projekt wählen';
-      case 2: return 'Template wählen';
-      case 3:
-        // Show different title for blog-post template with platforms
-        if (selectedTemplate === 'blog-post' && selectedPlatforms.length > 0) {
-          return 'Plattformen & Speicherort';
-        }
-        return 'Generieren & Bearbeiten';
-      case 4: return 'Vorschau & Veröffentlichen';
-      case 5: return 'Publishing Management';
-      default: return '';
-    }
-  };
-
   // Check if metadata is filled
   const isMetadataFilled = () => {
     return metadata.authorName.trim() !== '' ||
@@ -112,6 +130,21 @@ export function DocStudioScreen({ onBack }: DocStudioScreenProps) {
            metadata.companyName.trim() !== '' ||
            metadata.website.trim() !== '' ||
            metadata.repository.trim() !== '';
+  };
+
+  // Helper function to capture current state
+  const getCurrentState = (): DocStudioState => {
+    return {
+      projectPath,
+      projectInfo,
+      selectedTemplate,
+      generatedContent,
+      tone,
+      length,
+      audience,
+      targetLanguage,
+      metadata,
+    };
   };
 
   const templates = [
@@ -517,6 +550,18 @@ Make it professional and investor-ready.`;
         }
       });
 
+      // Translate if target language is not deutsch
+      if (targetLanguage && targetLanguage !== 'deutsch') {
+        const translateResult = await translateContent(processedContent, targetLanguage);
+        if (translateResult.success && translateResult.data) {
+          processedContent = translateResult.data;
+        } else {
+          console.warn('Translation failed:', translateResult.error);
+          // Show warning but continue with untranslated content
+          alert(`Warnung: Übersetzung fehlgeschlagen (${translateResult.error}). Dokumentation wird auf Deutsch angezeigt.`);
+        }
+      }
+
       setGeneratedContent(processedContent);
       setCurrentStep(3);
     } catch (error) {
@@ -559,15 +604,24 @@ Make it professional and investor-ready.`;
 
       console.log('[Save] File saved successfully!');
 
-      // Show confirmation modal instead of alert
+      // Show success modal but stay in editor
       setSavedFileName(fileName);
-      setShowSaveConfirmation(true);
+      setSavedFilePath(filePath);
+      setShowSaveSuccess(true);
+      // Don't change step - stay in editor
     } catch (error) {
       console.error('[Save] Error details:', error);
       console.error('[Save] Error type:', typeof error);
       console.error('[Save] Error message:', error instanceof Error ? error.message : JSON.stringify(error));
       alert(`Could not save documentation file: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
+  };
+
+  const handleNewDocument = () => {
+    // Go back to step 2 to select a new template
+    setCurrentStep(2);
+    setSelectedTemplate(null);
+    setGeneratedContent('');
   };
 
   const handleBackToMenu = () => {
@@ -580,25 +634,6 @@ Make it professional and investor-ready.`;
     setGeneratedContent('');
     // Go back to Welcome Screen
     onBack();
-  };
-
-  const handleNewDocument = () => {
-    setShowSaveConfirmation(false);
-    // Go back to step 2 to select a new template
-    setCurrentStep(2);
-    setSelectedTemplate(null);
-    setGeneratedContent('');
-  };
-
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-      if (currentStep === 3) {
-        setGeneratedContent('');
-      }
-    } else {
-      onBack();
-    }
   };
 
   // Step 1: Select Project
@@ -624,8 +659,17 @@ Make it professional and investor-ready.`;
             }}
           >
 
-       
-            <div style={{ fontSize: '60px', marginBottom: '24px' }}>📚</div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <FontAwesomeIcon
+                icon={faFileLines}
+                style={{
+                  fontSize: '60px',
+                  color: '#AC8E66',
+                  filter: 'drop-shadow(0 4px 6px rgba(172, 142, 102, 0.3))'
+                }}
+              />
+            </div>
             <h2
               style={{
                 fontSize: '12px',
@@ -734,9 +778,9 @@ Make it professional and investor-ready.`;
             >
               <h3
                 style={{
-              
+
                   fontWeight: 'bold',
-              
+
                   margin: 0,
                      fontFamily: 'monospace',
               fontSize: '16px',
@@ -745,34 +789,71 @@ Make it professional and investor-ready.`;
               >
             Projekt-Informationen
               </h3>
-              <button
-                onClick={() => setShowMetadata(true)}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid #3A3A3A',
-                  borderRadius: '6px',
-                  color: '#999',
-                  fontFamily: 'monospace',
-                  fontSize: '10px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#AC8E66';
-                  e.currentTarget.style.color = '#AC8E66';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#3A3A3A';
-                  e.currentTarget.style.color = '#999';
-                }}
-              >
-             
-                <span>Projekt Info Bearbeiten</span>
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => {
+                    // Go back to step 1 to select a new project folder
+                    setCurrentStep(1);
+                    setProjectPath(null);
+                    setProjectInfo(null);
+                    setSelectedTemplate(null);
+                    setGeneratedContent('');
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #3A3A3A',
+                    borderRadius: '6px',
+                    color: '#999',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                    e.currentTarget.style.color = '#AC8E66';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                    e.currentTarget.style.color = '#999';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faFolder} />
+                  <span>Projektordner wechseln</span>
+                </button>
+                <button
+                  onClick={() => setShowMetadata(true)}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #3A3A3A',
+                    borderRadius: '6px',
+                    color: '#999',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                    e.currentTarget.style.color = '#AC8E66';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                    e.currentTarget.style.color = '#999';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faPencil} />
+                  <span>Projekt Info Bearbeiten</span>
+                </button>
+              </div>
             </div>
 
             {/* Compact Info Display */}
@@ -881,6 +962,27 @@ Make it professional and investor-ready.`;
                 { value: 'beginner', label: 'Anfänger' },
                 { value: 'intermediate', label: 'Intermediate' },
                 { value: 'expert', label: 'Experten' },
+              ]}
+              fullWidth
+              variant="compact"
+              labelSize="11px"
+            />
+
+            {/* Language */}
+            <ZenDropdown
+              label="Sprache:"
+              value={targetLanguage}
+              onChange={(value) => setTargetLanguage(value as TargetLanguage)}
+              options={[
+                { value: 'deutsch', label: 'Deutsch 🇩🇪' },
+                { value: 'english', label: 'English 🇬🇧' },
+                { value: 'español', label: 'Español 🇪🇸' },
+                { value: 'français', label: 'Français 🇫🇷' },
+                { value: 'italiano', label: 'Italiano 🇮🇹' },
+                { value: 'português', label: 'Português 🇵🇹' },
+                { value: '中文', label: '中文 🇨🇳' },
+                { value: '日本語', label: '日本語 🇯🇵' },
+                { value: '한국어', label: '한국어 🇰🇷' },
               ]}
               fullWidth
               variant="compact"
@@ -1316,9 +1418,9 @@ Generate the complete ${platform} post now:`;
               }}
             >
               {[
-                { id: 'root' as const, label: 'Projekt-Root', icon: '📂' },
-                { id: 'docs' as const, label: 'docs/ Ordner', icon: '📚' },
-                { id: 'blog-posts' as const, label: 'blog-posts/ Ordner', icon: '✍️' },
+                { id: 'root' as const, label: 'Projekt-Root', icon: faFolder },
+                { id: 'docs' as const, label: 'docs/ Ordner', icon: faBook },
+                { id: 'blog-posts' as const, label: 'blog-posts/ Ordner', icon: faPencil },
               ].map((option) => (
                 <button
                   key={option.id}
@@ -1333,9 +1435,16 @@ Generate the complete ${platform} post now:`;
                     fontSize: '12px',
                     cursor: 'pointer',
                     transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
                   }}
                 >
-                  {option.icon} {option.label}
+                  <FontAwesomeIcon
+                    icon={option.icon}
+                    style={{ color: '#AC8E66', fontSize: '14px' }}
+                  />
+                  {option.label}
                 </button>
               ))}
             </div>
@@ -1447,6 +1556,7 @@ Generate the complete ${platform} post now:`;
             value={generatedContent}
             onChange={setGeneratedContent}
             placeholder="Deine Dokumentation erscheint hier..."
+            showPreview
           />
         </div>
 
@@ -1457,17 +1567,36 @@ Generate the complete ${platform} post now:`;
             gap: '16px',
             justifyContent: 'center',
             alignItems: 'center',
+            flexWrap: 'wrap',
           }}
         >
           <ZenRoughButton
-            label={isMetadataFilled() ? '✓ Metadaten bearbeiten' : 'Metadaten bearbeiten'}
-            icon="📋"
+            label="Dokument überarbeiten"
+                            icon={<FontAwesomeIcon icon={faPencil} className="text-[#AC8E66]" />}
+            onClick={() => {
+              // Transfer content to Content AI Studio for editing
+              if (onTransferToContentStudio) {
+                const currentState = getCurrentState();
+                onTransferToContentStudio(generatedContent, currentStep, currentState);
+              }
+            }}
+            variant="default"
+          />
+          <ZenRoughButton
+            label="Neues Dokument"
+            icon={<FontAwesomeIcon icon={faRotateLeft} className="text-[#AC8E66]" />}
+            onClick={handleNewDocument}
+            variant="default"
+          />
+          <ZenRoughButton
+            label={isMetadataFilled() ? 'Metadaten bearbeiten' : 'Metadaten bearbeiten'}
+                            icon={<FontAwesomeIcon icon={faUser} className="text-[#AC8E66]" />}
             onClick={() => setShowMetadata(true)}
             variant={isMetadataFilled() ? 'active' : 'default'}
           />
           <ZenRoughButton
             label="Im Projekt speichern"
-            icon="💾"
+                            icon={<FontAwesomeIcon icon={faSave} className="text-[#AC8E66]" />}
             onClick={saveDocumentation}
             variant="active"
           />
@@ -1841,7 +1970,8 @@ Generate the complete ${platform} post now:`;
     const handleScheduleSave = (posts: ScheduledPost[]) => {
       setScheduledPosts(posts);
       setShowScheduler(false);
-      alert('Zeitplan erfolgreich gespeichert!');
+      setSavedFileName('Zeitplan');
+      setShowSaveSuccess(true);
     };
 
     const handleAddPostFromCalendar = (date: Date) => {
@@ -1858,7 +1988,8 @@ Generate the complete ${platform} post now:`;
           return;
         }
         downloadICSFile(scheduledPosts);
-        alert('Kalender erfolgreich exportiert!');
+        setSavedFileName('calendar.ics');
+        setShowSaveSuccess(true);
       } catch (error) {
         alert('Fehler beim Exportieren: ' + (error as Error).message);
       }
@@ -2193,7 +2324,8 @@ Generate the complete ${platform} post now:`;
                     margin: 0,
                   }}
                 >
-                  💡 Lege zuerst einen Zeitplan fest, um den Kalender zu exportieren
+                  <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '6px' }} />
+                  Lege zuerst einen Zeitplan fest, um den Kalender zu exportieren
                 </p>
               </div>
             )}
@@ -2283,23 +2415,6 @@ Generate the complete ${platform} post now:`;
         overflow: 'hidden',
       }}
     >
-      <ZenHeader
-        leftText={
-    <>
-      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Doc Studio</span>
-    </>
-  }
-        rightText={
-          <>
-            Schritt {currentStep}/{selectedTemplate === 'blog-post' ? '5' : '3'} • <span style={{ color: "#AC8E66" }}>{getStepTitle()}</span>
-          </>
-        }
-        onBack={handleBack}
-        onSettings={() => setShowSettings(true)}
-        showSettingsNotification={showSettingsNotification}
-        onDismissNotification={() => setShowSettingsNotification(false)}
-      />
-
       <div
         style={{
           flex: 1,
@@ -2336,6 +2451,13 @@ Generate the complete ${platform} post now:`;
         onBackToMenu={handleBackToMenu}
         onNewDocument={handleNewDocument}
         fileName={savedFileName}
+      />
+
+      <ZenSaveSuccessModal
+        isOpen={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        fileName={savedFileName}
+        filePath={savedFilePath}
       />
     </div>
   );

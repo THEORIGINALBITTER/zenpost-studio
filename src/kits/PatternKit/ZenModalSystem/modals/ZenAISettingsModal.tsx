@@ -39,7 +39,7 @@ export const ZenAISettingsModal = ({
   const availableModels = getModelsForProvider(aiConfig.provider);
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
+    <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
      <div
        className="relative flex flex-col w-full bg-[#1E1E1E] border border-[#3a3a3a] rounded-xl shadow-2xl"
        style={{

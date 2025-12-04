@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faLightbulb } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import type { ScheduledPost, SocialPlatform } from '../../../../types/scheduling';
@@ -127,7 +129,8 @@ export function ZenPublishScheduler({ isOpen, onClose, posts, onScheduleSave, pr
               lineHeight: '1.6',
             }}
           >
-            💡 Plane deine Posts im Voraus. Wähle Datum und Uhrzeit für jede Plattform oder lasse sie leer für "Entwurf"-Status.
+            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '6px' }} />
+            Plane deine Posts im Voraus. Wähle Datum und Uhrzeit für jede Plattform oder lasse sie leer für "Entwurf"-Status.
           </p>
         </div>
 

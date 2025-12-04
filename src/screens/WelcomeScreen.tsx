@@ -5,7 +5,6 @@ import { ZenLogoFlip } from "../kits/DesignKit/ZenLogoFlip";
 import { ZenSubtitle } from "../kits/PatternKit/ZenSubtitle";
 import { ZenRoughButton, ZenFooterText, ZenAboutModal } from "../kits/PatternKit/ZenModalSystem";
 import { ZenInfoText } from "../kits/PatternKit/ZenInfoText";
-import { ZenHeader } from "../kits/PatternKit/ZenHeader";
 import { ZenInfoFooter } from "../kits/PatternKit/ZenInfoFooter";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFileLines, faMagicWandSparkles, faBook } from "@fortawesome/free-solid-svg-icons";
@@ -25,11 +24,6 @@ export const WelcomeScreen = ({
 
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
-      <ZenHeader
-        leftText={<span style={{ color: "#AC8E66" }}>ZenPost Studio</span>}
-        rightText="Content konvertieren, mit KI transformieren oder Dokumentation generieren"
-      />
-
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         {/* Logo Flip Card */}
         <div style={{ width: '130px', height: '130px' }}>

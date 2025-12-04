@@ -20,6 +20,32 @@
     "opener:default",
     "opener:allow-open-url",
     {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://denisbitter.de"
+        },
+        {
+          "url": "https://theoriginalbitter.github.io/*"
+        },
+        {
+          "url": "https://github.com/THEORIGINALBITTER/*"
+        },
+        {
+          "url": "mailto:saghallo@denisbitter.de"
+        },
+        {
+          "url": "mailto:*"
+        },
+        {
+          "url": "https://*"
+        }
+      ]
+    },
+    "shell:default",
+    "shell:allow-execute",
+    "shell:allow-open",
+    {
       "identifier": "http:default",
       "allow": [
         {
@@ -27,6 +53,26 @@
         },
         {
           "url": "https://*"
+        }
+      ]
+    },
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "open",
+          "cmd": "open",
+          "args": true
+        },
+        {
+          "name": "explorer",
+          "cmd": "explorer",
+          "args": true
+        },
+        {
+          "name": "xdg-open",
+          "cmd": "xdg-open",
+          "args": true
         }
       ]
     }

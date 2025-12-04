@@ -1,4 +1,7 @@
 import { useState } from 'react';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { downloadDir, join } from '@tauri-apps/api/path';
+
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faRotateLeft,
@@ -7,9 +10,11 @@ import {
   faCheck,
   faRocket,
   faCog,
+  faLightbulb,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { ContentPlatform } from '../../services/aiService';
 import {
   postToSocialMedia,
@@ -25,7 +30,12 @@ interface Step4TransformResultProps {
   onReset: () => void;
   onBack: () => void;
   onOpenSettings: () => void;
+  onContentChange?: (content: string) => void; // Allow updating content after translation
+  cameFromDocStudio?: boolean;
+  onBackToDocStudio?: (editedContent?: string) => void;
 }
+
+
 
 const platformLabels: Record<ContentPlatform, string> = {
   linkedin: 'LinkedIn Post',
@@ -56,18 +66,24 @@ export const Step4TransformResult = ({
   onReset,
   onBack,
   onOpenSettings,
+  onContentChange,
+  cameFromDocStudio,
+  onBackToDocStudio,
 }: Step4TransformResultProps) => {
   const [copied, setCopied] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
+  const [currentContent, setCurrentContent] = useState(transformedContent);
 
+ 
+ 
   const socialPlatform = platformMapping[platform];
   const config = loadSocialConfig();
   const hasConfig = socialPlatform ? isPlatformConfigured(socialPlatform, config) : false;
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(transformedContent);
+      await navigator.clipboard.writeText(currentContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -75,18 +91,25 @@ export const Step4TransformResult = ({
     }
   };
 
-  const handleDownload = () => {
-    const blob = new Blob([transformedContent], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${platform}-content.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleContentUpdate = (newContent: string) => {
+    setCurrentContent(newContent);
+    onContentChange?.(newContent);
   };
 
+const handleDownload = async () => {
+  try {
+    const filename = `${platform}-content.md`;
+    const dir = await downloadDir();
+    const path = await join(dir, filename);
+
+    await writeTextFile(path, currentContent);
+
+    alert(`Datei gespeichert:\n${path}`);
+  } catch (error) {
+    console.error("Error saving file:", error);
+    alert("Fehler beim Speichern der Datei");
+  }
+};
   const handlePost = async () => {
     if (!socialPlatform) {
       alert('Diese Plattform unterstützt derzeit kein direktes Posten. Bitte kopiere den Content manuell.');
@@ -114,7 +137,7 @@ export const Step4TransformResult = ({
       switch (platform) {
         case 'twitter':
           // Split into tweets if content is long
-          const tweets = transformedContent.split('\n\n').filter((t) => t.trim());
+          const tweets = currentContent.split('\n\n').filter((t) => t.trim());
           postContent = {
             text: tweets[0],
             thread: tweets.length > 1 ? tweets.slice(1) : undefined,
@@ -123,7 +146,7 @@ export const Step4TransformResult = ({
 
         case 'reddit':
           // Extract title from first line
-          const lines = transformedContent.split('\n');
+          const lines = currentContent.split('\n');
           const title = lines[0].replace(/^#\s*/, '').substring(0, 300);
           const text = lines.slice(1).join('\n').trim();
           postContent = {
@@ -135,13 +158,13 @@ export const Step4TransformResult = ({
 
         case 'linkedin':
           postContent = {
-            text: transformedContent,
+            text: currentContent,
             visibility: 'PUBLIC',
           };
           break;
 
         case 'devto':
-          const devtoLines = transformedContent.split('\n');
+          const devtoLines = currentContent.split('\n');
           const devtoTitle = devtoLines[0].replace(/^#\s*/, '');
           const bodyMarkdown = devtoLines.slice(1).join('\n').trim();
           postContent = {
@@ -153,7 +176,7 @@ export const Step4TransformResult = ({
           break;
 
         case 'medium':
-          const mediumLines = transformedContent.split('\n');
+          const mediumLines = currentContent.split('\n');
           const mediumTitle = mediumLines[0].replace(/^#\s*/, '');
           const content = mediumLines.slice(1).join('\n').trim();
           postContent = {
@@ -165,7 +188,7 @@ export const Step4TransformResult = ({
           break;
 
         case 'github-discussion':
-          const ghLines = transformedContent.split('\n');
+          const ghLines = currentContent.split('\n');
           const ghTitle = ghLines[0].replace(/^#\s*/, '');
           const body = ghLines.slice(1).join('\n').trim();
           postContent = {
@@ -178,7 +201,7 @@ export const Step4TransformResult = ({
           break;
 
         default:
-          postContent = { text: transformedContent };
+          postContent = { text: currentContent };
       }
 
       const result = await postToSocialMedia(socialPlatform, postContent, config);
@@ -242,19 +265,19 @@ export const Step4TransformResult = ({
           </div>
 
           {/* Content Display */}
-          <div className="bg-[#1F1F1F] rounded p-4 max-h-[500px] overflow-y-auto"
-              style={{ padding: '0.5rem 1.5rem' }}
-          >
-            <pre className="font-mono text-sm text-[#e5e5e5] whitespace-pre-wrap break-words">
-              {transformedContent}
-            </pre>
+          <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+            <ZenMarkdownPreview
+              content={currentContent}
+              height="500px"
+              onContentChange={handleContentUpdate}
+            />
           </div>
         </div>
 
         {/* Character Count */}
         <div className="mb-12">
-          <p className="text-[#777] font-mono text-xs">
-            {transformedContent.length} Zeichen • {transformedContent.split('\n').length} Zeilen
+          <p className="text-[#777] font-mono text-[10px] mt-2">
+            {currentContent.length} Zeichen • {currentContent.split('\n').length} Zeilen
           </p>
         </div>
 
@@ -335,6 +358,16 @@ export const Step4TransformResult = ({
             variant="active"
           />
 
+          {/* Back to Doc Studio Button - only show if came from Doc Studio */}
+          {cameFromDocStudio && onBackToDocStudio && (
+            <ZenRoughButton
+              label="↩️ Zurück zu Doc Studio"
+              icon="📄"
+              onClick={() => onBackToDocStudio(currentContent)}
+              variant="default"
+            />
+          )}
+
           {socialPlatform && (
             <ZenRoughButton
               label="Direkt posten"
@@ -358,14 +391,15 @@ export const Step4TransformResult = ({
 
         {/* Info Text */}
         <div className="text-center max-w-2xl space-y-2">
-          <p className="text-[#777] font-mono text-xs leading-relaxed">
+          <p className="text-[#777] font-mono text-[12px] text-[#AC8E66] leading-relaxed">
             {socialPlatform && hasConfig
-              ? `Du kannst den Content direkt auf ${platformLabels[platform]} posten oder manuell kopieren.`
+              ? `Du kannst den Content direkt auf ${platformMapping[platform]} posten oder manuell kopieren.`
               : `Kopiere den Content und füge ihn in ${platformLabels[platform]} ein.`}
           </p>
           {socialPlatform && !hasConfig && (
             <p className="text-[#555] font-mono text-[10px] italic">
-              💡 Optional: API-Credentials konfigurieren für direktes Posten
+              <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '4px' }} />
+              Optional: API-Credentials konfigurieren für direktes Posten
             </p>
           )}
         </div>

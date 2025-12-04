@@ -82,6 +82,108 @@ const defaultMetadata: ProjectMetadata = {
   contributingUrl: '',
 };
 
+// Typography-Konfiguration (außerhalb der Komponente)
+const typography = {
+  sectionTitle: '15px',
+  label: '12px',
+  input: '13px',
+  iconSize: '13px',
+};
+
+// InputField-Komponente (außerhalb der Hauptkomponente definiert!)
+const InputField = ({
+  label,
+  icon,
+  value,
+  onChange,
+  placeholder,
+  type = 'text',
+}: {
+  label: string;
+  icon: any;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  type?: string;
+}) => {
+  // Email-Validierung
+  const isEmail = type === 'email';
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const isValidEmail = !isEmail || !value || emailRegex.test(value);
+  const showError = isEmail && value && !isValidEmail;
+
+  return (
+    <div style={{ marginBottom: '16px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+      <div style={{ width: '400px', maxWidth: '90%' }}>
+        <label
+          className="font-mono text-[#999] flex items-center"
+          style={{
+            fontSize: typography.label,
+            marginBottom: '8px',
+            gap: '6px',
+          }}
+        >
+          <FontAwesomeIcon
+            icon={icon}
+            className="text-[#AC8E66]"
+            style={{ fontSize: typography.iconSize }}
+          />
+          {label}
+        </label>
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#AC8E66] focus:outline-none"
+          autoComplete="off"
+          style={{
+            width: '100%',
+            padding: '10px 12px',
+            border: showError ? '1px solid #ef4444' : '1px solid #3A3A3A',
+            borderRadius: '6px',
+            fontSize: typography.input,
+            transition: 'border-color 0.2s',
+          }}
+        />
+        {showError && (
+          <div
+            style={{
+              fontSize: '10px',
+              color: '#ef4444',
+              marginTop: '4px',
+              fontFamily: 'monospace',
+            }}
+          >
+            Bitte gib eine gültige E-Mail-Adresse ein
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Section Header Component (außerhalb der Hauptkomponente)
+const SectionHeader = ({ icon, title }: { icon: any; title: string }) => (
+  <h3
+    className="font-mono text-[#AC8E66] flex items-center"
+    style={{
+      fontSize: typography.sectionTitle,
+      fontWeight: 'bold',
+      borderBottom: '1px solid #AC8E66',
+      paddingBottom: '8px',
+      marginBottom: '16px',
+      gap: '8px',
+    }}
+  >
+    <FontAwesomeIcon
+      icon={icon}
+      style={{ fontSize: typography.iconSize }}
+    />
+    {title}
+  </h3>
+);
+
 export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetadataModalProps) {
   const [formData, setFormData] = useState<ProjectMetadata>(metadata || defaultMetadata);
   const modalPreset = getModalPreset('metadata');
@@ -119,89 +221,6 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
   );
 
   if (!isOpen) return null;
-
-  // Konfigurierbare Schriftgrößen
-  const typography = {
-    sectionTitle: '15px',
-    label: '12px',
-    input: '13px',
-    iconSize: '13px',
-  };
-
-  // Wiederverwendbares Input Field Component
-const InputField = ({
-  label,
-  icon,
-  value,
-  onChange,
-  placeholder,
-  type = 'text',
-}: {
-  label: string;
-  icon: any;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-  type?: string;
-}) => (
-  <div style={{ marginBottom: '16px', width: '100%', display: 'flex', justifyContent: 'center' }}>
-    <div style={{ width: '400px', maxWidth: '90%' }}> {/* Hier die max-Breite setzen */}
-      <label
-        className="font-mono text-[#999] flex items-center"
-        style={{
-          fontSize: typography.label,
-          marginBottom: '8px',
-          gap: '6px',
-        }}
-      >
-        <FontAwesomeIcon
-          icon={icon}
-          className="text-[#AC8E66]"
-          style={{ fontSize: typography.iconSize }}
-        />
-        {label}
-      </label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#AC8E66] focus:outline-none"
-        autoComplete="off"
-        style={{
-          width: '100%', // bleibt 100% vom Wrapper
-          padding: '10px 12px',
-          border: '1px solid #3A3A3A',
-          borderRadius: '6px',
-          fontSize: typography.input,
-          transition: 'border-color 0.2s',
-        }}
-      />
-    </div>
-  </div>
-);
-
-
-  // Section Header Component
-  const SectionHeader = ({ icon, title }: { icon: any; title: string }) => (
-    <h3
-      className="font-mono text-[#AC8E66] flex items-center"
-      style={{
-        fontSize: typography.sectionTitle,
-        fontWeight: 'bold',
-        borderBottom: '1px solid #AC8E66',
-        paddingBottom: '8px',
-        marginBottom: '16px',
-        gap: '8px',
-      }}
-    >
-      <FontAwesomeIcon
-        icon={icon}
-        style={{ fontSize: typography.iconSize }}
-      />
-      {title}
-    </h3>
-  );
 
   return (
     <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>

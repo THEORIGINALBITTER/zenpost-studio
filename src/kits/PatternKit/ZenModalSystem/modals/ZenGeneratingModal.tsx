@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faLightbulb } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../components/ZenModal';
+import { loadAIConfig, getAvailableProviders } from '../../../../services/aiService';
 
 interface ZenGeneratingModalProps {
   isOpen: boolean;
@@ -8,6 +11,12 @@ interface ZenGeneratingModalProps {
 
 export function ZenGeneratingModal({ isOpen, templateName }: ZenGeneratingModalProps) {
   const [progress, setProgress] = useState(0);
+
+  // Get the AI provider name from settings
+  const aiConfig = loadAIConfig();
+  const providers = getAvailableProviders();
+  const currentProvider = providers.find(p => p.value === aiConfig.provider);
+  const AI_NAME = currentProvider?.label || "AI";
 
   useEffect(() => {
     if (!isOpen) {
@@ -220,7 +229,8 @@ export function ZenGeneratingModal({ isOpen, templateName }: ZenGeneratingModalP
               lineHeight: '1.6',
             }}
           >
-            💡 Die KI {"name der KI"} analysiert und erstellt maßgeschneiderte Dokumentation
+            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '6px' }} />
+            Die KI {AI_NAME} analysiert und erstellt maßgeschneiderte Dokumentation
           </p>
         </div>
 

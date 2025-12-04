@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faEye, faPencil, faUser, faQuestionCircle, faCheckCircle, faExternalLinkAlt, faRocket } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faEye, faPencil, faUser, faQuestionCircle, faCheckCircle, faExternalLinkAlt, faRocket, faBackspace } from '@fortawesome/free-solid-svg-icons';
 import { faApple } from '@fortawesome/free-brands-svg-icons';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
@@ -22,6 +22,8 @@ interface Step1SourceInputProps {
   onError?: (error: string) => void;
   cameFromEdit?: boolean; // Flag to show "Back to Posting" button
   onBackToPosting?: () => void; // Callback to go directly to Step 4
+  cameFromDocStudio?: boolean; // Flag to show "Back to Doc Studio" button
+  onBackToDocStudio?: (editedContent?: string) => void; // Callback to go back to Doc Studio
 }
 
 // Helper component for rough circle
@@ -165,6 +167,8 @@ export const Step1SourceInput = ({
   onError,
   cameFromEdit = false,
   onBackToPosting,
+  cameFromDocStudio = false,
+  onBackToDocStudio,
 }: Step1SourceInputProps) => {
   const [showPreview, setShowPreview] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
@@ -374,6 +378,14 @@ export const Step1SourceInput = ({
                   icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
                   onClick={onBackToPosting}
                   variant="active"
+                />
+              )}
+              {cameFromDocStudio && onBackToDocStudio && (
+                <ZenRoughButton
+                  label="Zurück zu Doc Studio"
+                                 icon={<FontAwesomeIcon icon={faBackspace} className="text-[#AC8E66]" />}
+                  onClick={() => onBackToDocStudio(sourceContent)}
+                  variant="default"
                 />
               )}
             </>

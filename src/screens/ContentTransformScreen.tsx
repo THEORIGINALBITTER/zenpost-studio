@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   faLinkedin,
   faDev,
@@ -8,7 +8,6 @@ import {
   faGithub,
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
-import { ZenHeader } from '../kits/PatternKit/ZenHeader';
 import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
@@ -17,10 +16,12 @@ import { Step3StyleOptions } from './transform-steps/Step3StyleOptions';
 import { Step4TransformResult } from './transform-steps/Step4TransformResult';
 import {
   transformContent,
+  translateContent,
   type ContentPlatform,
   type ContentTone,
   type ContentLength,
   type ContentAudience,
+  type TargetLanguage,
 } from '../services/aiService';
 import {
   postToSocialMedia,
@@ -94,15 +95,54 @@ const platformOptions: PlatformOption[] = [
 
 interface ContentTransformScreenProps {
   onBack: () => void;
+  onStepChange?: (step: number) => void;
+  initialContent?: string | null;
+  cameFromDocStudio?: boolean;
+  onBackToDocStudio?: (editedContent?: string) => void;
 }
 
-export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) => {
+export const ContentTransformScreen = ({
+  onBack,
+  onStepChange,
+  initialContent,
+  cameFromDocStudio,
+  onBackToDocStudio
+}: ContentTransformScreenProps) => {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(1);
+
+  // Notify parent about step changes
+  useEffect(() => {
+    onStepChange?.(currentStep);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep]);
+
+  // Navigation Handlers
+  const handleBack = () => {
+    if (currentStep === 1) {
+      onBack(); // Go back to WelcomeScreen
+    } else {
+      setCurrentStep(currentStep - 1);
+      setError(null);
+    }
+  };
+
 
   // Step 1: Source Input
   const [sourceContent, setSourceContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
+
+  // Track initial content load to prevent re-loading
+  const loadedInitialContentRef = useRef<string | null>(null);
+
+  // Load initial content if provided (from Doc Studio) - only once
+  useEffect(() => {
+    if (initialContent && initialContent !== loadedInitialContentRef.current) {
+      setSourceContent(initialContent);
+      setFileName('Dokument aus Doc Studio');
+      loadedInitialContentRef.current = initialContent;
+    }
+  }, [initialContent]);
 
   // Step 2: Platform Selection
   const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>('linkedin');
@@ -111,6 +151,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
   const [tone, setTone] = useState<ContentTone>('professional');
   const [length, setLength] = useState<ContentLength>('medium');
   const [audience, setAudience] = useState<ContentAudience>('intermediate');
+  const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>('deutsch');
 
   // Step 4: Result
   const [transformedContent, setTransformedContent] = useState<string>('');
@@ -123,7 +164,6 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
 
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
-  const [showSettingsNotification, setShowSettingsNotification] = useState(false);
 
   // Metadata Modal
   const [showMetadata, setShowMetadata] = useState(false);
@@ -178,16 +218,6 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
     return result;
   };
 
-  // Navigation Handlers
-  const handleBack = () => {
-    if (currentStep === 1) {
-      onBack(); // Go back to WelcomeScreen
-    } else {
-      setCurrentStep(currentStep - 1);
-      setError(null);
-    }
-  };
-
   const handleNextFromStep1 = () => {
     if (!sourceContent.trim()) {
       setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
@@ -211,6 +241,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
       // Replace placeholders in source content before transforming
       const processedContent = replacePlaceholders(sourceContent);
 
+      // Step 1: Transform content for platform
       const result = await transformContent(processedContent, {
         platform: selectedPlatform,
         tone,
@@ -219,7 +250,21 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
       });
 
       if (result.success && result.data) {
-        setTransformedContent(result.data);
+        let finalContent = result.data;
+
+        // Step 2: Translate if target language is not deutsch (assuming source is deutsch)
+        if (targetLanguage && targetLanguage !== 'deutsch') {
+          const translateResult = await translateContent(finalContent, targetLanguage);
+          if (translateResult.success && translateResult.data) {
+            finalContent = translateResult.data;
+          } else {
+            // Translation failed, but we still have the transformed content
+            console.warn('Translation failed:', translateResult.error);
+            setError(`Transformation erfolgreich, aber Übersetzung fehlgeschlagen: ${translateResult.error}`);
+          }
+        }
+
+        setTransformedContent(finalContent);
         setCurrentStep(4);
       } else {
         const errorMsg = result.error || 'Transformation fehlgeschlagen';
@@ -233,7 +278,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
           errorMsg.includes('Einstellungen') ||
           errorMsg.includes('Key')
         ) {
-          setShowSettingsNotification(true);
+          // Settings notification handled by modal
         }
       }
     } catch (err) {
@@ -248,7 +293,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
         errorMsg.includes('Einstellungen') ||
         errorMsg.includes('Key')
       ) {
-        setShowSettingsNotification(true);
+        // Settings notification handled by modal
       }
     } finally {
       setIsTransforming(false);
@@ -301,7 +346,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
       // Check if platform is configured
       if (!isPlatformConfigured(socialPlatform, config)) {
         setError(`${selectedPlatform} ist nicht konfiguriert. Bitte füge deine API-Credentials in den Einstellungen hinzu.`);
-        setShowSettingsNotification(true);
+        // Settings notification handled by modal
         setIsPosting(false);
         return;
       }
@@ -412,7 +457,7 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
       } else {
         setError(result.error || 'Posting fehlgeschlagen');
         if (result.error?.includes('configuration') || result.error?.includes('not found')) {
-          setShowSettingsNotification(true);
+          // Settings notification handled by modal
         }
       }
     } catch (err) {
@@ -444,6 +489,8 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
               setCameFromEdit(false); // Reset flag
               setCurrentStep(4);
             }}
+            cameFromDocStudio={cameFromDocStudio}
+            onBackToDocStudio={() => onBackToDocStudio?.(sourceContent)}
           />
 
         );
@@ -468,9 +515,11 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
             tone={tone}
             length={length}
             audience={audience}
+            targetLanguage={targetLanguage}
             onToneChange={setTone}
             onLengthChange={setLength}
             onAudienceChange={setAudience}
+            onTargetLanguageChange={setTargetLanguage}
             onBack={() => setCurrentStep(2)}
             onBackToEditor={() => setCurrentStep(1)}
             onTransform={handleTransform}
@@ -493,6 +542,9 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
               setCurrentStep(1);
             }}
             onOpenSettings={() => setShowSettings(true)}
+            onContentChange={setTransformedContent}
+            cameFromDocStudio={cameFromDocStudio}
+            onBackToDocStudio={() => onBackToDocStudio?.(transformedContent)}
           />
         );
       default:
@@ -502,34 +554,6 @@ export const ContentTransformScreen = ({ onBack }: ContentTransformScreenProps) 
 
   return (
     <div className="flex flex-col h-screen bg-[#1A1A1A] text-[#e5e5e5] overflow-hidden">
-      {/* Header */}
-      <ZenHeader
-        leftText={
-    <>
-      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Content AI Studio</span>
-    </>
-  }
-        rightText={
-          <>
-            Step {currentStep}/4 • <span style={{ color: "#AC8E66" }}>
-              {currentStep === 1
-                ? 'Quelle eingeben'
-                : currentStep === 2
-                ? 'Plattform wählen'
-                : currentStep === 3
-                ? 'Stil anpassen'
-                : 'Ergebnis'}
-            </span>
-          </>
-        }
-        onBack={handleBack}
-        onSettings={() => {
-          setShowSettings(true);
-          setShowSettingsNotification(false);
-        }}
-        showSettingsNotification={showSettingsNotification}
-        onDismissNotification={() => setShowSettingsNotification(false)}
-      />
 
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>

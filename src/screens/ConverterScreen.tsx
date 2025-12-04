@@ -9,7 +9,6 @@ import {
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
-import { ZenHeader } from '../kits/PatternKit/ZenHeader';
 import { ZenSettingsModal, ZenGeneratingModal } from '../kits/PatternKit/ZenModalSystem';
 import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
@@ -43,11 +42,18 @@ const formatOptions: FormatOption[] = [
 
 interface ConverterScreenProps {
   onBack?: () => void;
+  onStepChange?: (step: number) => void;
 }
 
-export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
+export const ConverterScreen = ({ onBack: _onBack, onStepChange }: ConverterScreenProps) => {
   // Step State
   const [currentStep, setCurrentStep] = useState(1);
+
+  // Notify parent of step changes
+  const handleSetCurrentStep = (step: number) => {
+    setCurrentStep(step);
+    onStepChange?.(step);
+  };
 
   // Data State
   const [inputContent, setInputContent] = useState('');
@@ -77,7 +83,7 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
       const content = e.target?.result as string;
       setInputContent(content);
       setError(null);
-      setCurrentStep(3); // Move to conversion step after upload
+      handleSetCurrentStep(3); // Move to conversion step after upload
     };
     reader.onerror = () => {
       setError('Fehler beim Lesen der Datei');
@@ -121,31 +127,6 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
     } finally {
       setIsConverting(false);
     }
-  };
-
-
-  // Step titles for header
-  const getStepTitle = () => {
-    const stepText = () => {
-      switch (currentStep) {
-        case 1:
-          return 'Format wählen';
-        case 2:
-          return 'Inhalt bereitstellen';
-        case 3:
-          return 'Konvertierung';
-        case 4:
-          return 'Fertig!';
-        default:
-          return 'Format wählen';
-      }
-    };
-
-    return (
-      <>
-        Step {currentStep}/4 · <span style={{ color: "#AC8E66" }}>{stepText()}</span>
-      </>
-    );
   };
 
   const handleDownload = async () => {
@@ -200,7 +181,7 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
             formatOptions={formatOptions}
             onFromFormatChange={setFromFormat}
             onToFormatChange={setToFormat}
-            onNext={() => setCurrentStep(2)}
+            onNext={() => handleSetCurrentStep(2)}
           />
         );
       case 2:
@@ -213,8 +194,8 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
             fileInputRef={fileInputRef}
             onInputContentChange={setInputContent}
             onFileUpload={handleFileUpload}
-            onBack={() => setCurrentStep(1)}
-            onNext={() => setCurrentStep(3)}
+            onBack={() => handleSetCurrentStep(1)}
+            onNext={() => handleSetCurrentStep(3)}
           />
         );
       case 3:
@@ -228,10 +209,10 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
             onConvert={async () => {
               await handleConvert();
               if (outputContent) {
-                setCurrentStep(4);
+                handleSetCurrentStep(4);
               }
             }}
-            onBack={() => setCurrentStep(2)}
+            onBack={() => handleSetCurrentStep(2)}
           />
         );
       case 4:
@@ -241,7 +222,7 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
             outputContent={outputContent}
             onDownload={handleDownload}
             onStartOver={() => {
-              setCurrentStep(1);
+              handleSetCurrentStep(1);
               setInputContent('');
               setOutputContent('');
               setFileName('');
@@ -257,7 +238,7 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
             formatOptions={formatOptions}
             onFromFormatChange={setFromFormat}
             onToFormatChange={setToFormat}
-            onNext={() => setCurrentStep(2)}
+            onNext={() => handleSetCurrentStep(2)}
           />
         );
     }
@@ -265,16 +246,6 @@ export const ConverterScreen = ({ onBack }: ConverterScreenProps) => {
 
   return (
     <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
-      <ZenHeader
-          leftText={
-    <>
-      ZenPost Studio • <span style={{ color: "#AC8E66" }}>Converter Studio</span>
-    </>
-  }
-        rightText={getStepTitle()}
-        onBack={onBack}
-      />
-
       {/* Step Indicator */}
       <div className="flex justify-center gap-2 pt-6 pb-2">
         {[1, 2, 3, 4].map((step) => (

@@ -87,6 +87,34 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   maxWidth: "900px"    // vorher undefined
    // optional
 },
+
+//. modal Home
+
+'home': {
+  id: 'home',
+  title: 'Zur Startseite wechseln',
+  subtitle: 'Bestätige den Wechsel zum Willkommensbildschirm',
+  titleColor: '#AC8E66',
+  subtitleColor: '#ccc',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '300px',
+  minWidth: '480px',
+},
+
+// Save Success Modal
+'save-success': {
+  id: 'save-success',
+  title: 'Erfolgreich gespeichert',
+  subtitle: 'Deine Datei wurde im Projekt gespeichert',
+  titleColor: '#22c55e',
+  subtitleColor: '#ccc',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '240px',
+  minWidth: '480px',
+},
+
   // Weitere Modal-Presets können hier hinzugefügt werden
   'default': {
     id: 'default',
