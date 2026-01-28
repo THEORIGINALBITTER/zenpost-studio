@@ -74,11 +74,11 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
 
   if (success) {
     return (
-      <ZenModal isOpen={isOpen} onClose={onClose} size="md">
+      <ZenModal isOpen={isOpen} onClose={onClose} size="large">
         <div className="flex flex-col items-center justify-center py-12">
           <div
             className="w-20 h-20 rounded-full bg-gradient-to-br from-[#d8b27c] to-[#AC8E66]
-              flex items-center justify-center mb-6 animate-pulse"
+              flex items-center justify-center mb-[12px] animate-pulse"
           >
             <FontAwesomeIcon icon={faCheck} className="text-3xl text-[#1a1a1a]" />
           </div>
@@ -122,10 +122,13 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         onClose={onClose}
       />
 
-      <div className="p-6">
+      <div
+        className="px-[12px] pb-6 overflow-y-auto zen-scrollbar"
+        style={{ maxHeight: '70vh' }}
+      >
         {/* Highlighted Feature */}
         {highlightFeature && FEATURES[highlightFeature] && (
-          <div className="mb-6 p-4 bg-[#AC8E66]/10 border border-[#AC8E66] rounded-lg">
+          <div className="mb-[12px] p-[10px] bg-[#AC8E66]/10 border border-[#AC8E66] rounded-lg">
             <p className="text-sm font-mono text-[#AC8E66]">
               <FontAwesomeIcon icon={faRocket} className="mr-2" />
               <strong>{FEATURES[highlightFeature].name}</strong> ist ein PRO Feature
@@ -137,9 +140,9 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         )}
 
         {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-[10px] mb-[12px]">
           {/* Monthly */}
-          <div className="p-4 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
+          <div className="p-[10px] bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
             <h4 className="font-mono text-[#e5e5e5] text-sm mb-2">Monatlich</h4>
             <p className="text-2xl font-mono text-[#AC8E66]">
               {PRICING.pro.monthly}€
@@ -148,7 +151,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
           </div>
 
           {/* Yearly - Recommended */}
-          <div className="p-4 bg-[#2a2a2a] border-2 border-[#AC8E66] rounded-lg relative">
+          <div className="p-[10px] bg-[#2a2a2a] border-2 border-[#AC8E66] rounded-lg relative">
             <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#AC8E66] text-[#1a1a1a] text-[10px] font-mono rounded">
               EMPFOHLEN
             </span>
@@ -163,7 +166,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
           </div>
 
           {/* Lifetime */}
-          <div className="p-4 bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
+          <div className="p-[10px] bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
             <h4 className="font-mono text-[#e5e5e5] text-sm mb-2 flex items-center gap-2">
               Lifetime
               <FontAwesomeIcon icon={faInfinity} className="text-[#AC8E66] text-xs" />
@@ -176,7 +179,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         </div>
 
         {/* PRO Features List */}
-        <div className="mb-6">
+        <div className="mb-[12px]">
           <h4 className="font-mono text-sm text-[#888] mb-3">PRO Features:</h4>
           <div className="grid grid-cols-2 gap-2">
             {proFeaturesList.slice(0, 8).map((feature) => (
@@ -194,7 +197,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
 
         {/* License Key Input */}
         {showKeyInput ? (
-          <div className="mb-6">
+          <div className="mb-[12px]">
             <label className="block text-xs font-mono text-[#888] mb-2">
               Lizenzschlüssel eingeben:
             </label>

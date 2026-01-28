@@ -6,8 +6,9 @@
 
 import React, { ReactNode } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faLock, faCrown } from '@fortawesome/free-solid-svg-icons';
+import { faLock, faCrown, faCheck, faGift, faRocket } from '@fortawesome/free-solid-svg-icons';
 import { useFeatureAccess, useLicense } from '../contexts/LicenseContext';
+import { FEATURES, PRO_FEATURES } from '../config/featureFlags';
 
 interface FeatureGateProps {
   /** Feature ID to check access for */
@@ -36,6 +37,7 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
   lockMessage,
 }) => {
   const { hasAccess, feature, requestUpgrade } = useFeatureAccess(featureId);
+  const { canStartTrial, startTrial } = useLicense();
 
   if (hasAccess) {
     return <>{children}</>;
@@ -60,13 +62,14 @@ export const FeatureGate: React.FC<FeatureGateProps> = ({
   }
 
   return (
-    <LockedOverlay
+    <LockedScreen
+      featureId={featureId}
       featureName={feature?.name || featureId}
+      featureDescription={feature?.description || ''}
       message={lockMessage || `${feature?.name} ist ein PRO Feature`}
-      onClick={requestUpgrade}
-    >
-      {children}
-    </LockedOverlay>
+      onUpgrade={requestUpgrade}
+      onStartTrial={canStartTrial ? startTrial : undefined}
+    />
   );
 };
 
@@ -91,63 +94,248 @@ const InlineLock: React.FC<InlineLockProps> = ({ featureName, onClick }) => (
 );
 
 /**
- * Overlay lock for larger content areas
+ * Full-screen locked feature screen
  */
-interface LockedOverlayProps {
+interface LockedScreenProps {
+  featureId: string;
   featureName: string;
+  featureDescription: string;
   message: string;
-  onClick: () => void;
-  children: ReactNode;
+  onUpgrade: () => void;
+  onStartTrial?: () => void;
 }
 
-const LockedOverlay: React.FC<LockedOverlayProps> = ({
+const LockedScreen: React.FC<LockedScreenProps> = ({
+  featureId,
   featureName,
-  message,
-  onClick,
-  children,
-}) => (
-  <div className="relative">
-    {/* Blurred content */}
-    <div className="filter blur-sm opacity-50 pointer-events-none select-none">
-      {children}
-    </div>
+  featureDescription,
+  onUpgrade,
+  onStartTrial,
+}) => {
+  // Get some PRO features to display
+  const proFeatures = PRO_FEATURES
+    .map((id) => FEATURES[id])
+    .filter(Boolean)
+    .slice(0, 6);
 
-    {/* Lock overlay */}
+  return (
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center
-        bg-[#1a1a1a]/80 backdrop-blur-sm rounded-lg cursor-pointer
-        hover:bg-[#1a1a1a]/70 transition-colors"
-      onClick={onClick}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 'calc(100vh - 120px)',
+        padding: '40px 20px',
+        backgroundColor: '#1A1A1A',
+      }}
     >
-      <div className="text-center p-6">
+      {/* Main Content Card */}
+      <div
+        style={{
+          maxWidth: 600,
+          width: '100%',
+          backgroundColor: '#242424',
+          borderRadius: 16,
+          border: '2px solid #AC8E66',
+          overflow: 'hidden',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+        }}
+      >
+        {/* Header with Crown */}
         <div
-          className="w-16 h-16 mx-auto mb-4 rounded-full
-            bg-gradient-to-br from-[#d8b27c] to-[#AC8E66]
-            flex items-center justify-center shadow-lg"
+          style={{
+            background: 'linear-gradient(135deg, rgba(172, 142, 102, 0.2), rgba(172, 142, 102, 0.05))',
+            padding: '40px 32px',
+            textAlign: 'center',
+            borderBottom: '1px solid #3a3a3a',
+          }}
         >
-          <FontAwesomeIcon icon={faCrown} className="text-2xl text-[#1a1a1a]" />
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              margin: '0 auto 20px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+            }}
+          >
+            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
+          </div>
+
+          <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 8px 0' }}>
+            {featureName}
+          </h1>
+
+          <p style={{ fontFamily: 'monospace', fontSize: 14, color: '#888', margin: 0 }}>
+            {featureDescription || 'Dieses Feature ist Teil von ZenStudio PRO'}
+          </p>
         </div>
 
-        <h3 className="text-lg font-mono text-[#AC8E66] mb-2">
-          {featureName}
-        </h3>
+        {/* Body */}
+        <div style={{ padding: '32px' }}>
+          {/* Feature highlight */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '16px',
+              backgroundColor: 'rgba(172, 142, 102, 0.1)',
+              borderRadius: 12,
+              marginBottom: 24,
+            }}
+          >
+            <FontAwesomeIcon icon={faRocket} style={{ fontSize: 20, color: '#AC8E66' }} />
+            <div>
+              <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#e5e5e5', margin: 0 }}>
+                Schalte <strong style={{ color: '#AC8E66' }}>{featureName}</strong> frei
+              </p>
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '4px 0 0 0' }}>
+                Upgrade auf PRO für vollen Zugang
+              </p>
+            </div>
+          </div>
 
-        <p className="text-sm text-[#888] font-mono mb-4 max-w-xs">
-          {message}
-        </p>
+          {/* PRO Features Grid */}
+          <div style={{ marginBottom: 24 }}>
+            <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Alle PRO Features
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {proFeatures.map((f) => (
+                <div
+                  key={f.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    backgroundColor: f.id === featureId ? 'rgba(172, 142, 102, 0.15)' : '#1a1a1a',
+                    borderRadius: 8,
+                    border: f.id === featureId ? '1px solid #AC8E66' : '1px solid transparent',
+                  }}
+                >
+                  <FontAwesomeIcon
+                    icon={faCheck}
+                    style={{ fontSize: 10, color: '#AC8E66' }}
+                  />
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: f.id === featureId ? '#AC8E66' : '#888',
+                    }}
+                  >
+                    {f.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        <button
-          className="px-6 py-2 bg-gradient-to-r from-[#d8b27c] to-[#AC8E66]
-            text-[#1a1a1a] font-mono text-sm rounded-lg
-            hover:from-[#e5c38d] hover:to-[#b99a72] transition-all
-            shadow-lg hover:shadow-xl"
-        >
-          Upgrade auf PRO
-        </button>
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Trial Button */}
+            {onStartTrial && (
+              <button
+                onClick={onStartTrial}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 10,
+                  padding: '16px 24px',
+                  background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+                  color: '#1a1a1a',
+                  border: 'none',
+                  borderRadius: 12,
+                  fontFamily: 'monospace',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: '0 4px 20px rgba(172, 142, 102, 0.3)',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 24px rgba(172, 142, 102, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 20px rgba(172, 142, 102, 0.3)';
+                }}
+              >
+                <FontAwesomeIcon icon={faGift} />
+                7 Tage kostenlos testen
+              </button>
+            )}
+
+            {/* Upgrade Button */}
+            <button
+              onClick={onUpgrade}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                padding: '16px 24px',
+                backgroundColor: 'transparent',
+                color: '#AC8E66',
+                border: '2px solid #AC8E66',
+                borderRadius: 12,
+                fontFamily: 'monospace',
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = 'rgba(172, 142, 102, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <FontAwesomeIcon icon={faCrown} />
+              {onStartTrial ? 'Preise & Optionen ansehen' : 'Upgrade auf PRO'}
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* Footer Text */}
+      <p
+        style={{
+          fontFamily: 'monospace',
+          fontSize: 11,
+          color: '#555',
+          marginTop: 24,
+          textAlign: 'center',
+        }}
+      >
+        Du hast bereits einen Lizenzschlüssel?{' '}
+        <button
+          onClick={onUpgrade}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: '#AC8E66',
+            fontFamily: 'monospace',
+            fontSize: 11,
+            cursor: 'pointer',
+            textDecoration: 'underline',
+          }}
+        >
+          Hier eingeben
+        </button>
+      </p>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * Hook-based feature check for programmatic use

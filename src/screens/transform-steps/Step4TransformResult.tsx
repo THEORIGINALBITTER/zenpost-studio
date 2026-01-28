@@ -770,7 +770,7 @@ const handleDownload = async () => {
                         border: '1px solid #AC8E66',
                         borderRadius: '12px',
                         padding: '8px',
-                        minWidth: '220px',
+                        minWidth: '350px',
                         zIndex: 100,
                         boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
                       }}
@@ -854,7 +854,8 @@ const handleDownload = async () => {
                         }}
                       >
                         <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
-                          ✍️ Eigene Anweisung
+                             <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '10px' , marginTop: '-2px'}} />
+                          Eigene Anweisung
                         </div>
                         <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
                           Beschreibe selbst wie
@@ -869,7 +870,7 @@ const handleDownload = async () => {
                             onChange={(e) => setCustomInstruction(e.target.value)}
                             placeholder="z.B. 'Mache den Text lustiger' oder 'Füge mehr Beispiele hinzu'"
                             style={{
-                              width: '100%',
+                              width: '93%',
                               minHeight: '80px',
                               padding: '10px',
                               backgroundColor: '#2A2A2A',
