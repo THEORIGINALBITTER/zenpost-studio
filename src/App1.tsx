@@ -683,7 +683,7 @@ function AppContent() {
           />
         )}
         {currentScreen === "doc-studio" && (
-          <FeatureGate featureId="DOC_STUDIO">
+          <FeatureGate featureId="DOC_STUDIO" onClose={handleDocStudioBack}>
             <DocStudioScreen
               onBack={handleDocStudioBack}
               onTransferToContentStudio={handleTransferToContentStudio}
