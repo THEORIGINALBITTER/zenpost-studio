@@ -1,6 +1,6 @@
 /**
  * ZenUpgradeModal
- * Modal for upgrading to PRO tier
+ * Modal for upgrading to PRO tier - Zen Style
  */
 
 import React, { useState } from 'react';
@@ -12,8 +12,9 @@ import {
   faKey,
   faGift,
   faInfinity,
+  faTimes,
 } from '@fortawesome/free-solid-svg-icons';
-import { ZenModal, ZenModalHeader, ZenRoughButton } from '../index';
+import { ZenModal } from '../index';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { FEATURES, PRICING, PRO_FEATURES } from '../../../../config/featureFlags';
 import { generateDemoKey } from '../../../../services/licenseService';
@@ -69,23 +70,44 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
     setShowKeyInput(true);
   };
 
-  // Group PRO features by category
-  const proFeaturesList = PRO_FEATURES.map((id) => FEATURES[id]).filter(Boolean);
+  // PRO features list
+  const proFeatures = PRO_FEATURES.map((id) => FEATURES[id]).filter(Boolean).slice(0, 6);
+  const highlightedFeature = highlightFeature ? FEATURES[highlightFeature] : null;
 
+  // Success State
   if (success) {
     return (
-      <ZenModal isOpen={isOpen} onClose={onClose} size="large">
-        <div className="flex flex-col items-center justify-center py-12">
+      <ZenModal isOpen={isOpen} onClose={onClose} size="lg">
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '60px 40px',
+            backgroundColor: '#1E1E1E',
+          }}
+        >
           <div
-            className="w-20 h-20 rounded-full bg-gradient-to-br from-[#d8b27c] to-[#AC8E66]
-              flex items-center justify-center mb-[12px] animate-pulse"
+            style={{
+              width: 100,
+              height: 100,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 24,
+              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+              animation: 'pulse 2s infinite',
+            }}
           >
-            <FontAwesomeIcon icon={faCheck} className="text-3xl text-[#1a1a1a]" />
+            <FontAwesomeIcon icon={faCheck} style={{ fontSize: 48, color: '#1a1a1a' }} />
           </div>
-          <h2 className="text-xl font-mono text-[#AC8E66] mb-2">
+          <h2 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 12px 0' }}>
             Willkommen bei ZenStudio PRO!
           </h2>
-          <p className="text-sm font-mono text-[#888]">
+          <p style={{ fontFamily: 'monospace', fontSize: 14, color: '#888', margin: 0 }}>
             Alle Features sind jetzt freigeschaltet
           </p>
         </div>
@@ -93,23 +115,57 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
     );
   }
 
+  // Already PRO State
   if (isPro) {
     return (
       <ZenModal isOpen={isOpen} onClose={onClose} size="md">
-        <ZenModalHeader title="ZenStudio PRO" onClose={onClose} />
-        <div className="p-6 text-center">
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '60px 40px',
+            backgroundColor: '#1E1E1E',
+          }}
+        >
           <div
-            className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-[#d8b27c] to-[#AC8E66]
-              flex items-center justify-center mb-4"
+            style={{
+              width: 80,
+              height: 80,
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginBottom: 20,
+              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+            }}
           >
-            <FontAwesomeIcon icon={faCrown} className="text-2xl text-[#1a1a1a]" />
+            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
           </div>
-          <h3 className="text-lg font-mono text-[#AC8E66] mb-2">
+          <h3 style={{ fontFamily: 'monospace', fontSize: 20, color: '#AC8E66', margin: '0 0 8px 0' }}>
             Du bist bereits PRO!
           </h3>
-          <p className="text-sm font-mono text-[#888]">
+          <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#888', margin: 0 }}>
             Alle Features sind für dich freigeschaltet
           </p>
+          <button
+            onClick={onClose}
+            style={{
+              marginTop: 24,
+              padding: '12px 32px',
+              backgroundColor: 'transparent',
+              color: '#AC8E66',
+              border: '1px solid #AC8E66',
+              borderRadius: 8,
+              fontFamily: 'monospace',
+              fontSize: 12,
+              cursor: 'pointer',
+            }}
+          >
+            Schließen
+          </button>
         </div>
       </ZenModal>
     );
@@ -117,151 +173,440 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
 
   return (
     <ZenModal isOpen={isOpen} onClose={onClose} size="lg">
-      <ZenModalHeader
-        title="Upgrade auf PRO"
-        onClose={onClose}
-      />
-
       <div
-        className="px-[12px] pb-6 overflow-y-auto zen-scrollbar"
-        style={{ maxHeight: '70vh' }}
+        style={{
+          position: 'relative',
+          backgroundColor: '#242424',
+          borderRadius: 12,
+          overflow: 'hidden',
+          maxHeight: '85vh',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
       >
-        {/* Highlighted Feature */}
-        {highlightFeature && FEATURES[highlightFeature] && (
-          <div className="mb-[12px] p-[10px] bg-[#AC8E66]/10 border border-[#AC8E66] rounded-lg">
-            <p className="text-sm font-mono text-[#AC8E66]">
-              <FontAwesomeIcon icon={faRocket} className="mr-2" />
-              <strong>{FEATURES[highlightFeature].name}</strong> ist ein PRO Feature
-            </p>
-            <p className="text-xs font-mono text-[#888] mt-1">
-              {FEATURES[highlightFeature].description}
-            </p>
-          </div>
-        )}
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          style={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            width: 32,
+            height: 32,
+            borderRadius: '50%',
+            backgroundColor: 'transparent',
+            border: '1px solid #555',
+            color: '#888',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10,
+            transition: 'all 0.2s',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#AC8E66';
+            e.currentTarget.style.color = '#AC8E66';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#555';
+            e.currentTarget.style.color = '#888';
+          }}
+        >
+          <FontAwesomeIcon icon={faTimes} style={{ fontSize: 14 }} />
+        </button>
 
-        {/* Pricing Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-[10px] mb-[12px]">
-          {/* Monthly */}
-          <div className="p-[10px] bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
-            <h4 className="font-mono text-[#e5e5e5] text-sm mb-2">Monatlich</h4>
-            <p className="text-2xl font-mono text-[#AC8E66]">
-              {PRICING.pro.monthly}€
-              <span className="text-xs text-[#888]">/Monat</span>
-            </p>
+        {/* Header with Crown */}
+        <div
+          style={{
+            background: 'linear-gradient(135deg, rgba(172, 142, 102, 0.2), rgba(172, 142, 102, 0.05))',
+            padding: '40px 32px',
+            textAlign: 'center',
+            borderBottom: '1px solid #3a3a3a',
+          }}
+        >
+          <div
+            style={{
+              width: 80,
+              height: 80,
+              margin: '0 auto 20px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+            }}
+          >
+            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
           </div>
 
-          {/* Yearly - Recommended */}
-          <div className="p-[10px] bg-[#2a2a2a] border-2 border-[#AC8E66] rounded-lg relative">
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-2 py-0.5 bg-[#AC8E66] text-[#1a1a1a] text-[10px] font-mono rounded">
-              EMPFOHLEN
-            </span>
-            <h4 className="font-mono text-[#e5e5e5] text-sm mb-2">Jährlich</h4>
-            <p className="text-2xl font-mono text-[#AC8E66]">
-              {PRICING.pro.yearly}€
-              <span className="text-xs text-[#888]">/Jahr</span>
-            </p>
-            <p className="text-[10px] font-mono text-green-500 mt-1">
-              Spare {Math.round((1 - PRICING.pro.yearly / (PRICING.pro.monthly * 12)) * 100)}%
-            </p>
-          </div>
+          <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 8px 0' }}>
+            Upgrade auf PRO
+          </h1>
 
-          {/* Lifetime */}
-          <div className="p-[10px] bg-[#2a2a2a] border border-[#3a3a3a] rounded-lg">
-            <h4 className="font-mono text-[#e5e5e5] text-sm mb-2 flex items-center gap-2">
-              Lifetime
-              <FontAwesomeIcon icon={faInfinity} className="text-[#AC8E66] text-xs" />
-            </h4>
-            <p className="text-2xl font-mono text-[#AC8E66]">
-              {PRICING.pro.lifetime}€
-              <span className="text-xs text-[#888]"> einmalig</span>
-            </p>
-          </div>
+          <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#888', margin: 0 }}>
+            Schalte alle Premium-Features frei
+          </p>
         </div>
 
-        {/* PRO Features List */}
-        <div className="mb-[12px]">
-          <h4 className="font-mono text-sm text-[#888] mb-3">PRO Features:</h4>
-          <div className="grid grid-cols-2 gap-2">
-            {proFeaturesList.slice(0, 8).map((feature) => (
-              <div
-                key={feature.id}
-                className={`flex items-center gap-2 text-xs font-mono p-2 rounded
-                  ${highlightFeature === feature.id ? 'bg-[#AC8E66]/20 text-[#AC8E66]' : 'text-[#888]'}`}
-              >
-                <FontAwesomeIcon icon={faCheck} className="text-[#AC8E66]" />
-                {feature.name}
+        {/* Scrollable Body */}
+        <div
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '24px 32px 32px 32px',
+          }}
+        >
+          {/* Highlighted Feature */}
+          {highlightedFeature && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: 16,
+                backgroundColor: 'rgba(172, 142, 102, 0.1)',
+                borderRadius: 12,
+                marginBottom: 24,
+                border: '1px solid #AC8E66',
+              }}
+            >
+              <FontAwesomeIcon icon={faRocket} style={{ fontSize: 20, color: '#AC8E66' }} />
+              <div>
+                <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#e5e5e5', margin: 0 }}>
+                  <strong style={{ color: '#AC8E66' }}>{highlightedFeature.name}</strong> ist ein PRO Feature
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '4px 0 0 0' }}>
+                  {highlightedFeature.description}
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          )}
 
-        {/* License Key Input */}
-        {showKeyInput ? (
-          <div className="mb-[12px]">
-            <label className="block text-xs font-mono text-[#888] mb-2">
-              Lizenzschlüssel eingeben:
-            </label>
-            <input
-              type="text"
-              value={licenseKey}
-              onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
-              placeholder="ZENPOST-PRO-XXXX-XXXX-XXXX"
-              className="w-full px-4 py-3 bg-[#1a1a1a] border border-[#3a3a3a] rounded-lg
-                font-mono text-sm text-[#e5e5e5] placeholder-[#555]
-                focus:border-[#AC8E66] focus:outline-none"
-            />
-            {(localError || error) && (
-              <p className="text-xs font-mono text-red-400 mt-2">{localError || error}</p>
+          {/* Pricing Cards */}
+          <div style={{ marginBottom: 24 }}>
+            <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Preise & Optionen
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {/* Monthly */}
+              <div
+                style={{
+                  padding: 16,
+                  backgroundColor: '#1a1a1a',
+                  borderRadius: 12,
+                  border: '1px solid #3a3a3a',
+                  textAlign: 'center',
+                }}
+              >
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 8px 0' }}>
+                  Monatlich
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
+                  {PRICING.pro.monthly}€
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#666', margin: '4px 0 0 0' }}>
+                  pro Monat
+                </p>
+              </div>
+
+              {/* Yearly - Recommended */}
+              <div
+                style={{
+                  padding: 16,
+                  backgroundColor: 'rgba(172, 142, 102, 0.1)',
+                  borderRadius: 12,
+                  border: '2px solid #AC8E66',
+                  textAlign: 'center',
+                  position: 'relative',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: -10,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    padding: '4px 12px',
+                    backgroundColor: '#AC8E66',
+                    color: '#1a1a1a',
+                    fontFamily: 'monospace',
+                    fontSize: 9,
+                    fontWeight: 600,
+                    borderRadius: 12,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  Empfohlen
+                </span>
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#AC8E66', margin: '0 0 8px 0' }}>
+                  Jährlich
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
+                  {PRICING.pro.yearly}€
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#22c55e', margin: '4px 0 0 0' }}>
+                  Spare {Math.round((1 - PRICING.pro.yearly / (PRICING.pro.monthly * 12)) * 100)}%
+                </p>
+              </div>
+
+              {/* Lifetime */}
+              <div
+                style={{
+                  padding: 16,
+                  backgroundColor: '#1a1a1a',
+                  borderRadius: 12,
+                  border: '1px solid #3a3a3a',
+                  textAlign: 'center',
+                }}
+              >
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  Lifetime
+                  <FontAwesomeIcon icon={faInfinity} style={{ fontSize: 10, color: '#AC8E66' }} />
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
+                  {PRICING.pro.lifetime}€
+                </p>
+                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#666', margin: '4px 0 0 0' }}>
+                  einmalig
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* PRO Features Grid */}
+          <div style={{ marginBottom: 24 }}>
+            <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Alle PRO Features
+            </h4>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+              {proFeatures.map((f) => (
+                <div
+                  key={f.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 12px',
+                    backgroundColor: highlightFeature === f.id ? 'rgba(172, 142, 102, 0.15)' : '#1a1a1a',
+                    borderRadius: 8,
+                    border: highlightFeature === f.id ? '1px solid #AC8E66' : '1px solid transparent',
+                  }}
+                >
+                  <FontAwesomeIcon
+                    icon={faCheck}
+                    style={{ fontSize: 10, color: '#AC8E66' }}
+                  />
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: 11,
+                      color: highlightFeature === f.id ? '#AC8E66' : '#888',
+                    }}
+                  >
+                    {f.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* License Key Input */}
+          {showKeyInput && (
+            <div
+              style={{
+                backgroundColor: '#1a1a1a',
+                padding: 20,
+                borderRadius: 12,
+                marginBottom: 24,
+                border: '1px solid #3a3a3a',
+              }}
+            >
+              <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 11, color: '#888', marginBottom: 8 }}>
+                Lizenzschlüssel eingeben:
+              </label>
+              <input
+                type="text"
+                value={licenseKey}
+                onChange={(e) => setLicenseKey(e.target.value.toUpperCase())}
+                placeholder="ZENPOST-PRO-XXXX-XXXX-XXXX"
+                style={{
+                  width: '100%',
+                  padding: '14px 16px',
+                  backgroundColor: '#2a2a2a',
+                  border: '1px solid #3a3a3a',
+                  borderRadius: 8,
+                  fontFamily: 'monospace',
+                  fontSize: 14,
+                  color: '#e5e5e5',
+                  marginBottom: (localError || error) ? 12 : 0,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                }}
+              />
+              {(localError || error) && (
+                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#ef4444', margin: 0 }}>
+                  {localError || error}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {showKeyInput ? (
+              <>
+                {/* Activate Button */}
+                <button
+                  onClick={handleActivate}
+                  disabled={isLoading}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    padding: '16px 24px',
+                    background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+                    color: '#1a1a1a',
+                    border: 'none',
+                    borderRadius: 12,
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: isLoading ? 'wait' : 'pointer',
+                    opacity: isLoading ? 0.7 : 1,
+                    transition: 'all 0.2s',
+                    boxShadow: '0 4px 20px rgba(172, 142, 102, 0.3)',
+                  }}
+                >
+                  <FontAwesomeIcon icon={faKey} />
+                  {isLoading ? 'Aktiviere...' : 'Lizenz aktivieren'}
+                </button>
+
+                {/* Back Button */}
+                <button
+                  onClick={() => {
+                    setShowKeyInput(false);
+                    setLicenseKey('');
+                    setLocalError(null);
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    backgroundColor: 'transparent',
+                    color: '#888',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: 12,
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  Zurück
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Trial Button */}
+                {canStartTrial && (
+                  <button
+                    onClick={handleStartTrial}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 10,
+                      padding: '16px 24px',
+                      background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+                      color: '#1a1a1a',
+                      border: 'none',
+                      borderRadius: 12,
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 4px 20px rgba(172, 142, 102, 0.3)',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 24px rgba(172, 142, 102, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 20px rgba(172, 142, 102, 0.3)';
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faGift} />
+                    7 Tage kostenlos testen
+                  </button>
+                )}
+
+                {/* License Key Button */}
+                <button
+                  onClick={() => setShowKeyInput(true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    padding: '16px 24px',
+                    backgroundColor: 'transparent',
+                    color: '#AC8E66',
+                    border: '2px solid #AC8E66',
+                    borderRadius: 12,
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = 'rgba(172, 142, 102, 0.1)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faKey} />
+                  Lizenzschlüssel eingeben
+                </button>
+              </>
             )}
           </div>
-        ) : null}
 
-        {/* Actions */}
-        <div className="flex flex-col gap-3">
-          {showKeyInput ? (
-            <>
-              <ZenRoughButton
-                label={isLoading ? 'Aktiviere...' : 'Lizenz aktivieren'}
-                onClick={handleActivate}
-                variant="active"
-                disabled={isLoading}
-              />
-              <button
-                onClick={() => setShowKeyInput(false)}
-                className="text-xs font-mono text-[#888] hover:text-[#AC8E66]"
-              >
-                Zurück
-              </button>
-            </>
-          ) : (
-            <>
-              {/* Trial Button */}
-              {canStartTrial && (
-                <ZenRoughButton
-                  label="7 Tage kostenlos testen"
-                  onClick={handleStartTrial}
-                  variant="active"
-                  icon={<FontAwesomeIcon icon={faGift} />}
-                />
-              )}
-
-              {/* License Key */}
-              <ZenRoughButton
-                label="Lizenzschlüssel eingeben"
-                onClick={() => setShowKeyInput(true)}
-                variant="default"
-                icon={<FontAwesomeIcon icon={faKey} />}
-              />
-
-              {/* Demo Key (for testing) */}
-              <button
-                onClick={handleGenerateDemo}
-                className="text-[10px] font-mono text-[#555] hover:text-[#AC8E66] transition-colors"
-              >
-                Demo-Schlüssel generieren (nur zum Testen)
-              </button>
-            </>
-          )}
+          {/* Footer - Demo Key */}
+          <p
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: '#555',
+              marginTop: 20,
+              textAlign: 'center',
+            }}
+          >
+            <button
+              onClick={handleGenerateDemo}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#555',
+                fontFamily: 'monospace',
+                fontSize: 10,
+                cursor: 'pointer',
+                textDecoration: 'underline',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#AC8E66';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#555';
+              }}
+            >
+              Demo-Schlüssel generieren (nur zum Testen)
+            </button>
+          </p>
         </div>
       </div>
     </ZenModal>
