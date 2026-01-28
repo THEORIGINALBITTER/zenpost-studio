@@ -28,6 +28,7 @@ import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { ZenDropdown } from '../components/ZenDropdown';
 import { ZenCloseButton } from '../../../DesignKit/ZenCloseButton';
+import { ZenAddButton } from '../../../DesignKit/ZenAddButton';
 import { downloadICSFile, generateICSFile } from '../../../../utils/calendarExport';
 import type { ScheduledPost, SocialPlatform, PublishingStatus } from '../../../../types/scheduling';
 import {
@@ -549,8 +550,8 @@ export function ZenPlannerModal({
             }}
           />
         </div>
-        <ZenRoughButton
-          label="Post hinzufügen"
+        <ZenAddButton
+          size="lg"
           onClick={() => {
             const trimmedTitle = newPostTitle.trim();
             const trimmedContent = newPostContent.trim();
@@ -571,7 +572,6 @@ export function ZenPlannerModal({
             setNewPostTitle('');
             setNewPostContent('');
           }}
-          variant="active"
         />
       </div>
 
