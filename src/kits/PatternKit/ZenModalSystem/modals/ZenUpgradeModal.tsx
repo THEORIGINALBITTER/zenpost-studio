@@ -14,7 +14,6 @@ import {
   faInfinity,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../index';
-import { ZenCloseButton } from '../../../DesignKit/ZenCloseButton';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { FEATURES, PRICING, PRO_FEATURES } from '../../../../config/featureFlags';
 import { generateDemoKey } from '../../../../services/licenseService';
@@ -184,11 +183,6 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
           flexDirection: 'column',
         }}
       >
-        {/* Close Button */}
-        <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
-          <ZenCloseButton onClick={onClose} size="sm" />
-        </div>
-
         {/* Header with Crown */}
         <div
           style={{
