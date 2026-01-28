@@ -12,9 +12,9 @@ import {
   faKey,
   faGift,
   faInfinity,
-  faTimes,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../index';
+import { ZenCloseButton } from '../../../DesignKit/ZenCloseButton';
 import { useLicense } from '../../../../contexts/LicenseContext';
 import { FEATURES, PRICING, PRO_FEATURES } from '../../../../config/featureFlags';
 import { generateDemoKey } from '../../../../services/licenseService';
@@ -185,36 +185,9 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         }}
       >
         {/* Close Button */}
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: 16,
-            right: 16,
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
-            backgroundColor: 'transparent',
-            border: '1px solid #555',
-            color: '#888',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 10,
-            transition: 'all 0.2s',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#AC8E66';
-            e.currentTarget.style.color = '#AC8E66';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#555';
-            e.currentTarget.style.color = '#888';
-          }}
-        >
-          <FontAwesomeIcon icon={faTimes} style={{ fontSize: 14 }} />
-        </button>
+        <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+          <ZenCloseButton onClick={onClose} size="sm" />
+        </div>
 
         {/* Header with Crown */}
         <div
