@@ -4,7 +4,7 @@ import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheckCircle, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faCheckCircle, faFolderOpen, faCalendarDays } from '@fortawesome/free-solid-svg-icons';
 import { Command } from '@tauri-apps/plugin-shell';
 
 interface ZenSaveSuccessModalProps {
@@ -12,20 +12,39 @@ interface ZenSaveSuccessModalProps {
   onClose: () => void;
   fileName: string;
   filePath?: string; // Optional: full path to the file
+  filePaths?: string[]; // Optional: list of files (preferred over filePath for multi-save)
+  onGoToCalendar?: () => void; // Optional: callback to go to calendar
+  showCalendarButton?: boolean; // Optional: show calendar button
 }
 
-export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: ZenSaveSuccessModalProps) => {
+export const ZenSaveSuccessModal = ({
+  isOpen,
+  onClose,
+  fileName,
+  filePath,
+  filePaths,
+  onGoToCalendar,
+  showCalendarButton = false,
+}: ZenSaveSuccessModalProps) => {
   const preset = getModalPreset('save-success');
+  const aggregatedPaths = filePaths?.filter((path): path is string => Boolean(path)) ?? [];
+  const normalizedPaths = aggregatedPaths.length > 0
+    ? aggregatedPaths
+    : filePath
+      ? [filePath]
+      : [];
+  const primaryPath = normalizedPaths[0];
+  const hasMultipleFiles = normalizedPaths.length > 1;
 
   // Debug: Log filePath to see if it's being passed - only when modal is open
   if (isOpen) {
     console.log('[ZenSaveSuccessModal] Modal opened with:');
-    console.log('[ZenSaveSuccessModal] filePath:', filePath);
+    console.log('[ZenSaveSuccessModal] filePaths:', normalizedPaths);
     console.log('[ZenSaveSuccessModal] fileName:', fileName);
   }
 
-  const handleShowInFinder = async () => {
-    if (!filePath) return;
+  const handleShowInFinder = async (targetPath?: string) => {
+    if (!targetPath) return;
 
     try {
       // Detect platform from navigator
@@ -34,13 +53,13 @@ export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: Zen
 
       if (isMac) {
         // macOS: Use 'open -R' to reveal in Finder
-        await Command.create('open', ['-R', filePath]).execute();
+        await Command.create('open', ['-R', targetPath]).execute();
       } else if (isWindows) {
         // Windows: Use 'explorer /select,' to show in Explorer
-        await Command.create('explorer', ['/select,', filePath]).execute();
+        await Command.create('explorer', ['/select,', targetPath]).execute();
       } else {
         // Linux: Use xdg-open with the parent directory
-        const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+        const parentDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
         await Command.create('xdg-open', [parentDir]).execute();
       }
       console.log('[ZenSaveSuccessModal] Successfully opened file in explorer');
@@ -48,7 +67,7 @@ export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: Zen
       console.error('Failed to show file in explorer:', error);
       // Fallback: Try to open the parent directory
       try {
-        const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+        const parentDir = targetPath.substring(0, targetPath.lastIndexOf('/'));
         await Command.create('open', [parentDir]).execute();
       } catch (fallbackError) {
         console.error('Fallback also failed:', fallbackError);
@@ -57,8 +76,15 @@ export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: Zen
   };
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose} preset={preset}>
-      <ZenModalHeader config={preset} />
+    <ZenModal isOpen={isOpen} onClose={onClose}>
+      <ZenModalHeader
+        title={preset.title}
+        subtitle={preset.subtitle}
+        titleColor={preset.titleColor}
+        subtitleColor={preset.subtitleColor}
+        titleSize={preset.titleSize}
+        subtitleSize={preset.subtitleSize}
+      />
 
       <div
         style={{
@@ -106,8 +132,49 @@ export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: Zen
             maxWidth: '400px',
           }}
         >
-          Die Datei wurde erfolgreich in deinem Projektordner gespeichert.
+          {hasMultipleFiles
+            ? 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
+            : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.'}
         </p>
+
+        {normalizedPaths.length > 0 && (
+          <div
+            style={{
+              width: '100%',
+              backgroundColor: '#111',
+              borderRadius: '6px',
+              border: '1px dashed #3A3A3A',
+              padding: '12px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+            }}
+          >
+            <div
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '10px',
+                color: '#777',
+              }}
+            >
+              Gespeicherte Datei-Pfade:
+            </div>
+            {normalizedPaths.map((path, index) => (
+              <code
+                key={`${path}-${index}`}
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '10px',
+                  color: '#e5e5e5',
+                  whiteSpace: 'nowrap',
+                  overflowX: 'auto',
+                }}
+              >
+                {path}
+              </code>
+            ))}
+          </div>
+        )}
       </div>
 
       <ZenModalFooter showFooterText={true}>
@@ -117,16 +184,28 @@ export const ZenSaveSuccessModal = ({ isOpen, onClose, fileName, filePath }: Zen
             gap: '12px',
             justifyContent: 'center',
             marginBottom: '16px',
+            flexWrap: 'wrap',
           }}
         >
-          <ZenRoughButton
-            label="Im Finder anzeigen"
-            icon={<FontAwesomeIcon icon={faFolderOpen} />}
-            onClick={handleShowInFinder}
-            disabled={!filePath}
-            variant="default"
-          />
-      
+          {primaryPath && (
+            <ZenRoughButton
+              label="Im Finder anzeigen"
+              icon={<FontAwesomeIcon icon={faFolderOpen} />}
+              onClick={() => handleShowInFinder(primaryPath)}
+              variant="default"
+            />
+          )}
+          {showCalendarButton && onGoToCalendar && (
+            <ZenRoughButton
+              label="Zum Kalender"
+              icon={<FontAwesomeIcon icon={faCalendarDays} />}
+              onClick={() => {
+                onGoToCalendar();
+                onClose();
+              }}
+              variant="active"
+            />
+          )}
         </div>
       </ZenModalFooter>
     </ZenModal>

@@ -53,9 +53,8 @@ export const ZenHomeButton: React.FC<ZenHomeButtonProps> = ({
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`relative flex items-center justify-center rounded-full
-        cursor-pointer select-none text-[#888]
-        hover:text-[#AC8E66] active:scale-95
+      className={`group relative flex items-center justify-center rounded-full
+        cursor-pointer select-none active:scale-95
         transition-all duration-200 ${className}`}
       style={{
         width: pixelSize,
@@ -71,12 +70,12 @@ export const ZenHomeButton: React.FC<ZenHomeButtonProps> = ({
         ref={canvasRef}
         width={pixelSize}
         height={pixelSize}
-        className="absolute top-0 left-0 z-0 pointer-events-none"
+        className="absolute top-0 left-0 z-0 pointer-events-none bg-brand"
       />
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
         icon={faHome}
-        className="text-[14px] z-10 pointer-events-none"
+        className="text-[14px] z-10 text-[#fef3c7] pointer-events-none group-hover:text-[#64748b]"
       />
     </button>
   );

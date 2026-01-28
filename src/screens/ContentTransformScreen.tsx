@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
+import { save } from '@tauri-apps/plugin-dialog';
 import {
   faLinkedin,
   faDev,
@@ -8,7 +11,8 @@ import {
   faGithub,
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
-import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
+import { faNewspaper } from '@fortawesome/free-solid-svg-icons';
+import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, ZenSaveSuccessModal, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
@@ -23,6 +27,7 @@ import {
   type ContentAudience,
   type TargetLanguage,
 } from '../services/aiService';
+import { loadArticle } from '../services/publishingService';
 import {
   postToSocialMedia,
   loadSocialConfig,
@@ -34,6 +39,12 @@ import {
   type DevToPostOptions,
   type MediumPostOptions,
 } from '../services/socialMediaService';
+import {
+  defaultEditorSettings,
+  loadEditorSettings,
+  saveEditorAutosave,
+  type EditorSettings,
+} from '../services/editorSettingsService';
 
 interface PlatformOption {
   value: ContentPlatform;
@@ -91,49 +102,164 @@ const platformOptions: PlatformOption[] = [
     icon: faYoutube,
     description: 'SEO-optimized video description',
   },
+  {
+    value: 'blog-post',
+    label: 'Blog Post',
+    icon: faNewspaper,
+    description: 'Comprehensive blog article with SEO',
+  },
 ];
 
 interface ContentTransformScreenProps {
   onBack: () => void;
   onStepChange?: (step: number) => void;
+  currentStep?: number;
   initialContent?: string | null;
+  initialPlatform?: ContentPlatform;
   cameFromDocStudio?: boolean;
+  cameFromDashboard?: boolean;
   onBackToDocStudio?: (editedContent?: string) => void;
+  onBackToDashboard?: (generatedContent?: string) => void;
+  projectPath?: string | null;
+  requestedArticleId?: string | null;
+  onArticleRequestHandled?: () => void;
+  requestedFilePath?: string | null;
+  onFileRequestHandled?: () => void;
+  metadata?: ProjectMetadata;
+  onMetadataChange?: (metadata: ProjectMetadata) => void;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | null;
+  onHeaderActionHandled?: () => void;
+  onStep1BackToPostingChange?: (visible: boolean) => void;
+  onOpenDocStudioForPosting?: (content: string) => void;
+  onContentChange?: (content: string) => void;
+  editorType?: "block" | "markdown";
+  multiPlatformMode?: boolean;
+  onMultiPlatformModeChange?: (enabled: boolean) => void;
 }
 
 export const ContentTransformScreen = ({
-  onBack,
+  onBack: _onBack,
   onStepChange,
+  currentStep: externalStep,
   initialContent,
+  initialPlatform,
   cameFromDocStudio,
-  onBackToDocStudio
+  cameFromDashboard,
+  onBackToDocStudio,
+  onBackToDashboard,
+  projectPath,
+  requestedArticleId,
+  onArticleRequestHandled,
+  requestedFilePath,
+  onFileRequestHandled,
+  metadata: externalMetadata,
+  onMetadataChange,
+  headerAction,
+  onHeaderActionHandled,
+  onStep1BackToPostingChange,
+  onOpenDocStudioForPosting,
+  onContentChange: onExternalContentChange,
+  editorType = "block",
+  multiPlatformMode = false,
+  onMultiPlatformModeChange,
 }: ContentTransformScreenProps) => {
   // Step Management
-  const [currentStep, setCurrentStep] = useState<number>(1);
-
-  // Notify parent about step changes
-  useEffect(() => {
-    onStepChange?.(currentStep);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentStep]);
-
-  // Navigation Handlers
-  const handleBack = () => {
-    if (currentStep === 1) {
-      onBack(); // Go back to WelcomeScreen
-    } else {
-      setCurrentStep(currentStep - 1);
-      setError(null);
+  const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
+  const effectiveStep = externalStep ?? currentStep;
+  const setStep = (step: number) => {
+    if (externalStep !== undefined) {
+      onStepChange?.(step);
+      return;
     }
+    setCurrentStep(step);
+    onStepChange?.(step);
   };
-
 
   // Step 1: Source Input
   const [sourceContent, setSourceContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>({
+    ...defaultEditorSettings,
+  });
+  const lastAutosaveRef = useRef<string>('');
+
+  const getActiveSavePlatform = (): ContentPlatform => {
+    if (multiPlatformMode && activeEditTab) return activeEditTab;
+    return selectedPlatform;
+  };
+
+  const buildDefaultSaveName = (platform: ContentPlatform, version: number) => {
+    const date = new Date().toISOString().slice(0, 10);
+    return `${platform}_${date}_v${version}.md`;
+  };
+
+  const resolveNextAvailableName = async (platform: ContentPlatform, baseDir: string) => {
+    let version = 1;
+    let candidate = buildDefaultSaveName(platform, version);
+    while (await exists(`${baseDir}/${candidate}`)) {
+      version += 1;
+      candidate = buildDefaultSaveName(platform, version);
+    }
+    return candidate;
+  };
+
+  const handleSaveSourceToProject = async () => {
+    if (!sourceContent.trim()) {
+      alert('Kein Inhalt zum Speichern.');
+      return;
+    }
+
+    const platform = getActiveSavePlatform();
+    const baseName = buildDefaultSaveName(platform, 1);
+
+    if (isTauri()) {
+      if (!projectPath) {
+        alert('Kein Projektordner gesetzt.');
+        return;
+      }
+      const suggestedName = await resolveNextAvailableName(platform, projectPath);
+      const filePath = await save({
+        defaultPath: `${projectPath}/${suggestedName}`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (!filePath) return;
+      if (!filePath.startsWith(projectPath)) {
+        alert('Bitte speichere innerhalb des Projektordners.');
+        return;
+      }
+      await writeTextFile(filePath, sourceContent);
+      // Show success modal
+      setSavedFileName(filePath.split(/[\\/]/).pop() || suggestedName);
+      setSavedFilePath(filePath);
+      setShowSaveSuccess(true);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('zenpost-project-files-updated'));
+      }
+      return;
+    }
+
+    const blob = new Blob([sourceContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const userName = window.prompt('Dateiname anpassen?', baseName);
+    const finalName = (userName && userName.trim()) ? userName.trim() : baseName;
+    link.download = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    // Show success modal for web download
+    setSavedFileName(finalName.endsWith('.md') ? finalName : `${finalName}.md`);
+    setSavedFilePath(undefined);
+    setShowSaveSuccess(true);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('zenpost-project-files-updated'));
+    }
+  };
 
   // Track initial content load to prevent re-loading
   const loadedInitialContentRef = useRef<string | null>(null);
+  const lastRequestedArticleIdRef = useRef<string | null>(null);
+  const lastRequestedFilePathRef = useRef<string | null>(null);
 
   // Load initial content if provided (from Doc Studio) - only once
   useEffect(() => {
@@ -144,8 +270,102 @@ export const ContentTransformScreen = ({
     }
   }, [initialContent]);
 
+  useEffect(() => {
+    if (!projectPath) return;
+    let isMounted = true;
+    const loadSettings = async () => {
+      const loaded = await loadEditorSettings(projectPath);
+      if (isMounted) {
+        setEditorSettings(loaded);
+      }
+    };
+    loadSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<EditorSettings>).detail;
+      if (detail) {
+        setEditorSettings(detail);
+      }
+    };
+    window.addEventListener('zen-editor-settings-updated', handler);
+    return () => window.removeEventListener('zen-editor-settings-updated', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    if (!editorSettings.autoSaveEnabled) return;
+    if (!sourceContent.trim()) return;
+    const intervalMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
+    const timeout = setTimeout(() => {
+      if (sourceContent.trim() === lastAutosaveRef.current) return;
+      saveEditorAutosave(projectPath, sourceContent)
+        .then(() => {
+          lastAutosaveRef.current = sourceContent.trim();
+        })
+        .catch((error) => {
+          console.error('[ContentTransform] Autosave fehlgeschlagen:', error);
+        });
+    }, intervalMs);
+    return () => clearTimeout(timeout);
+  }, [projectPath, editorSettings.autoSaveEnabled, editorSettings.autoSaveIntervalSec, sourceContent]);
+
+  useEffect(() => {
+    if (!requestedArticleId || !projectPath) return;
+    if (requestedArticleId === lastRequestedArticleIdRef.current) return;
+    let isMounted = true;
+    const loadRequestedArticle = async () => {
+      const article = await loadArticle(projectPath, requestedArticleId);
+      if (!article || !isMounted) return;
+      setSourceContent(article.content || '');
+      setFileName(article.title || 'Artikel');
+      setError(null);
+      setStep(1);
+      lastRequestedArticleIdRef.current = requestedArticleId;
+      onArticleRequestHandled?.();
+    };
+    loadRequestedArticle();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath, requestedArticleId, onArticleRequestHandled]);
+
+  useEffect(() => {
+    if (!requestedFilePath) return;
+    if (requestedFilePath === lastRequestedFilePathRef.current) return;
+    let isMounted = true;
+    const loadRequestedFile = async () => {
+      try {
+        const content = await readTextFile(requestedFilePath);
+        if (!isMounted) return;
+        const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+        setSourceContent(content);
+        setFileName(fileNameFromPath);
+        setError(null);
+        setStep(1);
+        lastRequestedFilePathRef.current = requestedFilePath;
+        onFileRequestHandled?.();
+      } catch (error) {
+        console.error('[ContentTransform] Datei konnte nicht geladen werden:', error);
+      }
+    };
+    loadRequestedFile();
+    return () => {
+      isMounted = false;
+    };
+  }, [requestedFilePath, onFileRequestHandled]);
+
   // Step 2: Platform Selection
-  const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>('linkedin');
+  const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin');
+
+  // Multi-platform selection (for multi-select mode)
+  const [selectedPlatforms, setSelectedPlatforms] = useState<ContentPlatform[]>([]);
+  const [activeEditTab, setActiveEditTab] = useState<ContentPlatform | null>(null);
 
   // Step 3: Style Options
   const [tone, setTone] = useState<ContentTone>('professional');
@@ -156,18 +376,57 @@ export const ContentTransformScreen = ({
   // Step 4: Result
   const [transformedContent, setTransformedContent] = useState<string>('');
   const [isTransforming, setIsTransforming] = useState<boolean>(false);
+
+  // Multi-platform results (for multi-select mode)
+  const [transformedContents, setTransformedContents] = useState<Record<ContentPlatform, string>>({} as Record<ContentPlatform, string>);
+  const [activeResultTab, setActiveResultTab] = useState<ContentPlatform | null>(null);
+
+  // Propagate content changes to parent (for Export Modal)
+  useEffect(() => {
+    if (transformedContent) {
+      onExternalContentChange?.(transformedContent);
+    }
+  }, [transformedContent, onExternalContentChange]);
+
+  useEffect(() => {
+    if (effectiveStep !== 1) return;
+    if (!multiPlatformMode) return;
+    const tabs = Object.keys(transformedContents).length
+      ? (Object.keys(transformedContents) as ContentPlatform[])
+      : selectedPlatforms;
+    if (!activeEditTab && tabs.length > 0) {
+      setActiveEditTab(tabs[0]);
+      return;
+    }
+    if (activeEditTab && Object.prototype.hasOwnProperty.call(transformedContents, activeEditTab)) {
+      setSourceContent(transformedContents[activeEditTab] || '');
+    }
+  }, [effectiveStep, multiPlatformMode, transformedContents, selectedPlatforms, activeEditTab]);
   const [isPosting, setIsPosting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoSelectedModel, setAutoSelectedModel] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
 
   // Track if user came from "Nachbearbeiten" flow
   const [cameFromEdit, setCameFromEdit] = useState<boolean>(false);
 
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor'>('ai');
+  const [settingsSocialTab, setSettingsSocialTab] = useState<
+    'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github' | undefined
+  >(undefined);
+  const [settingsMissingSocialHint, setSettingsMissingSocialHint] = useState(false);
+  const [settingsMissingSocialLabel, setSettingsMissingSocialLabel] = useState<string | undefined>(undefined);
 
   // Metadata Modal
   const [showMetadata, setShowMetadata] = useState(false);
-  const [metadata, setMetadata] = useState<ProjectMetadata>({
+
+  // Save Success Modal
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedFileName, setSavedFileName] = useState('');
+  const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
+  const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>({
     authorName: '',
     authorEmail: '',
     companyName: '',
@@ -177,6 +436,14 @@ export const ContentTransformScreen = ({
     repository: '',
     contributingUrl: '',
   });
+  const metadata = externalMetadata ?? localMetadata;
+  const handleMetadataSave = (newMetadata: ProjectMetadata) => {
+    if (onMetadataChange) {
+      onMetadataChange(newMetadata);
+    } else {
+      setLocalMetadata(newMetadata);
+    }
+  };
 
   // Extract metadata from content (auto-detect from document)
   // TODO: Implement auto-extraction feature
@@ -218,6 +485,31 @@ export const ContentTransformScreen = ({
     return result;
   };
 
+  const getPlatformLabel = (platform: ContentPlatform) => {
+    const match = platformOptions.find((option) => option.value === platform);
+    return match?.label || platform;
+  };
+
+  const getSocialTabForPlatform = (platform: ContentPlatform) => {
+    switch (platform) {
+      case 'linkedin':
+        return 'linkedin';
+      case 'twitter':
+        return 'twitter';
+      case 'reddit':
+        return 'reddit';
+      case 'devto':
+        return 'devto';
+      case 'medium':
+        return 'medium';
+      case 'github-discussion':
+      case 'github-blog':
+        return 'github';
+      default:
+        return undefined;
+    }
+  };
+
   const handleNextFromStep1 = () => {
     if (!sourceContent.trim()) {
       setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
@@ -225,60 +517,192 @@ export const ContentTransformScreen = ({
       return;
     }
     setError(null);
-    setCurrentStep(2);
+    setStep(2);
   };
+
+  useEffect(() => {
+    onStep1BackToPostingChange?.(effectiveStep === 1 && cameFromEdit);
+  }, [cameFromEdit, effectiveStep, onStep1BackToPostingChange]);
+
+  useEffect(() => {
+    if (!headerAction) return;
+    if (headerAction === "preview") {
+      setPreviewMode(true);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+      onHeaderActionHandled?.();
+      return;
+    }
+    if (effectiveStep !== 1) return;
+    if (headerAction === "next") {
+      handleNextFromStep1();
+    }
+    if (headerAction === "back_posting") {
+      setPreviewMode(false);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+    }
+    if (headerAction === "save") {
+      handleSaveSourceToProject();
+    }
+    onHeaderActionHandled?.();
+  }, [
+    effectiveStep,
+    headerAction,
+    handleNextFromStep1,
+    onHeaderActionHandled,
+    sourceContent,
+    setCameFromEdit,
+  ]);
+
+  useEffect(() => {
+    if (headerAction !== "post") return;
+    if (effectiveStep !== 4) return;
+    setPreviewMode(false);
+    onOpenDocStudioForPosting?.(transformedContent);
+    onHeaderActionHandled?.();
+  }, [effectiveStep, headerAction, onHeaderActionHandled, onOpenDocStudioForPosting, transformedContent]);
 
   const handleNextFromStep2 = () => {
     setError(null);
-    setCurrentStep(3);
+    setStep(3);
+  };
+
+  const handleSourceContentChange = (content: string) => {
+    setSourceContent(content);
+    onExternalContentChange?.(content);
+    if (multiPlatformMode && activeEditTab) {
+      setTransformedContents((prev) => ({ ...prev, [activeEditTab]: content }));
+      if (activeResultTab === activeEditTab) {
+        setTransformedContent(content);
+      }
+    }
   };
 
   const handleTransform = async () => {
+    setPreviewMode(false);
     setIsTransforming(true);
     setError(null);
+    setAutoSelectedModel(null);
 
     try {
       // Replace placeholders in source content before transforming
       const processedContent = replacePlaceholders(sourceContent);
 
-      // Step 1: Transform content for platform
-      const result = await transformContent(processedContent, {
-        platform: selectedPlatform,
-        tone,
-        length,
-        audience,
-      });
+      // Multi-platform mode: transform for all selected platforms
+      if (multiPlatformMode && selectedPlatforms.length > 0) {
+        const results: Record<ContentPlatform, string> = {} as Record<ContentPlatform, string>;
+        let firstAutoModel: string | null = null;
 
-      if (result.success && result.data) {
-        let finalContent = result.data;
+        console.log('[Multi-Platform] Starting transformation for platforms:', selectedPlatforms);
+        console.log('[Multi-Platform] Source content length:', processedContent.length);
 
-        // Step 2: Translate if target language is not deutsch (assuming source is deutsch)
-        if (targetLanguage && targetLanguage !== 'deutsch') {
-          const translateResult = await translateContent(finalContent, targetLanguage);
-          if (translateResult.success && translateResult.data) {
-            finalContent = translateResult.data;
-          } else {
-            // Translation failed, but we still have the transformed content
-            console.warn('Translation failed:', translateResult.error);
-            setError(`Transformation erfolgreich, aber Übersetzung fehlgeschlagen: ${translateResult.error}`);
+        let platformIndex = 0;
+        for (const platform of selectedPlatforms) {
+          // Add small delay between API calls to avoid potential caching issues
+          if (platformIndex > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+          platformIndex++;
+
+          console.log(`[Multi-Platform] Transforming for: ${platform}`);
+
+          const result = await transformContent(processedContent, {
+            platform,
+            tone,
+            length,
+            audience,
+            targetLanguage,
+          });
+
+          console.log(`[Multi-Platform] Result for ${platform}:`, {
+            success: result.success,
+            dataLength: result.data?.length,
+            dataPreview: result.data?.substring(0, 100),
+            error: result.error
+          });
+
+          if (result.success && result.data) {
+            let finalContent = result.data;
+
+            // Save first auto-selected model info
+            if (!firstAutoModel && result.autoSelectedModel) {
+              firstAutoModel = result.autoSelectedModel;
+            }
+
+            // Translate if target language is not deutsch
+            if (targetLanguage && targetLanguage !== 'deutsch') {
+              const translateResult = await translateContent(finalContent, targetLanguage);
+              if (translateResult.success && translateResult.data) {
+                finalContent = translateResult.data;
+              }
+            }
+
+            results[platform] = finalContent;
           }
         }
 
-        setTransformedContent(finalContent);
-        setCurrentStep(4);
+        if (Object.keys(results).length > 0) {
+          setTransformedContents(results);
+          // Set the first platform as active tab
+          const firstPlatform = selectedPlatforms[0];
+          setActiveResultTab(firstPlatform);
+          setTransformedContent(results[firstPlatform] || '');
+          if (firstAutoModel) {
+            setAutoSelectedModel(firstAutoModel);
+          }
+          setStep(4);
+        } else {
+          setError('Transformation für alle Plattformen fehlgeschlagen');
+        }
       } else {
-        const errorMsg = result.error || 'Transformation fehlgeschlagen';
-        setError(errorMsg);
-        // Show notification if error is related to AI configuration
-        if (
-          errorMsg.includes('API') ||
-          errorMsg.includes('konfiguriert') ||
-          errorMsg.includes('Konfiguration') ||
-          errorMsg.includes('fehlt') ||
-          errorMsg.includes('Einstellungen') ||
-          errorMsg.includes('Key')
-        ) {
-          // Settings notification handled by modal
+        // Single platform mode (original behavior)
+        const result = await transformContent(processedContent, {
+          platform: selectedPlatform,
+          tone,
+          length,
+          audience,
+          targetLanguage,
+        });
+
+        if (result.success && result.data) {
+          let finalContent = result.data;
+
+          // Save auto-selected model info if available
+          if (result.autoSelectedModel) {
+            setAutoSelectedModel(result.autoSelectedModel);
+          }
+
+          // Step 2: Translate if target language is not deutsch (assuming source is deutsch)
+          if (targetLanguage && targetLanguage !== 'deutsch') {
+            const translateResult = await translateContent(finalContent, targetLanguage);
+            if (translateResult.success && translateResult.data) {
+              finalContent = translateResult.data;
+            } else {
+              // Translation failed, but we still have the transformed content
+              console.warn('Translation failed:', translateResult.error);
+              setError(`Transformation erfolgreich, aber Übersetzung fehlgeschlagen: ${translateResult.error}`);
+            }
+          }
+
+          setTransformedContent(finalContent);
+          setStep(4);
+        } else {
+          const errorMsg = result.error || 'Transformation fehlgeschlagen';
+          setError(errorMsg);
+          // Show notification if error is related to AI configuration
+          if (
+            errorMsg.includes('API') ||
+            errorMsg.includes('konfiguriert') ||
+            errorMsg.includes('Konfiguration') ||
+            errorMsg.includes('fehlt') ||
+            errorMsg.includes('Einstellungen') ||
+            errorMsg.includes('Key')
+          ) {
+            // Settings notification handled by modal
+          }
         }
       }
     } catch (err) {
@@ -301,16 +725,18 @@ export const ContentTransformScreen = ({
   };
 
   const handleReset = () => {
-    setCurrentStep(1);
+    setStep(1);
     setSourceContent('');
     setFileName('');
     setTransformedContent('');
     setError(null);
+    setPreviewMode(false);
   };
 
   const handlePostDirectly = async () => {
     setIsPosting(true);
     setError(null);
+    setSettingsMissingSocialHint(false);
 
     try {
       // Check if content exists
@@ -333,6 +759,7 @@ export const ContentTransformScreen = ({
         'github-discussion': 'github',
         'github-blog': 'github',
         'youtube': null, // YouTube is not supported for direct posting
+        'blog-post': null, // Generic blog post is not supported for direct posting
       };
 
       const socialPlatform = platformMap[selectedPlatform];
@@ -345,8 +772,11 @@ export const ContentTransformScreen = ({
 
       // Check if platform is configured
       if (!isPlatformConfigured(socialPlatform, config)) {
-        setError(`${selectedPlatform} ist nicht konfiguriert. Bitte füge deine API-Credentials in den Einstellungen hinzu.`);
-        // Settings notification handled by modal
+        setSettingsDefaultTab('social');
+        setSettingsSocialTab(getSocialTabForPlatform(selectedPlatform));
+        setSettingsMissingSocialHint(true);
+        setSettingsMissingSocialLabel(getPlatformLabel(selectedPlatform));
+        setShowSettings(true);
         setIsPosting(false);
         return;
       }
@@ -470,27 +900,57 @@ export const ContentTransformScreen = ({
 
   // Render Step Content
   const renderStepContent = () => {
-    switch (currentStep) {
+    switch (effectiveStep) {
       case 1:
+        const editTabs =
+          multiPlatformMode && (Object.keys(transformedContents).length > 0 || selectedPlatforms.length > 0)
+            ? (Object.keys(transformedContents).length > 0
+                ? (Object.keys(transformedContents) as ContentPlatform[])
+                : selectedPlatforms)
+            : [];
         return (
           <Step1SourceInput
             sourceContent={sourceContent}
             fileName={fileName}
             error={error}
-            onSourceContentChange={setSourceContent}
+            editorSettings={editorSettings}
+            onSourceContentChange={handleSourceContentChange}
             onFileNameChange={setFileName}
             onNext={handleNextFromStep1}
             onOpenMetadata={() => setShowMetadata(true)}
             onError={setError}
+            onPreview={() => {
+              setPreviewMode(true);
+              setTransformedContent(sourceContent);
+              setCameFromEdit(false);
+              setStep(4);
+            }}
+            onSaveToProject={handleSaveSourceToProject}
+            canSaveToProject={!!sourceContent.trim() && (!isTauri() || !!projectPath)}
+            editTabs={editTabs}
+            activeEditTab={activeEditTab}
+            onEditTabChange={(platform) => {
+              setActiveEditTab(platform);
+              if (Object.prototype.hasOwnProperty.call(transformedContents, platform)) {
+                const nextContent = transformedContents[platform] || '';
+                setSourceContent(nextContent);
+                setTransformedContent(nextContent);
+              } else {
+                setSourceContent('');
+                setTransformedContent('');
+              }
+            }}
             cameFromEdit={cameFromEdit}
             onBackToPosting={() => {
               // User edited content, go directly to Step 4 for posting
+              setPreviewMode(false);
               setTransformedContent(sourceContent); // Use edited content
               setCameFromEdit(false); // Reset flag
-              setCurrentStep(4);
+              setStep(4);
             }}
             cameFromDocStudio={cameFromDocStudio}
             onBackToDocStudio={() => onBackToDocStudio?.(sourceContent)}
+            editorType={editorType}
           />
 
         );
@@ -500,8 +960,11 @@ export const ContentTransformScreen = ({
             selectedPlatform={selectedPlatform}
             platformOptions={platformOptions}
             onPlatformChange={setSelectedPlatform}
-            onBack={() => setCurrentStep(1)}
+            onBack={() => setStep(1)}
             onNext={handleNextFromStep2}
+            multiSelectMode={multiPlatformMode}
+            selectedPlatforms={selectedPlatforms}
+            onSelectedPlatformsChange={setSelectedPlatforms}
           />
         );
       case 3:
@@ -520,8 +983,8 @@ export const ContentTransformScreen = ({
             onLengthChange={setLength}
             onAudienceChange={setAudience}
             onTargetLanguageChange={setTargetLanguage}
-            onBack={() => setCurrentStep(2)}
-            onBackToEditor={() => setCurrentStep(1)}
+            onBack={() => setStep(2)}
+            onBackToEditor={() => setStep(1)}
             onTransform={handleTransform}
             onPostDirectly={handlePostDirectly}
             isTransforming={isTransforming}
@@ -530,21 +993,86 @@ export const ContentTransformScreen = ({
           />
         );
       case 4:
+        const step4HeaderAction =
+          headerAction === "copy" ||
+          headerAction === "download" ||
+          headerAction === "edit" ||
+          headerAction === "reset" ||
+          headerAction === "post" ||
+          headerAction === "posten" ||
+          headerAction === "back_doc" ||
+          headerAction === "back_dashboard"
+            ? headerAction
+            : null;
+
         return (
           <Step4TransformResult
             transformedContent={transformedContent}
-            platform={selectedPlatform}
-            onReset={handleReset}
+            platform={multiPlatformMode && activeResultTab ? activeResultTab : selectedPlatform}
+            autoSelectedModel={autoSelectedModel}
+            onReset={() => {
+              handleReset();
+              // Reset multi-platform state
+              if (multiPlatformMode) {
+                setSelectedPlatforms([]);
+                setTransformedContents({} as Record<ContentPlatform, string>);
+                setActiveResultTab(null);
+                onMultiPlatformModeChange?.(false);
+              }
+            }}
             onBack={() => {
               // Nachbearbeiten: Zum Editor mit transformiertem Content
-              setSourceContent(transformedContent);
+              setPreviewMode(false);
+              if (multiPlatformMode) {
+                const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
+                setActiveEditTab(nextTab);
+                if (nextTab && Object.prototype.hasOwnProperty.call(transformedContents, nextTab)) {
+                  setSourceContent(transformedContents[nextTab] || '');
+                } else {
+                  setSourceContent('');
+                }
+              } else {
+                setSourceContent(transformedContent);
+              }
               setCameFromEdit(true); // Mark that user came from edit
-              setCurrentStep(1);
+              setStep(1);
             }}
-            onOpenSettings={() => setShowSettings(true)}
-            onContentChange={setTransformedContent}
+            onOpenSettings={() => {
+              setSettingsDefaultTab('ai');
+              setSettingsSocialTab(undefined);
+              setSettingsMissingSocialHint(false);
+              setSettingsMissingSocialLabel(undefined);
+              setShowSettings(true);
+            }}
+            onContentChange={(content) => {
+              setTransformedContent(content);
+              if (multiPlatformMode && activeResultTab) {
+                setTransformedContents((prev) => ({ ...prev, [activeResultTab]: content }));
+              }
+            }}
             cameFromDocStudio={cameFromDocStudio}
+            cameFromDashboard={cameFromDashboard}
+            isPreview={previewMode}
+            useHeaderActions
+            headerAction={step4HeaderAction}
+            onHeaderActionHandled={onHeaderActionHandled}
             onBackToDocStudio={() => onBackToDocStudio?.(transformedContent)}
+            onBackToDashboard={() => onBackToDashboard?.(transformedContent)}
+            onGoToTransform={(targetPlatform) => {
+              // Navigate to Step 2 with the selected platform, then to Step 3
+              setSelectedPlatform(targetPlatform);
+              setStep(3); // Go directly to Step 3 (Style Options)
+            }}
+            multiPlatformMode={multiPlatformMode}
+            transformedContents={transformedContents}
+            activeResultTab={activeResultTab}
+            onActiveResultTabChange={(platform) => {
+              setActiveResultTab(platform);
+              // Update the displayed content to match the selected tab
+              if (Object.prototype.hasOwnProperty.call(transformedContents, platform)) {
+                setTransformedContent(transformedContents[platform] || '');
+              }
+            }}
           />
         );
       default:
@@ -554,7 +1082,6 @@ export const ContentTransformScreen = ({
 
   return (
     <div className="flex flex-col h-screen bg-[#1A1A1A] text-[#e5e5e5] overflow-hidden">
-
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
 
@@ -566,9 +1093,16 @@ export const ContentTransformScreen = ({
       {/* Settings Modal */}
       <ZenSettingsModal
         isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
+        onClose={() => {
+          setShowSettings(false);
+          setSettingsMissingSocialHint(false);
+          setSettingsMissingSocialLabel(undefined);
+        }}
         onSave={() => setError(null)}
-        defaultTab="ai"
+        defaultTab={settingsDefaultTab}
+        defaultSocialTab={settingsSocialTab}
+        showMissingSocialHint={settingsMissingSocialHint}
+        missingSocialLabel={settingsMissingSocialLabel}
       />
 
       {/* Metadata Modal */}
@@ -577,7 +1111,7 @@ export const ContentTransformScreen = ({
         onClose={() => setShowMetadata(false)}
         metadata={metadata}
         onSave={(newMetadata) => {
-          setMetadata(newMetadata);
+          handleMetadataSave(newMetadata);
           setShowMetadata(false);
         }}
       />
@@ -586,6 +1120,14 @@ export const ContentTransformScreen = ({
       <ZenGeneratingModal
         isOpen={isTransforming}
         templateName={`${selectedPlatform} Content`}
+      />
+
+      {/* Save Success Modal */}
+      <ZenSaveSuccessModal
+        isOpen={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        fileName={savedFileName}
+        filePath={savedFilePath}
       />
     </div>
   );

@@ -6,6 +6,9 @@ interface ZenRoughButtonProps {
   icon?: ReactNode;
   onClick?: () => void;
   variant?: "default" | "active";
+  size?: "default" | "compact" | "small"; // New size prop for compact buttons
+  width?: number;
+  height?: number;
   href?: string;
   target?: string;
   rel?: string;
@@ -18,6 +21,9 @@ export const ZenRoughButton = ({
   icon,
   onClick,
   variant = "default",
+  size = "default",
+  width,
+  height,
   href,
   target,
   rel,
@@ -28,8 +34,12 @@ export const ZenRoughButton = ({
   const [showTooltip, setShowTooltip] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const tooltipTimerRef = useRef<number | null>(null);
-  const width = 320;
-  const height = 56;
+
+  // Size based dimensions
+  const defaultWidth = size === "compact" ? 40 : size === "small" ? 220 : 320;
+  const defaultHeight = size === "compact" ? 40 : size === "small" ? 46 : 56;
+  const resolvedWidth = width ?? defaultWidth;
+  const resolvedHeight = height ?? defaultHeight;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -40,7 +50,7 @@ export const ZenRoughButton = ({
     if (!ctx) return;
 
     // Canvas vorher löschen
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, resolvedWidth, resolvedHeight);
 
     // 🔄 Browser-Repaint erzwingen
     canvas.style.transform = "translateZ(0)";
@@ -57,29 +67,47 @@ export const ZenRoughButton = ({
       strokeColor = "#AC8E66"; // gold für hover
     }
 
-    // Rounded rectangle path
-    const pathStr = `
-      M ${4 + radius} 4
-      L ${width - 4 - radius} 4
-      Q ${width - 4} 4, ${width - 4} ${4 + radius}
-      L ${width - 4} ${height - 4 - radius}
-      Q ${width - 4} ${height - 4}, ${width - 4 - radius} ${height - 4}
-      L ${4 + radius} ${height - 4}
-      Q 4 ${height - 4}, 4 ${height - 4 - radius}
-      L 4 ${4 + radius}
-      Q 4 4, ${4 + radius} 4
-    `;
+    // Draw circle for compact size, rounded rectangle for default
+    if (size === "compact") {
+      // Draw circle
+      const centerX = resolvedWidth / 2;
+      const centerY = resolvedHeight / 2;
+      const circleRadius = (resolvedWidth - 8) / 2;
 
-    rc.path(pathStr, {
-      roughness: 0.1,
-      bowing: 1,
-      stroke: strokeColor,
-      strokeWidth: 1,
-    });
-  }, [isHovered, variant]);
+      rc.circle(centerX, centerY, circleRadius * 2, {
+        roughness: 0.1,
+        bowing: 1,
+        stroke: strokeColor,
+        strokeWidth: 1,
+      });
+    } else {
+      // Rounded rectangle path for default size
+      const pathStr = `
+        M ${4 + radius} 4
+        L ${resolvedWidth - 4 - radius} 4
+        Q ${resolvedWidth - 4} 4, ${resolvedWidth - 4} ${4 + radius}
+        L ${resolvedWidth - 4} ${resolvedHeight - 4 - radius}
+        Q ${resolvedWidth - 4} ${resolvedHeight - 4}, ${resolvedWidth - 4 - radius} ${resolvedHeight - 4}
+        L ${4 + radius} ${resolvedHeight - 4}
+        Q 4 ${resolvedHeight - 4}, 4 ${resolvedHeight - 4 - radius}
+        L 4 ${4 + radius}
+        Q 4 4, ${4 + radius} 4
+      `;
 
-  const baseClasses =
-    "relative px-6 py-3 rounded-lg font-mono text-[10px] transition-all duration-200 flex items-center justify-center gap-2 min-w-[280px] border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]";
+      rc.path(pathStr, {
+        roughness: 0.1,
+        bowing: 1,
+        stroke: strokeColor,
+        strokeWidth: 1,
+      });
+    }
+  }, [isHovered, variant, size, resolvedWidth, resolvedHeight]);
+
+  const baseClasses = size === "compact"
+    ? "relative rounded-full font-mono text-[10px] transition-all duration-200 flex items-center justify-center border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]"
+    : size === "small"
+      ? "relative rounded-lg font-mono text-[9px] transition-all duration-200 flex items-center justify-center gap-2 border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]"
+      : "relative px-6 py-3 rounded-lg font-mono text-[10px] transition-all duration-200 flex items-center justify-center gap-2 min-w-[280px] border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]";
 
   const variantClasses = {
     default: "bg-transparent text-[#e5e5e5]",
@@ -120,8 +148,8 @@ export const ZenRoughButton = ({
     onMouseLeave: handleMouseLeave,
     className: `${baseClasses} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`,
     style: {
-      width,
-      height,
+      width: resolvedWidth,
+      height: resolvedHeight,
       outline: "none",
       border: "none",
       boxShadow: "none",
@@ -135,8 +163,8 @@ export const ZenRoughButton = ({
       <canvas
         key={isHovered ? "hover" : "idle"}
         ref={canvasRef}
-        width={width}
-        height={height}
+        width={resolvedWidth}
+        height={resolvedHeight}
         style={{
           position: "absolute",
           top: 0,
@@ -148,12 +176,24 @@ export const ZenRoughButton = ({
         style={{ position: "relative", zIndex: 1 }}
         className="inline-flex items-center justify-center gap-3"
       >
-        {icon && (
-          <span className="inline-block text-[12px] text-[#AC8E66] relative top-[1px] mr-[4px]">
-            {icon}
-          </span>
+        {size === "compact" ? (
+          // Compact size: only show icon, no label
+          icon && (
+            <span className="inline-block text-[14px] text-[#AC8E66]">
+              {icon}
+            </span>
+          )
+        ) : (
+          // Default size: show both icon and label
+          <>
+            {icon && (
+              <span className="inline-block text-[10px] text-[#AC8E66] relative top-[1px] mr-[4px]">
+                {icon}
+              </span>
+            )}
+            <span className="text-[9px]">{label}</span>
+          </>
         )}
-        <span className="text-[11px]">{label}</span>
       </span>
     </>
   );

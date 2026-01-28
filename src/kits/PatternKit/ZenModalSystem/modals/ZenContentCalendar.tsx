@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import type { ScheduledPost, SocialPlatform } from '../../../../types/scheduling';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
+import { faLinkedin, faReddit, faGithub, faDev, faMedium, faHashnode, faTwitter } from '@fortawesome/free-brands-svg-icons';
+import { faCalendarDays } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenContentCalendarProps {
   isOpen: boolean;
@@ -11,13 +15,14 @@ interface ZenContentCalendarProps {
   onAddPost?: (date: Date) => void;
 }
 
-const PLATFORM_INFO: Record<SocialPlatform, { emoji: string; name: string; color: string }> = {
-  linkedin: { emoji: '💼', name: 'LinkedIn', color: '#0077B5' },
-  reddit: { emoji: '🤖', name: 'Reddit', color: '#FF4500' },
-  github: { emoji: '⚙️', name: 'GitHub', color: '#181717' },
-  devto: { emoji: '👨‍💻', name: 'Dev.to', color: '#0A0A0A' },
-  medium: { emoji: '📝', name: 'Medium', color: '#00AB6C' },
-  hashnode: { emoji: '🔷', name: 'Hashnode', color: '#2962FF' },
+const PLATFORM_INFO: Record<SocialPlatform, { icon: IconDefinition; name: string; color: string }> = {
+  linkedin: { icon: faLinkedin, name: 'LinkedIn', color: '#0077B5' },
+  reddit: { icon: faReddit, name: 'Reddit', color: '#FF4500' },
+  github: { icon: faGithub, name: 'GitHub', color: '#181717' },
+  devto: { icon: faDev, name: 'Dev.to', color: '#0A0A0A' },
+  medium: { icon: faMedium, name: 'Medium', color: '#00AB6C' },
+  hashnode: { icon: faHashnode, name: 'Hashnode', color: '#2962FF' },
+  twitter: { icon: faTwitter, name: 'Twitter/X', color: '#1DA1F2' },
 };
 
 const MONTH_NAMES = [
@@ -124,9 +129,13 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
             color: '#AC8E66',
             margin: 0,
             marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
           }}
         >
-          📅 Content Kalender
+          <FontAwesomeIcon icon={faCalendarDays} />
+          Content Kalender
         </h2>
 
         {/* Stats Row */}
@@ -351,9 +360,12 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
                             gap: '3px',
                             cursor: onEditPost ? 'pointer' : 'default',
                           }}
-                          onClick={() => onEditPost?.(post)}
+                          onClick={(e) => {
+                            e.stopPropagation(); // Prevent date click
+                            onEditPost?.(post);
+                          }}
                         >
-                          <span style={{ fontSize: '10px' }}>{info.emoji}</span>
+                          <FontAwesomeIcon icon={info.icon} style={{ fontSize: '8px', color: '#AC8E66' }} />
                           <span style={{ fontSize: '7px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {post.scheduledTime}
                           </span>

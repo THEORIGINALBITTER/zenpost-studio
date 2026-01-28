@@ -23,6 +23,7 @@ interface ZenMarkdownEditorProps {
   height?: string;
   showCharCount?: boolean;
   showPreview?: boolean;
+  showLineNumbers?: boolean;
 }
 
 interface ToolbarButton {
@@ -52,8 +53,10 @@ export const ZenMarkdownEditor = ({
   height = '400px',
   showCharCount = true,
   showPreview = false,
+  showLineNumbers = true,
 }: ZenMarkdownEditorProps) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
 
@@ -116,44 +119,58 @@ export const ZenMarkdownEditor = ({
     return { top, left };
   };
 
-  // Helper: Calculate floating toolbar position
+  // Helper: Calculate floating toolbar position based on textarea selection
   const calculateToolbarPosition = () => {
     const textarea = textareaRef.current;
     const toolbar = toolbarRef.current;
     if (!textarea || !toolbar) return;
 
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
+    const textareaRect = textarea.getBoundingClientRect();
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
 
-    try {
-      const range = selection.getRangeAt(0);
-      const rangeRect = range.getBoundingClientRect();
+    // Calculate position based on selection in textarea
+    const textBeforeSelection = value.substring(0, selectionStart);
+    const selectedText = value.substring(selectionStart, selectionEnd);
+    const linesBeforeSelection = textBeforeSelection.split('\n');
+    const startLineIndex = linesBeforeSelection.length - 1;
+    const startCharIndex = linesBeforeSelection[startLineIndex].length;
 
-      const toolbarWidth = toolbar.offsetWidth;
-      const toolbarHeight = toolbar.offsetHeight;
+    // Calculate middle of selection for horizontal centering
+    const selectionLines = selectedText.split('\n');
+    const midCharOffset = selectionLines[0].length / 2;
 
-      let top = rangeRect.top - toolbarHeight - 8;
-      let left = rangeRect.left + (rangeRect.width / 2) - (toolbarWidth / 2);
+    // Estimate position (monospace font assumptions)
+    const lineHeight = 20;
+    const charWidth = 8.4;
+    const paddingTop = 12; // textarea padding
+    const paddingLeft = 12;
 
-      if (top < 0) {
-        top = rangeRect.bottom + 8;
-      }
+    // Account for scroll position within textarea
+    const scrollTop = textarea.scrollTop;
 
-      const viewportWidth = window.innerWidth;
-      if (left < 8) {
-        left = 8;
-      } else if (left + toolbarWidth > viewportWidth - 8) {
-        left = viewportWidth - toolbarWidth - 8;
-      }
+    const toolbarWidth = toolbar.offsetWidth || 200;
+    const toolbarHeight = toolbar.offsetHeight || 36;
 
-      setToolbarPosition({ top, left });
-    } catch (error) {
-      const textareaRect = textarea.getBoundingClientRect();
-      setToolbarPosition({
-        top: textareaRect.top + 50,
-        left: textareaRect.left + (textareaRect.width / 2) - 150,
-      });
+    // Position toolbar above the selection
+    let top = textareaRect.top + paddingTop + (startLineIndex * lineHeight) - scrollTop - toolbarHeight - 8;
+    let left = textareaRect.left + paddingLeft + ((startCharIndex + midCharOffset) * charWidth);
+
+    // Keep toolbar in viewport
+    if (top < 8) {
+      // Show below selection if not enough space above
+      top = textareaRect.top + paddingTop + ((startLineIndex + 1) * lineHeight) - scrollTop + 8;
     }
+
+    // Horizontal bounds
+    const viewportWidth = window.innerWidth;
+    if (left < 8) {
+      left = 8;
+    } else if (left + toolbarWidth > viewportWidth - 8) {
+      left = viewportWidth - toolbarWidth - 8;
+    }
+
+    setToolbarPosition({ top, left });
   };
 
   // Handle text selection for floating toolbar
@@ -277,13 +294,16 @@ export const ZenMarkdownEditor = ({
   const makeUnorderedList = () => insertAtLineStart('- ');
   const makeOrderedList = () => insertAtLineStart('1. ');
   const makeLink = () => insertText('[', '](url)', 'Link-Text');
-  const makeCode = () => {
+  const makeCode = (language?: string) => {
     const info = getSelectionInfo();
     if (!info) return;
 
-    if (info.selectedText.includes('\n')) {
-      insertText('```\n', '\n```', 'code');
+    if (info.selectedText.includes('\n') || language) {
+      // Multi-line code block with optional language
+      const lang = language || '';
+      insertText(`\`\`\`${lang}\n`, '\n```', 'code');
     } else {
+      // Inline code
       insertText('`', '`', 'code');
     }
   };
@@ -344,7 +364,29 @@ export const ZenMarkdownEditor = ({
     { id: 'ul-list', label: 'Unordered List', icon: faListUl, description: 'Aufzählungsliste', action: makeUnorderedList },
     { id: 'ol-list', label: 'Ordered List', icon: faListOl, description: 'Nummerierte Liste', action: makeOrderedList },
     { id: 'link', label: 'Link', icon: faLink, description: 'Hyperlink', action: makeLink, shortcut: `${modKey}+K` },
-    { id: 'code', label: 'Code', icon: faCode, description: 'Code-Block', action: makeCode },
+    {
+      id: 'code',
+      label: 'Code',
+      icon: faCode,
+      description: 'Code-Block mit Sprache',
+      submenu: [
+        { id: 'code-inline', label: 'Inline Code', action: () => makeCode() },
+        { id: 'code-javascript', label: 'JavaScript', action: () => makeCode('javascript') },
+        { id: 'code-typescript', label: 'TypeScript', action: () => makeCode('typescript') },
+        { id: 'code-python', label: 'Python', action: () => makeCode('python') },
+        { id: 'code-rust', label: 'Rust', action: () => makeCode('rust') },
+        { id: 'code-bash', label: 'Bash/Shell', action: () => makeCode('bash') },
+        { id: 'code-html', label: 'HTML', action: () => makeCode('html') },
+        { id: 'code-css', label: 'CSS', action: () => makeCode('css') },
+        { id: 'code-java', label: 'Java', action: () => makeCode('java') },
+        { id: 'code-swift', label: 'Swift', action: () => makeCode('swift') },
+        { id: 'code-go', label: 'Go', action: () => makeCode('go') },
+        { id: 'code-json', label: 'JSON', action: () => makeCode('json') },
+        { id: 'code-yaml', label: 'YAML', action: () => makeCode('yaml') },
+        { id: 'code-sql', label: 'SQL', action: () => makeCode('sql') },
+        { id: 'code-markdown', label: 'Markdown', action: () => makeCode('markdown') },
+      ]
+    },
     { id: 'quote', label: 'Quote', icon: faQuoteRight, description: 'Zitat', action: makeQuote },
   ];
 
@@ -415,8 +457,8 @@ export const ZenMarkdownEditor = ({
       }
     }
 
-    // Detect slash command
-    if (e.key === '/' && !showCommandMenu) {
+    // Detect slash command (only trigger on '/' without Shift key)
+    if (e.key === '/' && !e.shiftKey && !showCommandMenu) {
       const textarea = textareaRef.current;
       if (!textarea) return;
 
@@ -490,48 +532,54 @@ export const ZenMarkdownEditor = ({
     { icon: faLink, label: 'Link', action: makeLink, shortcut: `${modKey}+K` },
   ];
 
+  const lineCount = Math.max(1, value.split('\n').length);
+  const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1);
+
   return (
     <div className="w-full relative">
-      {/* Desktop Split-View or Mobile Toggle */}
+      {/* Desktop Split-View or Mobile Stacked */}
       <div className={`flex gap-4 ${showPreview ? 'md:flex-row flex-col' : ''}`}>
-        {/* Editor Section */}
-        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} ${showPreview ? 'md:block hidden' : 'block'}`}>
+        {/* Editor Section - always visible */}
+        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} flex-1 min-w-0`}>
           {/* Floating Toolbar - Appears on text selection */}
           {showToolbar && !showCommandMenu && (
-        <div
-          ref={toolbarRef}
-          className="fixed z-50 flex items-center gap-1 p-1 bg-[#2A2A2A] border border-[#AC8E66] rounded-lg shadow-lg"
-          style={{
-            top: `${toolbarPosition.top}px`,
-            left: `${toolbarPosition.left}px`,
-          }}
-          onMouseDown={(e) => {
-            e.preventDefault();
-          }}
-        >
-          {toolbarButtons.map((button, index) => (
-            <button
-              key={index}
-              onClick={(e) => {
-                e.preventDefault();
-                button.action();
+            <div
+              ref={toolbarRef}
+              className="fixed z-50 flex items-center gap-0.5 p-0.5 
+              bg-[#2A2A2A] border border-[#AC8E66] rounded rounded-[6px] shadow-lg"
+              style={{
+                top: `${toolbarPosition.top}px`,
+                left: `${toolbarPosition.left}px`,
               }}
-              title={`${button.label}${button.shortcut ? ` (${button.shortcut})` : ''}`}
-              className="p-2 w-10 h-10 flex items-center justify-center
-                text-[#888] hover:text-[#AC8E66] hover:bg-[#3a3a3a]
-                rounded transition-colors touch-manipulation"
+              onMouseDown={(e) => {
+                e.preventDefault();
+              }}
             >
-              <FontAwesomeIcon icon={button.icon} className="text-base" />
-            </button>
-          ))}
-        </div>
-      )}
+              {toolbarButtons.map((button, index) => (
+                <button
+                  key={index}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    button.action();
+                  }}
+                  title={`${button.label}${button.shortcut ? ` (${button.shortcut})` : ''}`}
+                  className="p-1.5 w-5 h-5 flex items-center justify-center
+                    text-[#888] hover:text-[#AC8E66] hover:bg-[AC8E66] hover:bg-opacity-10
+                    rounded rounded-[6px] transition-colors touch-manipulation"
+                >
+                  <FontAwesomeIcon icon={button.icon} className="text-[10px]" />
+                </button>
+              ))}
+            </div>
+          )}
 
       {/* Slash Command Menu */}
       {showCommandMenu && (
         <div
           ref={commandMenuRef}
-          className="fixed z-50 w-64 bg-[#2A2A2A] border border-[#AC8E66] rounded-lg shadow-lg overflow-hidden"
+          className="
+          fixed z-50 w-32 bg-[#2A2A2A] 
+          border border-[#AC8E66] rounded rounded-[6px]  shadow-lg overflow-hidden"
           style={{
             top: `${commandMenuPosition.top}px`,
             left: `${commandMenuPosition.left}px`,
@@ -572,7 +620,7 @@ export const ZenMarkdownEditor = ({
       )}
 
       {/* Plus Menu Button */}
-      <div style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative', width: '100%', height, minHeight: height }}>
         <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}>
           <ZenPlusMenu
             items={plusMenuItems}
@@ -614,28 +662,86 @@ export const ZenMarkdownEditor = ({
           </div>
         )}
 
-        {/* Editor Textarea */}
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={handleInput}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => {
-            setIsFocused(false);
-            setTimeout(() => {
-              setShowToolbar(false);
-              setShowCommandMenu(false);
-            }, 200);
+        <div
+          style={{
+            display: 'flex',
+            width: '100%',
+            height: '100%',
+            border: `0.5px solid ${isFocused ? '#AC8E66' : '#AC8E66'}`,
+            borderRadius: '10px',
+            backgroundColor: '#1A1A1A',
+            overflow: 'hidden',
           }}
-          placeholder={placeholder}
-          className={`w-full bg-[#2A2A2A] text-[#e5e5e5] font-mono text-sm
-            border rounded-lg
-            focus:outline-none
-            resize-none transition-colors zen-scrollbar
-            ${isFocused ? 'border-[#AC8E66]' : 'border-[#3a3a3a]'}`}
-          style={{ height, padding: '12px', paddingRight: '60px' }}
-        />
+        >
+          {showLineNumbers && (
+            <div
+              ref={lineNumbersRef}
+              className="zen-scrollbar"
+              style={{
+                width: '48px',
+                flex: '0 0 48px',
+                height: '100%',
+                paddingTop: '12px',
+                paddingRight: '8px',
+                paddingBottom: '12px',
+                paddingLeft: '8px',
+                backgroundColor: '#141414',
+                borderRight: '1px solid #3a3a3a',
+                color: '#AC8E66',
+                fontFamily: 'SF Mono, Monaco, monospace',
+                fontSize: '14px',
+                lineHeight: '21px',
+                opacity: '0.65',
+                textAlign: 'right',
+                overflow: 'hidden',
+                userSelect: 'none',
+              }}
+            >
+              {lineNumbers.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
+          {/* Editor Textarea */}
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => {
+              setIsFocused(false);
+              setTimeout(() => {
+                setShowToolbar(false);
+                setShowCommandMenu(false);
+              }, 200);
+            }}
+            onScroll={(event) => {
+              if (showLineNumbers && lineNumbersRef.current) {
+                lineNumbersRef.current.scrollTop = event.currentTarget.scrollTop;
+              }
+            }}
+            placeholder={placeholder}
+            className="flex-1 min-w-0 bg-transparent text-[#e5e5e5] font-mono
+              focus:outline-none
+              resize-none transition-colors zen-scrollbar"
+            style={{
+              height: '100%',
+              paddingTop: '12px',
+              paddingRight: '60px',
+              paddingBottom: '12px',
+              paddingLeft: '12px',
+              flex: 1,
+              caretColor: '#AC8E66',
+              fontSize: '14px',
+              lineHeight: '21px',
+              whiteSpace: 'pre',
+              overflowX: 'auto',
+              border: 'none',
+              outline: 'none',
+            }}
+          />
+        </div>
       </div>
 
         {/* Error Message */}
@@ -646,12 +752,12 @@ export const ZenMarkdownEditor = ({
         )}
 
         {/* Shortcut Footer - Always visible */}
-        <div className="mt-2 flex items-center justify-between border-t border-[#3a3a3a] "
-        style={{ paddingTop: '2px', paddingLeft: '4px',  }}
+        <div className="mt-2 flex items-center justify-between"
+          style={{ paddingTop: '2px', paddingLeft: '4px' }}
         >
           {/* Shortcuts */}
-          <div className="flex "
-            style={{ marginTop: '8px' , paddingLeft: '10px', textAlign: 'center' }}
+          <div className="flex"
+            style={{ marginTop: '8px', paddingLeft: '10px', textAlign: 'center' }}
           >
             <span className="text-[#777] font-mono text-[10px]">
               <span className="text-[#AC8E66]">{modKey}+B</span> Bold
@@ -680,7 +786,7 @@ export const ZenMarkdownEditor = ({
             )}
           </div>
         </div>
-      </div>
+        </div>
 
       {/* Preview Section - Responsive */}
       {showPreview && (
@@ -688,6 +794,7 @@ export const ZenMarkdownEditor = ({
           <ZenMarkdownPreview content={value} height={height} />
         </div>
       )}
+      </div>
 
       {/* CSS Animation for Spinner */}
       <style>{`
@@ -696,7 +803,6 @@ export const ZenMarkdownEditor = ({
           to { transform: rotate(360deg); }
         }
       `}</style>
-    </div>
     </div>
   );
 };

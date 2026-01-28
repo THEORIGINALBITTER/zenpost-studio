@@ -43,7 +43,7 @@ export const ZenModalHeader = ({
       {/* Save Button oben rechts */}
       {onSave && (
         <div style={{
-          position: 'fixed',
+          position: 'absolute',
           right: '10px',
           top: '10px'
         }}>

@@ -34,6 +34,7 @@ export const ZenMarkdownPreview = ({
     { value: 'français', label: '🇫🇷 Français' },
     { value: 'italiano', label: '🇮🇹 Italiano' },
     { value: 'português', label: '🇵🇹 Português' },
+    { value: 'russisch', label: '🇷🇺 Russisch'  },
     { value: '中文', label: '🇨🇳 中文' },
     { value: '日本語', label: '🇯🇵 日本語' },
     { value: '한국어', label: '🇰🇷 한국어' },
@@ -64,7 +65,10 @@ export const ZenMarkdownPreview = ({
   return (
     <div className="w-full relative">
       {/* Controls: Translate + Zoom */}
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-2">
+      <div
+        className="absolute z-10 flex items-center gap-2"
+        style={{ top: -0, right: -8, scale: 0.75, transformOrigin: 'top right', padding: '8px'  }}
+      >
         {/* Translate Button with Dropdown */}
         {onContentChange && (
           <div className="relative">
@@ -79,7 +83,7 @@ export const ZenMarkdownPreview = ({
 
             {/* Language Dropdown Menu */}
             {showLanguageMenu && (
-              <div className="absolute top-10 right-0 bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg shadow-lg overflow-hidden min-w-[160px] z-20">
+              <div className="absolute top-10 right-0 bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg shadow-lg overflow-hidden min-w-[180px] z-20">
                 {languages.map((lang) => (
                   <button
                     key={lang.value}
@@ -122,23 +126,29 @@ export const ZenMarkdownPreview = ({
 
       {/* Translation Status */}
       {isTranslating && (
-        <div className="absolute top-2 left-2 z-10 bg-[#1A1A1A] border border-[#AC8E66] rounded-lg px-3 py-1">
-          <p className="text-[#AC8E66] text-xs font-mono">Übersetze...</p>
+        <div
+          className="absolute z-10 bg-[#1A1A1A] border border-[#AC8E66] rounded rounded-[12px] px-[12px] py-[2px]"
+          style={{ top: 16, left: 10, scale: 0.75, transformOrigin: 'top left' }}
+        >
+          <p className="text-[#AC8E66] text-[9px] font-mono">Übersetze...</p>
         </div>
       )}
 
       {/* Translation Error */}
       {translateError && (
-        <div className="absolute top-2 left-2 z-10 bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1">
+        <div
+          className="absolute z-10 bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1"
+          style={{ top: 16, right: 16 }}
+        >
           <p className="text-red-400 text-xs font-mono">{translateError}</p>
         </div>
       )}
 
-      {/* Preview Content */}
+      {/* Preview Content Innenbox  */}
       <div
-        className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#3a3a3a]
-          rounded-lg p-4 overflow-y-auto zen-scrollbar prose prose-invert max-w-none"
-        style={{ height }}
+        className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#fef3c7] shadow-[10px] shadow-[#fff]
+          rounded-[12px] p-[5px] overflow-y-auto zen-scrollbar prose prose-invert max-w-none"
+        style={{ height, paddingTop: 56 }}
       >
         <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top left', width: `${100 / (zoom / 100)}%` }}>
           <ReactMarkdown

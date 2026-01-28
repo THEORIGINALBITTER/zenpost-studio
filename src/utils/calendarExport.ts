@@ -12,6 +12,7 @@ const PLATFORM_NAMES: Record<SocialPlatform, string> = {
   devto: 'Dev.to',
   medium: 'Medium',
   hashnode: 'Hashnode',
+  twitter: 'Twitter/X',
 };
 
 /**
@@ -170,6 +171,7 @@ export const getScheduleStats = (scheduledPosts: ScheduledPost[]) => {
     devto: 0,
     medium: 0,
     hashnode: 0,
+    twitter: 0,
   };
 
   scheduled.forEach(post => {

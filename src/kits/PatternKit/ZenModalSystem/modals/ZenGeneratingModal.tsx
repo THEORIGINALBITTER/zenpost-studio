@@ -168,7 +168,7 @@ export function ZenGeneratingModal({ isOpen, templateName }: ZenGeneratingModalP
           style={{
             fontFamily: 'monospace',
             fontSize: '16px',
-            color: '#e5e5e5',
+            color: '#fef3c7 ',
             marginBottom: '8px',
             animation: 'fade-in-out 2s ease-in-out infinite',
           }}
@@ -218,7 +218,7 @@ export function ZenGeneratingModal({ isOpen, templateName }: ZenGeneratingModalP
             padding: '16px',
             backgroundColor: '#1A1A1A',
             borderRadius: '8px',
-            border: '1px solid #3A3A3A',
+            border: '1px solid #fef3c7 ',
           }}
         >
           <p

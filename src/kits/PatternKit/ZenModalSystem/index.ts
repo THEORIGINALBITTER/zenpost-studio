@@ -39,6 +39,7 @@ export type {
 // Pre-built Modals (Examples)
 export { ZenAISettingsModal } from './modals/ZenAISettingsModal';
 export { ZenAboutModal } from './modals/ZenAboutModal';
+export { ZenGithubModal } from './modals/ZenGithubModal';
 export { ZenSettingsModal } from './modals/ZenSettingsModal';
 export { ZenMetadataModal, extractMetadataFromContent } from './modals/ZenMetadataModal';
 export type { ProjectMetadata } from './modals/ZenMetadataModal';
@@ -48,6 +49,10 @@ export { ZenSaveSuccessModal } from './modals/ZenSaveSuccessModal';
 export { ZenPublishScheduler } from './modals/ZenPublishScheduler';
 export { ZenContentCalendar } from './modals/ZenContentCalendar';
 export { ZenTodoChecklist } from './modals/ZenTodoChecklist';
+export { ZenExportModal } from './modals/ZenExportModal';
+export { ZenPlannerModal } from './modals/ZenPlannerModal';
+export { ZenPostenModal } from './modals/ZenPostenModal';
+export { ZenPostMethodModal } from './modals/ZenPostMethodModal';
 
 /**
  * Version information

@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
-import { readDir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { readDir, readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFolder, faBook, faPencil, faFileLines, faRotateLeft, faLightbulb, faNoteSticky, faSave, faUser } from '@fortawesome/free-solid-svg-icons';
-import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenSaveSuccessModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent } from '../kits/PatternKit/ZenModalSystem';
+import { faFolder, faBook, faPencil, faFileLines, faRotateLeft, faLightbulb, faSave, faUser, faPlug, faHandshake, faDatabase, faCalendarDays, faEdit, faChevronDown, faChevronUp, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faLinkedin, faReddit, faGithub, faDev, faMedium, faHashnode, faTwitter } from '@fortawesome/free-brands-svg-icons';
+import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenSaveSuccessModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent, ZenModal, ZenModalHeader, ZenModalFooter, getModalPreset } from '../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownEditor } from '../kits/PatternKit/ZenMarkdownEditor';
 import { generateFromPrompt, translateContent, type TargetLanguage } from '../services/aiService';
-import type { ScheduledPost } from '../types/scheduling';
+import { defaultEditorSettings, loadEditorSettings, type EditorSettings } from '../services/editorSettingsService';
+import { autoSavePostsAndSchedule, loadSchedule, initializePublishingProject, getPublishingPaths, type PlatformScheduleState } from '../services/publishingService';
+import type { ScheduledPost, SocialPlatform } from '../types/scheduling';
 import { downloadICSFile, getScheduleStats } from '../utils/calendarExport';
 
 interface DocStudioState {
@@ -22,17 +25,26 @@ interface DocStudioState {
 }
 
 interface DocStudioScreenProps {
-  onBack: () => void;
+  onBack: () => void; // Called when going back to welcome screen
   onTransferToContentStudio?: (content: string, currentStep: number, state: DocStudioState) => void;
   onStepChange?: (step: number) => void;
   initialStep?: number;
   savedState?: DocStudioState | null;
   onStateChange?: (state: DocStudioState) => void;
+  // Publishing Props (geteilt mit App1.tsx)
+  scheduledPosts?: ScheduledPost[];
+  onScheduledPostsChange?: (posts: ScheduledPost[]) => void;
+  onShowScheduler?: () => void;
+  onShowCalendar?: () => void;
+  onShowChecklist?: () => void;
+  onSetSchedulerPlatformPosts?: (posts: Array<{ platform: string; content: string }>) => void;
+  onSetSelectedDateFromCalendar?: (date: Date | undefined) => void;
+  // Preview Mode Props (von App1.tsx gesteuert)
+  showPreview?: boolean;
+  onPreviewChange?: (show: boolean) => void;
 }
 
-type DocTemplate = 'readme' | 'changelog' | 'api-docs' | 'contributing' | 'blog-post' | 'data-room';
-
-type SocialPlatform = 'linkedin' | 'reddit' | 'github' | 'devto' | 'medium' | 'hashnode';
+type DocTemplate = 'readme' | 'changelog' | 'api-docs' | 'contributing' | 'data-room';
 
 interface PlatformPost {
   platform: SocialPlatform;
@@ -52,7 +64,23 @@ interface ProjectInfo {
   hasApi: boolean;
 }
 
-export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChange, initialStep = 1, savedState, onStateChange }: DocStudioScreenProps) {
+export function DocStudioScreen({
+  onBack,
+  onTransferToContentStudio: _onTransferToContentStudio,
+  onStepChange,
+  initialStep = 1,
+  savedState,
+  onStateChange: _onStateChange,
+  scheduledPosts: externalScheduledPosts,
+  onScheduledPostsChange,
+  onShowScheduler,
+  onShowCalendar,
+  onShowChecklist,
+  onSetSchedulerPlatformPosts,
+  onSetSelectedDateFromCalendar,
+  showPreview = false,
+  onPreviewChange: _onPreviewChange,
+}: DocStudioScreenProps) {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(initialStep);
 
@@ -68,15 +96,94 @@ export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChang
     onStepChange?.(currentStep);
   }, [currentStep, onStepChange]);
 
-  // Project state
-  const [projectPath, setProjectPath] = useState<string | null>(savedState?.projectPath || null);
+  // Project state - Load from localStorage if available
+  const [projectPath, setProjectPath] = useState<string | null>(() => {
+    if (savedState?.projectPath) return savedState.projectPath;
+    const stored = localStorage.getItem('zenpost_last_project_path');
+    return stored || null;
+  });
   const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(savedState?.projectInfo || null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
+  // Save project path to localStorage whenever it changes
+  useEffect(() => {
+    if (projectPath) {
+      localStorage.setItem('zenpost_last_project_path', projectPath);
+    }
+  }, [projectPath]);
+
+  // Load and analyze project on mount if projectPath exists but no projectInfo
+  useEffect(() => {
+    if (projectPath && !projectInfo && !isAnalyzing) {
+      analyzeProject(projectPath);
+    }
+  }, [projectPath, projectInfo, isAnalyzing]);
+
+  useEffect(() => {
+    if (!projectPath) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const initializePublishing = async () => {
+      try {
+        await initializePublishingProject(projectPath);
+        const project = await loadSchedule(projectPath);
+        if (!cancelled) {
+          setScheduledPosts(project.posts);
+        }
+      } catch (error) {
+        console.error('[DocStudio] Failed to initialize publishing workspace:', error);
+      }
+    };
+
+    initializePublishing();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectPath]);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    let isMounted = true;
+    loadEditorSettings(projectPath)
+      .then((loaded) => {
+        if (isMounted) {
+          setEditorSettings(loaded);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setEditorSettings({ ...defaultEditorSettings });
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<EditorSettings>).detail;
+      if (detail) {
+        setEditorSettings(detail);
+      }
+    };
+    window.addEventListener('zen-editor-settings-updated', handler);
+    return () => window.removeEventListener('zen-editor-settings-updated', handler);
+  }, []);
+
   // Template & Generation state
   const [selectedTemplate, setSelectedTemplate] = useState<DocTemplate | null>(savedState?.selectedTemplate || null);
+  const [selectedTemplates, setSelectedTemplates] = useState<DocTemplate[]>([]);
   const [generatedContent, setGeneratedContent] = useState<string>(savedState?.generatedContent || '');
+  const [_forceEditorStep, setForceEditorStep] = useState(false);
+  const [showDocEditModal, setShowDocEditModal] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [showKIOptions, setShowKIOptions] = useState(true);
 
   // Style options (like in Content Transform)
   const [tone, setTone] = useState<'professional' | 'casual' | 'technical' | 'enthusiastic'>(savedState?.tone || 'professional');
@@ -86,6 +193,9 @@ export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChang
 
   // Settings
   const [showSettings, setShowSettings] = useState(false);
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>({
+    ...defaultEditorSettings,
+  });
 
   // Metadata
   const [showMetadata, setShowMetadata] = useState(false);
@@ -106,19 +216,46 @@ export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChang
 
   // Save Success Modal
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
-  const [savedFilePath, setSavedFilePath] = useState<string>('');
+  const [savedFilePaths, setSavedFilePaths] = useState<string[]>([]);
+  const [showCalendarButtonInSuccessModal, setShowCalendarButtonInSuccessModal] = useState(false);
 
-  // Multi-Platform Blog Posts
-  const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([]);
+  // Multi-Platform Blog Posts (kept for potential future use)
+  const [_selectedPlatforms, _setSelectedPlatforms] = useState<SocialPlatform[]>([]);
   const [platformPosts, setPlatformPosts] = useState<PlatformPost[]>([]);
-  const [saveLocation, setSaveLocation] = useState<'root' | 'docs' | 'blog-posts'>('docs');
+  const [_saveLocation, _setSaveLocation] = useState<'root' | 'docs' | 'blog-posts'>('docs');
 
-  // Step 5: Publishing Management
-  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
-  const [showScheduler, setShowScheduler] = useState(false);
-  const [showCalendar, setShowCalendar] = useState(false);
-  const [showChecklist, setShowChecklist] = useState(false);
-  const [selectedDateFromCalendar, setSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
+  // Project folder change confirmation
+  const [showProjectChangeConfirmation, setShowProjectChangeConfirmation] = useState(false);
+
+  // Step 5: Publishing Management - use external state from App1.tsx if available
+  const [localScheduledPosts, setLocalScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [localShowScheduler, setLocalShowScheduler] = useState(false);
+  const [localShowCalendar, setLocalShowCalendar] = useState(false);
+  const [localShowChecklist, setLocalShowChecklist] = useState(false);
+  const [localSelectedDateFromCalendar, setLocalSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
+
+  // Use external state if provided, otherwise fall back to local state
+  const scheduledPosts = externalScheduledPosts ?? localScheduledPosts;
+  const setScheduledPosts = onScheduledPostsChange ?? setLocalScheduledPosts;
+  const showScheduler = onShowScheduler ? false : localShowScheduler; // External modals are in App1
+  const showCalendar = onShowCalendar ? false : localShowCalendar;
+  const showChecklist = onShowChecklist ? false : localShowChecklist;
+  const selectedDateFromCalendar = localSelectedDateFromCalendar;
+  const setSelectedDateFromCalendar = onSetSelectedDateFromCalendar ?? setLocalSelectedDateFromCalendar;
+
+  // Wrapper functions for opening modals - send platformPosts to App1 when using external modals
+  const openScheduler = () => {
+    if (onShowScheduler && onSetSchedulerPlatformPosts) {
+      onSetSchedulerPlatformPosts(platformPosts.map(p => ({ platform: p.platform, content: p.content })));
+      onShowScheduler();
+    } else {
+      setLocalShowScheduler(true);
+    }
+  };
+  const closeScheduler = () => setLocalShowScheduler(false);
+  const openCalendar = onShowCalendar ?? (() => setLocalShowCalendar(true));
+  const closeCalendar = () => setLocalShowCalendar(false);
+  const openChecklist = onShowChecklist ?? (() => setLocalShowChecklist(true));
 
   // Step 4: Editing Posts
   const [editingPost, setEditingPost] = useState<SocialPlatform | null>(null);
@@ -132,57 +269,36 @@ export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChang
            metadata.repository.trim() !== '';
   };
 
-  // Helper function to capture current state
-  const getCurrentState = (): DocStudioState => {
-    return {
-      projectPath,
-      projectInfo,
-      selectedTemplate,
-      generatedContent,
-      tone,
-      length,
-      audience,
-      targetLanguage,
-      metadata,
-    };
-  };
-
   const templates = [
     {
       id: 'readme' as DocTemplate,
-      icon: '📄',
+      icon: faFileLines,
       title: 'README.md',
       description: 'Complete project documentation with installation, usage, and examples',
     },
     {
       id: 'changelog' as DocTemplate,
-      icon: '📝',
+      icon: faBook,
       title: 'CHANGELOG.md',
       description: 'Version history and release notes',
     },
     {
       id: 'api-docs' as DocTemplate,
-      icon: '🔌',
+      icon: faPlug,
       title: 'API Documentation',
       description: 'Detailed API endpoints, parameters, and responses',
     },
     {
       id: 'contributing' as DocTemplate,
-      icon: '🤝',
+      icon: faHandshake,
       title: 'CONTRIBUTING.md',
       description: 'Guidelines for contributors',
     },
     {
       id: 'data-room' as DocTemplate,
-      icon: '📂',
+      icon: faDatabase,
       title: 'Data Room',
       description: 'Investor-ready documentation suite for due diligence',
-    },
-    {
-      id: 'blog-post' as DocTemplate,
-      icon: '✍️',
-      title: 'Blog Post',
-      description: 'Dev.to, Medium, or Hashnode ready article',
     },
   ];
 
@@ -325,13 +441,7 @@ export function DocStudioScreen({ onBack, onTransferToContentStudio, onStepChang
     if (!projectInfo) return;
 
     setSelectedTemplate(template);
-
-    // For blog-post, go to platform selection (Step 2.5/3) first
-    if (template === 'blog-post') {
-      setCurrentStep(3); // Step 3 will now be platform selection for blog posts
-      return;
-    }
-
+    setForceEditorStep(false);
     setIsGenerating(true);
 
     try {
@@ -382,10 +492,7 @@ STYLE PREFERENCES:
 - Target Audience: ${audienceMap[audience]}
 `;
 
-      // Type narrowing: at this point template cannot be 'blog-post'
-      const docTemplate = template as Exclude<DocTemplate, 'blog-post'>;
-
-      switch (docTemplate) {
+      switch (template) {
         case 'readme':
           prompt = `Create a README.md for the following project:
 ${styleContext}
@@ -572,6 +679,13 @@ Make it professional and investor-ready.`;
     }
   };
 
+  const startBlankDocument = (template: DocTemplate) => {
+    setSelectedTemplate(template);
+    setGeneratedContent('');
+    setForceEditorStep(true);
+    setCurrentStep(3);
+  };
+
   const saveDocumentation = async () => {
     console.log('[Save] Starting save...');
     console.log('[Save] Project path:', projectPath);
@@ -586,9 +700,7 @@ Make it professional and investor-ready.`;
 
     try {
       let fileName: string;
-      if (selectedTemplate === 'blog-post') {
-        fileName = `blog-post-${Date.now()}.md`;
-      } else if (selectedTemplate === 'data-room') {
+      if (selectedTemplate === 'data-room') {
         fileName = 'data-room/INDEX.md';
       } else {
         fileName = `${selectedTemplate.toUpperCase()}.md`;
@@ -606,8 +718,12 @@ Make it professional and investor-ready.`;
 
       // Show success modal but stay in editor
       setSavedFileName(fileName);
-      setSavedFilePath(filePath);
+      setSavedFilePaths([filePath]);
+      setShowCalendarButtonInSuccessModal(false); // No calendar button for regular saves
       setShowSaveSuccess(true);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('zenpost-project-files-updated'));
+      }
       // Don't change step - stay in editor
     } catch (error) {
       console.error('[Save] Error details:', error);
@@ -622,6 +738,7 @@ Make it professional and investor-ready.`;
     setCurrentStep(2);
     setSelectedTemplate(null);
     setGeneratedContent('');
+    setForceEditorStep(false);
   };
 
   const handleBackToMenu = () => {
@@ -687,19 +804,20 @@ Make it professional and investor-ready.`;
                 maxWidth: '448px',
                 marginLeft: 'auto',
                 marginRight: 'auto',
-                fontStyle: '12px',
+                fontSize: '12px',
               }}
             >
-              Wähle deinen Projekt-Ordner, um die Struktur zu analysieren und automatisch professionelle Dokumentation zu generieren.
+              Wähle deinen Projekt-Order, um die Struktur zu analysieren und automatisch professionelle Dokumentation zu generieren.
             </p>
             <div style={{ 
               display: 'flex', 
               justifyContent: 'center', 
-              fontSize: "12px"  
+              fontStyle: '12px'  ,
+              fontSize: '12px'
             }}
               >
               <ZenRoughButton
-                label="Projekt-Ordner wählen"
+                label="Projekt-Order wählen"
               
                 onClick={selectProject}
                 variant="active"
@@ -778,27 +896,19 @@ Make it professional and investor-ready.`;
             >
               <h3
                 style={{
-
                   fontWeight: 'bold',
-
                   margin: 0,
-                     fontFamily: 'monospace',
-              fontSize: '16px',
-              color: '#AC8E66',
+                  fontFamily: 'monospace',
+                  fontSize: '16px',
+                  color: '#AC8E66',
                 }}
               >
-            Projekt-Informationen
+                <span className="text-[#AC8E66]">Step01:</span>{' '}
+                <span className="text-[#fef3c7]">Projekt-Informationen</span>
               </h3>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button
-                  onClick={() => {
-                    // Go back to step 1 to select a new project folder
-                    setCurrentStep(1);
-                    setProjectPath(null);
-                    setProjectInfo(null);
-                    setSelectedTemplate(null);
-                    setGeneratedContent('');
-                  }}
+                  onClick={() => setShowProjectChangeConfirmation(true)}
                   style={{
                     padding: '6px 12px',
                     backgroundColor: 'transparent',
@@ -894,27 +1004,48 @@ Make it professional and investor-ready.`;
           </div>
         )}
 
-        {/* Style Options */}
+        {/* Style Options - Step02 with Toggle */}
         <div
           style={{
             backgroundColor: '#2A2A2A',
-           borderRadius: '8px',
+            borderRadius: '8px',
             border: '1px solid #AC8E66',
             padding: '24px',
             marginBottom: '24px',
           }}
         >
-          <h3
+          <button
+            onClick={() => setShowKIOptions(!showKIOptions)}
             style={{
-              fontFamily: 'monospace',
-              fontSize: '16px',
-              color: '#AC8E66',
-              marginBottom: '16px',
-              textAlign: 'center',
+              width: '100%',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              padding: 0,
+              marginBottom: showKIOptions ? '16px' : 0,
             }}
           >
-           Step01:  <span className="text-[#aaa]">Stil-Optionen deiner KI</span>
-          </h3>
+            <h3
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '16px',
+                color: '#AC8E66',
+                margin: 0,
+              }}
+            >
+              <span className="text-[#AC8E66]">Step02:</span>{' '}
+              <span className="text-[#fef3c7]">KI Optionen</span>
+            </h3>
+            <FontAwesomeIcon
+              icon={showKIOptions ? faChevronUp : faChevronDown}
+              style={{ color: '#AC8E66', fontSize: '14px' }}
+            />
+          </button>
+          {showKIOptions && (
           <div
             style={{
               display: 'grid',
@@ -989,35 +1120,89 @@ Make it professional and investor-ready.`;
               labelSize="11px"
             />
           </div>
+          )}
         </div>
 
-        {/* Template Selection */}
+        {/* Template Selection - Step03 */}
         <div
           style={{
             backgroundColor: '#2A2A2A',
             borderRadius: '8px',
             border: '1px solid #AC8E66',
             padding: '24px',
-
-               fontFamily: 'monospace',
-              fontSize: '16px',
-              color: '#AC8E66',
+            fontFamily: 'monospace',
+            fontSize: '16px',
+            color: '#AC8E66',
           }}
         >
-          <h3
+          <div
             style={{
-             
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
               marginBottom: '24px',
-              textAlign: 'center',
-                 fontFamily: 'monospace',
-              fontSize: '16px',
-              color: '#AC8E66',
             }}
           >
-          Step02: <span className="text-[#aaa] font-mono "
-        
-          >Dokumentationstyp wählen</span>
-          </h3>
+            <h3
+              style={{
+                margin: 0,
+                fontFamily: 'monospace',
+                fontSize: '16px',
+                color: '#AC8E66',
+              }}
+            >
+              <span className="text-[#AC8E66]">Step03:</span>{' '}
+              <span className="text-[#fef3c7]">Dokumentationstyp wählen</span>
+            </h3>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  if (selectedTemplates.length === templates.length) {
+                    setSelectedTemplates([]);
+                  } else {
+                    setSelectedTemplates(templates.map(t => t.id));
+                  }
+                }}
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '6px',
+                  color: selectedTemplates.length === templates.length ? '#AC8E66' : '#999',
+                  fontFamily: 'monospace',
+                  fontSize: '10px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+              >
+                {selectedTemplates.length === templates.length ? 'Alle abwählen' : 'Alle auswählen'}
+              </button>
+              {selectedTemplates.length > 0 && (
+                <button
+                  onClick={() => {
+                    // Generate all selected templates
+                    selectedTemplates.forEach(templateId => generateDocumentation(templateId));
+                  }}
+                  disabled={isGenerating}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#AC8E66',
+                    border: '1px solid #AC8E66',
+                    borderRadius: '6px',
+                    color: '#1F1F1F',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    fontWeight: 'bold',
+                    cursor: isGenerating ? 'not-allowed' : 'pointer',
+                    opacity: isGenerating ? 0.5 : 1,
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {selectedTemplates.length} generieren
+                </button>
+              )}
+            </div>
+          </div>
 
           <div
             style={{
@@ -1025,20 +1210,38 @@ Make it professional and investor-ready.`;
               flexWrap: 'wrap',
               gap: '24px',
               justifyContent: 'center',
-              marginTop: '32px',
             }}
           >
-            {templates.map((template) => (
-              <button
+            {templates.map((template) => {
+              const isSelected = selectedTemplates.includes(template.id);
+              return (
+                <button
                 key={template.id}
-                onClick={() => generateDocumentation(template.id)}
+                onClick={(e) => {
+                  // Toggle selection for multi-select
+                  if (e.shiftKey || e.ctrlKey || e.metaKey) {
+                    if (isSelected) {
+                      setSelectedTemplates(selectedTemplates.filter(t => t !== template.id));
+                    } else {
+                      setSelectedTemplates([...selectedTemplates, template.id]);
+                    }
+                  } else {
+                    // Single click - toggle or generate
+                    if (isSelected) {
+                      setSelectedTemplates(selectedTemplates.filter(t => t !== template.id));
+                    } else {
+                      setSelectedTemplates([...selectedTemplates, template.id]);
+                    }
+                  }
+                }}
+                onDoubleClick={() => generateDocumentation(template.id)}
                 disabled={isGenerating}
                 style={{
                   position: 'relative',
                   padding: '24px',
                   borderRadius: '8px',
-                  border: `1px solid ${selectedTemplate === template.id ? '#AC8E66' : '#3a3a3a'}`,
-                  backgroundColor: selectedTemplate === template.id ? '#2A2A2A' : '#1F1F1F',
+                  border: `1px solid ${isSelected ? '#AC8E66' : '#3a3a3a'}`,
+                  backgroundColor: isSelected ? '#2A2A2A' : '#1F1F1F',
                   flex: '1 1 200px',
                   minWidth: '200px',
                   maxWidth: '250px',
@@ -1047,16 +1250,36 @@ Make it professional and investor-ready.`;
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isGenerating && selectedTemplate !== template.id) {
+                  if (!isGenerating && !isSelected) {
                     e.currentTarget.style.borderColor = 'rgba(172, 142, 102, 0.5)';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (selectedTemplate !== template.id) {
+                  if (!isSelected) {
                     e.currentTarget.style.borderColor = '#3a3a3a';
                   }
                 }}
               >
+                {/* Selection Checkbox */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '4px',
+                    border: `1px solid ${isSelected ? '#AC8E66' : '#555'}`,
+                    backgroundColor: isSelected ? '#AC8E66' : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {isSelected && (
+                    <FontAwesomeIcon icon={faCheck} style={{ color: '#1F1F1F', fontSize: '12px' }} />
+                  )}
+                </div>
                 {/* Icon */}
                 <div
                   style={{
@@ -1065,14 +1288,14 @@ Make it professional and investor-ready.`;
                     justifyContent: 'center',
                   }}
                 >
-                  <span
+                  <FontAwesomeIcon
+                    icon={template.icon}
                     style={{
                       fontSize: '36px',
-                      opacity: selectedTemplate === template.id ? 1 : 0.7,
+                      color: isSelected ? '#AC8E66' : '#777',
+                      opacity: isSelected ? 1 : 0.7,
                     }}
-                  >
-                    {template.icon}
-                  </span>
+                  />
                 </div>
 
                 {/* Title */}
@@ -1081,7 +1304,7 @@ Make it professional and investor-ready.`;
                     fontFamily: 'monospace',
                     fontSize: '12px',
                     marginBottom: '8px',
-                    color: selectedTemplate === template.id ? '#e5e5e5' : '#999',
+                    color: isSelected ? '#e5e5e5' : '#999',
                   }}
                 >
                   {template.title}
@@ -1099,395 +1322,37 @@ Make it professional and investor-ready.`;
                   {template.description}
                 </p>
 
-                {/* Selected Indicator */}
-                {selectedTemplate === template.id && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '12px',
-                        height: '12px',
-                        backgroundColor: '#AC8E66',
-                        borderRadius: '50%',
-                      }}
-                    />
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    startBlankDocument(template.id);
+                  }}
+                  style={{
+                    marginTop: '12px',
+                    padding: '6px 10px',
+                    width: '100%',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: '6px',
+                    color: '#AC8E66',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  Blanko starten
+                </button>
+
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
     </div>
   );
-
-  // Step 2.5: Platform Selection (for blog-post only)
-  const renderStep2_5_PlatformSelection = () => {
-    const platforms = [
-      { id: 'linkedin' as SocialPlatform, name: 'LinkedIn Post', icon: '💼', description: 'Professional business network post' },
-      { id: 'reddit' as SocialPlatform, name: 'Reddit Post', icon: '🤖', description: 'Community discussion post' },
-      { id: 'github' as SocialPlatform, name: 'GitHub Discussion', icon: '🐙', description: 'Technical collaborative discussion' },
-      { id: 'devto' as SocialPlatform, name: 'Dev.to Article', icon: '👩‍💻', description: 'Developer community article' },
-      { id: 'medium' as SocialPlatform, name: 'Medium Article', icon: '📰', description: 'Long-form storytelling blog' },
-      { id: 'hashnode' as SocialPlatform, name: 'Hashnode Article', icon: '📝', description: 'Developer blogging platform' },
-    ];
-
-    const togglePlatform = (platform: SocialPlatform) => {
-      setSelectedPlatforms(prev =>
-        prev.includes(platform)
-          ? prev.filter(p => p !== platform)
-          : [...prev, platform]
-      );
-    };
-
-    const toggleAll = () => {
-      if (selectedPlatforms.length === platforms.length) {
-        setSelectedPlatforms([]);
-      } else {
-        setSelectedPlatforms(platforms.map(p => p.id));
-      }
-    };
-
-    const handleContinue = async () => {
-      if (selectedPlatforms.length === 0) {
-        alert('Bitte wähle mindestens eine Plattform aus');
-        return;
-      }
-      // Generate posts for all platforms
-      await generateMultiPlatformPosts();
-    };
-
-    const generateMultiPlatformPosts = async () => {
-      setIsGenerating(true);
-
-      try {
-        const posts: PlatformPost[] = [];
-
-        // Generate for each selected platform
-        for (const platform of selectedPlatforms) {
-          const prompt = createPlatformPrompt(platform);
-          const result = await generateFromPrompt(prompt);
-
-          if (result.success && result.data) {
-            const content = result.data;
-            const title = extractTitle(content);
-
-            posts.push({
-              platform,
-              title,
-              content,
-              characterCount: content.length,
-              wordCount: content.split(/\s+/).length,
-            });
-          }
-        }
-
-        setPlatformPosts(posts);
-        setCurrentStep(4); // Move to preview
-      } catch (error) {
-        console.error('Error generating multi-platform posts:', error);
-        alert('Fehler beim Generieren der Posts. Bitte versuche es erneut.');
-      } finally {
-        setIsGenerating(false);
-      }
-    };
-
-    const createPlatformPrompt = (platform: SocialPlatform): string => {
-      if (!projectInfo) return '';
-
-      const platformSpecs: Record<SocialPlatform, { maxLength: number; tone: string; format: string }> = {
-        linkedin: { maxLength: 3000, tone: 'professional and insightful', format: 'engaging LinkedIn post with bullet points' },
-        reddit: { maxLength: 10000, tone: 'casual and community-focused', format: 'detailed Reddit post with clear sections' },
-        github: { maxLength: 65536, tone: 'technical and collaborative', format: 'GitHub Discussion with code examples' },
-        devto: { maxLength: 100000, tone: 'educational and friendly', format: 'Dev.to article with proper markdown' },
-        medium: { maxLength: 100000, tone: 'thoughtful and narrative', format: 'Medium article with storytelling' },
-        hashnode: { maxLength: 100000, tone: 'developer-focused and practical', format: 'Hashnode blog post with technical depth' },
-      };
-
-      const spec = platformSpecs[platform];
-
-      return `Create a ${spec.format} about the project "${projectInfo.name}" for ${platform}.
-
-Project Details:
-- Name: ${projectInfo.name}
-- Description: ${projectInfo.description}
-- Version: ${projectInfo.version}
-- Tech Stack: ${projectInfo.fileTypes.slice(0, 10).join(', ')}
-- Has Tests: ${projectInfo.hasTests ? 'Yes' : 'No'}
-- Has API: ${projectInfo.hasApi ? 'Yes' : 'No'}
-
-Platform: ${platform.toUpperCase()}
-Tone: ${spec.tone}
-Max Length: ~${spec.maxLength} characters
-Format: ${spec.format}
-
-Requirements:
-1. Start with a catchy title on the first line (# Title format)
-2. Use ${spec.tone} tone throughout
-3. Keep it under ${spec.maxLength} characters
-4. ${platform === 'linkedin' ? 'Add relevant hashtags at the end' : ''}
-${platform === 'reddit' ? 'Structure with clear sections and be community-friendly' : ''}
-${platform === 'github' ? 'Include code examples if relevant' : ''}
-${platform === 'devto' || platform === 'medium' || platform === 'hashnode' ? 'Write a full article with introduction, main content, and conclusion' : ''}
-5. Make it engaging and shareable
-6. Focus on the value proposition and key features
-
-Generate the complete ${platform} post now:`;
-    };
-
-    const extractTitle = (content: string): string => {
-      // Extract title from markdown (first # heading)
-      const match = content.match(/^#\s+(.+)$/m);
-      return match ? match[1] : 'Untitled Post';
-    };
-
-    return (
-      <div
-        style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: '32px',
-        }}
-      >
-        <div
-          style={{
-            maxWidth: '1152px',
-            marginLeft: 'auto',
-            marginRight: 'auto',
-          }}
-        >
-          {/* Header */}
-          <div
-            style={{
-              marginBottom: '32px',
-              textAlign: 'center',
-            }}
-          >
-            <h2
-              style={{
-                fontSize: '28px',
-                fontWeight: 'bold',
-                color: '#e5e5e5',
-                marginBottom: '8px',
-              }}
-            >
-              📱 Plattformen auswählen
-            </h2>
-            <p
-              style={{
-                fontSize: '14px',
-                color: '#999',
-              }}
-            >
-              Wähle die Social-Media-Plattformen für deine Blog-Posts
-            </p>
-          </div>
-
-          {/* Platform Grid */}
-          <div
-            style={{
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: '24px',
-              justifyContent: 'center',
-              marginBottom: '32px',
-            }}
-          >
-            {platforms.map((platform) => (
-              <button
-                key={platform.id}
-                onClick={() => togglePlatform(platform.id)}
-                style={{
-                  position: 'relative',
-                  padding: '24px',
-                  borderRadius: '8px',
-                  border: `2px solid ${selectedPlatforms.includes(platform.id) ? '#AC8E66' : '#3a3a3a'}`,
-                  backgroundColor: selectedPlatforms.includes(platform.id) ? '#2A2A2A' : '#1F1F1F',
-                  flex: '1 1 200px',
-                  minWidth: '200px',
-                  maxWidth: '250px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!selectedPlatforms.includes(platform.id)) {
-                    e.currentTarget.style.borderColor = 'rgba(172, 142, 102, 0.5)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!selectedPlatforms.includes(platform.id)) {
-                    e.currentTarget.style.borderColor = '#3a3a3a';
-                  }
-                }}
-              >
-                {/* Icon */}
-                <div
-                  style={{
-                    marginBottom: '16px',
-                    display: 'flex',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: '36px',
-                      opacity: selectedPlatforms.includes(platform.id) ? 1 : 0.7,
-                    }}
-                  >
-                    {platform.icon}
-                  </span>
-                </div>
-
-                {/* Title */}
-                <h4
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    marginBottom: '8px',
-                    color: selectedPlatforms.includes(platform.id) ? '#e5e5e5' : '#999',
-                  }}
-                >
-                  {platform.name}
-                </h4>
-
-                {/* Description */}
-                <p
-                  style={{
-                    color: '#777',
-                    fontFamily: 'monospace',
-                    fontSize: '10px',
-                    lineHeight: '1.6',
-                  }}
-                >
-                  {platform.description}
-                </p>
-
-                {/* Selected Indicator */}
-                {selectedPlatforms.includes(platform.id) && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: '12px',
-                      right: '12px',
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '12px',
-                        height: '12px',
-                        backgroundColor: '#AC8E66',
-                        borderRadius: '50%',
-                      }}
-                    />
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Save Location Options */}
-          <div
-            style={{
-              backgroundColor: '#2A2A2A',
-              borderRadius: '8px',
-              border: '2px solid #AC8E66',
-              padding: '24px',
-              marginBottom: '32px',
-            }}
-          >
-            <h3
-              style={{
-                fontSize: '16px',
-                fontWeight: 'bold',
-                color: '#e5e5e5',
-                marginBottom: '16px',
-              }}
-            >
-              📁 Speicherort wählen
-            </h3>
-            <div
-              style={{
-                display: 'flex',
-                gap: '12px',
-                flexWrap: 'wrap',
-              }}
-            >
-              {[
-                { id: 'root' as const, label: 'Projekt-Root', icon: faFolder },
-                { id: 'docs' as const, label: 'docs/ Ordner', icon: faBook },
-                { id: 'blog-posts' as const, label: 'blog-posts/ Ordner', icon: faPencil },
-              ].map((option) => (
-                <button
-                  key={option.id}
-                  onClick={() => setSaveLocation(option.id)}
-                  style={{
-                    padding: '12px 20px',
-                    borderRadius: '8px',
-                    border: `2px solid ${saveLocation === option.id ? '#AC8E66' : '#3a3a3a'}`,
-                    backgroundColor: saveLocation === option.id ? '#3A3A3A' : '#1F1F1F',
-                    color: saveLocation === option.id ? '#e5e5e5' : '#999',
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <FontAwesomeIcon
-                    icon={option.icon}
-                    style={{ color: '#AC8E66', fontSize: '14px' }}
-                  />
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p
-              style={{
-                marginTop: '12px',
-                fontSize: '11px',
-                color: '#777',
-                fontFamily: 'monospace',
-              }}
-            >
-              {selectedPlatforms.length} {selectedPlatforms.length === 1 ? 'Datei' : 'Dateien'} werden in{' '}
-              {saveLocation === 'root' ? 'Projekt-Root' : `${saveLocation}/`} gespeichert
-            </p>
-          </div>
-
-          {/* Action Buttons */}
-          <div
-            style={{
-              display: 'flex',
-              gap: '16px',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            <ZenRoughButton
-              label={selectedPlatforms.length === platforms.length ? 'Alle abwählen' : 'Alle auswählen'}
-              icon="☑️"
-              onClick={toggleAll}
-              variant="default"
-            />
-            <ZenRoughButton
-              label={`${selectedPlatforms.length} ${selectedPlatforms.length === 1 ? 'Post' : 'Posts'} generieren`}
-              icon="🚀"
-              onClick={handleContinue}
-              variant="active"
-              disabled={selectedPlatforms.length === 0}
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Step 3: Generate & Edit
   const renderStep3 = () => (
@@ -1536,7 +1401,7 @@ Generate the complete ${platform} post now:`;
   }}
 >
   <span style={{ color: "#AC8E66" }}>{projectInfo?.name}</span>
-  {" "}• Bearbeite und speichere deine Dokumentation
+  {" "}• Bearbeite und speichere define Dokumentation
 </p>
         </div>
 
@@ -1555,8 +1420,9 @@ Generate the complete ${platform} post now:`;
           <ZenMarkdownEditor
             value={generatedContent}
             onChange={setGeneratedContent}
-            placeholder="Deine Dokumentation erscheint hier..."
-            showPreview
+            placeholder="Define Dokumentation erscheint hier..."
+            showPreview={showPreview}
+            showLineNumbers={editorSettings.showLineNumbers}
           />
         </div>
 
@@ -1574,11 +1440,7 @@ Generate the complete ${platform} post now:`;
             label="Dokument überarbeiten"
                             icon={<FontAwesomeIcon icon={faPencil} className="text-[#AC8E66]" />}
             onClick={() => {
-              // Transfer content to Content AI Studio for editing
-              if (onTransferToContentStudio) {
-                const currentState = getCurrentState();
-                onTransferToContentStudio(generatedContent, currentStep, currentState);
-              }
+              setShowDocEditModal(true);
             }}
             variant="default"
           />
@@ -1601,20 +1463,84 @@ Generate the complete ${platform} post now:`;
             variant="active"
           />
         </div>
+
+        {showDocEditModal && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 1100,
+              padding: '16px',
+            }}
+            onClick={() => setShowDocEditModal(false)}
+          >
+            <div
+              style={{
+                backgroundColor: '#2A2A2A',
+                borderRadius: '8px',
+                border: '2px solid #AC8E66',
+                padding: '20px',
+                maxWidth: '980px',
+                width: '96%',
+                maxHeight: '90vh',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3
+                style={{
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  color: '#e5e5e5',
+                  marginBottom: '12px',
+                  fontFamily: 'monospace',
+                }}
+              >
+                {templates.find(t => t.id === selectedTemplate)?.title || 'Dokument'} · {projectInfo?.name || 'Projekt'} bearbeiten
+              </h3>
+              <div style={{ flex: 1, marginBottom: '12px', minHeight: 0 }}>
+                <ZenMarkdownEditor
+                  value={generatedContent}
+                  onChange={setGeneratedContent}
+                  placeholder="Bearbeite deine Dokumentation..."
+                  showPreview={false}
+                  showLineNumbers={editorSettings.showLineNumbers}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <ZenRoughButton
+                  label="Schließen"
+                  icon="✕"
+                  onClick={() => setShowDocEditModal(false)}
+                  variant="default"
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 
   // Step 4: Preview Cards (for blog posts)
   const renderStep4_Preview = () => {
-    const getPlatformIcon = (platform: SocialPlatform): string => {
-      const icons: Record<SocialPlatform, string> = {
-        linkedin: '💼',
-        reddit: '🤖',
-        github: '🐙',
-        devto: '👩‍💻',
-        medium: '📰',
-        hashnode: '📝',
+    const getPlatformIcon = (platform: SocialPlatform) => {
+      const icons: Record<SocialPlatform, typeof faLinkedin> = {
+        linkedin: faLinkedin,
+        reddit: faReddit,
+        github: faGithub,
+        devto: faDev,
+        medium: faMedium,
+        hashnode: faHashnode,
+        twitter: faTwitter,
       };
       return icons[platform];
     };
@@ -1627,6 +1553,7 @@ Generate the complete ${platform} post now:`;
         devto: 'Dev.to',
         medium: 'Medium',
         hashnode: 'Hashnode',
+        twitter: 'Twitter/X',
       };
       return names[platform];
     };
@@ -1653,12 +1580,12 @@ Generate the complete ${platform} post now:`;
       }
 
       try {
-        // Determine base path based on saveLocation
+        // Determine base path based on _saveLocation
         let basePath = projectPath;
 
-        if (saveLocation === 'docs') {
+        if (_saveLocation === 'docs') {
           basePath = `${projectPath}/docs`;
-        } else if (saveLocation === 'blog-posts') {
+        } else if (_saveLocation === 'blog-posts') {
           basePath = `${projectPath}/blog-posts`;
         }
 
@@ -1676,14 +1603,17 @@ Generate the complete ${platform} post now:`;
             savedFiles.push(fileName);
           } catch (err) {
             console.error(`Failed to save ${fileName}:`, err);
-            alert(`Fehler beim Speichern von ${fileName}. Stelle sicher, dass der Ordner "${saveLocation === 'root' ? 'Projekt-Root' : saveLocation}" existiert.`);
+            alert(`Fehler beim Speichern von ${fileName}. Stelle sicher, dass der Ordner "${_saveLocation === 'root' ? 'Projekt-Root' : _saveLocation}" existiert.`);
             return;
           }
         }
 
         // Show success modal
-        setSavedFileName(`${savedFiles.length} Posts in ${saveLocation === 'root' ? 'Projekt-Root' : saveLocation + '/'}`);
+        setSavedFileName(`${savedFiles.length} Posts in ${_saveLocation === 'root' ? 'Projekt-Root' : _saveLocation + '/'}`);
         setShowSaveConfirmation(true);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('zenpost-project-files-updated'));
+        }
       } catch (error) {
         console.error('Error saving posts:', error);
         alert('Fehler beim Speichern der Posts');
@@ -1765,7 +1695,7 @@ Generate the complete ${platform} post now:`;
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '24px' }}>{getPlatformIcon(post.platform)}</span>
+                    <FontAwesomeIcon icon={getPlatformIcon(post.platform)} style={{ fontSize: '24px', color: '#AC8E66' }} />
                     <h3
                       style={{
                         fontSize: '16px',
@@ -1850,7 +1780,8 @@ Generate the complete ${platform} post now:`;
                     onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#4A4A4A')}
                     onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#3A3A3A')}
                   >
-                    ✏️ Bearbeiten
+                    <FontAwesomeIcon icon={faEdit} style={{ marginRight: '6px' }} />
+                    Bearbeiten
                   </button>
                   <button
                     style={{
@@ -1882,19 +1813,19 @@ Generate the complete ${platform} post now:`;
           >
             <ZenRoughButton
               label="Alle Posts speichern"
-              icon="💾"
+              icon={<FontAwesomeIcon icon={faSave} />}
               onClick={saveAllPosts}
               variant="active"
             />
             <ZenRoughButton
-              label="📅 Publishing planen"
-              icon="📅"
+              label="Publishing planen"
+              icon={<FontAwesomeIcon icon={faCalendarDays} />}
               onClick={() => setCurrentStep(5)}
               variant="active"
             />
             <ZenRoughButton
               label="→ Content Transmission"
-              icon="🚀"
+              icon={<FontAwesomeIcon icon={faLightbulb} />}
               onClick={() => alert('Content Transmission Bridge coming soon!')}
               variant="default"
             />
@@ -1925,9 +1856,9 @@ Generate the complete ${platform} post now:`;
                 borderRadius: '8px',
                 border: '2px solid #AC8E66',
                 padding: '20px',
-                maxWidth: '650px',
-                width: '95%',
-                maxHeight: '85vh',
+                maxWidth: '980px',
+                width: '96%',
+                maxHeight: '90vh',
                 display: 'flex',
                 flexDirection: 'column',
               }}
@@ -1940,15 +1871,20 @@ Generate the complete ${platform} post now:`;
                   color: '#e5e5e5',
                   marginBottom: '12px',
                   fontFamily: 'monospace',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
               >
-                {getPlatformIcon(editingPost)} {getPlatformName(editingPost)} bearbeiten
+                <FontAwesomeIcon icon={getPlatformIcon(editingPost)} style={{ color: '#AC8E66' }} />
+                {getPlatformName(editingPost)} bearbeiten
               </h3>
               <div style={{ flex: 1, marginBottom: '12px', minHeight: 0 }}>
                 <ZenMarkdownEditor
                   value={platformPosts.find(p => p.platform === editingPost)?.content || ''}
                   onChange={(newContent) => updatePostContent(editingPost, newContent)}
                   placeholder="Bearbeite deinen Post..."
+                  showLineNumbers={editorSettings.showLineNumbers}
                 />
               </div>
               <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -1967,17 +1903,52 @@ Generate the complete ${platform} post now:`;
   };
 
   const renderStep5_PublishingManagement = () => {
-    const handleScheduleSave = (posts: ScheduledPost[]) => {
-      setScheduledPosts(posts);
-      setShowScheduler(false);
-      setSavedFileName('Zeitplan');
-      setShowSaveSuccess(true);
+    const handleScheduleSave = async (posts: ScheduledPost[]) => {
+      if (!projectPath) {
+        alert('Kein Projektpfad vorhanden');
+        return;
+      }
+      const projectExists = await exists(projectPath);
+      if (!projectExists) {
+        alert(`Projektpfad nicht gefunden: ${projectPath}`);
+        return;
+      }
+
+      try {
+        const schedules = posts.reduce((acc, post) => {
+          acc[post.platform] = {
+            date: post.scheduledDate ? post.scheduledDate.toISOString().split('T')[0] : '',
+            time: post.scheduledTime || '',
+          };
+          return acc;
+        }, {} as PlatformScheduleState);
+
+        const { scheduledPosts: savedPosts, savedFilePaths: postFilePaths } = await autoSavePostsAndSchedule(
+          projectPath,
+          platformPosts,
+          schedules
+        );
+
+        const publishingPaths = getPublishingPaths(projectPath);
+
+        setScheduledPosts(savedPosts);
+        closeScheduler();
+        setSavedFileName(`Auto-Save: ${savedPosts.length} Posts & schedule.json`);
+        setSavedFilePaths([publishingPaths.scheduleFile, ...postFilePaths]);
+        setShowCalendarButtonInSuccessModal(true);
+        setShowSaveSuccess(true);
+
+        console.log('[DocStudio] Successfully saved posts and schedule');
+      } catch (error) {
+        console.error('[DocStudio] Error saving schedule:', error);
+        alert(`Fehler beim Speichern des Zeitplans: ${error instanceof Error ? error.message : String(error)}`);
+      }
     };
 
     const handleAddPostFromCalendar = (date: Date) => {
       setSelectedDateFromCalendar(date);
-      setShowCalendar(false);
-      setShowScheduler(true);
+      closeCalendar();
+      openScheduler();
     };
 
     const handleExportCalendar = () => {
@@ -1989,6 +1960,8 @@ Generate the complete ${platform} post now:`;
         }
         downloadICSFile(scheduledPosts);
         setSavedFileName('calendar.ics');
+        setSavedFilePaths([]);
+        setShowCalendarButtonInSuccessModal(false); // No calendar button for ICS export
         setShowSaveSuccess(true);
       } catch (error) {
         alert('Fehler beim Exportieren: ' + (error as Error).message);
@@ -1996,6 +1969,16 @@ Generate the complete ${platform} post now:`;
     };
 
     const stats = getScheduleStats(scheduledPosts);
+    const schedulerPrefills = platformPosts.reduce((acc, post) => {
+      const existing = scheduledPosts.find(scheduled => scheduled.platform === post.platform);
+      if (existing) {
+        acc[post.platform] = {
+          date: existing.scheduledDate ? existing.scheduledDate.toISOString().split('T')[0] : '',
+          time: existing.scheduledTime || '',
+        };
+      }
+      return acc;
+    }, {} as Partial<Record<SocialPlatform, { date: string; time: string }>>);
 
     return (
       <div
@@ -2025,9 +2008,13 @@ Generate the complete ${platform} post now:`;
                 fontWeight: 'bold',
                 color: '#e5e5e5',
                 marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
               }}
             >
-              📅 Publishing Management
+              <FontAwesomeIcon icon={faCalendarDays} style={{ color: '#AC8E66' }} />
+              Publishing Management
             </h2>
             <p
               style={{
@@ -2058,7 +2045,9 @@ Generate the complete ${platform} post now:`;
                 textAlign: 'center',
               }}
             >
-              <div style={{ fontSize: '32px', marginBottom: '8px' }}>📝</div>
+              <div style={{ fontSize: '32px', marginBottom: '8px' }}>
+                <FontAwesomeIcon icon={faPencil} style={{ color: '#AC8E66' }} />
+              </div>
               <div style={{ fontFamily: 'monospace', fontSize: '24px', color: '#AC8E66', fontWeight: 'bold' }}>
                 {stats.total}
               </div>
@@ -2125,7 +2114,9 @@ Generate the complete ${platform} post now:`;
                 gap: '16px',
               }}
             >
-              <div style={{ fontSize: '48px', textAlign: 'center' }}>📅</div>
+              <div style={{ fontSize: '48px', textAlign: 'center' }}>
+                <FontAwesomeIcon icon={faCalendarDays} style={{ color: '#AC8E66' }} />
+              </div>
               <h3
                 style={{
                   fontFamily: 'monospace',
@@ -2150,8 +2141,8 @@ Generate the complete ${platform} post now:`;
               </p>
               <ZenRoughButton
                 label="Zeitplan öffnen"
-                icon="📅"
-                onClick={() => setShowScheduler(true)}
+                icon={<FontAwesomeIcon icon={faCalendarDays} />}
+                onClick={() => openScheduler()}
                 variant="active"
               />
             </div>
@@ -2168,7 +2159,9 @@ Generate the complete ${platform} post now:`;
                 gap: '16px',
               }}
             >
-              <div style={{ fontSize: '48px', textAlign: 'center' }}>🗓️</div>
+              <div style={{ fontSize: '48px', textAlign: 'center' }}>
+                <FontAwesomeIcon icon={faCalendarDays} style={{ color: '#AC8E66' }} />
+              </div>
               <h3
                 style={{
                   fontFamily: 'monospace',
@@ -2193,8 +2186,8 @@ Generate the complete ${platform} post now:`;
               </p>
               <ZenRoughButton
                 label="Kalender öffnen"
-                icon="🗓️"
-                onClick={() => setShowCalendar(true)}
+                icon={<FontAwesomeIcon icon={faCalendarDays} />}
+                onClick={() => openCalendar()}
                 variant="default"
               />
             </div>
@@ -2237,7 +2230,7 @@ Generate the complete ${platform} post now:`;
               <ZenRoughButton
                 label="Checklist öffnen"
                 icon="✅"
-                onClick={() => setShowChecklist(true)}
+                onClick={() => openChecklist()}
                 variant="default"
               />
             </div>
@@ -2355,30 +2348,44 @@ Generate the complete ${platform} post now:`;
           </div>
         </div>
 
-        {/* Modals */}
-        <ZenPublishScheduler
-          isOpen={showScheduler}
-          onClose={() => {
-            setShowScheduler(false);
-            setSelectedDateFromCalendar(undefined);
-          }}
-          posts={platformPosts}
-          onScheduleSave={handleScheduleSave}
-          preSelectedDate={selectedDateFromCalendar}
-        />
+        {/* Modals - nur rendern wenn keine externen Props vorhanden (sonst in App1.tsx) */}
+        {!onShowScheduler && (
+          <ZenPublishScheduler
+            isOpen={showScheduler}
+            onClose={() => {
+              setLocalShowScheduler(false);
+              setLocalSelectedDateFromCalendar(undefined);
+            }}
+            posts={platformPosts}
+            onScheduleSave={handleScheduleSave}
+            preSelectedDate={selectedDateFromCalendar}
+            initialSchedules={schedulerPrefills}
+          />
+        )}
 
-        <ZenContentCalendar
-          isOpen={showCalendar}
-          onClose={() => setShowCalendar(false)}
-          scheduledPosts={scheduledPosts}
-          onAddPost={handleAddPostFromCalendar}
-        />
+        {!onShowCalendar && (
+          <ZenContentCalendar
+            isOpen={showCalendar}
+            onClose={() => setLocalShowCalendar(false)}
+            scheduledPosts={scheduledPosts}
+            onAddPost={handleAddPostFromCalendar}
+            onEditPost={(post) => {
+              // Close calendar and open edit modal for this post
+              setLocalShowCalendar(false);
+              setEditingPost(post.platform);
+              setCurrentStep(4); // Go to preview/edit step
+            }}
+          />
+        )}
 
-        <ZenTodoChecklist
-          isOpen={showChecklist}
-          onClose={() => setShowChecklist(false)}
-          scheduledPosts={scheduledPosts}
-        />
+        {!onShowChecklist && (
+          <ZenTodoChecklist
+            isOpen={showChecklist}
+            onClose={() => setLocalShowChecklist(false)}
+            scheduledPosts={scheduledPosts}
+            projectPath={projectPath}
+          />
+        )}
       </div>
     );
   };
@@ -2390,10 +2397,6 @@ Generate the complete ${platform} post now:`;
       case 2:
         return renderStep2();
       case 3:
-        // For blog-post template, show platform selection
-        if (selectedTemplate === 'blog-post' && platformPosts.length === 0) {
-          return renderStep2_5_PlatformSelection();
-        }
         return renderStep3();
       case 4:
         return renderStep4_Preview();
@@ -2455,10 +2458,130 @@ Generate the complete ${platform} post now:`;
 
       <ZenSaveSuccessModal
         isOpen={showSaveSuccess}
-        onClose={() => setShowSaveSuccess(false)}
+        onClose={() => {
+          setShowSaveSuccess(false);
+          setShowCalendarButtonInSuccessModal(false); // Reset calendar button state
+          setSavedFilePaths([]);
+        }}
         fileName={savedFileName}
-        filePath={savedFilePath}
+        filePaths={savedFilePaths}
+        showCalendarButton={showCalendarButtonInSuccessModal}
+        onGoToCalendar={() => openCalendar()}
       />
+
+      {/* Project Change Confirmation Modal */}
+      <ZenModal
+        isOpen={showProjectChangeConfirmation}
+        onClose={() => setShowProjectChangeConfirmation(false)}
+        size="md"
+        showCloseButton={false}
+      >
+        <div
+          style={{
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            width: '100%',
+            minHeight: getModalPreset('project-change').minHeight,
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              paddingBottom: 16,
+              borderBottom: '1px solid #AC8E66',
+              position: 'relative',
+              zIndex: 10,
+            }}
+          >
+            <ZenModalHeader
+              {...getModalPreset('project-change')}
+              onClose={() => setShowProjectChangeConfirmation(false)}
+            />
+          </div>
+
+          {/* Content */}
+          <div
+            style={{
+              flex: 1,
+              padding: '24px 16px',
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#1A1A1A',
+                borderRadius: '8px',
+                padding: '16px',
+                marginBottom: '24px',
+              }}
+            >
+              <p
+                style={{
+                  fontSize: '11px',
+                  color: '#777',
+                  fontFamily: 'monospace',
+                  marginBottom: '12px',
+                }}
+              >
+                Aktueller Projektordner:
+              </p>
+              <p
+                style={{
+                  fontSize: '12px',
+                  color: '#AC8E66',
+                  fontFamily: 'monospace',
+                  wordBreak: 'break-all',
+                }}
+              >
+                {projectPath || 'Kein Ordner gewählt'}
+              </p>
+            </div>
+
+            <p
+              style={{
+                fontSize: '12px',
+                color: '#999',
+                fontFamily: 'monospace',
+                lineHeight: '1.6',
+              }}
+            >
+              Möchtest du einen neuen Projektordner wählen? Alle ungespeicherten Änderungen gehen verloren.
+            </p>
+          </div>
+
+          {/* Footer */}
+          <ZenModalFooter showFooterText={false}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                gap: 12,
+                justifyContent: 'center',
+                alignItems: 'center',
+                width: '100%',
+                flexWrap: 'wrap',
+              }}
+            >
+              <ZenRoughButton
+                label="Ordner wechseln"
+                icon={<FontAwesomeIcon icon={faFolder} className="text-[#AC8E66]" />}
+                onClick={() => {
+                  setShowProjectChangeConfirmation(false);
+                  // Reset to step 1 to select a new project folder
+                  setCurrentStep(1);
+                  setProjectPath(null);
+                  setProjectInfo(null);
+                  setSelectedTemplate(null);
+                  setGeneratedContent('');
+                  // Clear localStorage
+                  localStorage.removeItem('zenpost_last_project_path');
+                }}
+                variant="active"
+              />
+            </div>
+          </ZenModalFooter>
+        </div>
+      </ZenModal>
     </div>
   );
 }

@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "ZenPost Studio",
+        "title": "ZenStudio - Publisher",
         "width": 1024,
         "height": 600,
         "resizable": true,

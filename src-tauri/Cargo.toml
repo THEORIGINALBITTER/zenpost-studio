@@ -1,7 +1,7 @@
 [package]
 name = "zenpost-studio"
 version = "0.1.0"
-description = "ZenPost Studio - AI-powered content transformation and documentation generator"
+description = "ZenStudio Publisher - AI-powered content transformation and documentation generator"
 authors = ["Denis Bitter <contact@denisbitter.de>"]
 license = "MIT"
 repository = "https://github.com/THEORIGINALBITTER/zenpost-studio"

@@ -5,7 +5,7 @@
 
 export type PublishingStatus = 'draft' | 'scheduled' | 'published' | 'failed';
 
-export type SocialPlatform = 'linkedin' | 'reddit' | 'github' | 'devto' | 'medium' | 'hashnode';
+export type SocialPlatform = 'linkedin' | 'reddit' | 'github' | 'devto' | 'medium' | 'hashnode' | 'twitter';
 
 export interface ScheduledPost {
   id: string;

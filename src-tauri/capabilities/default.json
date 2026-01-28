@@ -10,41 +10,26 @@
     "fs:default",
     "dialog:default",
     "dialog:allow-open",
+    "dialog:allow-save",
     "fs:allow-read-dir",
     "fs:allow-read-file",
     "fs:allow-read-text-file",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
-    "http:default",
-    "http:allow-fetch",
-    "opener:default",
-    "opener:allow-open-url",
+    "fs:allow-exists",
+    "fs:allow-mkdir",
+    "fs:read-all",
+    "fs:write-all",
     {
-      "identifier": "opener:allow-open-url",
+      "identifier": "fs:scope",
       "allow": [
-        {
-          "url": "https://denisbitter.de"
-        },
-        {
-          "url": "https://theoriginalbitter.github.io/*"
-        },
-        {
-          "url": "https://github.com/THEORIGINALBITTER/*"
-        },
-        {
-          "url": "mailto:saghallo@denisbitter.de"
-        },
-        {
-          "url": "mailto:*"
-        },
-        {
-          "url": "https://*"
-        }
+        "$HOME/**"
       ]
     },
-    "shell:default",
-    "shell:allow-execute",
-    "shell:allow-open",
+    "fs:scope-app-recursive",
+    "fs:scope-home-recursive",
+    "http:default",
+    "http:allow-fetch",
     {
       "identifier": "http:default",
       "allow": [
@@ -52,8 +37,27 @@
           "url": "http://localhost:11434/*"
         },
         {
-          "url": "https://*"
+          "url": "https://*/**"
         }
+      ]
+    },
+    "opener:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://*/**" },
+        { "url": "http://*/**" },
+        { "url": "mailto:*" }
+      ]
+    },
+    "shell:default",
+    "shell:allow-open",
+    {
+      "identifier": "shell:allow-open",
+      "allow": [
+        { "url": "https://*/**" },
+        { "url": "http://*/**" },
+        { "url": "mailto:*" }
       ]
     },
     {

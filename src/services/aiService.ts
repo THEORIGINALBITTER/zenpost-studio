@@ -4,8 +4,9 @@
  */
 
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { isTauri } from '@tauri-apps/api/core';
 
-export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'custom' | 'auto';
 
 export interface AIConfig {
   provider: AIProvider;
@@ -32,7 +33,8 @@ export type ContentPlatform =
   | 'reddit'
   | 'github-discussion'
   | 'github-blog'
-  | 'youtube';
+  | 'youtube'
+  | 'blog-post';
 
 export type ContentTone = 'professional' | 'casual' | 'technical' | 'enthusiastic';
 export type ContentLength = 'short' | 'medium' | 'long';
@@ -43,6 +45,7 @@ export interface TransformConfig {
   tone?: ContentTone;
   length?: ContentLength;
   audience?: ContentAudience;
+  targetLanguage?: TargetLanguage;
 }
 
 export interface TransformResult {
@@ -338,34 +341,55 @@ async function callOllama(
 
     let response;
     try {
-      // Use Tauri's fetch to avoid CORS issues with localhost
-      response = await tauriFetch(`${baseUrl}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: config.model || 'llama3.1:latest',
-          messages: [
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          stream: false,
-          options: {
-            temperature: config.temperature || 0.3,
+      // Determine which fetch to use based on environment
+      const isRunningInTauri = isTauri();
+      console.log('[Ollama] Running in Tauri:', isRunningInTauri);
+
+      const requestBody = JSON.stringify({
+        model: config.model || 'llama3.1:latest',
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
           },
-        }),
+        ],
+        stream: false,
+        options: {
+          temperature: config.temperature || 0.3,
+        },
       });
+
+      if (isRunningInTauri) {
+        // Use Tauri's fetch to avoid CORS issues with localhost
+        response = await tauriFetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: requestBody,
+        });
+      } else {
+        // Use standard fetch in browser (requires Ollama CORS to be enabled)
+        response = await fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: requestBody,
+        });
+      }
+
       console.log('[Ollama] Response received:', response);
       console.log('[Ollama] Response status:', response.status);
       console.log('[Ollama] Response ok:', response.ok);
     } catch (fetchError) {
       console.error('[Ollama] Fetch error:', fetchError);
+      const errorMsg = fetchError instanceof Error ? fetchError.message : JSON.stringify(fetchError);
+      // Add helpful hint for CORS issues in browser
+      const corsHint = !isTauri() ? ' Im Browser kann es CORS-Probleme geben. Starte Ollama mit: OLLAMA_ORIGINS=* ollama serve' : '';
       return {
         success: false,
-        error: `Fetch Fehler: ${fetchError instanceof Error ? fetchError.message : JSON.stringify(fetchError)}`,
+        error: `Fetch Fehler: ${errorMsg}${corsHint}`,
       };
     }
 
@@ -528,6 +552,11 @@ export function getAvailableProviders(): Array<{
 }> {
   return [
     {
+      value: 'auto',
+      label: '✨ Auto (KI wählt)',
+      requiresApiKey: false,
+    },
+    {
       value: 'openai',
       label: 'OpenAI (GPT-4, GPT-4o-mini)',
       requiresApiKey: true,
@@ -555,6 +584,8 @@ export function getAvailableProviders(): Array<{
  */
 export function getModelsForProvider(provider: AIProvider): string[] {
   switch (provider) {
+    case 'auto':
+      return []; // Auto-select doesn't need manual model selection
     case 'openai':
       return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'];
     case 'anthropic':
@@ -582,9 +613,122 @@ export function getModelsForProvider(provider: AIProvider): string[] {
 }
 
 /**
+ * Auto-Select: Analyze content and determine best AI provider
+ */
+export interface AutoSelectResult {
+  provider: 'openai' | 'anthropic' | 'ollama';
+  model: string;
+  reason: string;
+}
+
+export function analyzeContentForAutoSelect(
+  content: string,
+  config: TransformConfig
+): AutoSelectResult {
+  const wordCount = content.split(/\s+/).length;
+  const hasCode = /```|`[^`]+`/.test(content);
+  const hasTechnicalTerms = /API|function|class|interface|typescript|javascript|react|vue|angular/i.test(content);
+  const isCreative = config.tone === 'enthusiastic' || config.tone === 'casual';
+  const isLong = config.length === 'long' || wordCount > 500;
+  const isProfessional = config.tone === 'professional';
+
+  // Check which providers are configured
+  const aiConfig = loadAIConfig();
+  const hasOpenAI = aiConfig.provider === 'openai' && aiConfig.apiKey;
+  const hasAnthropic = aiConfig.provider === 'anthropic' && aiConfig.apiKey;
+
+  // Decision tree for best AI selection
+
+  // 1. Long, creative content -> Claude Opus (best for creative long-form)
+  if (isLong && isCreative) {
+    if (hasAnthropic) {
+      return {
+        provider: 'anthropic',
+        model: 'claude-3-opus-20240229',
+        reason: 'Claude Opus: Beste für lange, kreative Inhalte'
+      };
+    }
+  }
+
+  // 2. Technical content with code -> Claude Sonnet (excellent code understanding)
+  if (hasTechnicalTerms || hasCode) {
+    if (hasAnthropic) {
+      return {
+        provider: 'anthropic',
+        model: 'claude-3-5-sonnet-20241022',
+        reason: 'Claude Sonnet: Beste für technische Inhalte mit Code'
+      };
+    }
+    if (hasOpenAI) {
+      return {
+        provider: 'openai',
+        model: 'gpt-4o',
+        reason: 'GPT-4o: Gut für technische Inhalte'
+      };
+    }
+  }
+
+  // 3. Professional business content -> GPT-4o (excellent for professional tone)
+  if (isProfessional && config.platform === 'linkedin') {
+    if (hasOpenAI) {
+      return {
+        provider: 'openai',
+        model: 'gpt-4o',
+        reason: 'GPT-4o: Optimal für professionelle Business-Posts'
+      };
+    }
+  }
+
+  // 4. Short, casual posts -> GPT-4o-mini or Claude Haiku (fast and cost-effective)
+  if (!isLong && wordCount < 200) {
+    if (hasOpenAI) {
+      return {
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        reason: 'GPT-4o-mini: Schnell und effizient für kurze Posts'
+      };
+    }
+    if (hasAnthropic) {
+      return {
+        provider: 'anthropic',
+        model: 'claude-3-haiku-20240307',
+        reason: 'Claude Haiku: Schnell für kurze Inhalte'
+      };
+    }
+  }
+
+  // 5. Default fallback to Ollama (local, always available)
+  return {
+    provider: 'ollama',
+    model: 'llama3.2',
+    reason: 'Llama 3.2: Lokales Modell (keine API-Keys benötigt)'
+  };
+}
+
+/**
+ * Map target language code to full language name for clearer AI instructions
+ */
+function getLanguageDisplayName(language?: TargetLanguage): string {
+  const languageMap: Record<TargetLanguage, string> = {
+    'deutsch': 'German (Deutsch)',
+    'english': 'English',
+    'español': 'Spanish (Español)',
+    'français': 'French (Français)',
+    'italiano': 'Italian (Italiano)',
+    'português': 'Portuguese (Português)',
+    'russisch': 'Russian (Русский)',
+    '中文': 'Chinese (中文)',
+    '日本語': 'Japanese (日本語)',
+    '한국어': 'Korean (한국어)',
+  };
+  return language ? languageMap[language] : 'the same language as the original content';
+}
+
+/**
  * Content Transformation Prompts
  */
 function buildTransformPrompt(markdown: string, config: TransformConfig): string {
+  const targetLang = getLanguageDisplayName(config.targetLanguage);
   const platformInstructions = {
     linkedin: `
 Transform this markdown content into a LinkedIn post:
@@ -727,6 +871,28 @@ Style: ${config.tone || 'enthusiastic'}
 Length: ${config.length || 'long'}
 Target Audience: ${config.audience || 'intermediate'}
 `,
+    'blog-post': `
+Transform this markdown content into a comprehensive blog post:
+
+Guidelines:
+- Engaging title and optional subtitle
+- Add YAML frontmatter with title, date, description, tags
+- Strong opening hook that captures attention
+- Use clear headers (##, ###) for structure
+- Include code examples with syntax highlighting where relevant
+- Add images/diagrams suggestions [IMAGE: description]
+- Personal insights and real-world examples
+- Step-by-step explanations for complex topics
+- Use callouts/blockquotes for important information
+- SEO-optimized meta description
+- Conclusion with key takeaways
+- Optional "Further Reading" or "Resources" section
+- Professional but accessible tone
+
+Style: ${config.tone || 'professional'}
+Length: ${config.length || 'long'}
+Target Audience: ${config.audience || 'intermediate'}
+`,
   };
 
   return `${platformInstructions[config.platform]}
@@ -735,13 +901,13 @@ Original Markdown Content:
 ${markdown}
 
 Important:
-- Write in the same language as the original content
+- CRITICAL: You MUST write the entire output in ${targetLang}. This is mandatory!
 - Maintain technical accuracy
 - Adapt formatting for the platform
 - Keep the core message and value
 - Output ONLY the transformed content, no meta-commentary
 
-Generate the transformed content now:`;
+Generate the transformed content in ${targetLang} now:`;
 }
 
 /**
@@ -788,7 +954,7 @@ export async function transformContent(
   content: string,
   transformConfig: TransformConfig,
   customAIConfig?: Partial<AIConfig>
-): Promise<TransformResult> {
+): Promise<TransformResult & { autoSelectedModel?: string }> {
   // Validation
   if (!content || content.trim().length < 10) {
     return {
@@ -798,13 +964,44 @@ export async function transformContent(
   }
 
   // Load AI configuration
-  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  let aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  let autoSelectedModel: string | undefined;
+
+  // Auto-select AI provider if set to 'auto'
+  if (aiConfig.provider === 'auto') {
+    const autoSelectResult = analyzeContentForAutoSelect(content, transformConfig);
+    console.log('🤖 Auto-Select:', autoSelectResult);
+
+    // Override config with auto-selected provider and model
+    aiConfig = {
+      ...aiConfig,
+      provider: autoSelectResult.provider,
+      model: autoSelectResult.model,
+    };
+
+    autoSelectedModel = `${autoSelectResult.reason}`;
+  }
 
   // Build prompt
   const prompt = buildTransformPrompt(content, transformConfig);
 
+  console.log(`[transformContent] Platform: ${transformConfig.platform}`);
+  console.log(`[transformContent] Prompt preview (first 300 chars):`, prompt.substring(0, 300));
+
   // Call AI
-  return await callAIForTransform(aiConfig, prompt);
+  const result = await callAIForTransform(aiConfig, prompt);
+
+  console.log(`[transformContent] Result for ${transformConfig.platform}:`, {
+    success: result.success,
+    dataLength: result.data?.length,
+    error: result.error
+  });
+
+  // Add auto-selected model info to result
+  return {
+    ...result,
+    autoSelectedModel,
+  };
 }
 
 /**
@@ -813,7 +1010,7 @@ export async function transformContent(
 export async function generateFromPrompt(
   prompt: string,
   customAIConfig?: Partial<AIConfig>
-): Promise<TransformResult> {
+): Promise<TransformResult & { autoSelectedModel?: string }> {
   // Validation
   if (!prompt || prompt.trim().length < 10) {
     return {
@@ -823,10 +1020,38 @@ export async function generateFromPrompt(
   }
 
   // Load AI configuration
-  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  let aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  let autoSelectedModel: string | undefined;
+
+  // Auto-select AI provider if set to 'auto'
+  if (aiConfig.provider === 'auto') {
+    // For Doc Studio, we assume it's documentation (technical, long-form)
+    const autoSelectResult = analyzeContentForAutoSelect(prompt, {
+      platform: 'github-blog',
+      tone: 'technical',
+      length: 'long',
+      audience: 'intermediate',
+    });
+    console.log('🤖 Auto-Select (Doc Studio):', autoSelectResult);
+
+    // Override config with auto-selected provider and model
+    aiConfig = {
+      ...aiConfig,
+      provider: autoSelectResult.provider,
+      model: autoSelectResult.model,
+    };
+
+    autoSelectedModel = `${autoSelectResult.reason}`;
+  }
 
   // Call AI directly with the prompt
-  return await callAIForTransform(aiConfig, prompt);
+  const result = await callAIForTransform(aiConfig, prompt);
+
+  // Add auto-selected model info to result
+  return {
+    ...result,
+    autoSelectedModel,
+  };
 }
 
 /**
@@ -854,12 +1079,21 @@ Regeln:
 - Erkenne Überschriften und formatiere sie mit # (H1), ## (H2), ### (H3)
 - Erkenne Listen und formatiere sie mit - oder 1. 2. 3.
 - Erkenne wichtige Wörter und mache sie **fett**
-- Erkenne Code-Snippets und formatiere sie mit \`code\` oder \`\`\`code-block\`\`\`
+- Erkenne Code-Snippets und formatiere sie korrekt:
+  * Einzeilige Code-Snippets (Variablen, Funktionsnamen, Befehle) mit \`code\`
+  * Mehrzeilige Code-Blöcke mit \`\`\`sprache (z.B. \`\`\`javascript, \`\`\`python, \`\`\`bash)
+  * Erkenne die Programmiersprache automatisch (JavaScript, Python, TypeScript, Rust, etc.)
 - Erkenne Links und formatiere sie als [Text](URL)
 - Erkenne Zitate und formatiere sie mit >
 - Füge sinnvolle Absätze und Zeilenumbrüche hinzu
 - Behalte die ursprüngliche Bedeutung und Reihenfolge bei
 - Verbessere die Lesbarkeit durch Struktur
+
+Code-Erkennung (wichtig):
+- Code mit function, class, const, let, var, def, fn, pub, impl → Code-Block
+- Pfade wie /src/main.rs, package.json → \`inline code\`
+- Terminal-Befehle wie npm install, cargo build → \`\`\`bash
+- JSON, XML, YAML Strukturen → entsprechender Code-Block
 
 Wichtig:
 - Gib NUR das formatierte Markdown aus, keine Erklärungen
@@ -885,6 +1119,7 @@ export type TargetLanguage =
   | 'français'
   | 'italiano'
   | 'português'
+  | 'russisch'
   | '中文'
   | '日本語'
   | '한국어';
@@ -934,5 +1169,209 @@ ${content}
 Übersetzung in ${targetLanguage}:`;
 
   // Call AI
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Improvement style options for text enhancement
+ */
+export type ImprovementStyle =
+  | 'general'           // Standard improvement (grammar, clarity)
+  | 'charming'          // More personality and charm
+  | 'professional'      // More formal and business-like
+  | 'technical'         // More precise and technical
+  | 'concise'           // Shorter and more to the point
+  | 'custom';           // User-defined instruction
+
+export interface ImproveTextOptions {
+  style?: ImprovementStyle;
+  customInstruction?: string;  // For 'custom' style
+}
+
+/**
+ * Get improvement instructions based on style
+ */
+function getImprovementInstructions(style: ImprovementStyle, customInstruction?: string): string {
+  switch (style) {
+    case 'charming':
+      return `
+Verbessere den Text mit mehr Charme und Persönlichkeit:
+- Füge persönliche, ansprechende Formulierungen hinzu
+- Mache den Text lebendiger und einladender
+- Nutze eine warmherzige, freundliche Sprache
+- Füge passende Metaphern oder Vergleiche hinzu
+- Halte den Text interessant und unterhaltsam
+- Behalte die Kernaussage, aber mache sie ansprechender`;
+
+    case 'professional':
+      return `
+Verbessere den Text für einen professionelleren, formelleren Ton:
+- Verwende formelle Business-Sprache
+- Entferne umgangssprachliche Ausdrücke
+- Mache den Text objektiver und sachlicher
+- Nutze aktive, klare Formulierungen
+- Achte auf professionelle Höflichkeit
+- Strukturiere für maximale Klarheit`;
+
+    case 'technical':
+      return `
+Verbessere den Text für technische Präzision:
+- Verwende exakte, technische Terminologie
+- Sei präzise bei Beschreibungen und Erklärungen
+- Strukturiere logisch mit klaren Abschnitten
+- Füge Details hinzu wo nötig für Klarheit
+- Vermeide vage oder mehrdeutige Formulierungen
+- Halte einen sachlichen, informativen Ton`;
+
+    case 'concise':
+      return `
+Mache den Text kürzer und prägnanter:
+- Kürze auf das Wesentliche
+- Entferne alle Füllwörter und Redundanzen
+- Ein Gedanke pro Satz
+- Verwende kurze, kraftvolle Sätze
+- Halte nur die wichtigsten Informationen
+- Streiche unnötige Erklärungen`;
+
+    case 'custom':
+      return customInstruction
+        ? `\nBenutzerdefinierte Anweisung:\n${customInstruction}`
+        : '';
+
+    case 'general':
+    default:
+      return `
+Allgemeine Verbesserungen:
+- Verbessere Grammatik und Rechtschreibung
+- Mache Sätze klarer und prägnanter
+- Verbessere den Lesefluss und die Struktur
+- Entferne Redundanzen
+- Behalte den ursprünglichen Ton und Stil bei`;
+  }
+}
+
+/**
+ * Improve text quality - make it clearer, more engaging, and better structured
+ */
+export async function improveText(
+  content: string,
+  options?: ImproveTextOptions,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  if (!content || content.trim().length < 10) {
+    return {
+      success: false,
+      error: 'Text ist zu kurz oder leer',
+    };
+  }
+
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  const style = options?.style || 'general';
+  const improvementInstructions = getImprovementInstructions(style, options?.customInstruction);
+
+  const prompt = `Du bist ein professioneller Lektor und Content-Experte. Verbessere den folgenden Text.
+${improvementInstructions}
+
+Wichtige Regeln:
+- Behalte alle Markdown-Formatierungen bei
+- Behalte die Kernaussage und Bedeutung bei
+- Behalte die Sprache des Originals bei
+
+Wichtig:
+- Gib NUR den verbesserten Text aus, keine Erklärungen
+- Keine Meta-Kommentare wie "Hier ist der verbesserte Text"
+
+Original Text:
+${content}
+
+Verbesserter Text:`;
+
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Continue/extend the text naturally
+ */
+export async function continueText(
+  content: string,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  if (!content || content.trim().length < 10) {
+    return {
+      success: false,
+      error: 'Text ist zu kurz oder leer',
+    };
+  }
+
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+
+  const prompt = `Du bist ein kreativer Autor. Setze den folgenden Text natürlich fort.
+
+Regeln:
+- Führe den Text logisch und natürlich weiter
+- Behalte den Stil, Ton und die Sprache bei
+- Füge ca. 2-4 sinnvolle Absätze hinzu
+- Behalte das Thema und den Kontext bei
+- Nutze die gleiche Markdown-Formatierung
+- Der Übergang soll nahtlos sein
+
+Wichtig:
+- Gib den VOLLSTÄNDIGEN Text aus (Original + Fortsetzung)
+- Keine Meta-Kommentare wie "Hier ist die Fortsetzung"
+- Markiere NICHT wo die Fortsetzung beginnt
+
+Original Text:
+${content}
+
+Vollständiger Text mit Fortsetzung:`;
+
+  return await callAIForTransform(aiConfig, prompt);
+}
+
+/**
+ * Summarize text to key points
+ */
+export async function summarizeText(
+  content: string,
+  customAIConfig?: Partial<AIConfig>
+): Promise<TransformResult> {
+  if (!content || content.trim().length < 50) {
+    return {
+      success: false,
+      error: 'Text ist zu kurz zum Zusammenfassen (mind. 50 Zeichen)',
+    };
+  }
+
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+
+  const prompt = `Du bist ein Experte für Zusammenfassungen. Erstelle eine prägnante Zusammenfassung des folgenden Texts.
+
+Regeln:
+- Extrahiere die wichtigsten Kernaussagen
+- Behalte die Sprache des Originals bei
+- Strukturiere mit Bullet Points (- oder •)
+- Maximal 5-7 Hauptpunkte
+- Beginne mit einer kurzen Einleitung (1-2 Sätze)
+- Nutze Markdown-Formatierung
+
+Format:
+## Zusammenfassung
+
+[1-2 Sätze Einleitung]
+
+**Kernpunkte:**
+- Punkt 1
+- Punkt 2
+- ...
+
+Wichtig:
+- Gib NUR die Zusammenfassung aus
+- Keine Meta-Kommentare
+
+Original Text:
+${content}
+
+Zusammenfassung:`;
+
   return await callAIForTransform(aiConfig, prompt);
 }

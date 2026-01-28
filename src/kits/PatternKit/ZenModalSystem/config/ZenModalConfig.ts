@@ -4,7 +4,7 @@ export interface ModalHeaderConfig {
   title: string;
   subtitle?: string | ReactNode;
 
-  // ⭐ NEU: Zweite Subtitle-Zeile
+  // NEU: Zweite Subtitle-Zeile
   subtitle2?: string | ReactNode;
   subtitleColor2?: string;
   subtitleSize2?: string;
@@ -65,7 +65,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   },
   'about': {
     id: 'about',
-    title: 'ZenPost Studio',
+    title: 'ZenStudio Publisher',
     subtitle: 'Version 1.0.0',
     titleColor: '#AC8E66',
     subtitleColor: '#888',
@@ -95,7 +95,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Zur Startseite wechseln',
   subtitle: 'Bestätige den Wechsel zum Willkommensbildschirm',
   titleColor: '#AC8E66',
-  subtitleColor: '#ccc',
+  subtitleColor: '#fef3c7 ',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '300px',
@@ -107,11 +107,52 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   id: 'save-success',
   title: 'Erfolgreich gespeichert',
   subtitle: 'Deine Datei wurde im Projekt gespeichert',
-  titleColor: '#22c55e',
+  titleColor: '#AC8E66',
   subtitleColor: '#ccc',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '240px',
+  minWidth: '480px',
+},
+
+// Project Change Confirmation Modal
+'project-change': {
+  id: 'project-change',
+  title: 'Projektordner wechseln?',
+  subtitle: 'Wähle einen neuen Projektordner für deine Dokumentation',
+  titleColor: '#AC8E66',
+  subtitleColor: '#999',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '300px',
+  minWidth: '480px',
+  maxWidth: '600px',
+},
+
+// Posten Platform Selection Modal
+'posten-select': {
+  id: 'posten-select',
+  title: 'Plattformen wählen',
+  subtitle: 'Wähle eine oder mehrere Plattformen für dein Posting',
+  titleColor: '#AC8E66',
+  subtitleColor: '#999',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '480px',
+  minWidth: '620px',
+  maxWidth: '600px',
+},
+
+// Posten Method Choice Modal
+'posten-method': {
+  id: 'posten-method',
+  title: 'Posting-Methode wählen',
+  subtitle: 'Wie möchtest du deinen Content veröffentlichen?',
+  titleColor: '#AC8E66',
+  subtitleColor: '#fef3c7',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '320px',
   minWidth: '480px',
 },
 

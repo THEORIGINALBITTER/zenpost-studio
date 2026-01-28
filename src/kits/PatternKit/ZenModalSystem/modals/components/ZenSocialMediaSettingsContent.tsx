@@ -23,7 +23,17 @@ import { ZenInfoBox } from '../../components/ZenInfoBox';
 
 type TabType = 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
 
-export const ZenSocialMediaSettingsContent = () => {
+interface ZenSocialMediaSettingsContentProps {
+  initialTab?: TabType;
+  showMissingConfigHint?: boolean;
+  missingPlatformLabel?: string;
+}
+
+export const ZenSocialMediaSettingsContent = ({
+  initialTab,
+  showMissingConfigHint = false,
+  missingPlatformLabel,
+}: ZenSocialMediaSettingsContentProps) => {
   const [config, setConfig] = useState<SocialMediaConfig>({});
   const [activeTab, setActiveTab] = useState<TabType>('twitter');
 
@@ -31,6 +41,12 @@ export const ZenSocialMediaSettingsContent = () => {
     const loadedConfig = loadSocialConfig();
     setConfig(loadedConfig);
   }, []);
+
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
 
   // Auto-save on changes
   useEffect(() => {
@@ -160,17 +176,26 @@ export const ZenSocialMediaSettingsContent = () => {
       style={{
         width: '100%',
         padding: '14px 16px',
-        border: '2px solid #AC8E66',
+        border: '1px solid #AC8E66',
         borderRadius: '8px',
-        fontSize: '13px',
+        fontSize: '9px',
         transition: 'border-color 0.2s',
       }}
     />
   );
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div style={{ padding: '24px 32px',  fontSize: '11px', }}>
       <div style={{ marginBottom: '24px' }}>
+        {showMissingConfigHint && missingPlatformLabel && (
+          <div style={{ marginBottom: '12px' }}>
+            <ZenInfoBox
+              type="warning"
+              title="API fehlt"
+              description={`${missingPlatformLabel} ist noch nicht konfiguriert. Bitte fuege deine API-Credentials hinzu.`}
+            />
+          </div>
+        )}
         <ZenInfoBox
           type="info"
           title="Optional"
@@ -198,7 +223,7 @@ export const ZenSocialMediaSettingsContent = () => {
             className="font-mono transition-colors"
             style={{
               padding: '10px 16px',
-              fontSize: '13px',
+              fontSize: '11px',
               position: 'relative',
               background: 'transparent',
               border: 'none',

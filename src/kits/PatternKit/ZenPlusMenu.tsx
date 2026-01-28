@@ -7,8 +7,15 @@ export interface ZenPlusMenuItem {
   label: string;
   icon: any;
   description?: string;
-  action: () => void;
+  action?: () => void;
   shortcut?: string;
+  submenu?: ZenPlusSubmenuItem[]; // Support for submenus
+}
+
+export interface ZenPlusSubmenuItem {
+  id: string;
+  label: string;
+  action: () => void;
 }
 
 interface ZenPlusMenuProps {
@@ -27,6 +34,7 @@ export const ZenPlusMenu = ({
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null); // Track active submenu
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -73,15 +81,27 @@ export const ZenPlusMenu = ({
         case 'Enter':
           e.preventDefault();
           if (filteredItems[selectedIndex]) {
-            filteredItems[selectedIndex].action();
-            setIsOpen(false);
-            setFilter('');
+            const item = filteredItems[selectedIndex];
+            if (item.submenu) {
+              // If item has submenu, toggle it
+              setActiveSubmenu(activeSubmenu === item.id ? null : item.id);
+            } else if (item.action) {
+              item.action();
+              setIsOpen(false);
+              setFilter('');
+              setActiveSubmenu(null);
+            }
           }
           break;
         case 'Escape':
           e.preventDefault();
-          setIsOpen(false);
-          setFilter('');
+          if (activeSubmenu) {
+            // Close submenu first
+            setActiveSubmenu(null);
+          } else {
+            setIsOpen(false);
+            setFilter('');
+          }
           break;
       }
     };
@@ -218,67 +238,127 @@ export const ZenPlusMenu = ({
               </div>
             ) : (
               filteredItems.map((item, index) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    item.action();
-                    setIsOpen(false);
-                    setFilter('');
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    backgroundColor:
-                      index === selectedIndex ? '#AC8E66' : 'transparent',
-                    color: index === selectedIndex ? '#1E1E1E' : '#e5e5e5',
-                    border: 'none',
-                    borderRadius: 4,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    marginBottom: 4,
-                    transition: 'all 0.15s ease',
-                  }}
-                  className="hover:bg-[#AC8E66] hover:text-[#1E1E1E]"
-                >
-                  <FontAwesomeIcon
-                    icon={item.icon}
-                    style={{ fontSize: 14, width: 16 }}
-                  />
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
-                      {item.label}
+                <div key={item.id}>
+                  <button
+                    onClick={() => {
+                      if (item.submenu) {
+                        setActiveSubmenu(activeSubmenu === item.id ? null : item.id);
+                      } else if (item.action) {
+                        item.action();
+                        setIsOpen(false);
+                        setFilter('');
+                        setActiveSubmenu(null);
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      backgroundColor:
+                        index === selectedIndex ? '#AC8E66' : 'transparent',
+                      color: index === selectedIndex ? '#1E1E1E' : '#e5e5e5',
+                      border: 'none',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      marginBottom: activeSubmenu === item.id ? 0 : 4,
+                      transition: 'all 0.15s ease',
+                    }}
+                    className="hover:bg-[#AC8E66] hover:text-[#1E1E1E]"
+                  >
+                    <FontAwesomeIcon
+                      icon={item.icon}
+                      style={{ fontSize: 14, width: 16 }}
+                    />
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
+                        {item.label}
+                      </div>
+                      {item.description && (
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontFamily: 'monospace',
+                            opacity: 0.7,
+                            marginTop: 2,
+                          }}
+                        >
+                          {item.description}
+                        </div>
+                      )}
                     </div>
-                    {item.description && (
+                    {item.shortcut && (
+                      <div
+                        style={{
+                          fontSize: 10,
+                          fontFamily: 'monospace',
+                          opacity: 0.5,
+                          padding: '2px 6px',
+                          backgroundColor:
+                            index === selectedIndex ? '#1E1E1E' : '#2A2A2A',
+                          borderRadius: 3,
+                        }}
+                      >
+                        {item.shortcut}
+                      </div>
+                    )}
+                    {item.submenu && (
                       <div
                         style={{
                           fontSize: 10,
                           fontFamily: 'monospace',
                           opacity: 0.7,
-                          marginTop: 2,
                         }}
                       >
-                        {item.description}
+                        {activeSubmenu === item.id ? '▼' : '▶'}
                       </div>
                     )}
-                  </div>
-                  {item.shortcut && (
+                  </button>
+
+                  {/* Submenu */}
+                  {item.submenu && activeSubmenu === item.id && (
                     <div
                       style={{
-                        fontSize: 10,
-                        fontFamily: 'monospace',
-                        opacity: 0.5,
-                        padding: '2px 6px',
-                        backgroundColor:
-                          index === selectedIndex ? '#1E1E1E' : '#2A2A2A',
-                        borderRadius: 3,
+                        paddingLeft: 28,
+                        marginBottom: 4,
+                        backgroundColor: '#2A2A2A',
+                        borderRadius: 4,
+                        padding: '8px 8px 8px 28px',
                       }}
                     >
-                      {item.shortcut}
+                      {item.submenu.map((subitem) => (
+                        <button
+                          key={subitem.id}
+                          onClick={() => {
+                            subitem.action();
+                            setIsOpen(false);
+                            setFilter('');
+                            setActiveSubmenu(null);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            backgroundColor: 'transparent',
+                            color: '#e5e5e5',
+                            border: 'none',
+                            borderRadius: 4,
+                            cursor: 'pointer',
+                            display: 'block',
+                            textAlign: 'left',
+                            fontSize: 11,
+                            fontFamily: 'monospace',
+                            marginBottom: 4,
+                            transition: 'all 0.15s ease',
+                          }}
+                          className="hover:bg-[#3a3a3a] hover:text-[#AC8E66]"
+                        >
+                          {subitem.label}
+                        </button>
+                      ))}
                     </div>
                   )}
-                </button>
+                </div>
               ))
             )}
           </div>

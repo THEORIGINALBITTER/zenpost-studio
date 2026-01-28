@@ -260,7 +260,7 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
         >
           {/* Author Information */}
           <div style={{ marginBottom: '32px' }}>
-            <SectionHeader icon={faUser} title="Autor-Informationen" />
+            <SectionHeader icon={faUser} title="Autor --Informationen" />
             <InputField
               label="Name"
               icon={faUser}

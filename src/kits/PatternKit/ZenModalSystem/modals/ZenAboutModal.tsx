@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { ZenModal } from "../components/ZenModal";
 import { ZenModalHeader } from "../components/ZenModalHeader";
 import { ZenModalFooter } from "../components/ZenModalFooter";
@@ -5,8 +6,10 @@ import { ZenRoughButton } from "../components/ZenRoughButton";
 import { getModalPreset } from "../config/ZenModalConfig";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faGithub } from "@fortawesome/free-brands-svg-icons";
-import { faBook, faLifeRing } from "@fortawesome/free-solid-svg-icons";
+import { faBook, faLifeRing, faCircleQuestion } from "@fortawesome/free-solid-svg-icons";
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { WalkthroughOverlay } from "../../../HelpDocStudio/components/WalkthroughOverlay";
+import { ABOUT_MODAL_STEPS } from "../../../HelpDocStudio/config/walkthroughSteps";
 
 interface ZenAboutModalProps {
   isOpen: boolean;
@@ -14,7 +17,15 @@ interface ZenAboutModalProps {
 }
 
 export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
+  const [showWalkthrough, setShowWalkthrough] = useState(false);
   const modalPreset = getModalPreset('about');
+
+  // Reset walkthrough state when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setShowWalkthrough(false);
+    }
+  }, [isOpen]);
   const links = [
     {
       icon: faBook,
@@ -35,6 +46,35 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
       description: "Get help & report issues",
     },
   ];
+
+  const handleLinkClick = async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch (error) {
+      console.error('Failed to open URL:', error);
+    }
+  };
+
+  if (showWalkthrough) {
+    return (
+      <ZenModal isOpen={isOpen} onClose={onClose} size="xl" showCloseButton={true}>
+        <div
+          style={{
+            minHeight: '600px',
+            maxHeight: '80vh',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <WalkthroughOverlay
+            steps={ABOUT_MODAL_STEPS}
+            onComplete={() => setShowWalkthrough(false)}
+            autoStart={true}
+          />
+        </div>
+      </ZenModal>
+    );
+  }
 
   return (
     <ZenModal isOpen={isOpen} onClose={onClose}>
@@ -58,7 +98,7 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
           <p className="font-mono text-[12px] text-[#ccc] text-center"
           style={{padding: "10px"}}
           >
-            Transform your Markdown files into json format with ease.
+            Schreibe einmal. Poste 9 mal mit KI unterstützten Vorlagen <br/>für soziale Medien.
           </p>
 
           {/* Links */}
@@ -70,15 +110,16 @@ export const ZenAboutModal = ({ isOpen, onClose }: ZenAboutModalProps) => {
                 key={link.label}
                 label={link.label}
                 icon={<FontAwesomeIcon icon={link.icon} />}
-                onClick={async () => {
-                  try {
-                    await openUrl(link.url);
-                  } catch (error) {
-                    console.error('Failed to open URL:', error);
-                  }
-                }}
+                onClick={() => handleLinkClick(link.url)}
               />
             ))}
+
+            {/* Help Button */}
+            <ZenRoughButton
+              label="Hilfe & Tutorial"
+              icon={<FontAwesomeIcon icon={faCircleQuestion} />}
+              onClick={() => setShowWalkthrough(true)}
+            />
           </div>
         </div>
 

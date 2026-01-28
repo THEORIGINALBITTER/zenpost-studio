@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { downloadDir, join } from '@tauri-apps/api/path';
 
@@ -11,11 +11,27 @@ import {
   faRocket,
   faCog,
   faLightbulb,
+  faArrowLeft,
+  faTableList,
+  faCalendarDays,
+  faWandMagicSparkles,
+  faArrowRight,
+  faCompress,
+  faCode,
+  faPaperPlane,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
-import { ContentPlatform } from '../../services/aiService';
+import {
+  ContentPlatform,
+  improveText,
+  continueText,
+  summarizeText,
+  textToMarkdown,
+  type ImprovementStyle,
+} from '../../services/aiService';
+import type { ScheduledPost } from '../../types/scheduling';
 import {
   postToSocialMedia,
   loadSocialConfig,
@@ -27,12 +43,25 @@ import {
 interface Step4TransformResultProps {
   transformedContent: string;
   platform: ContentPlatform;
+  autoSelectedModel?: string | null;
   onReset: () => void;
   onBack: () => void;
   onOpenSettings: () => void;
   onContentChange?: (content: string) => void; // Allow updating content after translation
   cameFromDocStudio?: boolean;
+  cameFromDashboard?: boolean;
+  isPreview?: boolean;
+  headerAction?: "copy" | "download" | "edit" | "post" | "posten" | "reset" | "back_doc" | "back_dashboard" | null;
+  onHeaderActionHandled?: () => void;
+  useHeaderActions?: boolean;
   onBackToDocStudio?: (editedContent?: string) => void;
+  onBackToDashboard?: (generatedContent?: string) => void;
+  onGoToTransform?: (platform: ContentPlatform) => void; // Navigate to Step 2/3 for AI transformation
+  // Multi-platform mode props
+  multiPlatformMode?: boolean;
+  transformedContents?: Partial<Record<ContentPlatform, string>>;
+  activeResultTab?: ContentPlatform | null;
+  onActiveResultTabChange?: (platform: ContentPlatform) => void;
 }
 
 
@@ -46,6 +75,7 @@ const platformLabels: Record<ContentPlatform, string> = {
   'github-discussion': 'GitHub Discussion',
   'github-blog': 'GitHub Blog Post',
   youtube: 'YouTube Description',
+  'blog-post': 'Blog Post',
 };
 
 // Map ContentPlatform to SocialPlatform
@@ -58,22 +88,156 @@ const platformMapping: Record<ContentPlatform, SocialPlatform | null> = {
   'github-discussion': 'github',
   'github-blog': 'github',
   youtube: null, // YouTube doesn't have direct posting API in this implementation
+  'blog-post': null, // Generic blog post doesn't have direct posting
 };
 
 export const Step4TransformResult = ({
   transformedContent,
   platform,
+  autoSelectedModel,
   onReset,
   onBack,
   onOpenSettings,
   onContentChange,
   cameFromDocStudio,
+  cameFromDashboard,
+  isPreview = false,
+  headerAction,
+  onHeaderActionHandled,
+  useHeaderActions = false,
   onBackToDocStudio,
+  onBackToDashboard,
+  onGoToTransform,
+  multiPlatformMode = false,
+  transformedContents = {},
+  activeResultTab,
+  onActiveResultTabChange,
 }: Step4TransformResultProps) => {
   const [copied, setCopied] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
   const [currentContent, setCurrentContent] = useState(transformedContent);
+
+  // Sync currentContent when transformedContent changes (e.g., tab switch in multi-platform mode)
+  useEffect(() => {
+    if (transformedContent) {
+      setCurrentContent(transformedContent);
+    }
+  }, [transformedContent]);
+
+  const [showPlannerModal, setShowPlannerModal] = useState(false);
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+
+  // Posten Modal State
+  const [showPostenModal, setShowPostenModal] = useState(false);
+  const [showPostMethodModal, setShowPostMethodModal] = useState(false);
+  const [selectedPostPlatforms, setSelectedPostPlatforms] = useState<SocialPlatform[]>([]);
+  const [isMultiPosting, setIsMultiPosting] = useState(false);
+  const [multiPostResults, setMultiPostResults] = useState<PostResult[]>([]);
+
+  // Text-AI State
+  const [showTextAI, setShowTextAI] = useState(false);
+  const [isAIProcessing, setIsAIProcessing] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  // Improvement Style Selection State
+  const [showImproveOptions, setShowImproveOptions] = useState(false);
+  const [customInstruction, setCustomInstruction] = useState('');
+  const [showCustomInput, setShowCustomInput] = useState(false);
+
+  // Success feedback
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [lastAction, setLastAction] = useState<string>('');
+
+  useEffect(() => {
+    if (multiPlatformMode && activeResultTab && transformedContents[activeResultTab] !== undefined) {
+      setCurrentContent(transformedContents[activeResultTab] || '');
+      return;
+    }
+    setCurrentContent(transformedContent || '');
+  }, [transformedContent, platform, activeResultTab, multiPlatformMode, transformedContents]);
+
+  // Text-AI Handler
+  const handleTextAI = async (action: 'improve' | 'continue' | 'summarize' | 'markdown', improveStyle?: ImprovementStyle) => {
+    console.log('[Text-AI] Starting action:', action, 'style:', improveStyle);
+    console.log('[Text-AI] Current content length:', currentContent.length);
+    console.log('[Text-AI] Current content preview:', currentContent.substring(0, 100));
+
+    setIsAIProcessing(true);
+    setAiError(null);
+
+    try {
+      let result;
+      switch (action) {
+        case 'improve':
+          console.log('[Text-AI] Calling improveText with style:', improveStyle || 'general');
+          result = await improveText(currentContent, {
+            style: improveStyle || 'general',
+            customInstruction: improveStyle === 'custom' ? customInstruction : undefined,
+          });
+          console.log('[Text-AI] improveText result:', result);
+          break;
+        case 'continue':
+          result = await continueText(currentContent);
+          break;
+        case 'summarize':
+          result = await summarizeText(currentContent);
+          break;
+        case 'markdown':
+          result = await textToMarkdown(currentContent);
+          break;
+      }
+
+      if (result.success && result.data) {
+        const contentChanged = result.data !== currentContent;
+        console.log('[Text-AI] Success! New content length:', result.data.length);
+        console.log('[Text-AI] New content preview:', result.data.substring(0, 200));
+        console.log('[Text-AI] Content changed:', contentChanged);
+
+        // Show success feedback
+        const actionLabels: Record<string, string> = {
+          improve: improveStyle === 'charming' ? 'Mehr Charme hinzugefügt' :
+                   improveStyle === 'professional' ? 'Professioneller gestaltet' :
+                   improveStyle === 'technical' ? 'Technisch verbessert' :
+                   improveStyle === 'concise' ? 'Text gekürzt' :
+                   improveStyle === 'custom' ? 'Eigene Anweisung angewendet' :
+                   'Text verbessert',
+          continue: 'Text fortgesetzt',
+          summarize: 'Text zusammengefasst',
+          markdown: 'In Markdown konvertiert',
+        };
+        setLastAction(actionLabels[action] || 'Verarbeitet');
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 3000);
+
+        setCurrentContent(result.data);
+        onContentChange?.(result.data);
+        setShowTextAI(false);
+        setShowImproveOptions(false);
+        setShowCustomInput(false);
+        setCustomInstruction('');
+
+        // Alert if content didn't change (debugging)
+        if (!contentChanged) {
+          console.warn('[Text-AI] WARNING: AI returned the same content! This might be an Ollama issue.');
+        }
+      } else {
+        console.log('[Text-AI] Failed:', result.error);
+        setAiError(result.error || 'AI-Verarbeitung fehlgeschlagen');
+      }
+    } catch (error) {
+      console.error('[Text-AI] Exception:', error);
+      setAiError(error instanceof Error ? error.message : 'Unbekannter Fehler');
+    } finally {
+      setIsAIProcessing(false);
+    }
+  };
+
+  // Handle improvement style selection
+  const handleImproveClick = () => {
+    setShowImproveOptions(!showImproveOptions);
+    setShowCustomInput(false);
+  };
 
  
  
@@ -222,6 +386,155 @@ const handleDownload = async () => {
     }
   };
 
+  // Multi-Platform Posting Handlers
+  const handlePlatformSelection = (platforms: SocialPlatform[]) => {
+    setSelectedPostPlatforms(platforms);
+    setShowPostenModal(false);
+    setShowPostMethodModal(true);
+  };
+
+  const prepareContentForPlatform = (targetPlatform: SocialPlatform): any => {
+    const lines = currentContent.split('\n');
+    const title = lines[0].replace(/^#\s*/, '');
+    const body = lines.slice(1).join('\n').trim();
+
+    switch (targetPlatform) {
+      case 'twitter':
+        const tweets = currentContent.split('\n\n').filter((t) => t.trim());
+        return {
+          text: tweets[0],
+          thread: tweets.length > 1 ? tweets.slice(1) : undefined,
+        };
+      case 'reddit':
+        return {
+          subreddit: 'test',
+          title: title.substring(0, 300),
+          text: body,
+        };
+      case 'linkedin':
+        return {
+          text: currentContent,
+          visibility: 'PUBLIC',
+        };
+      case 'devto':
+        return {
+          title,
+          body_markdown: body,
+          published: false,
+          tags: [],
+        };
+      case 'medium':
+        return {
+          title,
+          content: body,
+          contentFormat: 'markdown' as const,
+          publishStatus: 'draft' as const,
+        };
+      case 'github':
+        return {
+          owner: '',
+          repo: '',
+          title,
+          body,
+          categoryId: '',
+        };
+      default:
+        return { text: currentContent };
+    }
+  };
+
+  const handleMultiDirectPost = async () => {
+    setShowPostMethodModal(false);
+    setIsMultiPosting(true);
+    setMultiPostResults([]);
+
+    const results: PostResult[] = [];
+    const currentConfig = loadSocialConfig();
+
+    for (const targetPlatform of selectedPostPlatforms) {
+      if (!isPlatformConfigured(targetPlatform, currentConfig)) {
+        results.push({
+          success: false,
+          platform: targetPlatform,
+          error: `${targetPlatform} nicht konfiguriert`,
+        });
+        continue;
+      }
+
+      try {
+        const postContent = prepareContentForPlatform(targetPlatform);
+        const result = await postToSocialMedia(targetPlatform, postContent, currentConfig);
+        results.push(result);
+
+        if (result.success && result.url) {
+          window.open(result.url, '_blank');
+        }
+      } catch (error) {
+        results.push({
+          success: false,
+          platform: targetPlatform,
+          error: error instanceof Error ? error.message : 'Unbekannter Fehler',
+        });
+      }
+    }
+
+    setMultiPostResults(results);
+    setIsMultiPosting(false);
+  };
+
+  const handleMultiAIOptimize = () => {
+    setShowPostMethodModal(false);
+
+    // Navigate to Step 2/3 for AI transformation
+    // Use the first selected platform for transformation
+    if (selectedPostPlatforms.length > 0 && onGoToTransform) {
+      // Map SocialPlatform to ContentPlatform
+      const socialToContent: Record<SocialPlatform, ContentPlatform> = {
+        linkedin: 'linkedin',
+        twitter: 'twitter',
+        reddit: 'reddit',
+        devto: 'devto',
+        medium: 'medium',
+        github: 'github-discussion',
+      };
+      const contentPlatform = socialToContent[selectedPostPlatforms[0]];
+      onGoToTransform(contentPlatform);
+    }
+  };
+
+  useEffect(() => {
+    if (!headerAction) return;
+    if (headerAction === "copy") {
+      handleCopy();
+    } else if (headerAction === "download") {
+      handleDownload();
+    } else if (headerAction === "edit") {
+      onBack();
+    } else if (headerAction === "post") {
+      handlePost();
+    } else if (headerAction === "posten") {
+      setShowPostenModal(true);
+    } else if (headerAction === "reset") {
+      onReset();
+    } else if (headerAction === "back_doc" && onBackToDocStudio) {
+      onBackToDocStudio(currentContent);
+    } else if (headerAction === "back_dashboard" && onBackToDashboard) {
+      onBackToDashboard(currentContent);
+    }
+    onHeaderActionHandled?.();
+  }, [
+    headerAction,
+    onHeaderActionHandled,
+    onBack,
+    onReset,
+    onBackToDocStudio,
+    onBackToDashboard,
+    currentContent,
+    handleCopy,
+    handleDownload,
+    handlePost,
+  ]);
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 py-12"
         style={{ padding: '0.5rem 1.5rem' }}
@@ -233,17 +546,127 @@ const handleDownload = async () => {
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-            Transformation abgeschlossen!
+          <h2 className="font-mono text-3xl text-[#fef3c7] text-center">
+            {isPreview ? "Dein Posting Vorschau " : "Transformation abgeschlossen :)"}
           </h2>
         </div>
 
         {/* Subtitle */}
-        <div className="mb-12">
+        <div className="mb-12 text-center">
           <ZenSubtitle>
-            {`Dein Content wurde für ${platformLabels[platform]} optimiert`}
+         {isPreview ? (
+  <>
+    Du siehst hier, wie dein Artikel aussieht.
+    <br />
+    Für Optimierung kannst du TEXT-AI nutzen oder auf Nachbearbeiten gehen und deine Plattform wählen.
+  </>
+) : multiPlatformMode && Object.keys(transformedContents).length > 1 ? (
+  `Dein Content wurde für ${Object.keys(transformedContents).length} Plattformen optimiert`
+) : (
+  `Dein Content wurde für ${platformLabels[platform]} optimiert`
+)}
+
           </ZenSubtitle>
         </div>
+
+        {/* Multi-Platform Tab Bar */}
+        {multiPlatformMode && Object.keys(transformedContents).length > 1 && (
+          <div className="mb-8 w-full max-w-2xl">
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                padding: '8px',
+                backgroundColor: '#1F1F1F',
+                borderRadius: '12px',
+                border: '1px solid #3A3A3A',
+              }}
+            >
+              {Object.keys(transformedContents).map((platformKey) => {
+                const platformValue = platformKey as ContentPlatform;
+                const isActive = activeResultTab === platformValue;
+                return (
+                  <button
+                    key={platformKey}
+                    onClick={() => {
+                      onActiveResultTabChange?.(platformValue);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '10px 16px',
+                      backgroundColor: isActive ? '#AC8E66' : 'transparent',
+                      border: isActive ? 'none' : '1px solid #fff',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '12px',
+                      fontWeight: isActive ? '600' : '400',
+                      color: isActive ? '#1A1A1A' : '#999',
+                      transition: 'all 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = '#2A2A2A';
+                        e.currentTarget.style.color = '#e5e5e5';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = '#999';
+                      }
+                    }}
+                  >
+                    {platformLabels[platformValue]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Auto-Select Info */}
+        {autoSelectedModel && (
+          <div className="mb-8 w-full max-w-2xl">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 20px',
+                backgroundColor: '#2A2A2A',
+                border: '1px solid #AC8E66',
+                borderRadius: '8px',
+              }}
+            >
+              <span style={{ fontSize: '18px' }}>✨</span>
+              <div style={{ flex: 1 }}>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    color: '#AC8E66',
+                    fontWeight: 600,
+                  }}
+                >
+                  Auto-Select aktiv
+                </p>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: '10px',
+                    fontFamily: 'monospace',
+                    color: '#999',
+                    marginTop: '4px',
+                  }}
+                >
+                  {autoSelectedModel}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Result Container */}
         <div className="w-full bg-[#2A2A2A] border border-[#AC8E66] "
@@ -259,18 +682,461 @@ const handleDownload = async () => {
               style={{ padding: '0.5rem 1.5rem' }}
           >
             <h3 className="font-mono text-sm text-[#AC8E66]">Vorschau - Transformierter Content:</h3>
-            <div className="font-mono text-xs text-[#AC8E66]  px-3 py-1 rounded">
-             Preview-Modus
+            <div className="flex items-center gap-3 px-[-10px]">
+              {/* Text-AI Toggle Button */}
+              <div className='px-[10px]'>
+              <button
+                onClick={() => setShowTextAI(!showTextAI)}
+                className={`font-mono text-[10px] px-[10px] py-[10px] paddingLeft-[10px] rounded-lg border transition-all ${
+                  showTextAI
+                    ? 'bg-[#AC8E66] text-[#1A1A1A] border-[#AC8E66]'
+                    : 'bg-transparent text-[#AC8E66] border-[#AC8E66] hover:bg-[#AC8E66]/10'
+                }`}
+                disabled={isAIProcessing}
+              >
+                <FontAwesomeIcon icon={faWandMagicSparkles} className="mr-2" />
+                Text-AI
+              </button>
+              </div>
+              <div className="font-mono text-[12px] text-[#AC8E66] px-3 py-1 rounded">
+                Preview-Modus
+              </div>
             </div>
           </div>
 
+          {/* Text-AI Tab Bar */}
+          {showTextAI && (
+            <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '12px',
+                  backgroundColor: '#1A1A1A',
+                  borderRadius: '12px',
+                  border: '1px solid #3a3a3a',
+                  flexWrap: 'wrap',
+                }}
+              >
+                {/* Text verbessern */}
+                <div style={{ flex: '1 1 auto', minWidth: '140px', position: 'relative' }}>
+                  <button
+                    onClick={handleImproveClick}
+                    disabled={isAIProcessing}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      backgroundColor: showImproveOptions ? '#3a3a3a' : '#2A2A2A',
+                      border: showImproveOptions ? '1px solid #AC8E66' : '1px solid #3a3a3a',
+                      borderRadius: '8px',
+                      color: '#e5e5e5',
+                      fontFamily: 'monospace',
+                      fontSize: '10px',
+                      cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                      opacity: isAIProcessing ? 0.5 : 1,
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '6px',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isAIProcessing && !showImproveOptions) {
+                        e.currentTarget.style.backgroundColor = '#3a3a3a';
+                        e.currentTarget.style.borderColor = '#AC8E66';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showImproveOptions) {
+                        e.currentTarget.style.backgroundColor = '#2A2A2A';
+                        e.currentTarget.style.borderColor = '#3a3a3a';
+                      }
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                    <span>Text verbessern</span>
+                  </button>
+
+                  {/* Improvement Style Dropdown */}
+                  {showImproveOptions && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        marginTop: '8px',
+                        backgroundColor: '#1A1A1A',
+                        border: '1px solid #AC8E66',
+                        borderRadius: '12px',
+                        padding: '8px',
+                        minWidth: '220px',
+                        zIndex: 100,
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                      }}
+                    >
+                      <p style={{
+                        fontFamily: 'monospace',
+                        fontSize: '10px',
+                        color: '#AC8E66',
+                        margin: '0 0 8px 0',
+                        textAlign: 'center',
+                        fontWeight: 600,
+                      }}>
+                        Wie soll verbessert werden?
+                      </p>
+
+                      {/* Style Options */}
+                      {[
+                        { style: 'charming' as ImprovementStyle, label: '✨ Mehr Charme', desc: 'Persönlicher & einladender' },
+                        { style: 'professional' as ImprovementStyle, label: '👔 Professioneller', desc: 'Formell & business-gerecht' },
+                        { style: 'technical' as ImprovementStyle, label: '🔧 Technischer', desc: 'Präzise & detailliert' },
+                        { style: 'concise' as ImprovementStyle, label: '⚡ Kürzer & knapper', desc: 'Auf den Punkt gebracht' },
+                        { style: 'general' as ImprovementStyle, label: '📝 Allgemein', desc: 'Grammatik & Lesbarkeit' },
+                      ].map((option) => (
+                        <button
+                          key={option.style}
+                          onClick={() => handleTextAI('improve', option.style)}
+                          disabled={isAIProcessing}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            backgroundColor: '#2A2A2A',
+                            border: '1px solid #3a3a3a',
+                            borderRadius: '8px',
+                            marginBottom: '6px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            textAlign: 'left',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#3a3a3a';
+                            e.currentTarget.style.borderColor = '#AC8E66';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = '#2A2A2A';
+                            e.currentTarget.style.borderColor = '#3a3a3a';
+                          }}
+                        >
+                          <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
+                            {option.label}
+                          </div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
+                            {option.desc}
+                          </div>
+                        </button>
+                      ))}
+
+                      {/* Custom Input Toggle */}
+                      <button
+                        onClick={() => setShowCustomInput(!showCustomInput)}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          backgroundColor: showCustomInput ? '#3a3a3a' : '#2A2A2A',
+                          border: showCustomInput ? '1px solid #AC8E66' : '1px solid #3a3a3a',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          textAlign: 'left',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!showCustomInput) {
+                            e.currentTarget.style.backgroundColor = '#3a3a3a';
+                            e.currentTarget.style.borderColor = '#AC8E66';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!showCustomInput) {
+                            e.currentTarget.style.backgroundColor = '#2A2A2A';
+                            e.currentTarget.style.borderColor = '#3a3a3a';
+                          }
+                        }}
+                      >
+                        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
+                          ✍️ Eigene Anweisung
+                        </div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
+                          Beschreibe selbst wie
+                        </div>
+                      </button>
+
+                      {/* Custom Instruction Input */}
+                      {showCustomInput && (
+                        <div style={{ marginTop: '8px' }}>
+                          <textarea
+                            value={customInstruction}
+                            onChange={(e) => setCustomInstruction(e.target.value)}
+                            placeholder="z.B. 'Mache den Text lustiger' oder 'Füge mehr Beispiele hinzu'"
+                            style={{
+                              width: '100%',
+                              minHeight: '80px',
+                              padding: '10px',
+                              backgroundColor: '#2A2A2A',
+                              border: '1px solid #3a3a3a',
+                              borderRadius: '8px',
+                              color: '#e5e5e5',
+                              fontFamily: 'monospace',
+                              fontSize: '10px',
+                              resize: 'vertical',
+                              outline: 'none',
+                            }}
+                            onFocus={(e) => {
+                              e.currentTarget.style.borderColor = '#AC8E66';
+                            }}
+                            onBlur={(e) => {
+                              e.currentTarget.style.borderColor = '#3a3a3a';
+                            }}
+                          />
+                          <button
+                            onClick={() => handleTextAI('improve', 'custom')}
+                            disabled={isAIProcessing || !customInstruction.trim()}
+                            style={{
+                              width: '100%',
+                              marginTop: '8px',
+                              padding: '10px',
+                              backgroundColor: customInstruction.trim() ? '#AC8E66' : '#3a3a3a',
+                              border: 'none',
+                              borderRadius: '8px',
+                              color: customInstruction.trim() ? '#1A1A1A' : '#777',
+                              fontFamily: 'monospace',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
+                              transition: 'all 0.2s',
+                            }}
+                          >
+                            Verbessern mit eigener Anweisung
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Text fortsetzen */}
+                <button
+                  onClick={() => handleTextAI('continue')}
+                  disabled={isAIProcessing}
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '140px',
+                    padding: '12px 16px',
+                    backgroundColor: '#2A2A2A',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: '8px',
+                    color: '#e5e5e5',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                    opacity: isAIProcessing ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isAIProcessing) {
+                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.borderColor = '#3a3a3a';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faArrowRight} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                  <span>Text fortsetzen</span>
+                </button>
+
+                {/* Zusammenfassen */}
+                <button
+                  onClick={() => handleTextAI('summarize')}
+                  disabled={isAIProcessing}
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '140px',
+                    padding: '12px 16px',
+                    backgroundColor: '#2A2A2A',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: '8px',
+                    color: '#e5e5e5',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                    opacity: isAIProcessing ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isAIProcessing) {
+                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.borderColor = '#3a3a3a';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faCompress} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                  <span>Zusammenfassen</span>
+                </button>
+
+                {/* Markdown-Format */}
+                <button
+                  onClick={() => handleTextAI('markdown')}
+                  disabled={isAIProcessing}
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '140px',
+                    padding: '12px 16px',
+                    backgroundColor: '#2A2A2A',
+                    border: '1px solid #3a3a3a',
+                    borderRadius: '8px',
+                    color: '#e5e5e5',
+                    fontFamily: 'monospace',
+                    fontSize: '10px',
+                    cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                    opacity: isAIProcessing ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isAIProcessing) {
+                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.borderColor = '#3a3a3a';
+                  }}
+                >
+                  <FontAwesomeIcon icon={faCode} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                  <span>Markdown-Format</span>
+                </button>
+              </div>
+
+              {/* AI Processing Indicator */}
+              {isAIProcessing && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    backgroundColor: '#2A2A2A',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: '20px',
+                      height: '20px',
+                      border: '2px solid #AC8E66',
+                      borderTopColor: 'transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66' }}>
+                    AI verarbeitet...
+                  </span>
+                </div>
+              )}
+
+              {/* AI Success Message */}
+              {showSuccessMessage && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+                    border: '1px solid #22c55e',
+                    borderRadius: '8px',
+                    color: '#22c55e',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    textAlign: 'center',
+                    animation: 'fadeIn 0.3s ease-out',
+                  }}
+                >
+                  ✓ {lastAction}! Der Text wurde aktualisiert.
+                </div>
+              )}
+
+              {/* AI Error */}
+              {aiError && (
+                <div
+                  style={{
+                    marginTop: '12px',
+                    padding: '12px',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid #ef4444',
+                    borderRadius: '8px',
+                    color: '#ef4444',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    textAlign: 'center',
+                  }}
+                >
+                  {aiError}
+                </div>
+              )}
+
+              <style>{`
+                @keyframes spin {
+                  from { transform: rotate(0deg); }
+                  to { transform: rotate(360deg); }
+                }
+                @keyframes fadeIn {
+                  from { opacity: 0; transform: translateY(-10px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+              `}</style>
+            </div>
+          )}
+
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
-            <ZenMarkdownPreview
-              content={currentContent}
-              height="500px"
-              onContentChange={handleContentUpdate}
-            />
+            {currentContent && currentContent.trim() ? (
+              <ZenMarkdownPreview
+                content={currentContent}
+                height="500px"
+                onContentChange={handleContentUpdate}
+              />
+            ) : (
+              <div
+                style={{
+                  height: '200px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#777',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                  gap: '8px',
+                }}
+              >
+                <span style={{ color: '#AC8E66' }}>⚠️</span>
+                <span>Kein Inhalt für diese Plattform vorhanden.</span>
+                <span style={{ fontSize: '10px', color: '#555' }}>
+                  Die Transformation ist möglicherweise fehlgeschlagen.
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -331,63 +1197,100 @@ const handleDownload = async () => {
           </div>
         )}
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-4 mb-8 justify-center"
-            style={{ padding: '0.5rem 1.5rem' }}
-        >
-          {/* Copy Button */}
-          <ZenRoughButton
-            label={copied ? '✓ Kopiert!' : 'Kopieren'}
-            icon={<FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-[#AC8E66]" />}
-            onClick={handleCopy}
-            variant={copied ? 'active' : 'default'}
-          />
-
-          {/* Download Button */}
-          <ZenRoughButton
-            label="Download"
-            icon={<FontAwesomeIcon icon={faDownload} className="text-[#AC8E66]" />}
-            onClick={handleDownload}
-          />
-
-          {/* Edit Button - zurück zum Content Transform */}
-          <ZenRoughButton
-            label="Nachbearbeiten"
-            icon="✏️"
-            onClick={onBack}
-            variant="active"
-          />
-
-          {/* Back to Doc Studio Button - only show if came from Doc Studio */}
-          {cameFromDocStudio && onBackToDocStudio && (
+        {!useHeaderActions && (
+          <div
+            className="flex flex-wrap gap-4 mb-8 justify-center"
+            style={{ padding: "0.5rem 1.5rem" }}
+          >
             <ZenRoughButton
-              label="↩️ Zurück zu Doc Studio"
-              icon="📄"
-              onClick={() => onBackToDocStudio(currentContent)}
+              label={copied ? "✓ Kopiert!" : "Kopieren"}
+              icon={<FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-[#AC8E66]" />}
+              onClick={handleCopy}
+              variant={copied ? "active" : "default"}
+            />
+
+            <ZenRoughButton
+              label="Download"
+              icon={<FontAwesomeIcon icon={faDownload} className="text-[#AC8E66]" />}
+              onClick={handleDownload}
+            />
+
+            <ZenRoughButton
+              label="Nachbearbeiten"
+              icon="✏️"
+              onClick={onBack}
+              variant="active"
+            />
+
+            {cameFromDocStudio && onBackToDocStudio && (
+              <ZenRoughButton
+                label="Zurück zu Doc Studio"
+                icon={<FontAwesomeIcon icon={faArrowLeft} className="text-[#AC8E66]" />}
+                onClick={() => onBackToDocStudio(currentContent)}
+                variant="default"
+              />
+            )}
+
+            {cameFromDashboard && onBackToDashboard && (
+              <ZenRoughButton
+                label="Zum Dashboard"
+                icon={<FontAwesomeIcon icon={faTableList} className="text-[#AC8E66]" />}
+                onClick={() => onBackToDashboard(currentContent)}
+                variant="active"
+              />
+            )}
+
+            {socialPlatform && (
+              <ZenRoughButton
+                label="Direkt posten"
+                icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
+                onClick={handlePost}
+                disabled={isPosting}
+              />
+            )}
+
+            <ZenRoughButton
+              label="Neuer Transform"
+              icon={<FontAwesomeIcon icon={faRotateLeft} className="text-[#AC8E66]" />}
+              onClick={onReset}
+            />
+
+            <ZenRoughButton
+              label="Planen"
+              icon={<FontAwesomeIcon icon={faCalendarDays} className="text-[#AC8E66]" />}
+              onClick={() => setShowPlannerModal(true)}
               variant="default"
             />
-          )}
 
-          {socialPlatform && (
             <ZenRoughButton
-              label="Direkt posten"
-              icon={
-                <FontAwesomeIcon
-                  icon={faRocket}
-                  className="text-[#AC8E66]"
-                />
-              }
-              onClick={handlePost}
-              disabled={isPosting}
+              label="Posten"
+              icon={<FontAwesomeIcon icon={faPaperPlane} className="text-[#AC8E66]" />}
+              onClick={() => setShowPostenModal(true)}
+              variant="active"
+              disabled={isMultiPosting}
             />
-          )}
+          </div>
+        )}
 
-          <ZenRoughButton
-            label="Neuer Transform"
-            icon={<FontAwesomeIcon icon={faRotateLeft} className="text-[#AC8E66]" />}
-            onClick={onReset}
-          />
-        </div>
+        {/* Multi-Post Results */}
+        {multiPostResults.length > 0 && (
+          <div className="w-full max-w-2xl mb-6 p-4 rounded-lg border border-[#AC8E66] bg-[#2A2A2A]">
+            <h4 className="font-mono text-sm text-[#AC8E66] mb-3">Posting-Ergebnisse:</h4>
+            {multiPostResults.map((result, index) => (
+              <div key={index} className={`flex items-center gap-2 mb-2 ${result.success ? 'text-green-400' : 'text-red-400'}`}>
+                <FontAwesomeIcon icon={result.success ? faCheck : faCog} className="text-xs" />
+                <span className="font-mono text-xs">
+                  {result.platform}: {result.success ? 'Erfolgreich' : result.error}
+                </span>
+                {result.success && result.url && (
+                  <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs hover:underline ml-2">
+                    Öffnen →
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Info Text */}
         <div className="text-center max-w-2xl space-y-2">
@@ -405,6 +1308,41 @@ const handleDownload = async () => {
         </div>
       </div>
 
+      {/* Planner Modal */}
+      <ZenPlannerModal
+        isOpen={showPlannerModal}
+        onClose={() => setShowPlannerModal(false)}
+        scheduledPosts={scheduledPosts}
+        posts={socialPlatform ? [{
+          platform: socialPlatform as any,
+          title: currentContent.split('\n')[0]?.replace(/^#\s*/, '') || 'Untitled',
+          content: currentContent,
+          characterCount: currentContent.length,
+          wordCount: currentContent.split(/\s+/).filter(Boolean).length,
+        }] : []}
+        onScheduleSave={(posts) => {
+          setScheduledPosts(posts);
+          setShowPlannerModal(false);
+        }}
+        defaultTab="planen"
+      />
+
+      {/* Posten Platform Selection Modal */}
+      <ZenPostenModal
+        isOpen={showPostenModal}
+        onClose={() => setShowPostenModal(false)}
+        onSelectPlatforms={handlePlatformSelection}
+        currentPlatform={socialPlatform}
+      />
+
+      {/* Posten Method Choice Modal */}
+      <ZenPostMethodModal
+        isOpen={showPostMethodModal}
+        onClose={() => setShowPostMethodModal(false)}
+        onDirectPost={handleMultiDirectPost}
+        onAIOptimize={handleMultiAIOptimize}
+        selectedPlatforms={selectedPostPlatforms}
+      />
     </div>
   );
 };

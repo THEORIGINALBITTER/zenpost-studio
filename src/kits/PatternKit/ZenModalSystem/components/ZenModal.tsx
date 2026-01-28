@@ -6,7 +6,7 @@ interface ZenModalProps {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'small' | 'medium' | 'large';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'small' | 'medium' | 'large';
   title?: string;
   showCloseButton?: boolean;
 }
@@ -17,6 +17,7 @@ export const ZenModal = ({ isOpen, onClose, children, size = 'md', title, showCl
     md: 'max-w-lg',
     lg: 'max-w-2xl',
     xl: 'max-w-4xl',
+    xxl: 'max-w-6xl',
     small: 'max-w-sm',
     medium: 'max-w-lg',
     large: 'max-w-4xl',
@@ -45,6 +46,11 @@ export const ZenModal = ({ isOpen, onClose, children, size = 'md', title, showCl
 
   if (!modalRoot || !isOpen) return null;
 
+  const containerStyle =
+    size === 'xxl'
+      ? { width: '95vw', maxWidth: '1200px', maxHeight: '90vh' }
+      : { width: '100%', maxWidth: '90vw', maxHeight: '90vh' };
+
   const modalContent = (
     <div
       className="fixed inset-0 z-[10000] flex items-center justify-center"
@@ -64,14 +70,14 @@ export const ZenModal = ({ isOpen, onClose, children, size = 'md', title, showCl
       {/* 📦 Inhalt */}
       <div
         className={`relative ${sizeClasses[size]} z-20 pointer-events-auto`}
-        style={{ width: '100%', maxWidth: '90vw' }}
+        style={containerStyle}
         onClick={(e) => e.stopPropagation()} // Schutz für Innen-Buttons
       >
         <div
-          className="relative bg-[#1A1A1A] border-2 border-[#AC8E66] rounded-3xl
+          className="relative bg-[#1A1A1A] border border-[#AC8E66] rounded-3xl
                      p-8 shadow-[0_6px_25px_rgba(0,0,0,0.5)]
                      animate-zenModalEnter overflow-hidden transition-transform duration-300 ease-out"
-          style={{ borderRadius: "24px" }}
+          style={{ borderRadius: "24px", maxHeight: "90vh", display: "flex", flexDirection: "column" }}
         >
           {/* Close Button */}
           {showCloseButton && (

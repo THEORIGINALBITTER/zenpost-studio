@@ -1,9 +1,45 @@
 import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faLightbulb } from '@fortawesome/free-solid-svg-icons';
+import { faLightbulb, faCalendarDays, faSave, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import type { ScheduledPost, SocialPlatform } from '../../../../types/scheduling';
+
+type PlatformSchedule = { date: string; time: string };
+type PlatformSchedules = Record<SocialPlatform, PlatformSchedule>;
+type ScheduleOverrides = Partial<Record<SocialPlatform, PlatformSchedule>>;
+
+const createScheduleState = (date: string): PlatformSchedules => ({
+  linkedin: { date, time: '' },
+  reddit: { date, time: '' },
+  github: { date, time: '' },
+  devto: { date, time: '' },
+  medium: { date, time: '' },
+  hashnode: { date, time: '' },
+  twitter: { date, time: '' },
+});
+
+const mergeSchedules = (base: PlatformSchedules, overrides?: ScheduleOverrides): PlatformSchedules => {
+  if (!overrides) {
+    return base;
+  }
+
+  const merged: PlatformSchedules = { ...base };
+
+  (Object.keys(overrides) as SocialPlatform[]).forEach(platform => {
+    const override = overrides[platform];
+    if (!override) {
+      return;
+    }
+
+    merged[platform] = {
+      date: override.date || merged[platform].date,
+      time: override.time || merged[platform].time,
+    };
+  });
+
+  return merged;
+};
 
 interface ZenPublishSchedulerProps {
   isOpen: boolean;
@@ -17,6 +53,7 @@ interface ZenPublishSchedulerProps {
   }>;
   onScheduleSave: (scheduledPosts: ScheduledPost[]) => void;
   preSelectedDate?: Date; // Optional pre-selected date from calendar
+  initialSchedules?: ScheduleOverrides;
 }
 
 const PLATFORM_INFO: Record<SocialPlatform, { emoji: string; name: string; color: string }> = {
@@ -26,22 +63,32 @@ const PLATFORM_INFO: Record<SocialPlatform, { emoji: string; name: string; color
   devto: { emoji: '👨‍💻', name: 'Dev.to', color: '#0A0A0A' },
   medium: { emoji: '📝', name: 'Medium', color: '#00AB6C' },
   hashnode: { emoji: '🔷', name: 'Hashnode', color: '#2962FF' },
+  twitter: { emoji: '🐦', name: 'Twitter/X', color: '#1DA1F2' },
 };
 
-export function ZenPublishScheduler({ isOpen, onClose, posts, onScheduleSave, preSelectedDate }: ZenPublishSchedulerProps) {
+export function ZenPublishScheduler({
+  isOpen,
+  onClose,
+  posts,
+  onScheduleSave,
+  preSelectedDate,
+  initialSchedules,
+}: ZenPublishSchedulerProps) {
   // Format pre-selected date to YYYY-MM-DD if provided
   const initialDate = preSelectedDate
     ? preSelectedDate.toISOString().split('T')[0]
     : '';
 
-  const [schedules, setSchedules] = useState<Record<SocialPlatform, { date: string; time: string }>>({
-    linkedin: { date: initialDate, time: '' },
-    reddit: { date: initialDate, time: '' },
-    github: { date: initialDate, time: '' },
-    devto: { date: initialDate, time: '' },
-    medium: { date: initialDate, time: '' },
-    hashnode: { date: initialDate, time: '' },
-  });
+  const [schedules, setSchedules] = useState<PlatformSchedules>(() =>
+    mergeSchedules(createScheduleState(initialDate), initialSchedules)
+  );
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    setSchedules(mergeSchedules(createScheduleState(initialDate), initialSchedules));
+  }, [isOpen, initialSchedules, initialDate]);
 
   // Update all date fields when preSelectedDate changes
   useEffect(() => {
@@ -107,42 +154,54 @@ export function ZenPublishScheduler({ isOpen, onClose, posts, onScheduleSave, pr
     <ZenModal
       isOpen={isOpen}
       onClose={onClose}
-      title="📅 Publishing planen"
+      title="Publishing planen"
       size="large"
     >
-      <div style={{ padding: '32px' }}>
-        {/* Info Box */}
-        <div
-          style={{
-            marginBottom: '32px',
-            padding: '16px',
-            backgroundColor: '#1A1A1A',
-            borderRadius: '8px',
-            border: '1px solid #3A3A3A',
-          }}
-        >
-          <p
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        maxHeight: '80vh',
+        overflow: 'hidden'
+      }}>
+        {/* Scrollable Content */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          padding: '32px'
+        }}>
+          {/* Info Box */}
+          <div
             style={{
-              fontFamily: 'monospace',
-              fontSize: '11px',
-              color: '#777',
-              lineHeight: '1.6',
+              marginBottom: '32px',
+              padding: '16px',
+              backgroundColor: '#1A1A1A',
+              borderRadius: '8px',
+              border: '1px solid #3A3A3A',
             }}
           >
-            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '6px' }} />
-            Plane deine Posts im Voraus. Wähle Datum und Uhrzeit für jede Plattform oder lasse sie leer für "Entwurf"-Status.
-          </p>
-        </div>
+            <p
+              style={{
+                fontFamily: 'monospace',
+                fontSize: '11px',
+                color: '#777',
+                lineHeight: '1.6',
+              }}
+            >
+              <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '6px' }} />
+              Plane deine Posts im Voraus. Wähle Datum und Uhrzeit für jede Plattform oder lasse sie leer für "Entwurf"-Status.
+            </p>
+          </div>
 
-        {/* Platform Schedule Cards */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-            gap: '16px',
-            marginBottom: '32px',
-          }}
-        >
+          {/* Platform Schedule Cards */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+              gap: '16px',
+              marginBottom: '32px',
+            }}
+          >
           {posts.map(post => {
             const info = PLATFORM_INFO[post.platform];
             const schedule = schedules[post.platform];
@@ -195,14 +254,17 @@ export function ZenPublishScheduler({ isOpen, onClose, posts, onScheduleSave, pr
                 <div style={{ marginBottom: '12px' }}>
                   <label
                     style={{
-                      display: 'block',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
                       fontFamily: 'monospace',
                       fontSize: '10px',
                       color: '#999',
                       marginBottom: '6px',
                     }}
                   >
-                    📅 Datum
+                    <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '10px' }} />
+                    Datum
                   </label>
                   <input
                     type="date"
@@ -280,27 +342,28 @@ export function ZenPublishScheduler({ isOpen, onClose, posts, onScheduleSave, pr
           })}
         </div>
 
-        {/* Action Buttons */}
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            alignItems: 'center',
-          }}
-        >
-          <ZenRoughButton
-            label="Zeitplan speichern"
-            icon="💾"
-            onClick={handleSave}
-            variant={hasAnySchedule ? 'active' : 'default'}
-          />
-          <ZenRoughButton
-            label="Abbrechen"
-            icon="❌"
-            onClick={onClose}
-            variant="default"
-          />
+          {/* Action Buttons */}
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              alignItems: 'center',
+            }}
+          >
+            <ZenRoughButton
+              label="Zeitplan speichern"
+              icon={<FontAwesomeIcon icon={faSave} />}
+              onClick={handleSave}
+              variant={hasAnySchedule ? 'active' : 'default'}
+            />
+            <ZenRoughButton
+              label="Abbrechen"
+              icon={<FontAwesomeIcon icon={faXmark} />}
+              onClick={onClose}
+              variant="default"
+            />
+          </div>
         </div>
       </div>
     </ZenModal>

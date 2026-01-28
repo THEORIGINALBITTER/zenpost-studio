@@ -35,7 +35,7 @@ export const ZenHomeModal = ({ isOpen, onClose, onConfirm }: ZenHomeModalProps) 
           />
 
           {/* Message */}
-          <p className="font-mono text-[12px] text-[#ccc] text-center"
+          <p className="font-mono text-[12px] text-[#fef3c7 ] text-center"
             style={{ padding: "20px" }}
           >
             Wenn du zur Startseite zurückkehrst, gehen nicht gespeicherte Änderungen
@@ -43,16 +43,17 @@ export const ZenHomeModal = ({ isOpen, onClose, onConfirm }: ZenHomeModalProps) 
           </p>
 
           {/* Buttons */}
-          <div className="flex gap-4 justify-center mt-4">
+          <div className="flex flex-col items-center gap-2 justify-center mt-4 sm:flex-row sm:gap-4">
             <ZenRoughButton
               label="Abbrechen"
               onClick={onClose}
+              size="small"
             />
 
             <ZenRoughButton
               label="Zur Startseite"
-           
               onClick={onConfirm}
+              size="small"
             />
           </div>
         </div>

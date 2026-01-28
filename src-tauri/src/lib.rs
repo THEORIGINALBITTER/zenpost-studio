@@ -1,3 +1,5 @@
+use tauri::Emitter;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -14,6 +16,18 @@ pub fn run() {
             .build(),
         )?;
       }
+
+      // Setup menu event handler for About
+      #[cfg(target_os = "macos")]
+      {
+        let app_handle = app.handle().clone();
+        app.on_menu_event(move |_app, event| {
+          if event.id().as_ref() == "about" {
+            let _ = app_handle.emit("show-about", ());
+          }
+        });
+      }
+
       Ok(())
     })
     .run(tauri::generate_context!())

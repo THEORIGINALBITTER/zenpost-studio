@@ -1,29 +1,54 @@
 import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faEye, faPencil, faUser, faQuestionCircle, faCheckCircle, faExternalLinkAlt, faRocket, faBackspace } from '@fortawesome/free-solid-svg-icons';
-import { faApple } from '@fortawesome/free-brands-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
+import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
+import { ZenInfoButton } from '../../kits/DesignKit/ZenInfoButton';
 import { ZenRoughButton, ZenModal } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenModalHeader } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalHeader';
 import { ZenModalFooter } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalFooter';
+import { ZenBlockEditor } from '../../kits/PatternKit/ZenBlockEditor';
 import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
 import { convertFile, detectFormatFromFilename } from '../../utils/fileConverter';
 import rough from 'roughjs/bin/rough';
+import type { EditorSettings } from '../../services/editorSettingsService';
+import type { ContentPlatform } from '../../services/aiService';
+
+// Platform display info for tabs
+const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
+  linkedin: { label: 'LinkedIn', icon: faLinkedin },
+  twitter: { label: 'Twitter', icon: faTwitter },
+  devto: { label: 'Dev.to', icon: faDev },
+  medium: { label: 'Medium', icon: faMedium },
+  reddit: { label: 'Reddit', icon: faReddit },
+  'github-discussion': { label: 'GitHub', icon: faGithub },
+  'github-blog': { label: 'GitHub Blog', icon: faGithub },
+  youtube: { label: 'YouTube', icon: faGithub }, // No YouTube icon, use placeholder
+  'blog-post': { label: 'Blog', icon: faHashnode },
+};
 
 interface Step1SourceInputProps {
   sourceContent: string;
   fileName: string;
   error: string | null;
+  editorSettings?: EditorSettings;
   onSourceContentChange: (content: string) => void;
   onFileNameChange: (name: string) => void;
   onNext: () => void;
   onOpenMetadata?: () => void;
   onError?: (error: string) => void;
+  onPreview?: () => void;
+  onSaveToProject?: () => void;
+  canSaveToProject?: boolean;
+  editTabs?: ContentPlatform[];
+  activeEditTab?: ContentPlatform | null;
+  onEditTabChange?: (platform: ContentPlatform) => void;
   cameFromEdit?: boolean; // Flag to show "Back to Posting" button
   onBackToPosting?: () => void; // Callback to go directly to Step 4
   cameFromDocStudio?: boolean; // Flag to show "Back to Doc Studio" button
   onBackToDocStudio?: (editedContent?: string) => void; // Callback to go back to Doc Studio
+  editorType?: "block" | "markdown"; // Editor type to use
 }
 
 // Helper component for rough circle
@@ -158,21 +183,29 @@ const ZenStepItem = ({
 
 export const Step1SourceInput = ({
   sourceContent,
-  fileName,
+  fileName: _fileName,
   error,
+  editorSettings,
   onSourceContentChange,
   onFileNameChange,
-  onNext,
-  onOpenMetadata,
+  onNext: _onNext,
+  onOpenMetadata: _onOpenMetadata,
   onError,
-  cameFromEdit = false,
-  onBackToPosting,
-  cameFromDocStudio = false,
-  onBackToDocStudio,
+  onPreview: _onPreview,
+  onSaveToProject: _onSaveToProject,
+  canSaveToProject: _canSaveToProject = false,
+  editTabs = [],
+  activeEditTab = null,
+  onEditTabChange,
+  cameFromEdit: _cameFromEdit = false,
+  onBackToPosting: _onBackToPosting,
+  cameFromDocStudio: _cameFromDocStudio = false,
+  onBackToDocStudio: _onBackToDocStudio,
+  editorType = "block",
 }: Step1SourceInputProps) => {
-  const [showPreview, setShowPreview] = useState(false);
   const [isConverting, setIsConverting] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
+  const [showTipModal, setShowTipModal] = useState(false);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -257,76 +290,95 @@ export const Step1SourceInput = ({
         {/* Title */}
         <div className="mb-4">
           <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-           <span className='text-[#AC8E66]'> Step 01:</span> Quelle eingeben
+           <span className='text-[#AC8E66]'> Step 01:</span> Quelle eingeben oder laden
           </h2>
         </div>
 
-        {/* Subtitle */}
-        <div className="mb-8">
+        {/* Subtitle with Tip Button */}
+        <div className="flex items-center justify-center gap-2">
           <ZenSubtitle>
-            {isConverting ? 'Konvertiere Datei zu Markdown...' : 'Füge deinen Markdown-Inhalt ein oder lade eine Datei hoch'}
+            {isConverting ? 'Konvertiere Datei zu Markdown...' : 'Schreibe, oder füge deinen Inhalt über den Projekt Ordner ein oder lade eine Datei hoch'}
           </ZenSubtitle>
+          <ZenInfoButton onClick={() => setShowTipModal(true)} size="xs" />
+
         </div>
 
-    {/* Info Text */}
-<div className="text-center max-w-[50%] mb-8 px-4">
-  <p className="text-[#777] font-mono text-[11px] leading-relaxed whitespace-normal">
-    <span className='text-[#AC8E66]'>Tipp:  </span>Du kannst Markdown, Word (DOCX/DOC), HTML, JSON oder Text-Dateien hochladen.
-    Die Datei wird automatisch zu Markdown konvertiert und die AI optimiert den Inhalt für deine Zielplattform.
-  </p>
+        <input
+          id="file-upload"
+          type="file"
+          accept=".md,.markdown,.txt,.html,.htm,.json,.docx,.doc"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
 
-  <div className="mt-4 flex justify-center">
-    <div style={{ transform: 'scale(1)', transformOrigin: 'center' }}>
-      <ZenRoughButton
-        label="Pages-Dokument? Wie exportieren?"
-        icon={<FontAwesomeIcon icon={faQuestionCircle} className="text-[#AC8E66]" />}
-        onClick={() => setShowPagesHelp(true)}
-      />
-    </div>
-  </div>
-</div>
-
-        {/* File Upload and Metadata Buttons */}
-        <div className="mb-8 flex gap-4 items-center justify-center">
-          <label htmlFor="file-upload">
-            <div className="cursor-pointer">
-              <ZenRoughButton
-                label={fileName || 'Datei hochladen'}
-                icon={<FontAwesomeIcon icon={faFileUpload} className="text-[#AC8E66]" />}
-                onClick={() => document.getElementById('file-upload')?.click()}
-              />
-            </div>
-          </label>
-          <input
-            id="file-upload"
-            type="file"
-            accept=".md,.markdown,.txt,.html,.htm,.json,.docx,.doc"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
-
-          {onOpenMetadata && (
-            <ZenRoughButton
-              label="Metadaten"
-              icon={<FontAwesomeIcon icon={faUser} className="text-[#AC8E66]" />}
-              onClick={onOpenMetadata}
-              title="Deine Daten für [yourName] usw."
-            />
-          )}
-        </div>
-
-        {/* Markdown Editor */}
-        <div className="w-full mb-8"
+        {/* Editor - Block oder Markdown */}
+        <div className="w-full mb-4"
          style={{ paddingTop: 10, marginTop: 20 }}
         >
-          <ZenMarkdownEditor
-            value={sourceContent}
-            onChange={onSourceContentChange}
-            placeholder="# Dein Markdown Inhalt hier einfügen... mit shift+/ Menu öffnen"
-            height="400px"
-            showCharCount={false}
-            showPreview={showPreview}
-          />
+          {editTabs.length > 1 && (
+            <div className="mb-4 w-full max-w-4xl">
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '8px',
+                  backgroundColor: '#1F1F1F',
+                  borderRadius: '12px',
+                  border: '1px solid #3A3A3A',
+                }}
+              >
+                {editTabs.map((platform) => {
+                  const isActive = activeEditTab === platform;
+                  const tabInfo = PLATFORM_TAB_INFO[platform];
+                  return (
+                    <button
+                      key={platform}
+                      onClick={() => onEditTabChange?.(platform)}
+                      style={{
+                        flex: 1,
+                        padding: '10px 16px',
+                        backgroundColor: isActive ? '#AC8E66' : 'transparent',
+                        border: isActive ? 'none' : '1px solid #3A3A3A',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '12px',
+                        fontWeight: isActive ? '600' : '400',
+                        color: isActive ? '#1A1A1A' : '#999',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                      }}
+                    >
+                      <FontAwesomeIcon icon={tabInfo.icon} />
+                      {tabInfo.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {editorType === "block" ? (
+            <ZenBlockEditor
+              value={sourceContent}
+              onChange={onSourceContentChange}
+              placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
+              height="calc(100vh - 340px)"
+              fontSize={editorSettings?.fontSize}
+              wrapLines={editorSettings?.wrapLines}
+              showLineNumbers={editorSettings?.showLineNumbers}
+            />
+          ) : (
+            <ZenMarkdownEditor
+              value={sourceContent}
+              onChange={onSourceContentChange}
+              placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
+              height="calc(100vh - 340px)"
+              showLineNumbers={editorSettings?.showLineNumbers}
+            />
+          )}
         </div>
 
         {/* Error Message */}
@@ -335,64 +387,6 @@ export const Step1SourceInput = ({
             <p className="text-[#E89B5A] font-mono text-[10px]">{error}</p>
           </div>
         )}
-
-        {/* Action Buttons */}
-        <div className="mb-8 flex gap-4 items-center"
-
-         style={{ paddingTop: 10, marginTop: 20 }}
-        >
-          {showPreview ? (
-            // When in preview mode, show both "Weiter verfassen" and "Weiter" buttons
-            <>
-              <ZenRoughButton
-                label="Weiter verfassen"
-                icon={<FontAwesomeIcon icon={faPencil} className="text-[#AC8E66]" />}
-                onClick={() => setShowPreview(false)}
-              />
-              {cameFromEdit && onBackToPosting ? (
-                <ZenRoughButton
-                  label="Zurück zum Posten"
-                  icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
-                  onClick={onBackToPosting}
-                  variant="active"
-                />
-              ) : (
-                <ZenRoughButton
-                  label="Weiter"
-                  icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
-                  onClick={onNext}
-                />
-              )}
-            </>
-          ) : (
-            // When in editor mode, show "Preview" button
-            <>
-              <ZenRoughButton
-                label="Preview"
-                icon={<FontAwesomeIcon icon={faEye} className="text-[#AC8E66]" />}
-                onClick={() => setShowPreview(true)}
-              />
-              {cameFromEdit && onBackToPosting && (
-                <ZenRoughButton
-                  label="Zurück zum Posten"
-                  icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
-                  onClick={onBackToPosting}
-                  variant="active"
-                />
-              )}
-              {cameFromDocStudio && onBackToDocStudio && (
-                <ZenRoughButton
-                  label="Zurück zu Doc Studio"
-                                 icon={<FontAwesomeIcon icon={faBackspace} className="text-[#AC8E66]" />}
-                  onClick={() => onBackToDocStudio(sourceContent)}
-                  variant="default"
-                />
-              )}
-            </>
-          )}
-        </div>
-
-        <div className='mt-[50px]'></div>
       </div>
 
       {/* Pages Export Help Modal */}
@@ -559,6 +553,78 @@ export const Step1SourceInput = ({
             animation: fade-in 0.3s ease-out forwards;
           }
         `}</style>
+      </ZenModal>
+
+      {/* Tip Modal */}
+      <ZenModal
+        isOpen={showTipModal}
+        onClose={() => setShowTipModal(false)}
+        size="medium"
+        showCloseButton={true}
+      >
+        <div style={{ padding: '24px' }}>
+          <h2 style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '18px',
+            color: '#AC8E66',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}>
+            <FontAwesomeIcon icon={faInfoCircle} />
+            Unterstützte Dateiformate
+          </h2>
+
+          <div style={{
+            backgroundColor: '#1A1A1A',
+            borderRadius: '8px',
+            padding: '16px',
+            marginBottom: '16px',
+          }}>
+            <p style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '13px',
+              color: '#e5e5e5',
+              lineHeight: '1.8',
+              margin: 0,
+            }}>
+              Du kannst folgende Dateiformate hochladen:
+            </p>
+            <ul style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '12px',
+              color: '#999',
+              lineHeight: '2',
+              marginTop: '12px',
+              paddingLeft: '20px',
+            }}>
+              <li><span style={{ color: '#AC8E66' }}>Markdown</span> (.md, .markdown)</li>
+              <li><span style={{ color: '#AC8E66' }}>Word</span> (.docx, .doc)</li>
+              <li><span style={{ color: '#AC8E66' }}>HTML</span> (.html, .htm)</li>
+              <li><span style={{ color: '#AC8E66' }}>JSON</span> (.json)</li>
+              <li><span style={{ color: '#AC8E66' }}>Text</span> (.txt)</li>
+            </ul>
+          </div>
+
+          <p style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            color: '#777',
+            lineHeight: '1.6',
+          }}>
+            Die Datei wird automatisch zu Markdown konvertiert und die AI optimiert den Inhalt für deine Zielplattform.
+          </p>
+
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}>
+            <ZenRoughButton
+              label="Verstanden"
+              icon={<FontAwesomeIcon icon={faCheckCircle} className="text-[#AC8E66]" />}
+              onClick={() => setShowTipModal(false)}
+              variant="active"
+            />
+          </div>
+        </div>
       </ZenModal>
     </div>
   );

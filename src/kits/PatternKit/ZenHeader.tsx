@@ -3,6 +3,7 @@ import { ZenBackButton } from "../DesignKit/ZenBackButton";
 import { ZenHomeButton } from "../DesignKit/ZenHomeButton";
 import { ZenSettingsButton } from "../DesignKit/ZenSettingsButton";
 import { ZenSettingsNotification } from "./ZenSettingsNotification";
+import { ZenInfoButton } from "../DesignKit/ZenInfoButton";
 
 interface ZenHeaderProps {
   leftText?: React.ReactNode;
@@ -10,8 +11,12 @@ interface ZenHeaderProps {
   onBack?: () => void;
   onHome?: () => void;  
   onSettings?: () => void;
+  onInfo?: () => void;
+
   showSettingsNotification?: boolean;
+  showInfoNotification?: boolean;
   onDismissNotification?: () => void;
+  studioBar?: React.ReactNode;
 }
 
 export const ZenHeader = ({
@@ -20,12 +25,16 @@ export const ZenHeader = ({
   onBack,
   onHome,
   onSettings,
+    onInfo,
   showSettingsNotification = false,
+
+  showInfoNotification: _showInfoNotification = false,
   onDismissNotification,
+  studioBar,
 }: ZenHeaderProps) => {
 
   return (
-    <div className="w-full bg-transparent py-4 border-b border-[#AC8E66] relative">
+    <div className="w-full py-4 border-b border-[#AC8E66] relative">
       <div className="flex justify-between items-center max-w-6xl mx-auto px-[4vw]">
 
         {/* LEFT */}
@@ -44,23 +53,34 @@ export const ZenHeader = ({
         )}
 
         {/* RIGHT */}
-        <div className="flex items-center gap-3">
-          <p className="font-mono text-[9px] text-[#777] tracking-tight text-right">
+        <div className="flex items-center gap-3 min-w-0">
+          <p className="font-mono text-[9px] text-[#777] tracking-tight text-right max-w-[50vw] truncate">
             {rightText}
           </p>
-
-          {onSettings && (
-            <div style={{ position: "relative" }}>
-              <ZenSettingsButton onClick={onSettings} size="sm" />
-              <ZenSettingsNotification
-                show={showSettingsNotification}
-                onDismiss={onDismissNotification}
-              />
-            </div>
-          )}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            {onSettings && (
+              <div style={{ position: "relative" }}>
+                <ZenSettingsButton onClick={onSettings} size="sm" />
+                <ZenSettingsNotification
+                  show={showSettingsNotification}
+                  onDismiss={onDismissNotification}
+                />
+              </div>
+            )}
+            {onInfo && (
+              <div style={{ position: "relative" }}>
+                <ZenInfoButton onClick={onInfo} size="sm" />
+              </div>
+            )}
+          </div>
         </div>
 
       </div>
+      {studioBar && (
+        <div className="max-w-6xl mx-auto px-[4vw] pt-2">
+          {studioBar}
+        </div>
+      )}
     </div>
   );
 };

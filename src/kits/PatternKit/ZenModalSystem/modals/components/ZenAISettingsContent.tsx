@@ -74,7 +74,7 @@ export const ZenAISettingsContent = () => {
                 setAiConfig({ ...aiConfig, apiKey: e.target.value })
               }
               placeholder="sk-..."
-              className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded px-4 py-2 font-mono text-[11px] focus:outline-none focus:border-[#D4AF78]"
+              className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded px-4 py-2 font-mono text-[9px] focus:outline-none focus:border-[#D4AF78]"
             />
             <p className="text-[#777] text-[11px] mt-1 text-center">
               Wird sicher in LocalStorage gespeichert
@@ -107,14 +107,14 @@ export const ZenAISettingsContent = () => {
                   ? 'http://localhost:11434'
                   : 'https://your-api.com'
               }
-              className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded px-4 py-2 font-mono text-[10px] focus:outline-none focus:border-[#D4AF78] text-center"
+              className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded px-4 py-2 font-mono text-[9px] focus:outline-none focus:border-[#D4AF78] text-center"
             />
           </div>
         </div>
       )}
 
       {/* Temperature */}
-      <div className="mt-8 mb-8">
+      <div style={{ paddingTop: 20 }}>
         <ZenSlider
           label="Stil wählen"
           min={0}

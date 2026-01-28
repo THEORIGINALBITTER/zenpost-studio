@@ -75,6 +75,18 @@ AI-powered documentation generator:
 - **Project Analysis** - Automatic project structure detection ✅
 - **[Metadata Management](./METADATA_REPLACEMENT.md)** ✅
 - **[Data Room Setup](./DATA_ROOM.md)** ✅
+- **[Full Project Documentation](./PROJECT_DOCUMENTATION.md)** ✅ NEW!
+
+### 🎓 Help & Tutorial System
+
+Interactive walkthrough system for all features:
+
+- **WalkthroughOverlay** - Step-by-step tutorials with animations ✅
+- **Content AI Studio Walkthrough** - 5-step guide for content transformation ✅
+- **About Modal Walkthrough** - 4-step intro to ZenPost Studio ✅
+- **GitHub Integration Walkthrough** - 4-step GitHub features guide ✅
+- **Step Controller** - Play/Pause, Next/Previous, Restart controls ✅
+- **Lottie Animation Support** - Visual aids for each step ✅
 
 ---
 
@@ -235,6 +247,16 @@ Find guides for specific use cases:
 ---
 
 ## 🔄 Recent Updates
+
+**2024-12-04:**
+
+- ✅ **Walkthrough System** - Integriertes Tutorial-System mit WalkthroughOverlay
+- ✅ **ZenRoughButton Compact Mode** - Neue `compact` Size für runde Icon-Buttons
+- ✅ **GitHub Modal** - Neues Modal für GitHub Integration Features
+- ✅ **Help & Tutorial Buttons** - Alle Modals haben jetzt integrierte Hilfe
+- ✅ **Comprehensive Project Documentation** - Vollständige PROJECT_DOCUMENTATION.md
+- ✅ **Enhanced Modal System** - About Modal und GitHub Modal mit Walkthrough
+- ✅ **WelcomeScreen Improvements** - Kompakter Hilfe-Button neben Content AI Studio
 
 **2024-11-28:**
 

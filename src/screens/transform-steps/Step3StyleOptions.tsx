@@ -78,7 +78,7 @@ export const Step3StyleOptions = ({
   [] = [
     {
       id: 'transform',
-      label: 'Transformieren',
+      label: 'KI Transformieren',
       icon: faMagicWandSparkles,
       description: 'Content mit AI transformieren',
       action: onTransform,
@@ -108,7 +108,7 @@ export const Step3StyleOptions = ({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-      <div className="flex flex-col items-center w-full max-w-2xl">
+      <div className="flex flex-col items-center w-full max-w-2xl text-[#fef3c7 ]">
         {/* Title */}
         <div className="mb-4"
           style={{ padding: "20px" }}>
@@ -119,7 +119,7 @@ export const Step3StyleOptions = ({
         </div>
 
         {/* Subtitle */}
-        <div className="mb-20">
+        <div className="mb-20 text-[#fef3c7]">
           <ZenSubtitle>
             Verfeinere die Transformation mit deinen Präferenzen
           </ZenSubtitle>
