@@ -5,20 +5,21 @@ import { ZenRoughButton } from '../components/ZenRoughButton';
 import { ZenAISettingsContent } from './components/ZenAISettingsContent';
 import { ZenSocialMediaSettingsContent } from './components/ZenSocialMediaSettingsContent';
 import { ZenEditorSettingsContent } from './components/ZenEditorSettingsContent';
+import { ZenLicenseSettingsContent } from './components/ZenLicenseSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: () => void;
-  defaultTab?: 'ai' | 'social' | 'editor';
+  defaultTab?: 'ai' | 'social' | 'editor' | 'license';
   defaultSocialTab?: 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
   showMissingSocialHint?: boolean;
   missingSocialLabel?: string;
 }
 
-type TabType = 'ai' | 'social' | 'editor';
+type TabType = 'ai' | 'social' | 'editor' | 'license';
 
 export const ZenSettingsModal = ({
   isOpen,
@@ -142,6 +143,19 @@ export const ZenSettingsModal = ({
               width={isCompactTabs ? tabButtonWidth : undefined}
               height={isCompactTabs ? 44 : undefined}
             />
+
+            <ZenRoughButton
+              label="Lizenz & Account"
+              icon={<FontAwesomeIcon icon={faIdCard} />}
+              onClick={() => {
+                console.log('License Tab clicked');
+                setActiveTab('license');
+              }}
+              variant={activeTab === 'license' ? 'active' : 'default'}
+              size={isCompactTabs ? 'small' : 'default'}
+              width={isCompactTabs ? tabButtonWidth : undefined}
+              height={isCompactTabs ? 44 : undefined}
+            />
           </div>
         </div>
 
@@ -163,6 +177,7 @@ export const ZenSettingsModal = ({
             />
           )}
           {activeTab === 'editor' && <ZenEditorSettingsContent />}
+          {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>
     </ZenModal>
