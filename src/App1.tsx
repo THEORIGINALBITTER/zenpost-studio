@@ -27,6 +27,7 @@ import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutM
 import { ZenContentStudioModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenContentStudioModal";
 import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal";
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
+import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgradeModal";
 import type { ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { TargetLanguage } from "./services/aiService";
 import type { ScheduledPost } from "./types/scheduling";
@@ -34,6 +35,8 @@ import { saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, stat } from "@tauri-apps/plugin-fs";
+import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
+import { FeatureGate } from "./components/FeatureGate";
 
 type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "publishing-dashboard";
 
@@ -67,7 +70,17 @@ interface DocStudioState {
   };
 }
 
+// Main App wrapped with LicenseProvider
 export default function App1() {
+  return (
+    <LicenseProvider>
+      <AppContent />
+    </LicenseProvider>
+  );
+}
+
+// App content (moved from App1)
+function AppContent() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("welcome");
   const [showHomeModal, setShowHomeModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
@@ -670,32 +683,34 @@ export default function App1() {
           />
         )}
         {currentScreen === "doc-studio" && (
-          <DocStudioScreen
-            onBack={handleDocStudioBack}
-            onTransferToContentStudio={handleTransferToContentStudio}
-            onStepChange={setDocStudioStep}
-            initialStep={docStudioStep}
-            savedState={docStudioState}
-            onStateChange={handleSaveDocStudioState}
-            scheduledPosts={scheduledPosts}
-            onScheduledPostsChange={setScheduledPosts}
-            onShowScheduler={() => {
-              setPlannerDefaultTab('planen');
-              setShowPlannerModal(true);
-            }}
-            onShowCalendar={() => {
-              setPlannerDefaultTab('kalender');
-              setShowPlannerModal(true);
-            }}
-            onShowChecklist={() => {
-              setPlannerDefaultTab('checklist');
-              setShowPlannerModal(true);
-            }}
-            onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
-            onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
-            showPreview={docStudioPreviewMode}
-            onPreviewChange={setDocStudioPreviewMode}
-          />
+          <FeatureGate featureId="DOC_STUDIO">
+            <DocStudioScreen
+              onBack={handleDocStudioBack}
+              onTransferToContentStudio={handleTransferToContentStudio}
+              onStepChange={setDocStudioStep}
+              initialStep={docStudioStep}
+              savedState={docStudioState}
+              onStateChange={handleSaveDocStudioState}
+              scheduledPosts={scheduledPosts}
+              onScheduledPostsChange={setScheduledPosts}
+              onShowScheduler={() => {
+                setPlannerDefaultTab('planen');
+                setShowPlannerModal(true);
+              }}
+              onShowCalendar={() => {
+                setPlannerDefaultTab('kalender');
+                setShowPlannerModal(true);
+              }}
+              onShowChecklist={() => {
+                setPlannerDefaultTab('checklist');
+                setShowPlannerModal(true);
+              }}
+              onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
+              onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
+              showPreview={docStudioPreviewMode}
+              onPreviewChange={setDocStudioPreviewMode}
+            />
+          </FeatureGate>
         )}
         {currentScreen === "publishing-dashboard" && (
           <PublishingDashboardScreen
@@ -788,7 +803,23 @@ export default function App1() {
         content={exportContent}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
       />
+
+      {/* Upgrade Modal - triggered by FeatureGate or manual */}
+      <UpgradeModalWrapper />
     </div>
+  );
+}
+
+// Wrapper component to connect UpgradeModal to LicenseContext
+function UpgradeModalWrapper() {
+  const { showUpgradeModal, setShowUpgradeModal, upgradeFeatureId } = useLicense();
+
+  return (
+    <ZenUpgradeModal
+      isOpen={showUpgradeModal}
+      onClose={() => setShowUpgradeModal(false)}
+      highlightFeature={upgradeFeatureId}
+    />
   );
 }
 

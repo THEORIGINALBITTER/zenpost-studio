@@ -53,6 +53,7 @@ export { ZenExportModal } from './modals/ZenExportModal';
 export { ZenPlannerModal } from './modals/ZenPlannerModal';
 export { ZenPostenModal } from './modals/ZenPostenModal';
 export { ZenPostMethodModal } from './modals/ZenPostMethodModal';
+export { ZenUpgradeModal } from './modals/ZenUpgradeModal';
 
 /**
  * Version information
