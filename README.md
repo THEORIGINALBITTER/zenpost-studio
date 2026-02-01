@@ -116,6 +116,9 @@ No dashboards. No clutter. Just work.
 
 ---
 
+
+
+
 ## 🚀 Quick Start
 
 ### Installation
@@ -125,3 +128,6 @@ git clone https://github.com/theoriginalbitter/zenpost-studio.git
 cd zenpost-studio
 npm install
 npm run dev
+
+
+
