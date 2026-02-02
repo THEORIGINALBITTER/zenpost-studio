@@ -53,6 +53,21 @@ Features:
 - Platform-specific formatting
 - Optional direct publishing via API
 - Works with local or hosted AI providers
+- **Multi-tab document editing** – Work on multiple documents simultaneously
+- **Multi-platform transformation** – Transform to multiple platforms at once
+
+---
+
+## 📅 Content Planner
+
+Plan, schedule, and manage your content publishing with an integrated calendar.
+
+- **Visual Calendar** – Monthly overview of scheduled posts
+- **Drag & Drop** – Easily reschedule posts by dragging to new dates
+- **Status Tracking** – Draft, scheduled, published, and failed states
+- **Direct Editing** – Open scheduled posts directly in Content AI Studio
+- **Auto-save** – Changes are automatically persisted
+- **Platform Tags** – Visual indicators for target platforms
 
 ---
 

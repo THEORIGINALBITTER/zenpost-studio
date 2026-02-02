@@ -1238,10 +1238,8 @@ export const ContentTransformScreen = ({
     switch (effectiveStep) {
       case 1:
         const editTabs =
-          multiPlatformMode && (Object.keys(transformedContents).length > 0 || selectedPlatforms.length > 0)
-            ? (Object.keys(transformedContents).length > 0
-                ? (Object.keys(transformedContents) as ContentPlatform[])
-                : selectedPlatforms)
+          multiPlatformMode && Object.keys(transformedContents).length > 0
+            ? (Object.keys(transformedContents) as ContentPlatform[])
             : [];
         return (
           <>
@@ -1318,10 +1316,16 @@ export const ContentTransformScreen = ({
         const selectedPlatformOption = platformOptions.find(
           (option) => option.value === selectedPlatform
         );
+        const selectedPlatformLabels = multiPlatformMode
+          ? selectedPlatforms.map(p => platformOptions.find(o => o.value === p)?.label || p)
+          : [];
         return (
           <Step3StyleOptions
             selectedPlatform={selectedPlatform}
             platformLabel={selectedPlatformOption?.label || 'Plattform'}
+            selectedPlatforms={selectedPlatforms}
+            platformLabels={selectedPlatformLabels}
+            multiPlatformMode={multiPlatformMode}
             tone={tone}
             length={length}
             audience={audience}
