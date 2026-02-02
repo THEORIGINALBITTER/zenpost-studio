@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
-import { openUrl } from '@tauri-apps/plugin-opener';
-import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenInfoButton } from '../../kits/DesignKit/ZenInfoButton';
+import { useOpenExternal } from '../../hooks/useOpenExternal';
+
 import { ZenRoughButton, ZenModal } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenModalHeader } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalHeader';
 import { ZenModalFooter } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalFooter';
@@ -49,7 +48,19 @@ interface Step1SourceInputProps {
   cameFromDocStudio?: boolean; // Flag to show "Back to Doc Studio" button
   onBackToDocStudio?: (editedContent?: string) => void; // Callback to go back to Doc Studio
   editorType?: "block" | "markdown"; // Editor type to use
+  onEditorTypeChange?: (type: "block" | "markdown") => void; // Callback to change editor type
+  showInlineActions?: boolean;
+  onOpenConverter?: () => void;
+  showDockedEditorToggle?: boolean;
+  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' }>;
+  activeDocTabId?: string | null;
+  dirtyDocTabs?: Record<string, boolean>;
+  onDocTabChange?: (tabId: string) => void;
+  onCloseDocTab?: (tabId: string) => void;
 }
+
+const EXTERNAL_DOCS_URL =
+  "https://theoriginalbitter.github.io/zenpost-studio/#/pages-export";
 
 // Helper component for rough circle
 const ZenRoughCircle = ({ number }: { number: number }) => {
@@ -188,12 +199,12 @@ export const Step1SourceInput = ({
   editorSettings,
   onSourceContentChange,
   onFileNameChange,
-  onNext: _onNext,
+  onNext,
   onOpenMetadata: _onOpenMetadata,
   onError,
-  onPreview: _onPreview,
-  onSaveToProject: _onSaveToProject,
-  canSaveToProject: _canSaveToProject = false,
+  onPreview,
+  onSaveToProject,
+  canSaveToProject = false,
   editTabs = [],
   activeEditTab = null,
   onEditTabChange,
@@ -202,8 +213,18 @@ export const Step1SourceInput = ({
   cameFromDocStudio: _cameFromDocStudio = false,
   onBackToDocStudio: _onBackToDocStudio,
   editorType = "block",
+  onEditorTypeChange,
+  showInlineActions = true,
+  onOpenConverter,
+  showDockedEditorToggle = false,
+  docTabs = [],
+  activeDocTabId = null,
+  dirtyDocTabs = {},
+  onDocTabChange,
+  onCloseDocTab,
 }: Step1SourceInputProps) => {
-  const [isConverting, setIsConverting] = useState(false);
+  const { openExternal } = useOpenExternal();
+  const [_isConverting, setIsConverting] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
 
@@ -284,24 +305,94 @@ export const Step1SourceInput = ({
     reader.readAsText(file);
   };
 
+  // Get active doc tab info
+  const activeDocTab = docTabs.find((tab) => tab.id === activeDocTabId);
+
+  // Extract title from content if it starts with a markdown heading
+  const extractTitleFromContent = (content: string): string | null => {
+    const match = content.match(/^#\s+(.+)$/m);
+    return match ? match[1].trim() : null;
+  };
+
+  const contentTitle = extractTitleFromContent(sourceContent);
+  const displayFileName = activeDocTab?.title || contentTitle || (sourceContent ? 'Dokument' : 'Neues Dokument');
+  const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
+
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
       <div className="flex flex-col items-center w-3/4 max-w-3xl">
-        {/* Title */}
-        <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#e5e5e5] text-center">
-           <span className='text-[#AC8E66]'> Step 01:</span> Quelle eingeben oder laden
-          </h2>
-        </div>
+        {/* Document Title Header - like Doc Studio */}
+        {showTitleHeader && (
+          <div className="w-full mb-4">
+            <h2 className="font-mono text-[16px] text-[#e5e5e5] mb-1">
+              {displayFileName}
+            </h2>
+            <p className="font-mono text-[11px] text-[#777]">Bearbeiten und speichern</p>
+          </div>
+        )}
 
-        {/* Subtitle with Tip Button */}
-        <div className="flex items-center justify-center gap-2">
-          <ZenSubtitle>
-            {isConverting ? 'Konvertiere Datei zu Markdown...' : 'Schreibe, oder füge deinen Inhalt über den Projekt Ordner ein oder lade eine Datei hoch'}
-          </ZenSubtitle>
-          <ZenInfoButton onClick={() => setShowTipModal(true)} size="xs" />
-
-        </div>
+        {/* Doc Tabs - like Doc Studio */}
+        {docTabs.length > 0 && (
+          <div className="w-full" style={{ marginBottom: '-1px' }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                padding: '8px',
+                backgroundColor: '#1F1F1F',
+                borderRadius: '12px 12px 0 0',
+                border: '1px solid #AC8E66',
+                borderBottom: 'none',
+                flexWrap: 'wrap',
+              }}
+            >
+              {docTabs.map((tab) => {
+                const isActive = tab.id === activeDocTabId;
+                const isDirty = !!dirtyDocTabs[tab.id];
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => onDocTabChange?.(tab.id)}
+                    style={{
+                      flex: '1 1 140px',
+                      padding: '10px 16px',
+                      backgroundColor: isActive ? '#AC8E66' : 'transparent',
+                      border: isActive ? 'none' : '1px solid #3A3A3A',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '12px',
+                      fontWeight: isActive ? '600' : '400',
+                      color: isActive ? '#1A1A1A' : '#999',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                    }}
+                  >
+                    {isDirty ? <span style={{ color: isActive ? '#1A1A1A' : '#AC8E66' }}>•</span> : null}
+                    <span>{tab.title}</span>
+                    <span
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onCloseDocTab?.(tab.id);
+                      }}
+                      style={{
+                        marginLeft: '6px',
+                        fontSize: '12px',
+                        color: isActive ? '#1A1A1A' : '#777',
+                        opacity: 0.8,
+                      }}
+                    >
+                      ×
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <input
           id="file-upload"
@@ -313,7 +404,7 @@ export const Step1SourceInput = ({
 
         {/* Editor - Block oder Markdown */}
         <div className="w-full mb-4"
-         style={{ paddingTop: 10, marginTop: 20 }}
+         style={{ paddingTop: docTabs.length > 0 ? 0 : 10, marginTop: docTabs.length > 0 ? 0 : 20 }}
         >
           {editTabs.length > 1 && (
             <div className="mb-4 w-full max-w-4xl">
@@ -360,24 +451,179 @@ export const Step1SourceInput = ({
               </div>
             </div>
           )}
-          {editorType === "block" ? (
-            <ZenBlockEditor
-              value={sourceContent}
-              onChange={onSourceContentChange}
-              placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
-              height="calc(100vh - 340px)"
-              fontSize={editorSettings?.fontSize}
-              wrapLines={editorSettings?.wrapLines}
-              showLineNumbers={editorSettings?.showLineNumbers}
-            />
-          ) : (
-            <ZenMarkdownEditor
-              value={sourceContent}
-              onChange={onSourceContentChange}
-              placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
-              height="calc(100vh - 340px)"
-              showLineNumbers={editorSettings?.showLineNumbers}
-            />
+          <div style={{ position: 'relative', overflow: 'visible' }}>
+            {editorType === "block" ? (
+              <ZenBlockEditor
+                value={sourceContent}
+                onChange={onSourceContentChange}
+                placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
+                height="calc(100vh - 340px)"
+                fontSize={editorSettings?.fontSize}
+                wrapLines={editorSettings?.wrapLines}
+                showLineNumbers={editorSettings?.showLineNumbers}
+              />
+            ) : (
+              <ZenMarkdownEditor
+                value={sourceContent}
+                onChange={onSourceContentChange}
+                placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
+                height="calc(100vh - 340px)"
+                showLineNumbers={editorSettings?.showLineNumbers}
+              />
+            )}
+           {showDockedEditorToggle && (
+  <button
+    onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
+    style={{
+      position: "absolute",
+
+      // ✅ immer an der rechten Kante des Editors
+      left: "100%",
+      top: "0%",
+
+      // ✅ Abstand nach außen + perfekte Zentrierung + Rotation
+      transform: "translatex(10%) rotate(90deg)",
+      transformOrigin: "left center",
+
+      padding: "8px 12px",
+      backgroundColor: "#1A1A1A",
+      border: "1px solid #AC8E66",
+      borderRadius: "8px",
+      cursor: "pointer",
+      fontFamily: "IBM Plex Mono, monospace",
+      fontSize: "11px",
+      color: "#e5e5e5",
+      display: "flex",
+      alignItems: "center",
+      gap: "6px",
+      boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+      zIndex: 50,
+      whiteSpace: "nowrap",
+    }}
+  >
+    <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: "#AC8E66" }} />
+    {editorType === "block" ? "Markdown Editor" : "Block Editor"}
+  </button>
+)}
+
+          </div>
+
+          {/* Editor Tab Bar */}
+          {showInlineActions && (
+            <div
+              style={{
+                display: 'flex',
+                gap: '8px',
+                padding: '8px 12px',
+                backgroundColor: '#1A1A1A',
+                borderRadius: '0 0 12px 12px',
+                borderTop: '1px solid #3A3A3A',
+                marginTop: '-1px',
+              }}
+            >
+            <button
+              onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'transparent',
+                border: '1px solid #3A3A3A',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: '#e5e5e5',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#AC8E66';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#3A3A3A';
+              }}
+            >
+              <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: '#AC8E66' }} />
+              {editorType === "block" ? "Markdown" : "Block Editor"}
+            </button>
+            <button
+              onClick={onPreview}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'transparent',
+                border: '1px solid #3A3A3A',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: '#e5e5e5',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#AC8E66';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#3A3A3A';
+              }}
+            >
+              <FontAwesomeIcon icon={faFileLines} style={{ color: '#AC8E66' }} />
+              Preview
+            </button>
+            <button
+              onClick={onSaveToProject}
+              disabled={!canSaveToProject}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: 'transparent',
+                border: '1px solid #3A3A3A',
+                borderRadius: '6px',
+                cursor: canSaveToProject ? 'pointer' : 'not-allowed',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: canSaveToProject ? '#e5e5e5' : '#555',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+                opacity: canSaveToProject ? 1 : 0.5,
+              }}
+              onMouseEnter={(e) => {
+                if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#3A3A3A';
+              }}
+            >
+              <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
+              Speichern
+            </button>
+            <div style={{ flex: 1 }} />
+            <button
+              onClick={onNext}
+              style={{
+                padding: '8px 20px',
+                backgroundColor: '#AC8E66',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                fontWeight: 'bold',
+                color: '#0A0A0A',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                transition: 'all 0.2s',
+              }}
+            >
+              Weiter
+              <FontAwesomeIcon icon={faArrowRight} />
+            </button>
+            </div>
           )}
         </div>
 
@@ -516,7 +762,7 @@ export const Step1SourceInput = ({
                 }
                 onClick={async () => {
                   try {
-                    await openUrl('https://theoriginalbitter.github.io/zenpost-studio/#/pages-export');
+                    await openExternal(EXTERNAL_DOCS_URL);
                   } catch (error) {
                     console.error('Failed to open URL:', error);
                   }
@@ -615,12 +861,28 @@ export const Step1SourceInput = ({
           }}>
             Die Datei wird automatisch zu Markdown konvertiert und die AI optimiert den Inhalt für deine Zielplattform.
           </p>
-
+       
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}>
+                   <p style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            color: '#777',
+            lineHeight: '1.6',
+          }}>
+            Hast du ein anderes Format? <span>Nutze einfach den Converter</span> 
+       
+
+            </p>
+      
+          </div>
+          <div className='flex justify-center mt-4'>
             <ZenRoughButton
-              label="Verstanden"
-              icon={<FontAwesomeIcon icon={faCheckCircle} className="text-[#AC8E66]" />}
-              onClick={() => setShowTipModal(false)}
+              label="Converter öffnen"
+              icon={<FontAwesomeIcon icon={faCheckCircle} className="text-[#AC8E66] " />}
+              onClick={() => {
+                setShowTipModal(false);
+                onOpenConverter?.();
+              }}
               variant="active"
             />
           </div>

@@ -4,6 +4,7 @@
  */
 
 import { writeTextFile, readTextFile, mkdir, exists, readDir } from '@tauri-apps/plugin-fs';
+import { getProjectDataDir } from './appConfigService';
 import type { ScheduledPost, SocialPlatform } from '../types/scheduling';
 
 export interface PlatformPost {
@@ -30,12 +31,23 @@ type SerializedScheduledPost = Omit<ScheduledPost, 'scheduledDate' | 'createdAt'
   createdAt: string | Date;
 };
 
-const PUBLISHING_DIR = '.zenpost/publishing';
-const POSTS_DIR = `${PUBLISHING_DIR}/posts`;
-const ARCHIVE_DIR = `${PUBLISHING_DIR}/archive`;
-const ARTICLES_DIR = `${PUBLISHING_DIR}/articles`;
-const SCHEDULE_FILE = `${PUBLISHING_DIR}/schedule.json`;
-const ARTICLES_INDEX_FILE = `${PUBLISHING_DIR}/articles.json`;
+const PUBLISHING_DIR = 'publishing';
+const POSTS_DIR = 'posts';
+const ARCHIVE_DIR = 'archive';
+const ARTICLES_DIR = 'articles';
+const SCHEDULE_FILE = 'schedule.json';
+const ARTICLES_INDEX_FILE = 'articles.json';
+
+const normalizeProjectPath = (projectPath: string): string =>
+  projectPath.replace(/[\\/]+zenstudio$/i, '');
+
+/**
+ * Get the publishing root directory for a project (in AppData)
+ */
+async function getPublishingRoot(projectPath: string): Promise<string> {
+  const projectDataDir = await getProjectDataDir(projectPath);
+  return `${projectDataDir}/${PUBLISHING_DIR}`;
+}
 
 export type PlatformScheduleState = Partial<Record<SocialPlatform, ScheduleData>>;
 
@@ -61,13 +73,18 @@ export type ArticleInput = {
 };
 
 /**
- * Ensure .zenpost/publishing directory structure exists
+ * Ensure publishing directory structure exists in AppData
  */
-async function ensurePublishingStructure(projectPath: string): Promise<void> {
-  const dirs = [PUBLISHING_DIR, POSTS_DIR, ARCHIVE_DIR, ARTICLES_DIR];
+async function ensurePublishingStructure(projectPath: string): Promise<string> {
+  const publishingRoot = await getPublishingRoot(projectPath);
+  const dirs = [
+    publishingRoot,
+    `${publishingRoot}/${POSTS_DIR}`,
+    `${publishingRoot}/${ARCHIVE_DIR}`,
+    `${publishingRoot}/${ARTICLES_DIR}`,
+  ];
 
-  for (const dir of dirs) {
-    const fullPath = `${projectPath}/${dir}`;
+  for (const fullPath of dirs) {
     const dirExists = await exists(fullPath);
 
     if (!dirExists) {
@@ -75,6 +92,8 @@ async function ensurePublishingStructure(projectPath: string): Promise<void> {
       console.log(`[PublishingService] Created directory: ${fullPath}`);
     }
   }
+
+  return publishingRoot;
 }
 
 /**
@@ -85,19 +104,20 @@ export async function initializePublishingProject(projectPath: string): Promise<
 }
 
 /**
- * Resolve absolute publishing paths for a project
+ * Resolve absolute publishing paths for a project (async, uses AppData)
  */
-export function getPublishingPaths(projectPath: string): {
+export async function getPublishingPaths(projectPath: string): Promise<{
   root: string;
   posts: string;
   archive: string;
   scheduleFile: string;
-} {
+}> {
+  const publishingRoot = await getPublishingRoot(projectPath);
   return {
-    root: `${projectPath}/${PUBLISHING_DIR}`,
-    posts: `${projectPath}/${POSTS_DIR}`,
-    archive: `${projectPath}/${ARCHIVE_DIR}`,
-    scheduleFile: `${projectPath}/${SCHEDULE_FILE}`,
+    root: publishingRoot,
+    posts: `${publishingRoot}/${POSTS_DIR}`,
+    archive: `${publishingRoot}/${ARCHIVE_DIR}`,
+    scheduleFile: `${publishingRoot}/${SCHEDULE_FILE}`,
   };
 }
 
@@ -124,18 +144,20 @@ function normalizeScheduledPost(post: SerializedScheduledPost): ScheduledPost {
 }
 
 /**
- * Load schedule from .zenpost/publishing/schedule.json
+ * Load schedule from AppData publishing/schedule.json
  */
 export async function loadSchedule(projectPath: string): Promise<PublishingProject> {
   try {
-    const scheduleFilePath = `${projectPath}/${SCHEDULE_FILE}`;
+    const rootPath = normalizeProjectPath(projectPath);
+    const publishingRoot = await getPublishingRoot(rootPath);
+    const scheduleFilePath = `${publishingRoot}/${SCHEDULE_FILE}`;
     const fileExists = await exists(scheduleFilePath);
 
     if (!fileExists) {
       console.log('[PublishingService] No schedule file found, returning empty project');
       return {
         posts: [],
-        projectPath,
+        projectPath: rootPath,
         lastUpdated: new Date().toISOString(),
       };
     }
@@ -150,7 +172,7 @@ export async function loadSchedule(projectPath: string): Promise<PublishingProje
 
     const project: PublishingProject = {
       posts: normalizedPosts,
-      projectPath: rawData.projectPath || projectPath,
+      projectPath: rawData.projectPath || rootPath,
       lastUpdated: rawData.lastUpdated || new Date().toISOString(),
     };
 
@@ -160,26 +182,27 @@ export async function loadSchedule(projectPath: string): Promise<PublishingProje
     console.error('[PublishingService] Error loading schedule:', error);
     return {
       posts: [],
-      projectPath,
+      projectPath: normalizeProjectPath(projectPath),
       lastUpdated: new Date().toISOString(),
     };
   }
 }
 
 /**
- * Save schedule to .zenpost/publishing/schedule.json
+ * Save schedule to AppData publishing/schedule.json
  */
 export async function saveSchedule(projectPath: string, posts: ScheduledPost[]): Promise<void> {
   try {
-    await ensurePublishingStructure(projectPath);
+    const rootPath = normalizeProjectPath(projectPath);
+    const publishingRoot = await ensurePublishingStructure(rootPath);
 
     const data: PublishingProject = {
       posts,
-      projectPath,
+      projectPath: rootPath,
       lastUpdated: new Date().toISOString(),
     };
 
-    const scheduleFilePath = `${projectPath}/${SCHEDULE_FILE}`;
+    const scheduleFilePath = `${publishingRoot}/${SCHEDULE_FILE}`;
     await writeTextFile(scheduleFilePath, JSON.stringify(data, null, 2));
 
     console.log(`[PublishingService] Saved ${posts.length} posts to schedule`);
@@ -197,9 +220,11 @@ async function savePostFile(
   post: ScheduledPost,
   archived: boolean = false
 ): Promise<string> {
+  const rootPath = normalizeProjectPath(projectPath);
+  const publishingRoot = await getPublishingRoot(rootPath);
   const dir = archived ? ARCHIVE_DIR : POSTS_DIR;
   const fileName = `${post.platform}-${post.id}.md`;
-  const filePath = `${projectPath}/${dir}/${fileName}`;
+  const filePath = `${publishingRoot}/${dir}/${fileName}`;
 
   // Create markdown content with frontmatter
   const frontmatter = `---
@@ -229,7 +254,9 @@ createdAt: ${post.createdAt}
  */
 async function readArticlesIndex(projectPath: string): Promise<ZenArticle[]> {
   try {
-    const filePath = `${projectPath}/${ARTICLES_INDEX_FILE}`;
+    const rootPath = normalizeProjectPath(projectPath);
+    const publishingRoot = await getPublishingRoot(rootPath);
+    const filePath = `${publishingRoot}/${ARTICLES_INDEX_FILE}`;
     const hasIndex = await exists(filePath);
     if (!hasIndex) {
       return [];
@@ -243,12 +270,16 @@ async function readArticlesIndex(projectPath: string): Promise<ZenArticle[]> {
 }
 
 async function saveArticlesIndex(projectPath: string, articles: ZenArticle[]): Promise<void> {
-  const filePath = `${projectPath}/${ARTICLES_INDEX_FILE}`;
+  const rootPath = normalizeProjectPath(projectPath);
+  const publishingRoot = await getPublishingRoot(rootPath);
+  const filePath = `${publishingRoot}/${ARTICLES_INDEX_FILE}`;
   await writeTextFile(filePath, JSON.stringify(articles, null, 2));
 }
 
-function articleFilePath(projectPath: string, fileName: string): string {
-  return `${projectPath}/${ARTICLES_DIR}/${fileName}`;
+async function articleFilePath(projectPath: string, fileName: string): Promise<string> {
+  const rootPath = normalizeProjectPath(projectPath);
+  const publishingRoot = await getPublishingRoot(rootPath);
+  return `${publishingRoot}/${ARTICLES_DIR}/${fileName}`;
 }
 
 function stripFrontmatter(markdown: string): string {
@@ -391,15 +422,16 @@ async function scanAndRebuildArticlesIndex(projectPath: string): Promise<ZenArti
  * - If articles.json doesn't exist: scan entire project and create it
  */
 export async function loadArticles(projectPath: string, forceRescan = false): Promise<ZenArticle[]> {
+  const rootPath = normalizeProjectPath(projectPath);
   console.log('[PublishingService] ===== loadArticles called =====');
-  console.log('[PublishingService] projectPath:', projectPath);
+  console.log('[PublishingService] projectPath:', rootPath);
   console.log('[PublishingService] forceRescan:', forceRescan);
 
   try {
-    await ensurePublishingStructure(projectPath);
+    const publishingRoot = await ensurePublishingStructure(rootPath);
     console.log('[PublishingService] Publishing structure ensured');
 
-    const indexPath = `${projectPath}/${ARTICLES_INDEX_FILE}`;
+    const indexPath = `${publishingRoot}/${ARTICLES_INDEX_FILE}`;
     console.log('[PublishingService] Checking index path:', indexPath);
 
     const indexExists = await exists(indexPath);
@@ -408,14 +440,14 @@ export async function loadArticles(projectPath: string, forceRescan = false): Pr
     // If user forces rescan (refresh button) or index doesn't exist yet
     if (forceRescan || !indexExists) {
       console.log('[PublishingService] Building articles index from project scan...');
-      const result = await scanAndRebuildArticlesIndex(projectPath);
+      const result = await scanAndRebuildArticlesIndex(rootPath);
       console.log('[PublishingService] Scan completed, returning', result.length, 'articles');
       return result;
     }
 
     // Fast path: Read from existing articles.json
     console.log('[PublishingService] Loading articles from index file...');
-    const articles = await readArticlesIndex(projectPath);
+    const articles = await readArticlesIndex(rootPath);
     console.log(`[PublishingService] Loaded ${articles.length} articles from index`);
     return articles;
   } catch (error) {
@@ -437,7 +469,7 @@ export async function loadArticle(projectPath: string, articleId: string): Promi
     return null;
   }
   try {
-    const fileContent = await readTextFile(articleFilePath(projectPath, article.fileName));
+    const fileContent = await readTextFile(await articleFilePath(projectPath, article.fileName));
     return {
       ...article,
       content: stripFrontmatter(fileContent),
@@ -487,7 +519,7 @@ updatedAt: ${article.updatedAt}
 
 `;
 
-  await writeTextFile(articleFilePath(projectPath, fileName), frontmatter + article.content);
+  await writeTextFile(await articleFilePath(projectPath, fileName), frontmatter + article.content);
 
   if (existingIndex !== -1) {
     articles[existingIndex] = { ...article, content: '' };
@@ -569,11 +601,12 @@ export async function saveScheduledPostsWithFiles(
   posts: ScheduledPost[],
 ): Promise<void> {
   try {
-    await ensurePublishingStructure(projectPath);
+    const rootPath = normalizeProjectPath(projectPath);
+    await ensurePublishingStructure(rootPath);
     for (const post of posts) {
-      await savePostFile(projectPath, post);
+      await savePostFile(rootPath, post);
     }
-    await saveSchedule(projectPath, posts);
+    await saveSchedule(rootPath, posts);
   } catch (error) {
     console.error('[PublishingService] Error saving scheduled posts:', error);
     throw error;
@@ -590,7 +623,8 @@ export async function updatePost(
 ): Promise<void> {
   try {
     // Load current schedule
-    const project = await loadSchedule(projectPath);
+    const rootPath = normalizeProjectPath(projectPath);
+    const project = await loadSchedule(rootPath);
 
     // Find and update the post
     const postIndex = project.posts.findIndex(p => p.id === postId);
@@ -606,10 +640,10 @@ export async function updatePost(
     project.posts[postIndex] = updatedPost;
 
     // Save updated post file
-    await savePostFile(projectPath, updatedPost);
+    await savePostFile(rootPath, updatedPost);
 
     // Save updated schedule
-    await saveSchedule(projectPath, project.posts);
+    await saveSchedule(rootPath, project.posts);
 
     console.log(`[PublishingService] Updated post: ${postId}`);
   } catch (error) {

@@ -1,5 +1,6 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { exists, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import * as ExcelJS from 'exceljs';
 import { getPublishingPaths, initializePublishingProject } from '../services/publishingService';
 
 export type ChecklistItem = {
@@ -7,6 +8,7 @@ export type ChecklistItem = {
   text: string;
   completed: boolean;
   source: 'default' | 'custom';
+  postId?: string;
 };
 
 type ChecklistPayload = {
@@ -40,6 +42,7 @@ const normalizeItems = (items: unknown): ChecklistItem[] => {
       text: item.text,
       completed: !!item.completed,
       source: item.source === 'default' ? 'default' : 'custom',
+      postId: typeof item.postId === 'string' ? item.postId : undefined,
     }));
 };
 
@@ -50,7 +53,7 @@ export async function loadChecklist(
   if (isTauri() && projectPath) {
     try {
       await initializePublishingProject(projectPath);
-      const { root: publishingRoot } = getPublishingPaths(projectPath);
+      const { root: publishingRoot } = await getPublishingPaths(projectPath);
       const checklistPath = `${publishingRoot}/checklist.json`;
       if (!(await exists(checklistPath))) {
         return buildDefaultChecklist(defaultTasks);
@@ -90,7 +93,7 @@ export async function saveChecklist(
 
   if (isTauri() && projectPath) {
     await initializePublishingProject(projectPath);
-    const { root: publishingRoot } = getPublishingPaths(projectPath);
+    const { root: publishingRoot } = await getPublishingPaths(projectPath);
     const checklistPath = `${publishingRoot}/checklist.json`;
     await writeTextFile(checklistPath, JSON.stringify(payload, null, 2));
     return;
@@ -109,4 +112,41 @@ export const formatChecklistAsMarkdown = (items: ChecklistItem[], title = 'Check
 export const formatChecklistAsCsv = (items: ChecklistItem[]) => {
   const lines = items.map(item => `${item.completed ? 'done' : 'open'},\"${item.text.replace(/\"/g, '\"\"')}\"`);
   return `status,task\n${lines.join('\n')}\n`;
+};
+
+const CHECKLIST_STATUS_OPTIONS = ['open', 'close'] as const;
+
+export const formatChecklistAsXlsx = async (
+  items: ChecklistItem[],
+  title = 'zenpost-checklist',
+): Promise<Uint8Array> => {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(title);
+
+  sheet.columns = [
+    { header: 'status', key: 'status', width: 12 },
+    { header: 'task', key: 'task', width: 60 },
+  ];
+
+  sheet.addRows(
+    items.map(item => ({
+      status: item.completed ? 'close' : 'open',
+      task: item.text,
+    })),
+  );
+
+  sheet.getRow(1).font = { bold: true };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+  for (let rowIndex = 2; rowIndex <= items.length + 1; rowIndex += 1) {
+    const cell = sheet.getCell(`A${rowIndex}`);
+    cell.dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`"${CHECKLIST_STATUS_OPTIONS.join(',')}"`],
+    };
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  return new Uint8Array(buffer as ArrayBuffer);
 };

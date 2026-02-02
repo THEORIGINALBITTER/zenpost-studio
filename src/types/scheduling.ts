@@ -11,6 +11,7 @@ export interface ScheduledPost {
   id: string;
   platform: SocialPlatform;
   title: string;
+  subtitle?: string;
   content: string;
   scheduledDate?: Date;
   scheduledTime?: string;
