@@ -2,208 +2,365 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>ZenPost - Studio Wiki</title>
+  <title>ZenPost Guide</title>
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
   <meta name="description" content="ZenPost Studio Documentation - AI-powered file converter and content transformer">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
 
-  <!-- Docsify Theme -->
+  <!-- Google Font: IBM Plex Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Docsify Theme (base, heavily overridden) -->
   <link rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css">
 
-  <!-- Custom Zen Styling -->
+  <!-- ZenPost Guide — Paper + Gold Design System -->
   <style>
     :root {
-      --theme-color: #AC8E66;
-      --theme-color-dark: #8A6E4E;
-      --base-background-color: #1A1A1A;
-      --base-color: #e5e5e5;
-      --sidebar-background: #2A2A2A;
-      --code-theme-background: #2A2A2A;
+      /* ZenPost Design Tokens */
+      --zen-gold: #AC8E66;
+      --zen-gold-light: #C4A578;
+      --zen-gold-dark: #8A6E4E;
+      --zen-paper: #EDE6D8;
+      --zen-paper-dark: #E7DFD0;
+      --zen-paper-border: #E8E1D2;
+      --zen-text: #3a3a3a;
+      --zen-text-muted: #6b5a3e;
+      --zen-text-subtle: #7a6a52;
+      --zen-dark: #151515;
+      --zen-dark-soft: #1E1E1E;
+      --zen-code-bg: #1A1714;
+
+      /* Docsify overrides */
+      --theme-color: var(--zen-gold);
+      --base-background-color: var(--zen-paper);
+      --base-color: var(--zen-text);
+      --sidebar-background: var(--zen-dark);
+      --code-theme-background: var(--zen-code-bg);
       --code-theme-text: #e5e5e5;
     }
 
+    /* ═══════════════════════════════════════════
+       BASE
+       ═══════════════════════════════════════════ */
     body {
-      font-family: 'IBM Plex Mono', 'Courier Prime', ui-monospace, SFMono-Regular, monospace;
-      background-color: var(--base-background-color);
-      color: var(--base-color);
+      font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+      background: linear-gradient(180deg, var(--zen-paper) 0%, var(--zen-paper-dark) 100%);
+      color: var(--zen-text);
       font-size: 12px;
       line-height: 1.7;
     }
 
+    /* ═══════════════════════════════════════════
+       SIDEBAR (dark, like app header)
+       ═══════════════════════════════════════════ */
     .sidebar {
-      background-color: var(--sidebar-background);
-      border-right: 1px solid #3a3a3a;
+      background: linear-gradient(0deg, #0B0B0B 0%, #171717 100%);
+      border-right: 1px solid rgba(172, 142, 102, 0.2);
+    }
+
+    .app-name {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--zen-gold);
+      margin: 0;
+      padding: 1.2rem 0;
+      letter-spacing: 0.03em;
+    }
+
+    /* Sidebar section headers (bold items = categories) */
+    .sidebar-nav > ul > li > p {
+      color: var(--zen-gold) !important;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 1.2rem;
+      margin-bottom: 0.3rem;
     }
 
     .sidebar-nav li a {
       color: #999;
-      font-size: 14px;
+      font-size: 13px;
+      transition: color 0.2s, padding-left 0.2s;
     }
 
     .sidebar-nav li.active > a {
-      color: var(--theme-color);
+      color: var(--zen-gold);
       font-weight: 600;
+      border-right: 2px solid var(--zen-gold);
     }
 
     .sidebar-nav li a:hover {
-      color: var(--theme-color);
+      color: var(--zen-gold-light);
+      padding-left: 4px;
     }
 
-    .app-name {
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--theme-color);
-      margin: 0;
-      padding: 1rem 0;
+    /* Search Box */
+    .search input {
+      background-color: rgba(172, 142, 102, 0.08) !important;
+      border: 1px solid rgba(172, 142, 102, 0.25) !important;
+      color: #ccc !important;
+      border-radius: 8px !important;
+      font-family: 'IBM Plex Mono', monospace !important;
+      font-size: 12px !important;
+    }
+
+    .search input::placeholder {
+      color: rgba(172, 142, 102, 0.5) !important;
+    }
+
+    .search input:focus {
+      border-color: var(--zen-gold) !important;
+      box-shadow: 0 0 0 2px rgba(172, 142, 102, 0.15) !important;
+    }
+
+    .search .matching-post {
+      border-bottom-color: rgba(172, 142, 102, 0.15) !important;
+    }
+
+    .search a:hover {
+      color: var(--zen-gold) !important;
+    }
+
+    /* ═══════════════════════════════════════════
+       CONTENT AREA (paper theme)
+       ═══════════════════════════════════════════ */
+    .content {
+      background: linear-gradient(180deg, var(--zen-paper) 0%, var(--zen-paper-dark) 100%);
     }
 
     .markdown-section {
       max-width: 900px;
-      padding: 2rem 2rem 4rem;
+      padding: 2.5rem 2.5rem 4rem;
       font-size: 12px;
+      color: var(--zen-text);
     }
 
     .markdown-section p,
     .markdown-section li,
     .markdown-section td {
       font-size: 12px;
+      color: var(--zen-text-muted);
     }
 
+    /* Headings */
     .markdown-section h1 {
-      color: var(--theme-color);
-      font-size: 2rem;
-      border-bottom: 2px solid #3a3a3a;
-      padding-bottom: 0.5rem;
+      color: var(--zen-gold);
+      font-size: 1.8rem;
+      font-weight: 600;
+      border-bottom: 2px solid rgba(172, 142, 102, 0.3);
+      padding-bottom: 0.6rem;
+      margin-bottom: 1.5rem;
     }
 
     .markdown-section h2 {
-      color: #D4AF78;
-      font-size: 1.6rem;
-      margin-top: 2rem;
-      border-bottom: 1px solid #3a3a3a;
-      padding-bottom: 0.3rem;
+      color: var(--zen-gold-dark);
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin-top: 2.5rem;
+      border-bottom: 1px solid rgba(172, 142, 102, 0.2);
+      padding-bottom: 0.4rem;
     }
 
     .markdown-section h3 {
-      color: #C4A578;
-      font-size: 1.3rem;
+      color: var(--zen-text-subtle);
+      font-size: 1.15rem;
+      font-weight: 600;
     }
 
+    .markdown-section h4 {
+      color: var(--zen-text-subtle);
+      font-size: 1rem;
+      font-weight: 500;
+    }
+
+    /* Links */
     .markdown-section a {
-      color: var(--theme-color);
+      color: var(--zen-gold);
       text-decoration: none;
       border-bottom: 1px solid transparent;
-      transition: border-color 0.2s;
+      transition: border-color 0.2s, color 0.2s;
     }
 
     .markdown-section a:hover {
-      border-bottom-color: var(--theme-color);
+      color: var(--zen-gold-dark);
+      border-bottom-color: var(--zen-gold);
     }
 
+    /* Inline code */
     .markdown-section code {
-      background-color: #2A2A2A;
-      color: #AC8E66;
-      padding: 0.2em 0.4em;
-      border-radius: 3px;
+      background-color: rgba(172, 142, 102, 0.1);
+      color: var(--zen-gold-dark);
+      padding: 0.15em 0.45em;
+      border-radius: 4px;
+      border: 1px solid rgba(172, 142, 102, 0.15);
       font-family: 'IBM Plex Mono', monospace;
+      font-size: 0.9em;
+    }
+
+    /* Code blocks */
+    .markdown-section pre {
+      background-color: var(--zen-code-bg) !important;
+      border: 1px solid rgba(172, 142, 102, 0.2);
+      border-radius: 10px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     }
 
     .markdown-section pre > code {
-      background-color: #2A2A2A;
+      background-color: transparent;
       color: #e5e5e5;
-      border: 1px solid #3a3a3a;
-      border-radius: 8px;
+      border: none;
+      border-radius: 0;
+      font-size: 11px;
     }
 
+    /* Tables */
     .markdown-section table {
       border-collapse: collapse;
-      border: 1px solid #3a3a3a;
+      border: 1px solid rgba(172, 142, 102, 0.25);
+      border-radius: 8px;
+      overflow: hidden;
     }
 
     .markdown-section table th {
-      background-color: #2A2A2A;
-      color: var(--theme-color);
+      background-color: rgba(172, 142, 102, 0.12);
+      color: var(--zen-gold-dark);
       font-weight: 600;
-      border: 1px solid #3a3a3a;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border: 1px solid rgba(172, 142, 102, 0.2);
       padding: 0.6rem 1rem;
     }
 
     .markdown-section table td {
-      border: 1px solid #3a3a3a;
+      border: 1px solid rgba(172, 142, 102, 0.15);
       padding: 0.6rem 1rem;
     }
 
     .markdown-section table tr:hover {
-      background-color: #2A2A2A;
+      background-color: rgba(172, 142, 102, 0.05);
     }
 
-    /* Search Box */
-    .search input {
-      background-color: #2A2A2A;
-      border: 1px solid #3a3a3a;
-      color: var(--base-color);
+    /* Blockquotes / Tips */
+    .markdown-section blockquote {
+      border-left: 4px solid var(--zen-gold);
+      background-color: rgba(172, 142, 102, 0.08);
+      border-radius: 0 8px 8px 0;
+      margin: 1.5rem 0;
+      padding: 1rem 1.5rem;
+      color: var(--zen-text-muted);
     }
 
-    .search input:focus {
-      border-color: var(--theme-color);
+    .markdown-section blockquote p {
+      margin: 0;
+      color: var(--zen-text-muted);
     }
 
-    /* Scrollbar */
+    /* Emphasis */
+    .markdown-section em {
+      color: var(--zen-gold-dark);
+      font-style: italic;
+    }
+
+    .markdown-section strong {
+      color: var(--zen-text);
+      font-weight: 600;
+    }
+
+    /* Horizontal rules */
+    .markdown-section hr {
+      border: none;
+      border-top: 1px solid rgba(172, 142, 102, 0.3);
+      margin: 2rem 0;
+    }
+
+    /* Lists */
+    .markdown-section ul li::marker,
+    .markdown-section ol li::marker {
+      color: var(--zen-gold);
+    }
+
+    /* ═══════════════════════════════════════════
+       SCROLLBAR
+       ═══════════════════════════════════════════ */
     ::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
+      width: 6px;
+      height: 6px;
     }
 
     ::-webkit-scrollbar-track {
-      background: #2A2A2A;
-      border-radius: 4px;
+      background: transparent;
     }
 
-    ::-webkit-scrollbar-thumb {
-      background: #AC8E66;
-      border-radius: 4px;
+    /* Sidebar scrollbar (dark) */
+    .sidebar::-webkit-scrollbar-thumb {
+      background: rgba(172, 142, 102, 0.3);
+      border-radius: 3px;
     }
 
-    ::-webkit-scrollbar-thumb:hover {
-      background: #c4a578;
+    .sidebar::-webkit-scrollbar-thumb:hover {
+      background: rgba(172, 142, 102, 0.5);
+    }
+
+    /* Content scrollbar (paper) */
+    .content::-webkit-scrollbar-thumb {
+      background: rgba(172, 142, 102, 0.25);
+      border-radius: 3px;
+    }
+
+    .content::-webkit-scrollbar-thumb:hover {
+      background: var(--zen-gold);
     }
 
     /* Firefox */
     * {
       scrollbar-width: thin;
-      scrollbar-color: #AC8E66 #2A2A2A;
+      scrollbar-color: rgba(172, 142, 102, 0.25) transparent;
     }
 
-    /* Blockquotes / Tips */
-    .markdown-section blockquote {
-      border-left: 4px solid var(--theme-color);
-      background-color: rgba(172, 142, 102, 0.1);
-      margin: 1.5rem 0;
-      padding: 1rem 1.5rem;
-    }
+    /* ═══════════════════════════════════════════
+       PLUGINS
+       ═══════════════════════════════════════════ */
 
-    .markdown-section blockquote p {
-      margin: 0;
-    }
-
-    /* Badges */
-    .markdown-section em {
-      color: #C4A578;
-    }
-
-    /* Copy button on code blocks */
+    /* Copy button */
     .docsify-copy-code-button {
-      background: var(--theme-color) !important;
-      color: #1A1A1A !important;
+      background: var(--zen-gold) !important;
+      color: #fff !important;
+      border-radius: 6px !important;
+      font-family: 'IBM Plex Mono', monospace !important;
+      font-size: 10px !important;
     }
 
     .docsify-copy-code-button:hover {
-      background: #D4AF78 !important;
+      background: var(--zen-gold-dark) !important;
+    }
+
+    /* Pagination */
+    .docsify-pagination-container {
+      border-top-color: rgba(172, 142, 102, 0.2) !important;
+    }
+
+    .pagination-item-label,
+    .pagination-item-title {
+      color: var(--zen-gold) !important;
+    }
+
+    /* Footer */
+    .markdown-section small {
+      color: var(--zen-text-subtle);
+    }
+
+    .markdown-section small a {
+      color: var(--zen-gold) !important;
     }
   </style>
 </head>
 <body>
-  <div id="app">Loading ZenPost Studio Wiki...</div>
+  <div id="app">Loading ZenPost Guide...</div>
 
   <script>
     window.$docsify = {
