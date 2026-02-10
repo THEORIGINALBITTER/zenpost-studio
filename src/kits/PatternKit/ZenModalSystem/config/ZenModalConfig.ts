@@ -328,10 +328,10 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
   },
   ollama: {
     title: 'Ollama',
-    description: 'Lokale AI, keine API-Key benötigt. Stelle sicher, dass Ollama läuft (ollama serve).',
+    description: 'Lokale AI, keine API-Key benötigt. Nutze den Tab "Lokale KI" um Ollama Schritt für Schritt einzurichten.',
     links: [
       {
-        label: 'Setup-Anleitung',
+        label: 'Setup-Anleitung (Docs)',
         url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=ollama',
       },
     ],

@@ -101,10 +101,11 @@ export interface TransformResult {
 
 /**
  * Standardkonfiguration
+ * Web: 'auto' (Cloud-Provider), Desktop: 'ollama' (lokal)
  */
 const defaultConfig: AIConfig = {
-  provider: 'ollama',
-  model: 'llama3.1:latest',
+  provider: isTauri() ? 'ollama' : 'auto',
+  model: isTauri() ? 'llama3.1:latest' : '',
   baseUrl: 'http://127.0.0.1:11434',
   temperature: 0.3,
 };

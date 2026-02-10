@@ -5,20 +5,21 @@ import { ZenAISettingsContent } from './components/ZenAISettingsContent';
 import { ZenSocialMediaSettingsContent } from './components/ZenSocialMediaSettingsContent';
 import { ZenEditorSettingsContent } from './components/ZenEditorSettingsContent';
 import { ZenLicenseSettingsContent } from './components/ZenLicenseSettingsContent';
+import { ZenLocalAISetupContent } from './components/ZenLocalAISetupContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: () => void;
-  defaultTab?: 'ai' | 'social' | 'editor' | 'license';
+  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai';
   defaultSocialTab?: 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
   showMissingSocialHint?: boolean;
   missingSocialLabel?: string;
 }
 
-type TabType = 'ai' | 'social' | 'editor' | 'license';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license';
 
 export const ZenSettingsModal = ({
   isOpen,
@@ -95,6 +96,7 @@ export const ZenSettingsModal = ({
           >
             {[
               { id: 'ai' as TabType, label: 'AI Einstellungen', icon: faRobot },
+              { id: 'localai' as TabType, label: 'Lokale KI', icon: faServer },
               { id: 'social' as TabType, label: 'Social Media APIs', icon: faShareNodes },
               { id: 'editor' as TabType, label: 'Editor', icon: faPenNib },
               { id: 'license' as TabType, label: 'Lizenz & Account', icon: faIdCard },
@@ -180,7 +182,8 @@ export const ZenSettingsModal = ({
           }}
         >
                  {activeTab === 'editor' && <ZenEditorSettingsContent />}
-          {activeTab === 'ai' && <ZenAISettingsContent />}
+          {activeTab === 'ai' && <ZenAISettingsContent onSwitchTab={(tab) => setActiveTab(tab as TabType)} />}
+          {activeTab === 'localai' && <ZenLocalAISetupContent />}
           {activeTab === 'social' && (
             <ZenSocialMediaSettingsContent
               initialTab={defaultSocialTab}

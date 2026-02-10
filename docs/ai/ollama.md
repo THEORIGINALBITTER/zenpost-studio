@@ -1,6 +1,6 @@
-# Ollama Setup
+# Lokale KI (Ollama)
 
-Ollama stellt die lokale KI bereit. Die App greift ueber `http://127.0.0.1:11434` darauf zu.
+Ollama stellt die KI lokal auf deinem Rechner bereit. Die App greift ueber `http://127.0.0.1:11434` darauf zu.
 
 ## Installation
 
@@ -37,4 +37,4 @@ CORS blockiert
 Verbindung verweigert
 
 - Ollama laeuft nicht
-- Port stimmt nicht
+- Falscher Port
