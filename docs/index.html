@@ -45,9 +45,9 @@
        BASE
        ═══════════════════════════════════════════ */
     body {
-      font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
-      background: var(--zen-paper);
-      color: var(--zen-text);
+      font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace !important;
+      background: var(--zen-paper) !important;
+      color: var(--zen-text) !important;
       font-size: 12px;
       line-height: 1.7;
     }
@@ -129,26 +129,26 @@
        CONTENT AREA (paper theme)
        ═══════════════════════════════════════════ */
     .content {
-      background: var(--zen-paper);
+      background: var(--zen-paper) !important;
     }
 
     .markdown-section {
       max-width: 900px;
       padding: 2.5rem 2.5rem 4rem;
       font-size: 12px;
-      color: var(--zen-text);
+      color: var(--zen-text) !important;
     }
 
     .markdown-section p,
     .markdown-section li,
     .markdown-section td {
       font-size: 12px;
-      color: var(--zen-text-muted);
+      color: var(--zen-text-muted) !important;
     }
 
     /* Headings — all #151515 */
     .markdown-section h1 {
-      color: var(--zen-dark);
+      color: var(--zen-dark) !important;
       font-size: 1.8rem;
       font-weight: 600;
       border-bottom: 2px solid rgba(172, 142, 102, 0.3);
@@ -157,7 +157,7 @@
     }
 
     .markdown-section h2 {
-      color: var(--zen-dark);
+      color: var(--zen-dark) !important;
       font-size: 1.4rem;
       font-weight: 600;
       margin-top: 2.5rem;
@@ -166,27 +166,27 @@
     }
 
     .markdown-section h3 {
-      color: var(--zen-dark);
+      color: var(--zen-dark) !important;
       font-size: 1.15rem;
       font-weight: 600;
     }
 
     .markdown-section h4 {
-      color: var(--zen-dark);
+      color: var(--zen-dark) !important;
       font-size: 1rem;
       font-weight: 500;
     }
 
     /* Links — no underline */
     .markdown-section a {
-      color: var(--zen-gold);
-      text-decoration: none;
-      border-bottom: none;
+      color: var(--zen-gold) !important;
+      text-decoration: none !important;
+      border-bottom: none !important;
       transition: color 0.2s;
     }
 
     .markdown-section a:hover {
-      color: var(--zen-gold-dark);
+      color: var(--zen-gold-dark) !important;
     }
 
     /* Inline code */
@@ -251,22 +251,22 @@
       border-radius: 0 8px 8px 0;
       margin: 1.5rem 0;
       padding: 1rem 1.5rem;
-      color: var(--zen-text-muted);
+      color: var(--zen-text-muted) !important;
     }
 
     .markdown-section blockquote p {
       margin: 0;
-      color: var(--zen-text-muted);
+      color: var(--zen-text-muted) !important;
     }
 
     /* Emphasis */
     .markdown-section em {
-      color: var(--zen-gold-dark);
+      color: var(--zen-gold-dark) !important;
       font-style: italic;
     }
 
     .markdown-section strong {
-      color: var(--zen-text);
+      color: var(--zen-text) !important;
       font-weight: 600;
     }
 
