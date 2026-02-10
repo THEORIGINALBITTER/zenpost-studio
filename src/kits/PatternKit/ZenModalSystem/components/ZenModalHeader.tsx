@@ -27,7 +27,9 @@ export const ZenModalHeader = ({
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      minHeight: '60px'
+      minHeight: '60px',
+
+
     }}>
       {/* Close Button oben links - nur wenn onClose übergeben wird */}
       {onClose && (

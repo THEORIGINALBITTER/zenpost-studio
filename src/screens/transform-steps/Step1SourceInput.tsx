@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave } from '@fortawesome/free-solid-svg-icons';
+
+import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import { ZenRoughButton, ZenModal } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenModalHeader } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalHeader';
@@ -11,7 +13,7 @@ import { ZenBlockEditor } from '../../kits/PatternKit/ZenBlockEditor';
 import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
 import { convertFile, detectFormatFromFilename } from '../../utils/fileConverter';
 import rough from 'roughjs/bin/rough';
-import type { EditorSettings } from '../../services/editorSettingsService';
+import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
 
 // Platform display info for tabs
@@ -57,6 +59,7 @@ interface Step1SourceInputProps {
   dirtyDocTabs?: Record<string, boolean>;
   onDocTabChange?: (tabId: string) => void;
   onCloseDocTab?: (tabId: string) => void;
+  projectPath?: string | null;
 }
 
 const EXTERNAL_DOCS_URL =
@@ -222,11 +225,25 @@ export const Step1SourceInput = ({
   dirtyDocTabs = {},
   onDocTabChange,
   onCloseDocTab,
+  projectPath,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
+
+  const updateEditorTheme = (nextTheme: 'dark' | 'light') => {
+    if (typeof window === 'undefined') return;
+    const nextSettings = {
+      ...defaultEditorSettings,
+      ...editorSettings,
+      theme: nextTheme,
+    };
+    localStorage.setItem('zenpost_editor_settings', JSON.stringify(nextSettings));
+    window.dispatchEvent(
+      new CustomEvent('zen-editor-settings-updated', { detail: nextSettings })
+    );
+  };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -319,31 +336,40 @@ export const Step1SourceInput = ({
   const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6">
+    <div className="flex-1 flex flex-col items-center justify-center pt-[50px]">
       <div className="flex flex-col items-center w-3/4 max-w-3xl">
         {/* Document Title Header - like Doc Studio */}
         {showTitleHeader && (
-          <div className="w-full mb-4">
-            <h2 className="font-mono text-[16px] text-[#e5e5e5] mb-1">
-              {displayFileName}
-            </h2>
-            <p className="font-mono text-[11px] text-[#777]">Bearbeiten und speichern</p>
+          <div className="w-full pl-[1px]">
+            <p className="font-mono fontWeight-[200] text-[10px] text-[#888] mb-1" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
+               <FontAwesomeIcon
+                 icon={faFolderOpen}
+                 style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: projectPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
+                 onClick={() => projectPath && revealItemInDir(projectPath)}
+                 onMouseEnter={(e) => { if (projectPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
+                 onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+               />
+               {projectPath ? `${projectPath}/` : ''}{displayFileName}
+            </p>
+          
           </div>
         )}
 
         {/* Doc Tabs - like Doc Studio */}
         {docTabs.length > 0 && (
-          <div className="w-full" style={{ marginBottom: '-1px' }}>
+          <div className="w-full" style={{ marginBottom: '-19px', position: 'relative' }}>
             <div
+              className="zen-no-scrollbar"
               style={{
                 display: 'flex',
                 gap: '8px',
-                padding: '8px',
-                backgroundColor: '#1F1F1F',
+                marginBottom: '3px',
+                padding: '1px',
+                backgroundColor: 'transparent',
                 borderRadius: '12px 12px 0 0',
-                border: '1px solid #AC8E66',
                 borderBottom: 'none',
-                flexWrap: 'wrap',
+                flexWrap: 'nowrap',
+                overflowX: 'auto',
               }}
             >
               {docTabs.map((tab) => {
@@ -352,36 +378,55 @@ export const Step1SourceInput = ({
                 return (
                   <button
                     key={tab.id}
+                    ref={(el) => {
+                      if (isActive && el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                      }
+                    }}
                     onClick={() => onDocTabChange?.(tab.id)}
                     style={{
-                      flex: '1 1 140px',
+                      marginBottom: '12px',
+                      flex: '0 0 auto',
                       padding: '10px 16px',
-                      backgroundColor: isActive ? '#AC8E66' : 'transparent',
-                      border: isActive ? 'none' : '1px solid #3A3A3A',
-                      borderRadius: '8px',
+                      backgroundColor: '#151515',
+                      border: isActive ? '1px solid #AC8E66' : '1px dotted #777',
+                      borderRadius: '8px 8px 0px 0px',
+                      borderBottom: 'none',
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '12px',
-                      fontWeight: isActive ? '600' : '400',
-                      color: isActive ? '#1A1A1A' : '#999',
+                      fontSize: isActive ? '10px' : '9px',
+                      fontWeight: isActive ? '200' : '400',
+                      color: isActive ? '#AC8E66' : '#999',
                       transition: 'all 0.2s',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '8px',
                     }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = '#AC8E66';
+                        e.currentTarget.style.borderColor = '#AC8E66';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = '#999';
+                        e.currentTarget.style.borderColor = '#777';
+                      }
+                    }}
                   >
-                    {isDirty ? <span style={{ color: isActive ? '#1A1A1A' : '#AC8E66' }}>•</span> : null}
-                    <span>{tab.title}</span>
+                    {isDirty ? <span style={{ color: isActive ? '#AC8E66' : '#AC8E66' }}>•</span> : null}
+                    <span style={{ whiteSpace: 'nowrap' }}>{tab.title}</span>
                     <span
                       onClick={(event) => {
                         event.stopPropagation();
                         onCloseDocTab?.(tab.id);
                       }}
                       style={{
-                        marginLeft: '6px',
+                        marginLeft: 'auto',
                         fontSize: '12px',
-                        color: isActive ? '#1A1A1A' : '#777',
+                        color: isActive ? '#AC8E66' : '#777',
                         opacity: 0.8,
                       }}
                     >
@@ -403,7 +448,11 @@ export const Step1SourceInput = ({
         />
 
         {/* Editor - Block oder Markdown */}
-        <div className="w-full mb-4"
+        <div className="
+        w-full 
+        mb-4
+        
+        "
          style={{ paddingTop: docTabs.length > 0 ? 0 : 10, marginTop: docTabs.length > 0 ? 0 : 20 }}
         >
           {editTabs.length > 1 && (
@@ -451,7 +500,7 @@ export const Step1SourceInput = ({
               </div>
             </div>
           )}
-          <div style={{ position: 'relative', overflow: 'visible' }}>
+          <div style={{ position: 'relative', zIndex: '1', overflow: 'visible' }}>
             {editorType === "block" ? (
               <ZenBlockEditor
                 value={sourceContent}
@@ -461,6 +510,7 @@ export const Step1SourceInput = ({
                 fontSize={editorSettings?.fontSize}
                 wrapLines={editorSettings?.wrapLines}
                 showLineNumbers={editorSettings?.showLineNumbers}
+                theme={editorSettings?.theme ?? 'dark'}
               />
             ) : (
               <ZenMarkdownEditor
@@ -469,41 +519,122 @@ export const Step1SourceInput = ({
                 placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
                 height="calc(100vh - 340px)"
                 showLineNumbers={editorSettings?.showLineNumbers}
+                theme={editorSettings?.theme ?? 'dark'}
               />
             )}
            {showDockedEditorToggle && (
-  <button
-    onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
-    style={{
-      position: "absolute",
+  <>
+ 
+    <button
+      onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
+      style={{
+        position: "absolute",
 
-      // ✅ immer an der rechten Kante des Editors
-      left: "100%",
-      top: "0%",
+        // ✅ immer an der rechten Kante des Editors
+        left: "100%",
+        top: "0%",
 
-      // ✅ Abstand nach außen + perfekte Zentrierung + Rotation
-      transform: "translatex(10%) rotate(90deg)",
-      transformOrigin: "left center",
-
-      padding: "8px 12px",
-      backgroundColor: "#1A1A1A",
-      border: "1px solid #AC8E66",
-      borderRadius: "8px",
-      cursor: "pointer",
-      fontFamily: "IBM Plex Mono, monospace",
-      fontSize: "11px",
-      color: "#e5e5e5",
-      display: "flex",
-      alignItems: "center",
-      gap: "6px",
-      boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
-      zIndex: 50,
-      whiteSpace: "nowrap",
-    }}
-  >
-    <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: "#AC8E66" }} />
-    {editorType === "block" ? "Markdown Editor" : "Block Editor"}
-  </button>
+        // ✅ Abstand nach außen + perfekte Zentrierung + Rotation
+        transform: "translatex(10%) rotate(90deg)",
+        transformOrigin: "left center",
+ 
+        padding: "8px 12px",
+        backgroundColor: "#121212",
+        border: "1px solid #AC8E66",
+        borderRadius: '8px 8px 0px 0px',        
+        cursor: "pointer",
+        fontFamily: "IBM Plex Mono, monospace",
+        fontSize: "11px",
+        color: "#aaa",
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+        zIndex: -1,
+        whiteSpace: "nowrap",
+        minWidth: "140px",
+        justifyContent: "center",
+      }}
+    >
+      <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: "#AC8E66" }} />
+      {editorType === "block" ? "Markdown Editor" : "Block Editor"}
+    </button>
+    <div
+      style={{
+        position: "absolute",
+        left: "100%",
+        top: "90px",
+        transform: "translatex(10%) translateY(200%) rotate(90deg)",
+        transformOrigin: "left center",
+        zIndex: -1,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          
+          alignItems: "center",
+          gap: "6px",
+          padding: "4px 6px",
+          backgroundColor: "#0A0A0A",
+          border: "1px solid #AC8E66",
+            borderRadius: '8px 8px 0px 0px',
+          fontFamily: "IBM Plex Mono, monospace",
+          fontSize: "10px",
+          color: "#aaa",
+          boxShadow: "0 6px 16px rgba(0,0,0,0.35)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <button
+          onClick={() => updateEditorTheme('dark')}
+          style={{
+            padding: "5px 10px",
+            borderRadius: "4px",
+            border: editorSettings?.theme === 'dark' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
+            backgroundColor: editorSettings?.theme === 'dark' ? "#1a1a1a" : "transparent",
+            color: "#aaa",
+            cursor: "pointer",
+            fontFamily: "IBM Plex Mono, monospace",
+            fontSize: "9px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          <FontAwesomeIcon
+            icon={faMoon}
+            style={{ color: editorSettings?.theme === 'dark' ? '#AC8E66' : '#777' }}
+          />
+          Dark
+        </button>
+        <button
+          onClick={() => updateEditorTheme('light')}
+          style={{
+            zIndex: 0,
+            padding: "3px 10px",
+            borderRadius: "4px",
+            border: editorSettings?.theme === 'light' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
+            backgroundColor: editorSettings?.theme === 'light' ? "#D9D4C5" : "transparent",
+            color: editorSettings?.theme === 'light' ? "#1a1a1a" : "#e5e5e5",
+            cursor: "pointer",
+            fontFamily: "IBM Plex Mono, monospace",
+            fontSize: "9px",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+          }}
+        >
+          <FontAwesomeIcon
+            icon={faSun}
+            style={{ color: editorSettings?.theme === 'light' ? '#AC8E66' : '#777' }}
+          />
+          Light
+        </button>
+      </div>
+    </div>
+   
+  </>
 )}
 
           </div>
@@ -648,7 +779,7 @@ export const Step1SourceInput = ({
             display: 'flex',
             flexDirection: 'column',
             width: '100%',
-            minHeight: '500px',
+            minHeight: '25vh',
             maxHeight: '80vh',
           }}
         >
@@ -777,7 +908,7 @@ export const Step1SourceInput = ({
                   />
                 }
                 onClick={() => setShowPagesHelp(false)}
-                variant="active"
+                variant="default"
               />
             </div>
           </ZenModalFooter>
@@ -883,7 +1014,7 @@ export const Step1SourceInput = ({
                 setShowTipModal(false);
                 onOpenConverter?.();
               }}
-              variant="active"
+              variant="default"
             />
           </div>
         </div>

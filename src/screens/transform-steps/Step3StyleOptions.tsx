@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMagicWandSparkles, faArrowLeft, faRocket, faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faArrowLeft, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
@@ -13,18 +13,22 @@ interface Step3StyleOptionsProps {
   selectedPlatforms?: ContentPlatform[];
   platformLabels?: string[];
   multiPlatformMode?: boolean;
+
   tone: ContentTone;
   length: ContentLength;
   audience: ContentAudience;
   targetLanguage?: TargetLanguage;
+
   onToneChange: (tone: ContentTone) => void;
   onLengthChange: (length: ContentLength) => void;
   onAudienceChange: (audience: ContentAudience) => void;
   onTargetLanguageChange?: (language: TargetLanguage) => void;
+
   onBack: () => void;
   onBackToEditor: () => void;
   onTransform: () => void;
   onPostDirectly: () => void;
+
   isTransforming: boolean;
   isPosting: boolean;
   error: string | null;
@@ -61,27 +65,34 @@ const languageOptions = [
   { value: '한국어', label: '한국어' },
 ];
 
+function join(...c: Array<string | false | null | undefined>) {
+  return c.filter(Boolean).join(' ');
+}
+
 export const Step3StyleOptions = ({
   platformLabel,
   platformLabels,
   multiPlatformMode,
+
   tone,
   length,
   audience,
   targetLanguage,
+
   onToneChange,
   onLengthChange,
   onAudienceChange,
   onTargetLanguageChange,
+
   onBack: _onBack,
   onBackToEditor,
-  onTransform,
-  onPostDirectly,
-  isTransforming,
-  isPosting,
+  onTransform: _onTransform,
+  onPostDirectly: _onPostDirectly,
+
+  isTransforming: _isTransforming,
+  isPosting: _isPosting,
   error,
 }: Step3StyleOptionsProps) => {
-  // Track which options have been changed by the user
   const [changedOptions, setChangedOptions] = useState<Set<string>>(new Set());
 
   const markAsChanged = (option: string) => {
@@ -90,215 +101,174 @@ export const Step3StyleOptions = ({
 
   const isChanged = (option: string) => changedOptions.has(option);
 
-  // Build the display label for platforms
-  const displayPlatformLabel = multiPlatformMode && platformLabels && platformLabels.length > 0
-    ? platformLabels.join(', ')
-    : platformLabel;
+  const displayPlatformLabel =
+    multiPlatformMode && platformLabels && platformLabels.length > 0
+      ? platformLabels.join(', ')
+      : platformLabel;
+
+  const Card = ({
+    optionKey,
+    title,
+    children,
+  }: {
+    optionKey: 'tone' | 'length' | 'audience' | 'language';
+    title: string;
+    children: React.ReactNode;
+  }) => {
+    const changed = isChanged(optionKey);
+
+    return (
+      <div className={join('zen-step-card', changed && 'zen-step-card--changed')}>
+        <div className="zen-step-indicator">
+          {changed ? (
+            <div className="zen-step-check">
+              <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10, color: '#141414' }} />
+            </div>
+          ) : (
+            <div className="zen-step-dot" />
+          )}
+        </div>
+
+        <p className="zen-step-card-title">{title}</p>
+
+        <div className="zen-step-card-body">
+          {children}
+        </div>
+      </div>
+    );
+  };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6">
+    <div
+      style={{
+        flex: 1,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingLeft: 24,
+        paddingRight: 24,
+      }}
+    >
       {/* Close Button */}
-      <div style={{ position: 'absolute', top: '120px', right: '40px' }}>
+      <div style={{ position: 'absolute', top: 120, right: 40 }}>
         <ZenCloseButton onClick={onBackToEditor} />
       </div>
 
-      <div className="flex flex-col items-center w-full max-w-4xl">
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 1100 }}>
         {/* Title */}
-        <div className="mb-4">
-          <h2 className="font-mono text-3xl text-center font-normal">
-            <span className="text-[#AC8E66]">Step 03:</span>
-            <span className="text-[#fef3c7]"> {displayPlatformLabel}</span>
-          </h2>
+        <div style={{ marginBottom: 14 }}>
+          <p className="zen-step-headline">
+            <span style={{ color: '#AC8E66' }}>KI Einstellungen:</span>
+            <span style={{ color: '#dbd9d5' }}> {displayPlatformLabel}</span>
+             <div style={{ textAlign: 'center', maxWidth: 720, marginTop: 18 }}>
+          <p
+            style={{
+              color: '#9a9a9a',
+              fontFamily:
+                'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+              fontSize: 11,
+              lineHeight: 1.7,
+            }}
+          >
+            Transformiere den Content mit AI oder poste ihn direkt auf die gewählte Plattform.
+          </p>
+        </div>
+          </p>
+         
         </div>
 
         {/* Subtitle */}
-        <div className="mb-12">
-          <ZenSubtitle>
-            Verfeinere die Transformation mit deinen Präferenzen
-          </ZenSubtitle>
+        <div style={{ marginBottom: 36 }}>
+          <ZenSubtitle>Tonaliät und Zielegruppe der Transformation mit deinen Präferenzen</ZenSubtitle>
         </div>
 
-        {/* Options Grid - Same layout as Step 2 */}
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '24px',
-            width: '90%',
-            marginTop: '20px',
-            marginBottom: '40px',
-            justifyContent: 'center',
-          }}
-        >
-          {/* Tonalität Card */}
-          <div
-            className={`relative rounded-[20px] border-2 transition-all ${
-              isChanged('tone')
-                ? 'border-[#AC8E66] bg-[#2A2A2A]'
-                : 'border-[#3a3a3a] bg-[#1F1F1F]'
-            }`}
-            style={{
-              flex: '1 1 240px',
-              minWidth: '240px',
-              maxWidth: '280px',
-              padding: '32px 24px',
-            }}
-          >
-            {/* Indicator - small dot or checkmark */}
-            <div className="absolute top-4 left-4">
-              {isChanged('tone') ? (
-                <div className="w-5 h-5 rounded border-2 border-[#AC8E66] bg-[#AC8E66] flex items-center justify-center">
-                  <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
-                </div>
-              ) : (
-                <div className="w-3 h-3 rounded-full bg-[#3a3a3a]" />
-              )}
-            </div>
+        {/* Step2-like 2x2 card layout */}
+        <div className="zen-step-grid">
+          <Card optionKey="tone" title="Tonalität">
+            <ZenDropdown
+              label="" /* Titel kommt aus Card */
+              value={tone}
+              onChange={(value) => {
+                markAsChanged('tone');
+                onToneChange(value as ContentTone);
+              }}
+              options={toneOptions}
+            />
+          </Card>
 
-            {/* Content - Centered */}
-            <div className="flex flex-col items-center justify-center mt-4">
-              <ZenDropdown
-                label="Tonalität"
-                value={tone}
-                onChange={(value) => {
-                  markAsChanged('tone');
-                  onToneChange(value as ContentTone);
-                }}
-                options={toneOptions}
-              />
-            </div>
-          </div>
+          <Card optionKey="length" title="Länge">
+            <ZenDropdown
+              label=""
+              value={length}
+              onChange={(value) => {
+                markAsChanged('length');
+                onLengthChange(value as ContentLength);
+              }}
+              options={lengthOptions}
+            />
+          </Card>
 
-          {/* Länge Card */}
-          <div
-            className={`relative rounded-[20px] border-2 transition-all ${
-              isChanged('length')
-                ? 'border-[#AC8E66] bg-[#2A2A2A]'
-                : 'border-[#3a3a3a] bg-[#1F1F1F]'
-            }`}
-            style={{
-              flex: '1 1 240px',
-              minWidth: '240px',
-              maxWidth: '280px',
-              padding: '32px 24px',
-            }}
-          >
-            {/* Indicator */}
-            <div className="absolute top-4 left-4">
-              {isChanged('length') ? (
-                <div className="w-5 h-5 rounded border-2 border-[#AC8E66] bg-[#AC8E66] flex items-center justify-center">
-                  <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
-                </div>
-              ) : (
-                <div className="w-3 h-3 rounded-full bg-[#3a3a3a]" />
-              )}
-            </div>
+          <Card optionKey="audience" title="Zielgruppe">
+            <ZenDropdown
+              label=""
+              value={audience}
+              onChange={(value) => {
+                markAsChanged('audience');
+                onAudienceChange(value as ContentAudience);
+              }}
+              options={audienceOptions}
+            />
+          </Card>
 
-            {/* Content - Centered */}
-            <div className="flex flex-col items-center justify-center mt-4">
-              <ZenDropdown
-                label="Länge"
-                value={length}
-                onChange={(value) => {
-                  markAsChanged('length');
-                  onLengthChange(value as ContentLength);
-                }}
-                options={lengthOptions}
-              />
-            </div>
-          </div>
-
-          {/* Zielgruppe Card */}
-          <div
-            className={`relative rounded-[20px] border-2 transition-all ${
-              isChanged('audience')
-                ? 'border-[#AC8E66] bg-[#2A2A2A]'
-                : 'border-[#3a3a3a] bg-[#1F1F1F]'
-            }`}
-            style={{
-              flex: '1 1 240px',
-              minWidth: '240px',
-              maxWidth: '280px',
-              padding: '32px 24px',
-            }}
-          >
-            {/* Indicator */}
-            <div className="absolute top-4 left-4">
-              {isChanged('audience') ? (
-                <div className="w-5 h-5 rounded border-2 border-[#AC8E66] bg-[#AC8E66] flex items-center justify-center">
-                  <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
-                </div>
-              ) : (
-                <div className="w-3 h-3 rounded-full bg-[#3a3a3a]" />
-              )}
-            </div>
-
-            {/* Content - Centered */}
-            <div className="flex flex-col items-center justify-center mt-4">
-              <ZenDropdown
-                label="Zielgruppe"
-                value={audience}
-                onChange={(value) => {
-                  markAsChanged('audience');
-                  onAudienceChange(value as ContentAudience);
-                }}
-                options={audienceOptions}
-              />
-            </div>
-          </div>
-
-          {/* Sprache Card Rounded Card  */}
-          <div
-            className={`relative rounded-[20px] border-2 transition-all ${
-              isChanged('language')
-                ? 'border-[#AC8E66] bg-[#2A2A2A]'
-                : 'border-[#3a3a3a] bg-[#1F1F1F]'
-            }`}
-            style={{
-              flex: '1 1 240px',
-              minWidth: '240px',
-              maxWidth: '280px',
-              padding: '32px 24px',
-            }}
-          >
-            {/* Indicator */}
-            <div className="absolute top-4 left-4">
-              {isChanged('language') ? (
-                <div className="w-5 h-5 rounded border-2 border-[#AC8E66] bg-[#AC8E66] flex items-center justify-center">
-                  <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
-                </div>
-              ) : (
-                <div className="w-3 h-3 rounded-full bg-[#3a3a3a]" />
-              )}
-            </div>
-
-            {/* Content - Centered */}
-            <div className="flex flex-col items-center justify-center margin-top-[10px]">
-              <ZenDropdown
-                label="Sprache"
-                value={targetLanguage || 'deutsch'}
-                onChange={(value) => {
-                  markAsChanged('language');
-                  onTargetLanguageChange?.(value as TargetLanguage);
-                }}
-                options={languageOptions}
-              />
-            </div>
-          </div>
+          <Card optionKey="language" title="Sprache">
+            <ZenDropdown
+              label=""
+              value={targetLanguage || 'deutsch'}
+              onChange={(value) => {
+                markAsChanged('language');
+                onTargetLanguageChange?.(value as TargetLanguage);
+              }}
+              options={languageOptions}
+            />
+          </Card>
         </div>
 
-        {/* Error Message */}
+        {/* Error */}
         {error && (
-          <div className="w-full max-w-2xl mb-6 p-4 rounded-lg border border-red-500 bg-red-500/10 text-center">
-            <p className="font-mono text-[12px] text-red-500">{error}</p>
+          <div
+            style={{
+              width: '100%',
+              maxWidth: 740,
+              marginTop: 24,
+              marginBottom: 18,
+              padding: 18,
+              borderRadius: 18,
+              border: '1px solid rgba(239,68,68,0.6)',
+              background: 'rgba(239,68,68,0.10)',
+              textAlign: 'center',
+              boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+            }}
+          >
+            <p
+              style={{
+                fontFamily:
+                  'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                fontSize: 12,
+                color: '#ff6b6b',
+              }}
+            >
+              {error}
+            </p>
+
             {(error.includes('kurz') ||
               error.includes('leer') ||
               error.includes('empty') ||
               error.includes('short')) && (
-              <div className="mt-[10px]">
+              <div style={{ marginTop: 12 }}>
                 <ZenRoughButton
                   label="Zurück weiter verfassen"
-                  icon={<FontAwesomeIcon icon={faArrowLeft} className="text-[#AC8E66]" />}
+                  icon={<FontAwesomeIcon icon={faArrowLeft} style={{ color: '#AC8E66' }} />}
                   onClick={onBackToEditor}
                   size="small"
                 />
@@ -307,30 +277,8 @@ export const Step3StyleOptions = ({
           </div>
         )}
 
-        {/* Info Text */}
-        <div className="text-center max-w-2xl mb-8" style={{ paddingLeft: '10px', paddingRight: '10px' }}>
-          <p className="text-[#777] font-mono text-[11px] max-w-2xl leading-relaxed">
-            Transformiere den Content mit AI oder poste ihn direkt auf die gewählte Plattform.
-          </p>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-4 mb-8">
-          <ZenRoughButton
-            label={isTransforming ? 'Transformiere...' : 'Transformieren'}
-            icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
-            onClick={onTransform}
-            disabled={isTransforming || isPosting}
-          />
-
-          <ZenRoughButton
-            label={isPosting ? 'Poste...' : 'Direkt Posten'}
-            icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
-            onClick={onPostDirectly}
-            disabled={isTransforming || isPosting}
-            variant="active"
-          />
-        </div>
+        {/* Info */}
+       
       </div>
     </div>
   );

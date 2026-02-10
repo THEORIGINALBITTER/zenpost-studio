@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { exists } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
+
+import { ZenThemeToggle } from './ZenThemeToggle';
 import { ZenSlider } from '../../components/ZenSlider';
 import { ZenRoughButton } from '../../components/ZenRoughButton';
 import {
@@ -10,6 +13,7 @@ import {
   saveEditorSettings,
   type EditorSettings,
 } from '../../../../../services/editorSettingsService';
+import { updateLastProjectPath } from '../../../../../services/appConfigService';
 
 const STORAGE_KEY = 'zenpost_editor_settings';
 
@@ -37,7 +41,7 @@ export const ZenEditorSettingsContent = () => {
     if (!projectPath) return;
     let isMounted = true;
     const loadSettings = async () => {
-      const settingsPath = getEditorSettingsPath(projectPath);
+      const settingsPath = await getEditorSettingsPath(projectPath);
       const hasSettingsFile = await exists(settingsPath);
       if (!hasSettingsFile) return;
       const loaded = await loadEditorSettings(projectPath);
@@ -75,6 +79,12 @@ export const ZenEditorSettingsContent = () => {
       if (typeof result === 'string') {
         localStorage.setItem('zenpost_last_project_path', result);
         setProjectPath(result);
+        if (isTauri()) {
+          await updateLastProjectPath(result);
+        }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('zenpost-project-path-updated', { detail: result }));
+        }
       }
     } catch (error) {
       console.error('[EditorSettings] Projektwahl fehlgeschlagen.', error);
@@ -89,16 +99,25 @@ export const ZenEditorSettingsContent = () => {
   };
 
   return (
+    <div className="w-full flex justify-center px-8 py-8">
+    <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 32px' }}>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#999' }}>
-          Projektordner:
+      
+
+    <ZenThemeToggle
+  theme={settings.theme}
+  onChange={(t) => setSettings((prev) => ({ ...prev, theme: t }))}
+/>
+
+
+            
+        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#555' }}>
+          Projektordner:  {projectPath ?? 'Kein Projekt gewaehlt'}
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5' }}>
-          {projectPath ?? 'Kein Projekt gewaehlt'}
-        </div>
+      
         {!projectPath && (
-          <div style={{ fontFamily: 'monospace', fontSize: '10px', color: '#777', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'monospace', fontSize: '10px', color: '#555', textAlign: 'center' }}>
             Hinweis: Einstellungen werden lokal gespeichert, bis ein Projektordner gesetzt ist.
           </div>
         )}
@@ -107,6 +126,12 @@ export const ZenEditorSettingsContent = () => {
           onClick={handleSelectProject}
         />
       </div>
+
+       <div className="border-b border-[0.7px] border-[#AC8E66]" ></div>
+        
+ 
+
+     
 
       <ZenSlider
         label="Schriftgroesse"
@@ -118,20 +143,31 @@ export const ZenEditorSettingsContent = () => {
         onChange={(value) => setSettings((prev) => ({ ...prev, fontSize: value }))}
       />
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+      
+
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: 12,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
         <label
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             padding: '8px 10px',
-            backgroundColor: '#0A0A0A',
+            backgroundColor: 'transparent',
             border: '1px solid #3A3A3A',
             borderRadius: '6px',
             cursor: 'pointer',
             fontFamily: 'monospace',
             fontSize: '11px',
-            color: '#e5e5e5',
+            color: '#555',
           }}
         >
           <input
@@ -155,19 +191,22 @@ export const ZenEditorSettingsContent = () => {
           }
         />
 
+
+       <div className="border-b border-[0.7px] border-[#AC8E66]" ></div>
+
         <label
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '10px',
             padding: '8px 10px',
-            backgroundColor: '#0A0A0A',
+            backgroundColor: 'transparent',
             border: '1px solid #3A3A3A',
             borderRadius: '6px',
             cursor: 'pointer',
             fontFamily: 'monospace',
             fontSize: '11px',
-            color: '#e5e5e5',
+            color: '#555',
           }}
         >
           <input
@@ -187,13 +226,13 @@ export const ZenEditorSettingsContent = () => {
             alignItems: 'center',
             gap: '10px',
             padding: '8px 10px',
-            backgroundColor: '#0A0A0A',
+            backgroundColor: 'transparent',
             border: '1px solid #3A3A3A',
             borderRadius: '6px',
             cursor: 'pointer',
             fontFamily: 'monospace',
             fontSize: '11px',
-            color: '#e5e5e5',
+            color: '#555',
           }}
         >
           <input
@@ -206,7 +245,11 @@ export const ZenEditorSettingsContent = () => {
           />
           Zeilennummern anzeigen
         </label>
+
+     
       </div>
+    </div>
+    </div>
     </div>
   );
 };

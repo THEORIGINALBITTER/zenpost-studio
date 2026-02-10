@@ -1,0 +1,37 @@
+/**
+ * Doc Studio Templates
+ * Zentrale Export-Datei für alle Dokumentations-Templates
+ */
+
+import type { DocTemplate } from '../types';
+import { readmeTemplate } from './readme.template';
+import { changelogTemplate } from './changelog.template';
+import { apiDocsTemplate } from './api-docs.template';
+import { contributingTemplate } from './contributing.template';
+import { dataRoomTemplate } from './data-room.template';
+
+// Re-export einzelne Templates
+export { readmeTemplate } from './readme.template';
+export { changelogTemplate } from './changelog.template';
+export { apiDocsTemplate } from './api-docs.template';
+export { contributingTemplate } from './contributing.template';
+export { dataRoomTemplate } from './data-room.template';
+
+// Template-Map für schnellen Zugriff
+const templates: Record<Exclude<DocTemplate, 'draft'>, string> = {
+  readme: readmeTemplate,
+  changelog: changelogTemplate,
+  'api-docs': apiDocsTemplate,
+  contributing: contributingTemplate,
+  'data-room': dataRoomTemplate,
+};
+
+/**
+ * Gibt das Template für einen bestimmten Dokumentationstyp zurück
+ */
+export function getDocTemplate(template: DocTemplate): string {
+  if (template === 'draft') {
+    return '';
+  }
+  return templates[template] || '';
+}

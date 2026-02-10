@@ -1,4 +1,7 @@
 import { exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { getProjectDataDir } from './appConfigService';
+
+export type EditorTheme = 'dark' | 'light';
 
 export interface EditorSettings {
   fontSize: number;
@@ -6,6 +9,7 @@ export interface EditorSettings {
   autoSaveIntervalSec: number;
   wrapLines: boolean;
   showLineNumbers: boolean;
+  theme: EditorTheme;
 }
 
 export const defaultEditorSettings: EditorSettings = {
@@ -14,28 +18,39 @@ export const defaultEditorSettings: EditorSettings = {
   autoSaveIntervalSec: 30,
   wrapLines: true,
   showLineNumbers: true,
+  theme: 'light',
 };
 
-const EDITOR_DIR = '.zenpost/editor';
-const SETTINGS_FILE = `${EDITOR_DIR}/settings.json`;
-const AUTOSAVE_FILE = `${EDITOR_DIR}/autosave.md`;
+const EDITOR_DIR = 'editor';
+const SETTINGS_FILE = 'settings.json';
+const AUTOSAVE_FILE = 'autosave.md';
 
-const ensureEditorDir = async (projectPath: string) => {
-  const fullPath = `${projectPath}/${EDITOR_DIR}`;
-  if (!(await exists(fullPath))) {
-    await mkdir(fullPath, { recursive: true });
+const getEditorRoot = async (projectPath: string): Promise<string> => {
+  const projectDataDir = await getProjectDataDir(projectPath);
+  return `${projectDataDir}/${EDITOR_DIR}`;
+};
+
+const ensureEditorDir = async (projectPath: string): Promise<string> => {
+  const editorRoot = await getEditorRoot(projectPath);
+  if (!(await exists(editorRoot))) {
+    await mkdir(editorRoot, { recursive: true });
   }
+  return editorRoot;
 };
 
-export const getEditorSettingsPath = (projectPath: string) =>
-  `${projectPath}/${SETTINGS_FILE}`;
+export const getEditorSettingsPath = async (projectPath: string): Promise<string> => {
+  const editorRoot = await getEditorRoot(projectPath);
+  return `${editorRoot}/${SETTINGS_FILE}`;
+};
 
-export const getEditorAutosavePath = (projectPath: string) =>
-  `${projectPath}/${AUTOSAVE_FILE}`;
+export const getEditorAutosavePath = async (projectPath: string): Promise<string> => {
+  const editorRoot = await getEditorRoot(projectPath);
+  return `${editorRoot}/${AUTOSAVE_FILE}`;
+};
 
 export const loadEditorSettings = async (projectPath: string): Promise<EditorSettings> => {
   try {
-    const settingsPath = getEditorSettingsPath(projectPath);
+    const settingsPath = await getEditorSettingsPath(projectPath);
     if (!(await exists(settingsPath))) {
       return { ...defaultEditorSettings };
     }
@@ -53,7 +68,7 @@ export const saveEditorSettings = async (
   settings: EditorSettings
 ): Promise<void> => {
   await ensureEditorDir(projectPath);
-  const settingsPath = getEditorSettingsPath(projectPath);
+  const settingsPath = await getEditorSettingsPath(projectPath);
   await writeTextFile(settingsPath, JSON.stringify(settings, null, 2));
 };
 
@@ -62,7 +77,7 @@ export const saveEditorAutosave = async (
   content: string
 ): Promise<string> => {
   await ensureEditorDir(projectPath);
-  const filePath = getEditorAutosavePath(projectPath);
+  const filePath = await getEditorAutosavePath(projectPath);
   await writeTextFile(filePath, content);
   return filePath;
 };

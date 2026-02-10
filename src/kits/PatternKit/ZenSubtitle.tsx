@@ -7,7 +7,9 @@ interface ZenSubtitleProps {
 }
 export const ZenSubtitle = ({ children, className = "" }: ZenSubtitleProps) => {
   return (
-    <p className={`font-mono text-[11px] text-[#fef3c7 ] tracking-wider leading-relaxed ${className}`}>
+    <p className={`font-mono text-[11px] text-[#999] 
+    tracking-wider 
+    leading-relaxed ${className}`}>
       {children}
       <span></span>
     </p>

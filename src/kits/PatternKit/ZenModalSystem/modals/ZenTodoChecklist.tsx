@@ -1,16 +1,24 @@
 import { useEffect, useMemo, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faBook, faCirclePlus, faCircleQuestion,faGlobe } from '@fortawesome/free-solid-svg-icons';
-import { faGithub } from '@fortawesome/free-brands-svg-icons';
+import { faBook, faCirclePlus, faCircleQuestion, faGlobe } from '@fortawesome/free-solid-svg-icons';
+import {
+  faLinkedin,
+  faReddit,
+  faGithub,
+  faDev,
+  faMedium,
+  faHashnode,
+  faTwitter,
+} from '@fortawesome/free-brands-svg-icons';
 import type { ScheduledPost, SocialPlatform } from '../../../../types/scheduling';
 import {
-  formatChecklistAsCsv,
   formatChecklistAsMarkdown,
+  formatChecklistAsXlsx,
   loadChecklist,
   saveChecklist,
   type ChecklistItem,
@@ -23,14 +31,14 @@ interface ZenTodoChecklistProps {
   projectPath?: string | null;
 }
 
-const PLATFORM_INFO: Record<SocialPlatform, { emoji: string; name: string }> = {
-  linkedin: { emoji: '💼', name: 'LinkedIn' },
-  reddit: { emoji: '🤖', name: 'Reddit' },
-  github: { emoji: '⚙️', name: 'GitHub' },
-  devto: { emoji: '👨‍💻', name: 'Dev.to' },
-  medium: { emoji: '📝', name: 'Medium' },
-  hashnode: { emoji: '🔷', name: 'Hashnode' },
-  twitter: { emoji: '🐦', name: 'Twitter/X' },
+const PLATFORM_INFO: Record<SocialPlatform, { icon: any; name: string; color: string }> = {
+  linkedin: { icon: faLinkedin, name: 'LinkedIn', color: '#0077B5' },
+  reddit: { icon: faReddit, name: 'Reddit', color: '#FF4500' },
+  github: { icon: faGithub, name: 'GitHub', color: '#181717' },
+  devto: { icon: faDev, name: 'Dev.to', color: '#0A0A0A' },
+  medium: { icon: faMedium, name: 'Medium', color: '#00AB6C' },
+  hashnode: { icon: faHashnode, name: 'Hashnode', color: '#2962FF' },
+  twitter: { icon: faTwitter, name: 'Twitter/X', color: '#1DA1F2' },
 };
 
 const DEFAULT_TASKS = [
@@ -156,9 +164,10 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
                 style={{
                   fontFamily: 'monospace',
                   fontSize: '12px',
-                  color: '#e5e5e5',
+                  color: '#dbd9d5',
                   margin: 0,
                   marginBottom: '2px',
+                  fontWeight: 'normal'
                 }}
               >
                 Workflow Fortschritt
@@ -232,7 +241,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
               </div>
             </div>
             <div style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontFamily: 'monospace', fontSize: '16px', color: '#e5e5e5', fontWeight: 'bold' }}>
+              <div style={{ fontFamily: 'monospace', fontSize: '16px', color: '#dbd9d5', fontWeight: 'bold' }}>
                 {scheduledPosts.length}
               </div>
               <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777' }}>
@@ -265,7 +274,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
             style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: '#e5e5e5',
+              color: '#dbd9d5',
               margin: 0,
               marginBottom: '10px',
             }}
@@ -294,8 +303,8 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
                     gap: '6px',
                   }}
                 >
-                  <span style={{ fontSize: '14px' }}>{info.emoji}</span>
-                  <span style={{ fontFamily: 'monospace', fontSize: '9px', color: '#e5e5e5' }}>
+                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '14px', color: '#AC8E66' }} />
+                  <span style={{ fontFamily: 'monospace', fontSize: '9px', color: '#dbd9d5' }}>
                     {info.name}
                   </span>
                   {post.status === 'scheduled' && (
@@ -317,7 +326,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
             style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: '#e5e5e5',
+              color: '#dbd9d5',
               margin: 0,
               marginBottom: '10px',
             }}
@@ -367,7 +376,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
                     style={{
                       fontFamily: 'monospace',
                       fontSize: '10px',
-                      color: isCompleted ? '#777' : '#e5e5e5',
+                      color: isCompleted ? '#777' : '#dbd9d5',
                       textDecoration: isCompleted ? 'line-through' : 'none',
                       flex: 1,
                     }}
@@ -395,7 +404,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
             style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: '#e5e5e5',
+              color: '#dbd9d5',
               margin: 0,
               marginBottom: '10px',
               display: 'flex',
@@ -419,7 +428,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
                 backgroundColor: '#0A0A0A',
                 border: '1px solid #3A3A3A',
                 borderRadius: '4px',
-                color: '#e5e5e5',
+                color: '#dbd9d5',
                 fontFamily: 'monospace',
                 fontSize: '10px',
               }}
@@ -457,7 +466,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
             style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: '#e5e5e5',
+              color: '#dbd9d5',
               margin: 0,
               marginBottom: '10px',
             }}
@@ -488,18 +497,26 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
               }}
             />
             <ZenRoughButton
-              label="CSV"
+              label=" Excel Numbers (.xlsx)"
               onClick={async () => {
-                const content = formatChecklistAsCsv(checklistItems);
-                const filename = 'zenpost-checklist.csv';
+                const buffer = await formatChecklistAsXlsx(checklistItems, 'zenpost-checklist');
+                const filename = 'zenpost-checklist.xlsx';
                 if (isTauri()) {
                   const filePath = await save({
                     defaultPath: filename,
-                    filters: [{ name: 'CSV', extensions: ['csv'] }],
+                    filters: [{ name: 'Excel', extensions: ['xlsx'] }],
                   });
-                  if (filePath) await writeTextFile(filePath, content);
+                  if (filePath) {
+                    const normalizedPath = filePath.toLowerCase().endsWith('.xlsx')
+                      ? filePath
+                      : `${filePath}.xlsx`;
+                    await writeFile(normalizedPath, buffer);
+                  }
                 } else if (typeof window !== 'undefined') {
-                  const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
+                  const arrayBuffer = buffer.slice().buffer as ArrayBuffer;
+                  const blob = new Blob([arrayBuffer], {
+                    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                  });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
                   a.href = url;
@@ -552,7 +569,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
             style={{
               fontFamily: 'monospace',
               fontSize: '11px',
-              color: '#e5e5e5',
+              color: '#dbd9d5',
               margin: 0,
               marginBottom: '10px',
             }}
@@ -594,7 +611,7 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
           <ZenRoughButton
             label="Schließen"
             onClick={onClose}
-            variant="active"
+            variant="default"
           />
         </div>
       </div>

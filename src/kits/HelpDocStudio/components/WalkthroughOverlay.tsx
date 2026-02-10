@@ -110,7 +110,7 @@ export const WalkthroughOverlay = ({
               animationData={currentStep.animationData}
               loop={true}
               autoplay={isPlaying}
-              speed={1}
+              speed={0.5}
             />
           ) : (
             // Placeholder wenn keine Animation vorhanden
@@ -141,7 +141,7 @@ export const WalkthroughOverlay = ({
                 </div>
                 <div>Animation Placeholder</div>
                 <div style={{ fontSize: '11px', color: '#444', marginTop: '8px' }}>
-                  Lottie-Animation wird hier angezeigt
+                
                 </div>
               </div>
             </div>

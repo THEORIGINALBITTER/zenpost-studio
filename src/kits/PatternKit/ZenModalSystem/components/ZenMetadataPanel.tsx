@@ -200,10 +200,10 @@ export const ZenMetadataPanel = ({
         {/* Autor */}
         <div style={{ marginBottom: "32px" }}>
           <SectionHeader
-            icon={faUser}
-            iconColor="#AC8E66"
-            title="Autor-Informationen"
-            titleColor="#fef3c7"
+            icon="null"
+            iconColor="#555"
+            title="Projekt Informationen"
+            titleColor="#555"
             borderColor="#AC8E66"
           />
 
@@ -230,7 +230,7 @@ export const ZenMetadataPanel = ({
           <SectionHeader
             icon={faBuilding}
             title="Unternehmen, Studio, Developer & Lizenz"
-            titleColor="#fef3c7"
+            titleColor="#555"
             borderColor="#AC8E66"
           />
 
@@ -291,7 +291,7 @@ export const ZenMetadataPanel = ({
           <SectionHeader
             icon={faGlobe}
             title="Links & URLs"
-            titleColor="#fef3c7"
+            titleColor="#555"
             borderColor="#AC8E66"
           />
 
@@ -329,7 +329,7 @@ export const ZenMetadataPanel = ({
             <SectionHeader
               icon={faBook}
               title="Dokument-Metadaten"
-              titleColor="#fef3c7"
+              titleColor="#555"
               borderColor="#AC8E66"
             />
 
@@ -363,7 +363,7 @@ export const ZenMetadataPanel = ({
               label="Speichern"
               icon={<FontAwesomeIcon icon={faSave} className="text-[#AC8E66]" />}
               onClick={() => onSave(formData)}
-              variant="active"
+              variant="default"
             />
           </div>
         </div>

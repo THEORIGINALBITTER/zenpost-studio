@@ -160,7 +160,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
         {/* Header with Crown */}
         <div
           style={{
-            background: 'linear-gradient(135deg, rgba(172, 142, 102, 0.2), rgba(172, 142, 102, 0.05))',
+            background: 'transparent',
             padding: '40px 32px',
             textAlign: 'center',
             borderBottom: '1px solid #3a3a3a',
@@ -176,7 +176,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+            
             }}
           >
             <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
@@ -200,14 +200,14 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
               alignItems: 'center',
               gap: 12,
               padding: '16px',
-              backgroundColor: 'rgba(172, 142, 102, 0.1)',
+              backgroundColor: '#0a0a0a',
               borderRadius: 12,
               marginBottom: 24,
             }}
           >
             <FontAwesomeIcon icon={faRocket} style={{ fontSize: 20, color: '#AC8E66' }} />
             <div>
-              <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#e5e5e5', margin: 0 }}>
+              <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#dbd9d5', margin: 0 }}>
                 Schalte <strong style={{ color: '#AC8E66' }}>{featureName}</strong> frei
               </p>
               <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '4px 0 0 0' }}>
@@ -342,7 +342,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
             fontFamily: 'monospace',
             fontSize: 11,
             cursor: 'pointer',
-            textDecoration: 'underline',
+           
           }}
         >
           Hier eingeben

@@ -26,7 +26,7 @@ export const WalkthroughModal = ({
     <ZenModal
       isOpen={isOpen}
       onClose={onClose}
-      size="xl"
+      size="large"
       showCloseButton={true}
     >
       <div

@@ -1,0 +1,478 @@
+import { useEffect, useMemo, useState } from "react";
+import { ZenModal } from "../components/ZenModal";
+import { ZenModalHeader } from "../components/ZenModalHeader";
+import { ZenModalFooter } from "../components/ZenModalFooter";
+import { ZenRoughButton } from "../components/ZenRoughButton";
+import { ZenMetadataPanel } from "../components/ZenMetadataPanel";
+import type { ProjectMetadata } from "./ZenMetadataModal";
+import { getPublishingPaths } from "../../../../services/publishingService";
+import type { ZenArticle } from "../../../../services/publishingService";
+import type { ScheduledPost } from "../../../../types/scheduling";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faArrowDownAZ } from "@fortawesome/free-solid-svg-icons";
+
+interface ZenContentStudioModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  projectPath: string | null;
+  recentArticles: ZenArticle[];
+  allFiles: { path: string; name: string }[];
+  scheduledPosts: ScheduledPost[];
+  activeTab: "project" | "recent";
+  onSelectProject: () => void;
+  onOpenArticle: (articleId: string) => void;
+  onOpenFile: (filePath: string) => void;
+  onEditScheduledPost?: (post: ScheduledPost) => void;
+  metadata: ProjectMetadata;
+  onSaveMetadata: (metadata: ProjectMetadata) => void;
+}
+
+export const ZenContentStudioModal = ({
+  isOpen,
+  onClose,
+  projectPath,
+  recentArticles: _recentArticles,
+  allFiles,
+  scheduledPosts,
+  activeTab,
+  onSelectProject,
+  onOpenArticle: _onOpenArticle,
+  onOpenFile,
+  onEditScheduledPost,
+  metadata,
+  onSaveMetadata,
+}: ZenContentStudioModalProps) => {
+  const [activePanel, setActivePanel] = useState<"project" | "all" | "metadata" | "planned" | "help">(
+    activeTab === "recent" ? "all" : "project"
+  );
+  const [fileSort, setFileSort] = useState<"asc" | "desc">("asc");
+  const projectName = projectPath
+    ? projectPath.split(/[\\/]/).filter(Boolean).pop() || "Projekt"
+    : "Kein Projekt gewaehlt";
+  const plannedPosts = scheduledPosts ?? [];
+  const plannedFiles = projectPath
+    ? plannedPosts.map((post) => ({
+        post,
+        path: `${getPublishingPaths(projectPath).posts}/${post.platform}-${post.id}.md`,
+      }))
+    : [];
+
+  useEffect(() => {
+    setActivePanel(activeTab === "recent" ? "all" : "project");
+  }, [activeTab]);
+
+  const sortedAllFiles = useMemo(() => {
+    const files = [...allFiles];
+    files.sort((a, b) => {
+      const compare = a.name.localeCompare(b.name, "de", {
+        numeric: true,
+        sensitivity: "base",
+      });
+      return fileSort === "asc" ? compare : -compare;
+    });
+    return files;
+  }, [allFiles, fileSort]);
+
+  return (
+    <ZenModal isOpen={isOpen} onClose={onClose} size="xxl">
+      <div
+        className="relative flex flex-col"
+        style={{ minHeight: "480px", height: "80vh" }}
+      >
+        <div className="px-[20px] pt-[  20px ] border-b border-[#AC8E66]">
+          <ZenModalHeader
+            title="Content Studio"
+            subtitle={
+              activePanel === "project"
+                ? "Projekt verwalten"
+                : activePanel === "metadata"
+                  ? "Projekt-Metadaten"
+                  : activePanel === "planned"
+                    ? "Geplante Posts"
+                  : activePanel === "help"
+                    ? "Hilfe"
+                    : "Dokumente"
+            }
+            titleColor="#AC8E66"
+            subtitleColor="#fef3c7"
+            titleSize="20px"
+            subtitleSize="12px"
+          />
+          <div className="mt-[20px]">
+          <div className="mt-4 flex flex-wrap gap-2 py-[0px]">
+            <button
+              onClick={() => {
+                setActivePanel("project");
+              }}
+              className="font-mono text-[12px]"
+              style={{
+                border: activePanel === "project" ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+                borderBottom: "0",
+                borderRadius: "10px 10px 0 0",
+                padding: "10px 16px",
+                color: "#e5e5e5",
+                background:
+                  activePanel === "project"
+                    ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
+                    : "#0A0A0A",
+              }}
+            >
+              Projekt wechseln
+            </button>
+            <button
+              onClick={() => {
+                if (!projectPath) return;
+                setActivePanel("all");
+              }}
+              className="font-mono text-[12px]"
+              style={{
+                border: activePanel === "all" ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+                borderBottom: "0",
+                borderRadius: "10px 10px 0 0",
+                padding: "10px 16px",
+                color: "#e5e5e5",
+                cursor: projectPath ? "pointer" : "not-allowed",
+                opacity: projectPath ? 1 : 0.5,
+                background:
+                  activePanel === "all"
+                    ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
+                    : "#0A0A0A",
+              }}
+            >
+              Alle Dokumente
+            </button>
+            <button
+              onClick={() => setActivePanel("metadata")}
+              className="font-mono text-[12px]"
+              style={{
+                border: activePanel === "metadata" ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+                borderBottom: "0",
+                borderRadius: "10px 10px 0 0",
+                padding: "10px 16px",
+                color: "#e5e5e5",
+                background:
+                  activePanel === "metadata"
+                    ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
+                    : "#0A0A0A",
+              }}
+            >
+              Metadaten
+            </button>
+            <button
+              onClick={() => setActivePanel("planned")}
+              className="font-mono text-[12px]"
+              style={{
+                border: activePanel === "planned" ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+                borderBottom: "0",
+                borderRadius: "10px 10px 0 0",
+                padding: "10px 16px",
+                color: "#e5e5e5",
+                background:
+                  activePanel === "planned"
+                    ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
+                    : "#0A0A0A",
+              }}
+            >
+              Geplant
+            </button>
+            <button
+              onClick={() => setActivePanel("help")}
+              className="font-mono text-[12px]"
+              style={{
+                border: activePanel === "help" ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+                borderBottom: "0",
+                borderRadius: "10px 10px 0 0",
+                padding: "10px 16px",
+                color: "#e5e5e5",
+                background:
+                  activePanel === "help"
+                    ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
+                    : "#0A0A0A",
+              }}
+            >
+              Hilfe
+            </button>
+          </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-20 pb-12 pt-[20px] px-[10px]">
+          
+          {activePanel === "project" ? (
+            <div className="flex flex-col gap-4 px-[10px]">
+              <div className="font-mono text-[12px] text-[#dbd9d5]">
+               Du bist aktuell im Verzeichnis:
+              </div>
+              <div className="font-mono text-[10px] font-bold text-[#777]">
+               <span className="text-[#777] font-cursive"
+               
+                  style={{
+                    paddingLeft: "8px",
+                    borderLeft: "2px solid #AC8E66",
+                  }}
+               ></span> {projectName}
+               <div className="font-mono text-[12px] py-[10px] text-[#dbd9d5]"
+               
+               >Dein aktueller Projekt Ordner:</div>
+              </div>
+              {projectPath && (
+                <div
+                  className="font-mono text-[10px] text-[#777]"
+                  style={{
+                    paddingLeft: "8px",
+                    borderLeft: "2px solid #AC8E66",
+                  }}
+                >
+                  {projectPath}
+                </div>
+              )}
+
+              <div className="border-b pt-[10px] text-[#AC8E66]"></div>
+
+              <div className="pt-[20px]">
+                <ZenRoughButton
+                  label={projectPath ? "Projekt wechseln" : "Projekt waehlen"}
+                  onClick={onSelectProject}
+                />
+              </div>
+            </div>
+          ) : activePanel === "all" ? (
+            <div className="flex flex-col gap-4 px-[20px]">
+              <div className="mb-[10px] flex items-center justify-between">
+                <div
+                  className="
+                    font-mono 
+                    text-[11px] 
+                    text-[#dbd9d5] 
+                  "
+                >
+                  Dateien deines Projekt Ordner 
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFileSort((prev) => (prev === "asc" ? "desc" : "asc"))}
+                  className="font-mono text-[11px]"
+                  title={fileSort === "asc" ? "Sortieren: A–Z" : "Sortieren: Z–A"}
+                  style={{
+                    border: "1px solid #3A3A3A",
+                    borderRadius: "8px",
+                    padding: "6px 10px",
+                    color: "#e5e5e5",
+                    background: "#0A0A0A",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <FontAwesomeIcon icon={faArrowDownAZ} />
+                  {fileSort === "asc" ? "A–Z" : "Z–A"}
+                </button>
+              </div>
+              {allFiles.length === 0 ? (
+                <div className="font-mono text-[12px] text-[#777] py-[10px]">
+                  {projectPath
+                    ? "Keine Dateien gefunden."
+                    : "Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen."}
+                </div>
+              ) : (
+                sortedAllFiles.map((file) => (
+                  <button
+                    key={file.path}
+                    onClick={() => onOpenFile(file.path)}
+                    className="text-left font-mono"
+                    style={{
+                      border: "1px solid #3A3A3A",
+                      borderRadius: "12px",
+                      padding: "12px 16px",
+                      background: "#0A0A0A",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      color: "#e5e5e5",
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "#AC8E66";
+                      e.currentTarget.style.transform = "translateY(-1px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#3A3A3A";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                      {file.name}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "#777" }}>
+                      {file.path}
+                    </span>
+                  </button>
+                ))
+              )}
+
+              <div className="border-b pt-[10px] text-[#AC8E66]"></div>
+
+              <div className="font-mono text-[11px] text-[#dbd9d5] mt-[10px]">
+                Geplante Posts
+              </div>
+              {!projectPath ? (
+                <div className="font-mono text-[12px] text-[#777] py-[10px]">
+                  Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen.
+                </div>
+              ) : plannedFiles.length === 0 ? (
+                <div className="font-mono text-[12px] text-[#777] py-[10px]">
+                  Keine geplanten Posts vorhanden.
+                </div>
+              ) : (
+                plannedFiles.map(({ post, path }) => (
+                  <button
+                    key={post.id}
+                    onClick={() => onOpenFile(path)}
+                    className="text-left font-mono"
+                    style={{
+                      border: "1px solid #3A3A3A",
+                      borderRadius: "12px",
+                      padding: "12px 16px",
+                      background: "#0A0A0A",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      color: "#e5e5e5",
+                      transition: "all 0.2s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "#AC8E66";
+                      e.currentTarget.style.transform = "translateY(-1px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = "#3A3A3A";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                      {post.title || post.platform}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "#777" }}>
+                      {path}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : activePanel === "metadata" ? (
+            <div className="px-[10px]">
+              <ZenMetadataPanel metadata={metadata} onSave={onSaveMetadata} />
+            </div>
+          ) : activePanel === "planned" ? (
+            <div className="flex flex-col gap-4 px-[20px]">
+              <div className="font-mono text-[11px] text-[#dbd9d5] mb-2">
+                Geplante Posts aus deinem Projekt
+              </div>
+              {!projectPath ? (
+                <div className="font-mono text-[12px] text-[#777]">
+                  Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen.
+                </div>
+              ) : scheduledPosts.length === 0 ? (
+                <div className="font-mono text-[12px] text-[#777]">
+                  Noch keine geplanten Posts vorhanden.
+                </div>
+              ) : (
+                scheduledPosts.map((post) => {
+                  const dateLabel = post.scheduledDate
+                    ? new Date(post.scheduledDate).toLocaleDateString("de-DE")
+                    : "Kein Datum";
+                  const filePath = projectPath
+                    ? `${getPublishingPaths(projectPath).posts}/${post.platform}-${post.id}.md`
+                    : "";
+                  return (
+                    <div
+                      key={post.id}
+                      className="text-left font-mono"
+                      style={{
+                        border: "1px solid #3A3A3A",
+                        borderRadius: "12px",
+                        padding: "12px 16px",
+                        background: "#0A0A0A",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                        color: "#e5e5e5",
+                        cursor: projectPath ? "pointer" : "default",
+                      }}
+                      onClick={() => {
+                        if (projectPath) {
+                          onOpenFile(filePath);
+                        }
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+                        <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                          {post.title || post.platform}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            color: post.status === "scheduled" ? "#AC8E66" : "#777",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {post.status}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "10px", color: "#777" }}>
+                        {dateLabel} {post.scheduledTime ? `· ${post.scheduledTime}` : ""}
+                      </span>
+                      {post.content && (
+                        <span style={{ fontSize: "10px", color: "#aaa" }}>
+                          {post.content.slice(0, 120)}
+                        </span>
+                      )}
+                      {onEditScheduledPost && (
+                        <div className="pt-2">
+                          <ZenRoughButton
+                            label="Weiterbearbeiten"
+                            onClick={() => onEditScheduledPost(post)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div className="px-[20px] py-[20px]">
+              <div className="font-mono text-[11px] text-[#dbd9d5] mb-4">
+                Pages-Dokument als DOCX exportieren
+              </div>
+              <div className="font-mono text-[11px] text-[#777] mb-4">
+                DOCX-Export behält Formatierungen, Bilder und Tabellen bei!
+              </div>  
+              <div className="border-b pt-[10px] text-[#AC8E66]"></div>
+
+              <div className="flex flex-col gap-3 font-mono text-[12px] text-[#ccc] px-[10px] py-[15px]">
+                <div>
+                  <span className="text-[#AC8E66]">1.</span> Pages-Dokument oeffnen
+                </div>
+                <div>
+                  <span className="text-[#AC8E66]">2.</span> Ablage → Exportieren → Word...
+                </div>
+                <div>
+                  <span className="text-[#AC8E66]">3.</span> Format "Word" (.docx) waehlen
+                </div>
+                <div>
+                  <span className="text-[#AC8E66]">4.</span> Datei speichern
+                </div>
+                <div>
+                  <span className="text-[#AC8E66]">5.</span> DOCX in ZenPost Studio hochladen
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <ZenModalFooter />
+      </div>
+    </ZenModal>
+  );
+};

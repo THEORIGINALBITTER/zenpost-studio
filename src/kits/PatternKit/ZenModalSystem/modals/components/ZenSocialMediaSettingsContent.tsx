@@ -8,6 +8,7 @@ import {
   faMedium,
   faGithub,
 } from '@fortawesome/free-brands-svg-icons';
+import { faEye, faEyeSlash } from '@fortawesome/free-solid-svg-icons';
 import {
   loadSocialConfig,
   saveSocialConfig,
@@ -28,6 +29,70 @@ interface ZenSocialMediaSettingsContentProps {
   showMissingConfigHint?: boolean;
   missingPlatformLabel?: string;
 }
+
+// Reusable Input Field Component (keep outside to avoid remount on each render)
+const InputField = ({
+  type,
+  value,
+  onChange,
+  placeholder,
+  allowReveal = false,
+}: {
+  type: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  allowReveal?: boolean;
+}) => {
+  const [reveal, setReveal] = useState(false);
+  const isPassword = type === 'password';
+  const canReveal = allowReveal || isPassword;
+  const inputType = canReveal ? (reveal ? 'text' : 'password') : type;
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {canReveal && (
+        <button
+          type="button"
+          onClick={() => setReveal((prev) => !prev)}
+          style={{
+            position: 'absolute',
+            right: 10,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            background: 'transparent',
+            border: 'none',
+            color: reveal ? '#AC8E66' : '#151515',
+            cursor: 'pointer',
+            padding: 0,
+          }}
+          aria-label={reveal ? 'Inhalt verbergen' : 'Inhalt anzeigen'}
+        >
+          <FontAwesomeIcon icon={reveal ? faEyeSlash : faEye} />
+        </button>
+      )}
+      <input
+        type={inputType}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="font-mono text-[#151515] focus:border-[#D4AF78] focus:outline-none"
+        style={{
+          width: '100%',
+          padding: '14px 16px',
+          paddingRight: canReveal ? 34 : 16,
+          border: '1px solid #AC8E66',
+          borderRadius: '8px',
+          backgroundColor: 'transparent',
+          boxShadow: 'none',
+          fontSize: '9px',
+          transition: 'border-color 0.2s',
+          boxSizing: 'border-box',
+        }}
+      />
+    </div>
+  );
+};
 
 export const ZenSocialMediaSettingsContent = ({
   initialTab,
@@ -155,36 +220,9 @@ export const ZenSocialMediaSettingsContent = ({
     }
   };
 
-  // Reusable Input Field Component
-  const InputField = ({
-    type,
-    value,
-    onChange,
-    placeholder,
-  }: {
-    type: string;
-    value: string;
-    onChange: (value: string) => void;
-    placeholder: string;
-  }) => (
-    <input
-      type={type}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="font-mono text-[#e5e5e5] bg-[#2A2A2A] focus:border-[#D4AF78] focus:outline-none"
-      style={{
-        width: '100%',
-        padding: '14px 16px',
-        border: '1px solid #AC8E66',
-        borderRadius: '8px',
-        fontSize: '9px',
-        transition: 'border-color 0.2s',
-      }}
-    />
-  );
-
   return (
+    <div className="w-full flex justify-center px-8 py-8">
+    <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
     <div style={{ padding: '24px 32px',  fontSize: '11px', }}>
       <div style={{ marginBottom: '24px' }}>
         {showMissingConfigHint && missingPlatformLabel && (
@@ -241,7 +279,7 @@ export const ZenSocialMediaSettingsContent = ({
                   right: '4px',
                   width: '6px',
                   height: '6px',
-                  backgroundColor: '#22c55e',
+                  backgroundColor: '#AC8E66',
                   borderRadius: '50%',
                 }}
               />
@@ -514,6 +552,7 @@ export const ZenSocialMediaSettingsContent = ({
               value={config.github?.username || ''}
               onChange={(value) => updateGitHubConfig('username', value)}
               placeholder="GitHub Username"
+              allowReveal
             />
           </div>
           <ZenInfoBox
@@ -529,6 +568,8 @@ export const ZenSocialMediaSettingsContent = ({
           />
         </div>
       )}
+    </div>
+    </div>
     </div>
   );
 };

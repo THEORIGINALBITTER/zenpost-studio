@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import packageJson from '../../../../../package.json';
 
 export interface ModalHeaderConfig {
   title: string;
@@ -47,6 +48,77 @@ export interface ModalPreset extends ModalHeaderConfig {
 }
 
 /**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * MODAL CONTENT - Zentrale Bedeutung/Inhalt der Modals
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Trennung von Layout (ZenModal) und Inhalt (MODAL_CONTENT):
+ * - ZenModal = Form / Hülle
+ * - MODAL_CONTENT = Bedeutung / Kontext
+ * - PlannerModal etc. = Handlung / Aktion
+ */
+export type ModalContentConfig = {
+  title: string;
+  subtitle?: string;
+  headerBg?: string;
+  accentColor?: string;
+};
+
+export const MODAL_CONTENT = {
+  planner: {
+    title: 'Planen & Organisieren',
+    subtitle: 'Plane deine Posts, verwalte deinen Kalender und tracke deinen Fortschritt',
+  },
+  contentStudio: {
+    title: 'Doc Studio',
+    subtitle: 'Projekt verwalten, Dokumente öffnen und Metadaten bearbeiten',
+  },
+  docStudio: {
+    title: 'Doc Studio',
+    subtitle: 'Erstellen, strukturieren und weiterverarbeiten von Inhalten',
+  },
+  converter: {
+    title: 'Converter Studio',
+    subtitle: 'Dateien in Markdown umwandeln',
+  },
+  settings: {
+    title: 'System Einstellungen',
+    subtitle: 'AI Provider & Social Media APIs konfigurieren',
+  },
+  about: {
+    title: 'ZenPost Studio',
+    subtitle: `Version ${packageJson.version}`,
+  },
+} satisfies Record<string, ModalContentConfig>;
+
+export const AI_TEMPERATURE_INFO: InfoBoxConfig = {
+  title: 'Stil-Regler',
+  description:
+    'Niedrige Werte (z.B. 0.1) liefern schneller, aber ungenauer Ergebnisse. Höhere Werte (1.0) sind genauer, brauchen jedoch länger. Ich empfehle dir,beginne mit 0.1 und erhöhe bei Bedarf.',
+  links: [
+    {
+      label: 'Stil-Regler erklärt',
+      url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=temperature',
+    },
+  ],
+  type: 'info',
+};
+
+
+/**
+ * Hilfsfunktion zum Abrufen eines Modal-Contents
+ * @param contentId - Die ID des gewünschten Contents
+ * @returns Der Modal-Content oder undefined
+ */
+export const getModalContent = (contentId: keyof typeof MODAL_CONTENT): ModalContentConfig => {
+  return MODAL_CONTENT[contentId];
+};
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════
+ * MODAL PRESETS - Styling-Definitionen
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
  * Zentrale Konfiguration für alle Modal-Presets
  * Ermöglicht konsistente Styling-Definitionen und einfache Wartung
  */
@@ -66,9 +138,9 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   'about': {
     id: 'about',
     title: 'ZenStudio Publisher',
-    subtitle: 'Version 1.0.0',
+    subtitle: `Version ${packageJson.version}`,
     titleColor: '#AC8E66',
-    subtitleColor: '#888',
+    subtitleColor: '#dbd9d5',
     titleSize: '24px',
     subtitleSize: '9px',
     minHeight: '480px',
@@ -78,7 +150,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Projekt-Metadaten',
   subtitle: 'Gib deine Projekt-Informationen ein. Diese werden in die generierten Dokumente eingefügt.',
   titleColor: '#AC8E66',
-  subtitleColor: '#999',
+  subtitleColor: '#dbd9d5',
   titleSize: '24px',
   subtitleSize: '11px',
   minHeight: '700px',   // vorher 600
@@ -93,9 +165,9 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
 'home': {
   id: 'home',
   title: 'Zur Startseite wechseln',
-  subtitle: 'Bestätige den Wechsel zum Willkommensbildschirm',
+  subtitle: 'Bestätige den Wechsel',
   titleColor: '#AC8E66',
-  subtitleColor: '#fef3c7 ',
+  subtitleColor: '#dbd9d5',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '300px',
@@ -108,11 +180,37 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Erfolgreich gespeichert',
   subtitle: 'Deine Datei wurde im Projekt gespeichert',
   titleColor: '#AC8E66',
-  subtitleColor: '#ccc',
+  subtitleColor: '#dbd9d5',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '240px',
   minWidth: '480px',
+},
+
+// Bug Report Modal
+'bug-report': {
+  id: 'bug-report',
+  title: 'Bugs melden',
+  subtitle: 'So hilfst du mir beim Debugging',
+  titleColor: '#AC8E66',
+  subtitleColor: '#dbd9d5',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '320px',
+  minWidth: '520px',
+},
+
+// Mail Success Modal
+'mail-success': {
+  id: 'mail-success',
+  title: 'E-Mail gesendet',
+  subtitle: 'Danke für dein Feedback',
+  titleColor: '#AC8E66',
+  subtitleColor: '#dbd9d5',
+  titleSize: '18px',
+  subtitleSize: '11px',
+  minHeight: '220px',
+  minWidth: '420px',
 },
 
 // Project Change Confirmation Modal
@@ -121,7 +219,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Projektordner wechseln?',
   subtitle: 'Wähle einen neuen Projektordner für deine Dokumentation',
   titleColor: '#AC8E66',
-  subtitleColor: '#999',
+  subtitleColor: '#dbd9d5',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '300px',
@@ -135,7 +233,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Plattformen wählen',
   subtitle: 'Wähle eine oder mehrere Plattformen für dein Posting',
   titleColor: '#AC8E66',
-  subtitleColor: '#999',
+  subtitleColor: '#dbd9d5',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '480px',
@@ -149,7 +247,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   title: 'Posting-Methode wählen',
   subtitle: 'Wie möchtest du deinen Content veröffentlichen?',
   titleColor: '#AC8E66',
-  subtitleColor: '#fef3c7',
+  subtitleColor: '#dbd9d5',
   titleSize: '18px',
   subtitleSize: '11px',
   minHeight: '320px',
@@ -161,7 +259,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
     id: 'default',
     title: 'Modal',
     titleColor: '#AC8E66',
-    subtitleColor: '#ccc',
+    subtitleColor: '#dbd9d5',
     titleSize: '24px',
     subtitleSize: '11px',
     minHeight: '400px',

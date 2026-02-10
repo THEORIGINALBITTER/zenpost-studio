@@ -1,5 +1,6 @@
 // App1.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faFolderOpen,
@@ -12,6 +13,7 @@ import {
   faWandMagicSparkles,
   faSave,
   faRotateLeft,
+  faPaperPlane,
 } from "@fortawesome/free-solid-svg-icons";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
@@ -22,6 +24,8 @@ import { ZenHeader } from "./kits/PatternKit/ZenHeader";
 import { ZenHomeModal } from "../src/kits/PatternKit/ZenModalSystem/modals/ZenHomeModal";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
 import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutModal";
+import { ZenBugReportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBugReportModal";
+import { ZenMailSuccessModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenMailSuccessModal";
 import { ZenContentStudioModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenContentStudioModal";
 import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal";
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
@@ -33,13 +37,18 @@ import type { DocStudioState } from "./screens/DocStudio/types";
 import { initializePublishingProject, loadSchedule, saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
+import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readDir, stat } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
+import { CornerRibbon } from "./components/CornerRibbon";
 import { isTauri } from "@tauri-apps/api/core";
 import { useOpenExternal } from "./hooks/useOpenExternal";
+import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
+
+import ZenCursor from "./components/ZenCursor";
 
 type DeveloperInfoProps = {
   onOpenProfile: () => void;
@@ -76,7 +85,7 @@ const DeveloperInfo = ({ onOpenProfile, compact = false }: DeveloperInfoProps) =
       style={{
         fontFamily: "IBM Plex Mono, monospace",
         fontSize: compact ? "16px" : "20px",
-        color: "#e5e5e5",
+        color: "#EFE7DC",
         textAlign: "center",
       }}
     >
@@ -130,11 +139,16 @@ export default function App1() {
 // App content (moved from App1)
 function AppContent() {
   const [isMobileBlocked, setIsMobileBlocked] = useState(false);
+  const isIdle = useZenIdle(2000);
   const { openExternal } = useOpenExternal();
   const [currentScreen, setCurrentScreen] = useState<Screen>("welcome");
+  const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
+  const appReadyFiredRef = useRef(false);
   const [showHomeModal, setShowHomeModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showBugReportModal, setShowBugReportModal] = useState(false);
+  const [showMailSuccessModal, setShowMailSuccessModal] = useState(false);
   const [showWalkthroughModal, setShowWalkthroughModal] = useState(false);
   const [showBootstrapModal, setShowBootstrapModal] = useState(false);
   const [bootstrapProjectPath, setBootstrapProjectPath] = useState<string | null>(null);
@@ -169,15 +183,19 @@ function AppContent() {
     | "edit"
     | "post"
     | "posten"
+    | "post_direct"
     | "reset"
     | "back_doc"
     | "back_dashboard"
     | "back_posting"
     | "save"
+    | "transform"
     | null
   >(null);
   const [_contentTransformHeaderTab, setContentTransformHeaderTab] = useState<"preview" | "next">("next");
   const [_contentTransformShowBackToPosting, setContentTransformShowBackToPosting] = useState(false);
+  const [contentTransformStep2SelectionCount, setContentTransformStep2SelectionCount] = useState(0);
+  const [contentTransformStep2CanProceed, setContentTransformStep2CanProceed] = useState(false);
   const [contentStudioMetadata, setContentStudioMetadata] = useState<ProjectMetadata>({
     authorName: "",
     authorEmail: "",
@@ -195,10 +213,13 @@ function AppContent() {
   const [plannerDefaultTab, setPlannerDefaultTab] = useState<'planen' | 'kalender' | 'checklist'>('planen');
   const [selectedDateFromCalendar, setSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
   const [schedulerPlatformPosts, setSchedulerPlatformPosts] = useState<Array<{ platform: string; content: string }>>([]);
+  // Track which scheduled post is being edited (to update on save)
+  const [editingScheduledPostId, setEditingScheduledPostId] = useState<string | null>(null);
 
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportContent, setExportContent] = useState<string>("");
+  const [exportDocumentName, setExportDocumentName] = useState<string>("");
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | null>(null);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
 
@@ -230,23 +251,62 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (!isTauri()) return;
+    document.body.classList.add("zen-tauri");
+    document.documentElement.classList.add("zen-tauri");
+    return () => {
+      document.body.classList.remove("zen-tauri");
+      document.documentElement.classList.remove("zen-tauri");
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isTauri()) return;
     const bootstrap = async () => {
-      const info = await ensureAppConfig();
-      const nextPath = info.config.lastProjectPath ?? info.defaultProjectPath;
-      if (!info.config.hasSeenBootstrapNotice) {
-        setBootstrapProjectPath(info.defaultProjectPath);
-        setShowBootstrapModal(true);
-        void markBootstrapNoticeSeen();
-      }
-      if (nextPath) {
-        localStorage.setItem('zenpost_last_project_path', nextPath);
-        setContentStudioProjectPath(nextPath);
-        await refreshContentStudioData(nextPath);
+      try {
+        const info = await ensureAppConfig();
+        const nextPath = info.config.lastProjectPath ?? info.defaultProjectPath;
+        if (!info.config.hasSeenBootstrapNotice) {
+          setBootstrapProjectPath(info.defaultProjectPath);
+          setShowBootstrapModal(true);
+          void markBootstrapNoticeSeen();
+        }
+        if (nextPath) {
+          localStorage.setItem('zenpost_last_project_path', nextPath);
+          setContentStudioProjectPath(nextPath);
+          await refreshContentStudioData(nextPath);
+        }
+      } finally {
+        setBootstrapComplete(true);
       }
     };
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!bootstrapComplete || appReadyFiredRef.current) return;
+    appReadyFiredRef.current = true;
+    let cancelled = false;
+    const fireReady = async () => {
+      try {
+        if (typeof document !== "undefined" && "fonts" in document) {
+          await (document as Document & { fonts?: { ready: Promise<void> } }).fonts?.ready;
+        }
+      } catch {
+        // ignore font readiness errors
+      }
+      await new Promise(requestAnimationFrame);
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      if (cancelled) return;
+      window.dispatchEvent(new Event("zenpost-app-ready"));
+    };
+    void fireReady();
+    return () => {
+      cancelled = true;
+    };
+  }, [bootstrapComplete]);
 
 
   // Content AI Studio Editor Type (block = Editor.js, markdown = ZenMarkdownEditor)
@@ -287,18 +347,40 @@ function AppContent() {
     setShowContentStudioModal(false);
   };
 
-  const handleEditScheduledPost = (post: ScheduledPost) => {
-    // Build content with title and subtitle as markdown headers
-    let fullContent = '';
-    if (post.title) {
-      fullContent += `# ${post.title}\n\n`;
-    }
-    if (post.subtitle) {
-      fullContent += `*${post.subtitle}*\n\n`;
-    }
-    fullContent += post.content || '';
+  const handleEditScheduledPost = async (post: ScheduledPost) => {
+    // Use the post content directly - don't add headers automatically
+    // The content should already contain any headers from previous edits
+    let fullContent = post.content || '';
 
+    // Prefer opening the saved file path directly when available
+    if (isTauri() && post.savedFilePath) {
+      setContentStudioRequestedFilePath(post.savedFilePath);
+      setTransferContent(null);
+      setTransferFileName(null);
+      setEditingScheduledPostId(post.id);
+      setCameFromDocStudio(false);
+      setCameFromDashboard(false);
+      setShowPlannerModal(false);
+      setContentTransformStep(1);
+      setCurrentScreen("content-transform");
+      return;
+    }
+
+    // Only add title header if content doesn't already start with a markdown header
+    const startsWithHeader = /^#\s/.test(fullContent.trim());
+    if (!startsWithHeader && post.title) {
+      // Add title and subtitle only if content doesn't have a header
+      let header = `# ${post.title}\n\n`;
+      if (post.subtitle) {
+        header += `*${post.subtitle}*\n\n`;
+      }
+      fullContent = header + fullContent;
+    }
+
+    // Track which post is being edited so we can update it on save
+    setEditingScheduledPostId(post.id);
     setTransferContent(fullContent.trim());
+    setTransferFileName(post.title || post.platform);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setShowPlannerModal(false);
@@ -318,6 +400,48 @@ function AppContent() {
     } catch (error) {
       console.error('[PublishingService] Failed to save scheduled posts:', error);
     }
+  };
+
+  // Handle file saved from Doc Studio/Content AI Studio - update scheduled post if one is being edited
+  const handleFileSavedWhileEditing = async (filePath: string, content: string, fileName: string) => {
+    if (!editingScheduledPostId) return;
+
+    console.log('[App] File saved while editing scheduled post:', editingScheduledPostId, fileName, filePath);
+
+    // Strip ALL version patterns from filename for clean title: "Name_2026-02-03_v1_2026-02-03_v1.md" → "Name"
+    const cleanTitle = fileName
+      .replace(/\.md$/i, '')
+      .replace(/_\d{4}-\d{2}-\d{2}_v\d+/g, '');
+
+    // Find and update the scheduled post
+    const updatedPosts = scheduledPosts.map((post) => {
+      if (post.id !== editingScheduledPostId) return post;
+
+      // Strip frontmatter from content to get the actual content
+      let actualContent = content;
+      if (content.startsWith('---')) {
+        const endIndex = content.indexOf('---', 3);
+        if (endIndex !== -1) {
+          actualContent = content.substring(endIndex + 3).trim();
+        }
+      }
+
+      return {
+        ...post,
+        title: cleanTitle,
+        content: actualContent,
+        characterCount: actualContent.length,
+        wordCount: actualContent.split(/\s+/).filter(Boolean).length,
+        // Store the actual file path where the user saved the file
+        savedFilePath: filePath,
+      };
+    });
+
+    // Persist the updated posts
+    await persistScheduledPosts(updatedPosts);
+
+    // Clear the editing state
+    setEditingScheduledPostId(null);
   };
 
   const reloadScheduledPosts = async () => {
@@ -451,6 +575,20 @@ function AppContent() {
   const handleHomeClick = () => setShowHomeModal(true);
   const handleConfirmHome = () => {
     setShowHomeModal(false);
+    setDocStudioState((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        selectedTemplate: null,
+        selectedTemplates: [],
+        generatedContent: "",
+        activeTabId: null,
+        openFileTabs: [],
+        tabContents: {},
+        dirtyTabs: {},
+      };
+    });
+    setDocStudioStep(0);
     setCurrentScreen("welcome");
   };
   const handleCloseHomeModal = () => setShowHomeModal(false);
@@ -459,6 +597,88 @@ function AppContent() {
   const handleCloseSettingsModal = () => setShowAISettingsModal(false);
 
   const handleInfoClick = () => setShowAboutModal(true);
+  const handleOpenBugReport = () => {
+    setShowAboutModal(false);
+    setShowBugReportModal(true);
+  };
+  const handleCloseBugReport = () => {
+    setShowBugReportModal(false);
+  };
+  const handleSendBugReportMail = () => {
+    const activeTabId = docStudioState?.activeTabId ?? "";
+    if (!activeTabId.startsWith("tpl:bug")) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const counterKey = `zen_bug_report_counter_${year}_${month}`;
+    const raw = localStorage.getItem(counterKey);
+    const current = raw ? Number.parseInt(raw, 10) : 0;
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    localStorage.setItem(counterKey, String(next));
+
+    const subject = `BugReport_${year}_${month}_${String(next).padStart(3, "0")}`;
+    const rawBody = docStudioState?.tabContents?.[activeTabId] ?? "";
+    const body = rawBody
+      // normalize newlines
+      .replace(/\r\n/g, "\n")
+      // fenced code blocks -> keep content only
+      .replace(/```[\s\S]*?\n([\s\S]*?)```/g, (_m, code) => `${code}\n`)
+      // inline code
+      .replace(/`([^`]+)`/g, "$1")
+      // links [text](url)
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
+      // headings
+      .replace(/^#{1,6}\s+/gm, "")
+      // bold/italic
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/__([^_]+)__/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/_([^_]+)_/g, "$1")
+      // collapse 3+ newlines
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    const mailto = `mailto:saghallo@denisbitter.de?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    void openExternal(mailto);
+    setShowMailSuccessModal(true);
+  };
+  const handleOpenBugTemplateInDocStudio = () => {
+    const storedProjectPath = localStorage.getItem('zenpost_last_project_path');
+    const templateId = 'bug' as const;
+    const tabId = `tpl:${templateId}`;
+    const templateContent = getSmartDocTemplate(templateId, docStudioState?.projectInfo ?? null);
+
+    setDocStudioState((prev) => ({
+      projectPath: storedProjectPath ?? prev?.projectPath ?? null,
+      projectInfo: prev?.projectInfo ?? null,
+      selectedTemplate: templateId,
+      selectedTemplates: [templateId],
+      generatedContent: templateContent,
+      activeTabId: tabId,
+      openFileTabs: [],
+      tabContents: { [tabId]: templateContent },
+      dirtyTabs: { [tabId]: false },
+      tone: prev?.tone ?? 'professional',
+      length: prev?.length ?? 'medium',
+      audience: prev?.audience ?? 'intermediate',
+      targetLanguage: prev?.targetLanguage ?? 'deutsch',
+      metadata: prev?.metadata ?? {
+        authorName: '',
+        authorEmail: '',
+        companyName: '',
+        license: 'MIT',
+        year: new Date().getFullYear().toString(),
+        website: '',
+        repository: '',
+        contributingUrl: '',
+      },
+    }));
+
+    setShowBugReportModal(false);
+    setShowAboutModal(false);
+    setReturnToDocStudioStep(3);
+    setDocStudioStep(3);
+    setCurrentScreen("doc-studio");
+  };
   const handleHelpClick = () => setShowWalkthroughModal(true);
   const handleCloseAboutModal = () => setShowAboutModal(false);
   const handleCloseContentStudioModal = () => setShowContentStudioModal(false);
@@ -609,7 +829,10 @@ function AppContent() {
     return (
       <>
         ZenPost Studio · <span style={{ color: "#AC8E66" }}>{studioNames[currentScreen]}</span>
+      
+     
       </>
+
     );
   };
 
@@ -638,13 +861,87 @@ function AppContent() {
       case "getting-started":
         return <>Getting Started · <span style={{ color: "#AC8E66" }}>Was möchtest du tun?</span></>;
       default:
-        return "Content konvertieren, mit KI transformieren oder Dokumentation generieren";
+        return "";
     }
   };
   {/ * Hilfefunktion für StudioBar im Header * */}
   const renderStudioBar = () => {
-    // DocStudio Tab-Leiste
+    // DocStudio Tab-Leiste (Step 3 - Editor)
     if (currentScreen === "doc-studio" && docStudioStep === 3) {
+      const isBugTemplateActive = (docStudioState?.activeTabId ?? "").startsWith("tpl:bug");
+      return (
+        <div className="flex items-center 
+        justify-between flex-wrap gap-2 
+        px-[4vw] py-[3px] mt-[10px]">
+          <div className="flex flex-wrap gap-2">
+            <StudioBarButton
+              label="Projekt + Dokumente"
+              icon={<FontAwesomeIcon icon={faFolderOpen} />}
+              onClick={() => {
+                setContentStudioModalTab("project");
+                setShowContentStudioModal(true);
+              }}
+            />
+            <StudioBarButton
+              label="Templates"
+              icon={<FontAwesomeIcon icon={faFileLines} />}
+              onClick={() => {
+                setDocStudioStep(2);
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 ml-auto">
+            <StudioBarButton
+              label="Export"
+              icon={<FontAwesomeIcon icon={faFileExport} />}
+              onClick={() => {
+                setExportContent(docStudioGeneratedContent);
+                // Extract document name from active tab
+                const activeTabId = docStudioState?.activeTabId;
+                let docName = "Export";
+                if (activeTabId?.startsWith("tpl:")) {
+                  const template = activeTabId.replace("tpl:", "");
+                  const templateLabels: Record<string, string> = {
+                    readme: "README",
+                    changelog: "Changelog",
+                    "api-docs": "API-Docs",
+                    contributing: "Contributing",
+                    "data-room": "Data-Room",
+                    draft: "Entwurf",
+                  };
+                  docName = templateLabels[template] || template;
+                } else if (activeTabId?.startsWith("file:")) {
+                  const filePath = activeTabId.replace("file:", "");
+                  docName = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") || "Export";
+                }
+                setExportDocumentName(docName);
+                setShowExportModal(true);
+              }}
+            />
+            {isBugTemplateActive && (
+              <StudioBarButton
+                label="E-Mail senden"
+                icon={<FontAwesomeIcon icon={faPaperPlane} />}
+                onClick={handleSendBugReportMail}
+              />
+            )}
+            <StudioBarButton
+              label="Speichern"
+              icon={<FontAwesomeIcon icon={faSave} />}
+              onClick={() => setDocStudioHeaderAction("save")}
+            />
+            <StudioBarButton
+              label="Preview"
+              icon={<FontAwesomeIcon icon={faFileLines} />}
+              onClick={() => setDocStudioHeaderAction("preview")}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    // DocStudio Tab-Leiste (Step 2 - Templates)
+    if (currentScreen === "doc-studio" && docStudioStep === 2) {
       return (
         <div className="flex items-center justify-between flex-wrap gap-2 px-[4vw] py-[3px] mt-[10px]">
           <div className="flex flex-wrap gap-2">
@@ -662,26 +959,6 @@ function AppContent() {
               onClick={() => {
                 setDocStudioStep(1);
               }}
-            />
-          </div>
-          <div className="flex flex-wrap gap-2 ml-auto">
-            <StudioBarButton
-              label="Export"
-              icon={<FontAwesomeIcon icon={faFileExport} />}
-              onClick={() => {
-                setExportContent(docStudioGeneratedContent);
-                setShowExportModal(true);
-              }}
-            />
-            <StudioBarButton
-              label="Speichern"
-              icon={<FontAwesomeIcon icon={faSave} />}
-              onClick={() => setDocStudioHeaderAction("save")}
-            />
-            <StudioBarButton
-              label="Preview"
-              icon={<FontAwesomeIcon icon={faFileLines} />}
-              onClick={() => setDocStudioHeaderAction("preview")}
             />
           </div>
         </div>
@@ -702,7 +979,7 @@ function AppContent() {
                   setContentStudioModalTab("project");
                   setShowContentStudioModal(true);
                 }}
-                active={contentStudioModalTab === "project"}
+                active={showContentStudioModal && contentStudioModalTab === "project"}
               />
               <StudioBarButton
                 label="Planen"
@@ -735,15 +1012,43 @@ function AppContent() {
           )}
           {(contentTransformStep === 2 || contentTransformStep === 3) && (
             <div className="flex flex-wrap gap-2 ml-auto">
-              <StudioBarButton
-                label="KI für Plattformen"
-                icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
-                onClick={handleNavigateToMultiPlatformTransform}
-              />
+              {contentTransformStep === 2 && (
+                <>
+                  <StudioBarButton
+                    label={
+                      contentTransformStep2SelectionCount > 0
+                        ? `Weiter (${contentTransformStep2SelectionCount})`
+                        : "Weiter"
+                    }
+                    icon={<FontAwesomeIcon icon={faArrowLeft} style={{ transform: "rotate(180deg)" }} />}
+                    onClick={() => setContentTransformHeaderAction("next")}
+                    disabled={!contentTransformStep2CanProceed}
+                    active={contentTransformStep2CanProceed}
+                  />
+                </>
+              )}
+              {contentTransformStep === 3 && (
+                <>
+                  <StudioBarButton
+                    label="KI Transform"
+                    icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
+                    onClick={() => setContentTransformHeaderAction("transform")}
+                    active
+                  />
+                  <StudioBarButton
+                    label="Direkt Posten"
+                    icon={<FontAwesomeIcon icon={faPaperPlane} />}
+                    onClick={() => setContentTransformHeaderAction("post_direct")}
+                  />
+                </>
+              )}
             </div>
           )}
           {contentTransformStep === 4 && (
-            <>
+            <div
+              className="flex items-center justify-between flex-wrap gap-2 w-full"
+              style={{ opacity: isIdle ? 0.35 : 1, transition: "opacity 250ms ease" }}
+            >
               {/* Links: Nachbearbeiten */}
               <div className="flex flex-wrap gap-2">
                 <StudioBarButton
@@ -774,13 +1079,8 @@ function AppContent() {
                 )}
               </div>
 
-              {/* Rechts: KI Transform, Export & Planen */}
+              {/* Rechts: Export & Planen */}
               <div className="flex flex-wrap gap-2 ml-auto">
-                <StudioBarButton
-                  label="KI für Plattformen"
-                  icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
-                  onClick={handleNavigateToMultiPlatformTransform}
-                />
                 <StudioBarButton
                   label="Export"
                   icon={<FontAwesomeIcon icon={faFileExport} />}
@@ -795,7 +1095,7 @@ function AppContent() {
                   }}
                 />
               </div>
-            </>
+            </div>
           )}
         </div>
         {contentTransformStep === 1 && null}
@@ -813,7 +1113,7 @@ function AppContent() {
           justifyContent: "center",
           padding: "24px",
           background: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
-          color: "#e5e5e5",
+          color: "#EFE7DC",
           textAlign: "center",
           fontFamily: "IBM Plex Mono, monospace",
         }}
@@ -859,7 +1159,7 @@ function AppContent() {
                 borderRadius: "8px",
                 border: "1px solid #3A3A3A",
                 background: "transparent",
-                color: "#e5e5e5",
+                color: "#EFE7DC",
                 fontFamily: "IBM Plex Mono, monospace",
                 fontSize: "12px",
                 cursor: "pointer",
@@ -875,7 +1175,7 @@ function AppContent() {
                 borderRadius: "8px",
                 border: "1px solid #3A3A3A",
                 background: "transparent",
-                color: "#e5e5e5",
+                color: "#EFE7DC",
                 fontFamily: "IBM Plex Mono, monospace",
                 fontSize: "12px",
                 cursor: "pointer",
@@ -891,7 +1191,7 @@ function AppContent() {
                 borderRadius: "8px",
                 border: "1px solid #3A3A3A",
                 background: "transparent",
-                color: "#e5e5e5",
+                color: "#EFE7DC",
                 fontFamily: "IBM Plex Mono, monospace",
                 fontSize: "12px",
                 cursor: "pointer",
@@ -941,6 +1241,10 @@ function AppContent() {
         background: 'linear-gradient(180deg, #0B0B0B 0%, #151515 100%)',
       }}
     >
+      <ZenCursor />
+      {/* Corner Ribbon - Desktop/Web Switch */}
+      <CornerRibbon />
+
       {/* Globaler Header - Fixed */}
       <ZenHeader
         leftText={getLeftText()}
@@ -955,7 +1259,7 @@ function AppContent() {
       />
 
       {/* Scrollable Content Area */}
-      <div style={{ flex: 1, overflow: 'auto' }}>
+      <div style={{ flex: 1, overflow: currentScreen === "content-transform" ? 'hidden' : 'auto' }}>
         {/* Screens */}
         {currentScreen === "welcome" && (
           <WelcomeScreen
@@ -1006,6 +1310,10 @@ function AppContent() {
             onFileRequestHandled={() => setContentStudioRequestedFilePath(null)}
             metadata={contentStudioMetadata}
             onMetadataChange={setContentStudioMetadata}
+            onStep2SelectionChange={(count, canProceed) => {
+              setContentTransformStep2SelectionCount(count);
+              setContentTransformStep2CanProceed(canProceed);
+            }}
             headerAction={contentTransformHeaderAction}
             onHeaderActionHandled={() => setContentTransformHeaderAction(null)}
             onStep1BackToPostingChange={setContentTransformShowBackToPosting}
@@ -1015,6 +1323,7 @@ function AppContent() {
             onEditorTypeChange={setContentEditorType}
             multiPlatformMode={multiPlatformMode}
             onMultiPlatformModeChange={setMultiPlatformMode}
+            onFileSaved={handleFileSavedWhileEditing}
           />
         )}
         {currentScreen === "doc-studio" && (
@@ -1047,6 +1356,7 @@ function AppContent() {
               }}
               onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
               onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
+              onFileSaved={handleFileSavedWhileEditing}
             />
           </FeatureGate>
         )}
@@ -1079,6 +1389,7 @@ function AppContent() {
       <ZenAboutModal
         isOpen={showAboutModal}
         onClose={handleCloseAboutModal}
+        onOpenBugReport={handleOpenBugReport}
       />
 
       {/* Walkthrough Modal */}
@@ -1086,6 +1397,17 @@ function AppContent() {
         isOpen={showWalkthroughModal}
         onClose={() => setShowWalkthroughModal(false)}
         autoStart={true}
+      />
+
+      <ZenBugReportModal
+        isOpen={showBugReportModal}
+        onClose={handleCloseBugReport}
+        onOpenInDocStudio={handleOpenBugTemplateInDocStudio}
+      />
+
+      <ZenMailSuccessModal
+        isOpen={showMailSuccessModal}
+        onClose={() => setShowMailSuccessModal(false)}
       />
 
       <ZenContentStudioModal
@@ -1167,6 +1489,7 @@ function AppContent() {
         isOpen={showExportModal}
         onClose={() => setShowExportModal(false)}
         content={exportContent}
+        documentName={exportDocumentName}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
       />
 
@@ -1257,26 +1580,30 @@ const StudioBarButton = ({
     style={{
       width: "150px",
       height: "40px",
-      border: active ? "2px solid #AC8E66" : "1px solid #3A3A3A",
+      border: active ? "1px solid #2A2A2A" : "1px dotted #2A2A2A",
       borderBottom: "0",
       borderRadius: "10px 10px 0 0",
       padding: "0 10px",
       background:
         active
-          ? "linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))"
-          : "#1A1A1A",
+          ? "#151515"
+          : "#121212",
       display: "flex",
       alignItems: "center",
       gap: "8px",
-      fontFamily: "monospace",
-      fontSize: "11px",
+      fontFamily: "IBM Plex Mono, monospace",
+      fontSize: 
+        active ? "10px" : "10px",
+      fontWeight: active ? "normal" : "normal",
       // Textfarbe anpassen
-      color: "#e5e5e5",
+      color: 
+      active ? "#EFEBDC" : "#a1a1a1",
+     
       cursor: disabled ? "not-allowed" : "pointer",
       transition: "all 0.2s ease",
       opacity: disabled ? 0.6 : 1,
       overflow: "hidden",
-      marginBottom: "-1px",
+      marginBottom: "-2px",
     }}
     onMouseEnter={(e) => {
       if (!disabled) {

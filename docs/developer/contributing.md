@@ -72,7 +72,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173) in your browser.
 
 ### 6. Create a Branch
 

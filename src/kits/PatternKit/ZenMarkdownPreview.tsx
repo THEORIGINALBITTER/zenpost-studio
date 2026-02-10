@@ -6,11 +6,10 @@ import 'highlight.js/styles/atom-one-dark.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus, faLanguage } from '@fortawesome/free-solid-svg-icons';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
-
 interface ZenMarkdownPreviewProps {
   content: string;
   height?: string;
-  onContentChange?: (content: string) => void; // Allow updating content after translation
+  onContentChange?: (content: string) => void;
 }
 
 export const ZenMarkdownPreview = ({
@@ -28,16 +27,16 @@ export const ZenMarkdownPreview = ({
   const handleZoomReset = () => setZoom(70);
 
   const languages: Array<{ value: TargetLanguage; label: string }> = [
-    { value: 'deutsch', label: '🇩🇪 Deutsch' },
-    { value: 'english', label: '🇬🇧 English' },
-    { value: 'español', label: '🇪🇸 Español' },
-    { value: 'français', label: '🇫🇷 Français' },
-    { value: 'italiano', label: '🇮🇹 Italiano' },
-    { value: 'português', label: '🇵🇹 Português' },
-    { value: 'russisch', label: '🇷🇺 Russisch'  },
-    { value: '中文', label: '🇨🇳 中文' },
-    { value: '日本語', label: '🇯🇵 日本語' },
-    { value: '한국어', label: '🇰🇷 한국어' },
+    { value: 'deutsch', label: '🇩Deutsch' },
+    { value: 'english', label: '🇬English' },
+    { value: 'español', label: '🇪Español' },
+    { value: 'français', label: '🇫Français' },
+    { value: 'italiano', label: '🇮Italiano' },
+    { value: 'português', label: '🇵Português' },
+    { value: 'russisch', label: '🇷Russisch'  },
+    { value: '中文', label: '🇨中文' },
+    { value: '日本語', label: '🇯日本語' },
+    { value: '한국어', label: '🇰한국어' },
   ];
 
   const handleTranslate = async (targetLanguage: TargetLanguage) => {
@@ -64,65 +63,164 @@ export const ZenMarkdownPreview = ({
 
   return (
     <div className="w-full relative">
-      {/* Controls: Translate + Zoom */}
-      <div
-        className="absolute z-10 flex items-center gap-2"
-        style={{ top: -0, right: -8, scale: 0.75, transformOrigin: 'top right', padding: '8px'  }}
-      >
-        {/* Translate Button with Dropdown */}
-        {onContentChange && (
-          <div className="relative">
-            <button
-              onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-              disabled={isTranslating}
-              className="w-8 h-8 flex items-center justify-center text-[#888] hover:text-[#AC8E66] hover:bg-[#2A2A2A] bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg transition-colors disabled:opacity-50"
-              title="Übersetzen"
-            >
-              <FontAwesomeIcon icon={faLanguage} className="text-xs" />
-            </button>
 
-            {/* Language Dropdown Menu */}
-            {showLanguageMenu && (
-              <div className="absolute top-10 right-0 bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg shadow-lg overflow-hidden min-w-[180px] z-20">
-                {languages.map((lang) => (
-                  <button
-                    key={lang.value}
-                    onClick={() => handleTranslate(lang.value)}
-                    className="w-full px-4 py-2 text-left text-[#e5e5e5] hover:bg-[#2A2A2A] hover:text-[#AC8E66] transition-colors text-sm font-mono"
-                  >
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
-            )}
+      
+      {/* Controls: Translate + Zoom */}
+      {/* Controls: Translate + Zoom */}
+<div
+  className="absolute z-10 flex items-center"
+  style={{ top: 50, right: 14, transformOrigin: "top right" }}
+>
+  {/* GROUP WRAP */}
+  <div
+    className="
+      flex items-center gap-1
+      px-[3px] py-[3px]
+      rounded-[6px]
+      bg-[#121212]/50 backdrop-blur
+      border border-[#121212]
+      shadow-[0_10px_30px_rgba(0,0,0,0.35)]
+    "
+  >
+    {/* Translate Button with Dropdown */}
+    {onContentChange && (
+      <div className="relative">
+        <button
+          onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+          disabled={isTranslating}
+          className="
+            h-10 w-10
+            inline-flex items-center justify-center
+            rounded-lg
+            bg-[#171717]
+            border border-[#2E2E2E]
+            text-[#A0A0A0]
+            text-[10px]
+            hover:text-[#AC8E66]
+            hover:border-[#3A3328]
+            hover:bg-[#1D1D1D]
+            active:translate-y-[1px]
+            transition
+            disabled:opacity-50 disabled:cursor-not-allowed
+          "
+          title="Übersetzen"
+        >
+          <FontAwesomeIcon icon={faLanguage} className="text-[11px]" />
+        </button>
+
+        {/* Language Dropdown Menu */}
+        {showLanguageMenu && (
+          <div
+            className="
+              absolute top-11 right-0
+              min-w-[200px]
+              overflow-hidden
+              rounded-xl
+              bg-[#121212]
+              border border-[#2E2E2E]
+              shadow-[0_16px_40px_rgba(0,0,0,0.55)]
+              z-20
+            "
+          >
+            <div className="px-3 py-2 
+            text-[10px] 
+            font-mono 
+            tracking-wide 
+            text-[#666] border-b border-[#1F1F1F]">
+              Sprache wählen
+            </div>
+
+            {languages.map((lang) => (
+              <button
+                key={lang.value}
+                onClick={() => handleTranslate(lang.value)}
+                className="
+                  w-full px-4 py-2.5 text-left
+                  text-[#dbd9d5]
+                  hover:bg-[#1A1A1A]
+                  hover:text-[#AC8E66]
+                  transition-colors
+                  text-[10px] font-mono
+                "
+              >
+                {lang.label}
+              </button>
+            ))}
           </div>
         )}
-
-        {/* Zoom Controls */}
-        <div className="flex items-center gap-2 bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg p-1">
-          <button
-            onClick={handleZoomOut}
-            className="w-8 h-8 flex items-center justify-center text-[#888] hover:text-[#AC8E66] hover:bg-[#2A2A2A] rounded transition-colors"
-            title="Verkleinern"
-          >
-            <FontAwesomeIcon icon={faMinus} className="text-xs" />
-          </button>
-          <button
-            onClick={handleZoomReset}
-            className="px-2 h-8 flex items-center justify-center text-[#888] hover:text-[#AC8E66] hover:bg-[#2A2A2A] rounded transition-colors font-mono text-xs"
-            title="Zurücksetzen"
-          >
-            {zoom}%
-          </button>
-          <button
-            onClick={handleZoomIn}
-            className="w-8 h-8 flex items-center justify-center text-[#888] hover:text-[#AC8E66] hover:bg-[#2A2A2A] rounded transition-colors"
-            title="Vergrößern"
-          >
-            <FontAwesomeIcon icon={faPlus} className="text-xs" />
-          </button>
-        </div>
       </div>
+    )}
+
+    {/* Divider */}
+    <div className="w-px h-7 bg-[#232323] mx-1" />
+
+    {/* Zoom Controls */}
+    <button
+      onClick={handleZoomOut}
+      className="
+        h-9 w-9
+        inline-flex items-center justify-center
+        rounded-lg
+        bg-[#171717]
+        border border-[#2E2E2E]
+        text-[#A0A0A0]
+        text-[10px]
+        hover:text-[#AC8E66]
+        hover:border-[#3A3328]
+        hover:bg-[#1D1D1D]
+        active:translate-y-[1px]
+        transition
+      "
+      title="Verkleinern"
+    >
+      <FontAwesomeIcon icon={faMinus} className="text-[8px]" />
+    </button>
+
+    <button
+      onClick={handleZoomReset}
+      className="
+        h-9 px-4
+        inline-flex items-center justify-center
+        rounded-lg
+        bg-[#141414]
+        border border-[#2E2E2E]
+        text-[#7A7A7A]
+        font-mono text-[10px]
+        hover:text-[#AC8E66]
+        hover:border-[#3A3328]
+        hover:bg-[#1A1A1A]
+        active:translate-y-[1px]
+        transition
+        min-w-[96px]
+      "
+      title="Zurücksetzen"
+    >
+      {zoom}%
+    </button>
+
+    <button
+      onClick={handleZoomIn}
+      className="
+        h-9 w-9
+        inline-flex items-center justify-center
+        rounded-lg
+        bg-[#171717]
+        border border-[#2E2E2E]
+        text-[#A0A0A0]
+        text-[10px]
+        hover:text-[#AC8E66]
+        hover:border-[#3A3328]
+        hover:bg-[#1D1D1D]
+        active:translate-y-[1px]
+        transition
+      "
+      title="Vergrößern"
+    >
+      <FontAwesomeIcon icon={faPlus} className="text-[9px]" />
+    </button>
+  </div>
+</div>
+
 
       {/* Translation Status */}
       {isTranslating && (
@@ -144,11 +242,29 @@ export const ZenMarkdownPreview = ({
         </div>
       )}
 
-      {/* Preview Content Innenbox  */}
+      {/* Preview Content Innenbox Content AI Studio Preview Step4/4 Inhalt - Paper Style */}
       <div
-        className="w-full bg-[#2A2A2A] text-[#e5e5e5] border border-[#fef3c7] shadow-[10px] shadow-[#fff]
-          rounded-[12px] p-[5px] overflow-y-auto zen-scrollbar prose prose-invert max-w-none"
-        style={{ height, paddingTop: 56 }}
+        className="
+        text-[#3a3a3a]
+        border-[2px]
+        border-[#555]
+        borderTop-[none]
+        box-shadow:
+          inset 0 0 60px rgba(0,0,0,0.04),
+          0 20px 60px rgba(0,0,0,0.15);
+        rounded-[8px_8px_12px_12px]
+        shadow-[-10px_-10px_-6px_-1px_rgba(5,5,5,0.9)]
+        p-[5px]
+        overflow-y-auto zen-scrollbar rose
+        max-w-none"
+        style={{
+          height,
+          paddingTop: 0,
+          borderWidth: '2.5px',
+          background: 'rgb(217, 212, 197)',
+          boxShadow: 'inset 0 0 30px rgba(0,0,0,0.03)',
+          position: 'relative',
+        }}
       >
         <div style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top left', width: `${100 / (zoom / 100)}%` }}>
           <ReactMarkdown
@@ -157,10 +273,10 @@ export const ZenMarkdownPreview = ({
             components={{
               // Custom styling for markdown elements
               h1: ({ node, ...props }) => (
-                <h1 className="text-[#AC8E66] text-3xl font-bold mb-4 pb-2 border-b border-[#3a3a3a]" {...props} />
+                <h1 className="text-[#AC8E66] text-3xl font-bold mb-4" {...props} />
               ),
               h2: ({ node, ...props }) => (
-                <h2 className="text-[#D4AF78] text-2xl font-bold mb-3 mt-6 pb-2 border-b border-[#3a3a3a]" {...props} />
+                <h2 className="text-[#D4AF78] text-2xl font-bold mb-3 mt-6" {...props} />
               ),
               h3: ({ node, ...props }) => (
                 <h3 className="text-[#C4A578] text-xl font-bold mb-2 mt-4" {...props} />
@@ -175,7 +291,14 @@ export const ZenMarkdownPreview = ({
                 <h6 className="text-[#C4A578] text-sm font-bold mb-2 mt-3" {...props} />
               ),
               p: ({ node, ...props }) => (
-                <p className="mb-4 leading-relaxed text-[#e5e5e5]" {...props} />
+                <p
+                  className="leading-relaxed text-[#3a3a3a]"
+                  style={{ marginTop: 0, marginBottom: '3.15em' }}
+                  {...props}
+                />
+              ),
+              br: ({ node, ...props }) => (
+                <br {...props} style={{ display: 'block', marginBottom: '0.45em' }} />
               ),
               a: ({ node, ...props }) => (
                 <a
@@ -184,17 +307,21 @@ export const ZenMarkdownPreview = ({
                 />
               ),
               ul: ({ node, ...props }) => (
-                <ul className="list-disc list-inside mb-4 space-y-2 text-[#e5e5e5]" {...props} />
+                <ul className="list-disc list-inside mb-6 space-y-2 text-[#3a3a3a]" {...props} />
               ),
               ol: ({ node, ...props }) => (
-                <ol className="list-decimal list-inside mb-4 space-y-2 text-[#e5e5e5]" {...props} />
+                <ol className="list-decimal list-inside mb-6 space-y-2 text-[#3a3a3a]" {...props} />
               ),
-              li: ({ node, ...props }) => (
-                <li className="ml-4" {...props} />
+              li: ({ node, children, ...props }) => (
+                <li className="ml-4 text-[#3a3a3a]" {...props}>
+                  {typeof children === 'object' && children !== null && !Array.isArray(children)
+                    ? JSON.stringify(children)
+                    : children}
+                </li>
               ),
               blockquote: ({ node, ...props }) => (
                 <blockquote
-                  className="border-l-4 border-[#AC8E66] bg-[#2A2A2A]/50 pl-4 py-2 my-4 italic text-[#ccc]"
+                  className="border-l-4 border-[#AC8E66] bg-[#e8e4dc] pl-4 py-2 my-4 italic text-[#5a5a5a]"
                   {...props}
                 />
               ),
@@ -205,7 +332,7 @@ export const ZenMarkdownPreview = ({
                 if (isInline) {
                   return (
                     <code
-                      className="bg-[#1A1A1A] text-[#AC8E66] px-1.5 py-0.5 rounded font-mono text-sm"
+                      className="bg-[#e0dcd4] text-[#8b6914] px-1.5 py-0.5 rounded font-mono text-sm"
                       {...props}
                     >
                       {children}
@@ -221,8 +348,8 @@ export const ZenMarkdownPreview = ({
               },
               pre: ({ node, ...props }) => (
                 <pre
-                  className="bg-[#1A1A1A] border border-[#3a3a3a] rounded-lg p-4 mb-4
-                    overflow-x-auto text-sm"
+                  className="bg-[#2a2a2a] border border-[#AC8E66] rounded-lg p-4 mb-4
+                    overflow-x-auto text-sm text-[#e5e5e5]"
                   {...props}
                 />
               ),
@@ -256,7 +383,7 @@ export const ZenMarkdownPreview = ({
                 <strong className="font-bold text-[#AC8E66]" {...props} />
               ),
               em: ({ node, ...props }) => (
-                <em className="italic text-[#D4AF78] text-[12px]" {...props} />
+                <em className="italic text-[#D4AF78] text-[20px]" {...props} />
               ),
             }}
           >

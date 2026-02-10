@@ -1,118 +1,86 @@
+import { useId, useMemo } from "react";
+
 interface ZenSliderProps {
   label: string;
   value: number;
   min: number;
   max: number;
-  step: number;
+  step?: number;
   onChange: (value: number) => void;
+
   minLabel?: string;
   maxLabel?: string;
+
   showValue?: boolean;
   valueFormatter?: (value: number) => string;
+
   className?: string;
+
   labelSize?: string;
   labelColor?: string;
+
+  disabled?: boolean;
+  widthClassName?: string; // z.B. "max-w-[300px]" oder "max-w-[420px]"
 }
 
-/**
- * ZenSlider - Wiederverwendbare Slider-Komponente im Zen-Design
- *
- * Features:
- * - Zen-Styling mit goldenen Akzenten
- * - Optional: Min/Max Labels
- * - Optional: Value Display
- * - Custom Value Formatter
- * - Vollständig konfigurierbar
- */
 export const ZenSlider = ({
   label,
   value,
   min,
   max,
-  step,
+  step = 0.1,
   onChange,
   minLabel,
   maxLabel,
   showValue = true,
   valueFormatter = (v) => v.toFixed(1),
-  className = '',
-  labelSize = '11px',
-  labelColor = '#999',
+  className = "",
+  labelSize = "11px",
+  labelColor = "#999",
+  disabled = false,
+  widthClassName = "max-w-[300px]",
 }: ZenSliderProps) => {
+  const id = useId();
+
+  const pct = useMemo(() => {
+    if (max === min) return 0;
+    const clamped = Math.min(max, Math.max(min, value));
+    return ((clamped - min) / (max - min)) * 100;
+  }, [value, min, max]);
+
   return (
     <div className={`flex flex-col items-center w-full ${className}`}>
-      <style>{`
-        .zen-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          background: #AC8E66;
-          cursor: pointer;
-          border: 2px solid #D4AF78;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          transition: background 0.2s;
-        }
-
-        .zen-slider::-webkit-slider-thumb:hover {
-          background: #D4AF78;
-        }
-
-        .zen-slider::-moz-range-thumb {
-          width: 16px;
-          height: 16px;
-          border-radius: 50%;
-          background: #AC8E66;
-          cursor: pointer;
-          border: 2px solid #D4AF78;
-          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          transition: background 0.2s;
-        }
-
-        .zen-slider::-moz-range-thumb:hover {
-          background: #D4AF78;
-        }
-      `}</style>
-      <div className="w-full max-w-[300px]">
-        {/* Label mit Wert */}
+      <div className={`w-full ${widthClassName}`}>
         <label
-          className="block font-mono text-center mb-2"
+          htmlFor={id}
+          className="block font-mono text-center mb-2 select-none"
           style={{ color: labelColor, fontSize: labelSize }}
         >
           {label}
-          {showValue && `: ${valueFormatter(value)}`}
+          {showValue ? `: ${valueFormatter(value)}` : ""}
         </label>
 
-        {/* Slider */}
         <input
+          id={id}
+          className="zen-slider"
           type="range"
           min={min}
           max={max}
           step={step}
           value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
+          disabled={disabled}
+          aria-label={label}
+          onChange={(e) => onChange(e.currentTarget.valueAsNumber)}
           style={{
-            width: '100%',
-            height: '8px',
-            background: '#2A2A2A',
-            borderRadius: '8px',
-            outline: 'none',
-            cursor: 'pointer',
-            WebkitAppearance: 'none',
-            MozAppearance: 'none',
-            appearance: 'none',
-            position: 'relative',
-            zIndex: 1,
+            // Track fill (gold progress)
+            ["--zen-pct" as any]: `${pct}%`,
           }}
-          className="zen-slider"
         />
 
-        {/* Min/Max Labels */}
         {(minLabel || maxLabel) && (
           <div className="flex justify-between text-[#777] text-[11px] mt-1 font-mono">
-            {minLabel && <span>{minLabel}</span>}
-            {maxLabel && <span>{maxLabel}</span>}
+            <span>{minLabel ?? ""}</span>
+            <span>{maxLabel ?? ""}</span>
           </div>
         )}
       </div>

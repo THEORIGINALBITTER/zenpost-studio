@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
-import { ZenRoughButton } from '../components/ZenRoughButton';
+import { MODAL_CONTENT } from '../config/ZenModalConfig';
 import { ZenAISettingsContent } from './components/ZenAISettingsContent';
 import { ZenSocialMediaSettingsContent } from './components/ZenSocialMediaSettingsContent';
 import { ZenEditorSettingsContent } from './components/ZenEditorSettingsContent';
@@ -24,7 +23,7 @@ type TabType = 'ai' | 'social' | 'editor' | 'license';
 export const ZenSettingsModal = ({
   isOpen,
   onClose,
-  onSave,
+  onSave: _onSave,
   defaultTab = 'ai',
   defaultSocialTab,
   showMissingSocialHint = false,
@@ -32,7 +31,6 @@ export const ZenSettingsModal = ({
 }: ZenSettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [isCompactTabs, setIsCompactTabs] = useState(false);
-  const [tabButtonWidth, setTabButtonWidth] = useState(220);
 
   useEffect(() => {
     if (isOpen) {
@@ -42,120 +40,130 @@ export const ZenSettingsModal = ({
 
   useEffect(() => {
     const updateSize = () => {
-      const compact = window.innerWidth < 900;
-      setIsCompactTabs(compact);
-      if (compact) {
-        const width = Math.max(180, Math.min(260, window.innerWidth - 140));
-        setTabButtonWidth(width);
-      }
+      setIsCompactTabs(window.innerWidth < 900);
     };
     updateSize();
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
   }, []);
 
-  const handleSave = () => {
-    // Save logic is handled by individual tab components (auto-save)
-    onSave?.();
-    onClose();
-  };
+
+  // Modal-Content aus zentraler Config
+  const content = MODAL_CONTENT.settings;
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose} size="xl" showCloseButton={false}>
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      title={content.title}
+      subtitle={content.subtitle}
+      headerAlign="center"
+      showCloseButton={true}
+    >
       <div
         style={{
           position: 'relative',
           display: 'flex',
           flexDirection: 'column',
           width: '100%',
-          backgroundColor: '#1E1E1E',
           borderRadius: 12,
-          minHeight: '600px',
+          height: '85vh',
           maxHeight: '85vh',
         }}
       >
-        {/* Fixed Header */}
+        {/* Sticky Tabs */}
         <div
           style={{
-            padding: '32px 32px 24px 32px',
-            borderBottom: '1px solid #AC8E66',
-            backgroundColor: '#1E1E1E',
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+            padding: '24px 24px 20px 24px',
+            marginBottom: '-40px',
+            background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
+            boxShadow: '0 -1px 5px rgba(0, 0, 0, 0.15)',
+            borderRadius: '12px 12px 0 0',
           }}
         >
-          <ZenModalHeader
-            title="System Einstellungen"
-            subtitle="AI Provider & Social Media APIs konfigurieren"
-            titleColor="#AC8E66"
-            subtitleColor="#777"
-            titleSize="13px"
-            subtitleSize="11px"
-            onClose={onClose}
-            onSave={handleSave}
-          />
-
-          {/* Tabs - Simplified */}
           <div
             style={{
               display: 'flex',
-              gap: 12,
-              marginTop: 32,
+              gap: isCompactTabs ? 4 : 6,
               justifyContent: 'center',
               flexWrap: 'wrap',
-              flexDirection: isCompactTabs ? 'column' : 'row',
-              alignItems: 'center',
             }}
           >
-            <ZenRoughButton
-              label="AI Einstellungen"
-              icon={<FontAwesomeIcon icon={faRobot} />}
-              onClick={() => {
-                console.log('AI Tab clicked');
-                setActiveTab('ai');
-              }}
-              variant={activeTab === 'ai' ? 'active' : 'default'}
-              size={isCompactTabs ? 'small' : 'default'}
-              width={isCompactTabs ? tabButtonWidth : undefined}
-              height={isCompactTabs ? 44 : undefined}
-            />
-
-            <ZenRoughButton
-              label="Social Media APIs"
-              icon={<FontAwesomeIcon icon={faShareNodes} />}
-              onClick={() => {
-                console.log('Social Tab clicked');
-                setActiveTab('social');
-              }}
-              variant={activeTab === 'social' ? 'active' : 'default'}
-              size={isCompactTabs ? 'small' : 'default'}
-              width={isCompactTabs ? tabButtonWidth : undefined}
-              height={isCompactTabs ? 44 : undefined}
-            />
-
-            <ZenRoughButton
-              label="Editor"
-              icon={<FontAwesomeIcon icon={faPenNib} />}
-              onClick={() => {
-                console.log('Editor Tab clicked');
-                setActiveTab('editor');
-              }}
-              variant={activeTab === 'editor' ? 'active' : 'default'}
-              size={isCompactTabs ? 'small' : 'default'}
-              width={isCompactTabs ? tabButtonWidth : undefined}
-              height={isCompactTabs ? 44 : undefined}
-            />
-
-            <ZenRoughButton
-              label="Lizenz & Account"
-              icon={<FontAwesomeIcon icon={faIdCard} />}
-              onClick={() => {
-                console.log('License Tab clicked');
-                setActiveTab('license');
-              }}
-              variant={activeTab === 'license' ? 'active' : 'default'}
-              size={isCompactTabs ? 'small' : 'default'}
-              width={isCompactTabs ? tabButtonWidth : undefined}
-              height={isCompactTabs ? 44 : undefined}
-            />
+            {[
+              { id: 'ai' as TabType, label: 'AI Einstellungen', icon: faRobot },
+              { id: 'social' as TabType, label: 'Social Media APIs', icon: faShareNodes },
+              { id: 'editor' as TabType, label: 'Editor', icon: faPenNib },
+              { id: 'license' as TabType, label: 'Lizenz & Account', icon: faIdCard },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    display: 'flex',
+                    transform: 'translateY(20px)',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    padding: isCompactTabs ? '8px 12px' : '10px 20px',
+                    minWidth: isCompactTabs ? '120px' : '150px',
+                    height: '40px',
+                    background: isActive
+                      ? '#151515'
+                      : 'transparent',
+                    border: isActive
+                    ? `2px 2px 0 0 solid #EDE6D8`
+                    : `2px 2px 0 0 solid #EDE6D8`,
+                    borderRadius: '12px 12px 0 0',
+                    boxShadow: isActive
+                      ? '0 -4px 12px rgba(172, 142, 102, 0.25)'
+                      : '0 -2px 8px rgba(0, 0, 0, 0.15)',
+                    cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: isCompactTabs ? '10px' : '10px',
+                    color:  isActive
+                      ? '#AC8E66'
+                    : '#151515',
+                    transition: 'all 0.2s',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                      e.currentTarget.style.boxShadow = '0 -4px 12px rgba(172, 142, 102, 0.2)';
+                      e.currentTarget.style.transform = 'translateY(19px)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.borderColor = '#EDE6D8';
+                      e.currentTarget.style.boxShadow = '0 -2px 8px rgba(0, 0, 0, 0.15)';
+                      e.currentTarget.style.transform = 'translateY(20px)';
+                    }
+                  }}
+                >
+                  <FontAwesomeIcon
+                    icon={tab.icon}
+                    style={{ color: '#AC8E66', fontSize: isCompactTabs ? '10px' : '10px' }}
+                  />
+                  <span
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tab.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -165,9 +173,13 @@ export const ZenSettingsModal = ({
             flex: 1,
             overflowY: 'auto',
             overflowX: 'hidden',
-            paddingTop: '24px',
+            paddingTop: '100px',
+            background: 'linear-gradie, #EDE6D8 0%, #E7DFD0 100%)',
+           
+            borderRadius: '12px 12px 0 0',
           }}
         >
+                 {activeTab === 'editor' && <ZenEditorSettingsContent />}
           {activeTab === 'ai' && <ZenAISettingsContent />}
           {activeTab === 'social' && (
             <ZenSocialMediaSettingsContent
@@ -176,7 +188,7 @@ export const ZenSettingsModal = ({
               missingPlatformLabel={missingSocialLabel}
             />
           )}
-          {activeTab === 'editor' && <ZenEditorSettingsContent />}
+   
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

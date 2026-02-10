@@ -257,18 +257,56 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
   }
 
   const markdownLines: string[] = [];
+  const normalizeInlineText = (text: string) => {
+    const convertOrderedLists = (input: string) =>
+      input.replace(/<ol(\s+[^>]*)?>([\s\S]*?)<\/ol>/gi, (_match, _attrs, inner) => {
+        const items: string[] = [];
+        const liRegex = /<li(\s+[^>]*)?>([\s\S]*?)<\/li>/gi;
+        let m: RegExpExecArray | null;
+        let idx = 1;
+        while ((m = liRegex.exec(inner)) !== null) {
+          const raw = m[2] ?? '';
+          const cleaned = raw
+            .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+            .replace(/<br\s*\/?>/gi, '  \n')
+            .replace(/<[^>]+>/g, '')
+            .trim();
+          items.push(`${idx}. ${cleaned}`);
+          idx += 1;
+        }
+        return items.join('\n');
+      });
+
+    return convertOrderedLists(text)
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/<\/li>\s*<li(\s+[^>]*)?>/gi, '\n- ')
+      .replace(/<li(\s+[^>]*)?>/gi, '- ')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<\/ol>/gi, '\n')
+      .replace(/<\/ul>/gi, '\n')
+      .replace(/<ol(\s+[^>]*)?>/gi, '')
+      .replace(/<ul(\s+[^>]*)?>/gi, '')
+      .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)>/gi, '\n')
+      .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)(\s+[^>]*)?>/gi, '')
+      .replace(/<\/?span(\s+[^>]*)?>/gi, '')
+      .replace(/<\/?a(\s+[^>]*)?>/gi, '')
+      .replace(/<\/?strong(\s+[^>]*)?>/gi, '')
+      .replace(/<\/?em(\s+[^>]*)?>/gi, '')
+      .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+      .replace(/<br\s*\/?>/gi, '  \n');
+  };
 
   for (const block of editorData.blocks) {
     switch (block.type) {
       case 'paragraph':
-        markdownLines.push(block.data.text || '');
+        markdownLines.push(normalizeInlineText(block.data.text || ''));
         markdownLines.push(''); // Leerzeile nach Paragraph
         break;
 
       case 'header':
         const level = block.data.level || 1;
         const hashes = '#'.repeat(Math.min(level, 6));
-        markdownLines.push(`${hashes} ${block.data.text || ''}`);
+        markdownLines.push(`${hashes} ${normalizeInlineText(block.data.text || '')}`);
         markdownLines.push(''); // Leerzeile nach Header
         break;
 
@@ -278,9 +316,9 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
 
         items.forEach((item: string, index: number) => {
           if (style === 'ordered') {
-            markdownLines.push(`${index + 1}. ${item}`);
+            markdownLines.push(`${index + 1}. ${normalizeInlineText(item)}`);
           } else {
-            markdownLines.push(`* ${item}`);
+            markdownLines.push(`* ${normalizeInlineText(item)}`);
           }
         });
 
@@ -297,7 +335,7 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
         break;
 
       case 'quote':
-        const quoteText = block.data.text || '';
+        const quoteText = normalizeInlineText(block.data.text || '');
         const quoteLines = quoteText.split('\n');
         quoteLines.forEach((line: string) => {
           markdownLines.push(`> ${line}`);
@@ -315,13 +353,13 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
         const tableData = block.data.content || [];
         if (tableData.length > 0) {
           // Header
-          const headerRow = tableData[0] || [];
+          const headerRow = (tableData[0] || []).map((cell: string) => normalizeInlineText(cell));
           markdownLines.push('| ' + headerRow.join(' | ') + ' |');
           markdownLines.push('| ' + headerRow.map(() => '---').join(' | ') + ' |');
 
           // Rows
           for (let i = 1; i < tableData.length; i++) {
-            const row = tableData[i] || [];
+            const row = (tableData[i] || []).map((cell: string) => normalizeInlineText(cell));
             markdownLines.push('| ' + row.join(' | ') + ' |');
           }
 

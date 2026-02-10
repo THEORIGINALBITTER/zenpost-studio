@@ -1,5 +1,4 @@
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
@@ -76,16 +75,12 @@ export const ZenSaveSuccessModal = ({
   };
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
-      <ZenModalHeader
-        title={preset.title}
-        subtitle={preset.subtitle}
-        titleColor={preset.titleColor}
-        subtitleColor={preset.subtitleColor}
-        titleSize={preset.titleSize}
-        subtitleSize={preset.subtitleSize}
-      />
-
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={preset.title}
+      subtitle={preset.subtitle}
+    >
       <div
         style={{
           flex: 1,
@@ -109,8 +104,12 @@ export const ZenSaveSuccessModal = ({
         {/* File Name */}
         <div
           style={{
+            WebkitFontSmoothing: "antialiased",
+            MozOsxFontSmoothing: "grayscale",
+            textRendering: "optimizeLegibility",
             fontFamily: 'monospace',
-            fontSize: '14px',
+            fontSize: '12px',
+            fontWeight: 'unset',
             color: '#AC8E66',
             backgroundColor: '#1A1A1A',
             padding: '12px 24px',
@@ -143,8 +142,8 @@ export const ZenSaveSuccessModal = ({
               width: '100%',
               backgroundColor: '#111',
               borderRadius: '6px',
-              border: '1px dashed #3A3A3A',
-              padding: '12px',
+              border: '1px dotted #3A3A3A',
+              padding: '20px',
               display: 'flex',
               flexDirection: 'column',
               gap: '8px',
@@ -154,7 +153,8 @@ export const ZenSaveSuccessModal = ({
               style={{
                 fontFamily: 'monospace',
                 fontSize: '10px',
-                color: '#777',
+                fontWeight: '400',
+                color: '#dbd9d5',
               }}
             >
               Gespeicherte Datei-Pfade:
@@ -165,9 +165,9 @@ export const ZenSaveSuccessModal = ({
                 style={{
                   fontFamily: 'monospace',
                   fontSize: '10px',
-                  color: '#e5e5e5',
+                  color: '#999',
                   whiteSpace: 'nowrap',
-                  overflowX: 'auto',
+                  overflow: 'hidden'
                 }}
               >
                 {path}
@@ -203,7 +203,7 @@ export const ZenSaveSuccessModal = ({
                 onGoToCalendar();
                 onClose();
               }}
-              variant="active"
+              variant="default"
             />
           )}
         </div>

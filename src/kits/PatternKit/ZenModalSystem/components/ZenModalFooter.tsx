@@ -16,7 +16,7 @@ export const ZenModalFooter = ({
 }: ZenModalFooterProps) => {
   return (
     <div
-      className={`border-t border-[#AC8E66] py-3 px-4 relative z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.3)] ${className}`}
+      className={`border-t border-[#AC8E66] bg-[#151515]  ${className}`}
       style={{ paddingTop: 10, marginTop: 20, ...style }}
     >
       {children}

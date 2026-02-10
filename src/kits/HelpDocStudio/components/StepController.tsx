@@ -105,7 +105,7 @@ export const StepController = ({
         </div>
 
         {/* Control Buttons */}
-        <div
+        <div className='mr-[50px]'
           style={{
             display: 'flex',
             gap: '8px',

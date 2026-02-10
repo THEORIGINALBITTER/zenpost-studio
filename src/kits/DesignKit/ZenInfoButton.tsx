@@ -1,18 +1,23 @@
 import React, { useEffect, useRef } from "react";
 import rough from "roughjs/bin/rough";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCircleInfo } from "@fortawesome/free-solid-svg-icons";
+import { faCircleQuestion } from "@fortawesome/free-solid-svg-icons";
+import type { IconDefinition } from "@fortawesome/free-solid-svg-icons";
 
 interface ZenInfoButtonProps {
   onClick?: () => void;
   size?: "sm" | "md" | "xs";
   className?: string;
+  icon?: IconDefinition;
+  ariaLabel?: string;
 }
 
 export const ZenInfoButton: React.FC<ZenInfoButtonProps> = ({
   onClick,
   size = "md",
   className = "",
+  icon,
+  ariaLabel = "Info",
 }) => {
 const canvasRef = useRef<HTMLCanvasElement>(null);
 const sizeMap = {
@@ -52,11 +57,11 @@ const pixelSize = sizeMap[size] ?? 40;
   return (
     <button
       type="button"
-      aria-label="Info"
+      aria-label={ariaLabel}
       onClick={handleClick}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`group relative flex items-center justify-center rounded-full
+      className={`group relative flex items-center justify-center 
         cursor-pointer select-none active:scale-95
         transition-all duration-200 ${className}`}
       style={{
@@ -75,8 +80,8 @@ const pixelSize = sizeMap[size] ?? 40;
         className="absolute top-0 left-0 z-0 pointer-events-none"
       />
       <FontAwesomeIcon
-        icon={faCircleInfo}
-        className="text-[14px] z-10 text-[#fef3c7] pointer-events-none group-hover:text-[#64748b]"
+        icon={icon ?? faCircleQuestion}
+        className="text-[14px] z-10 text-[#AC8E66] pointer-events-none group-hover:text-[#dbd9d5]"
       />
     </button>
   );

@@ -5,10 +5,20 @@
 html, body, #root {
   height: 100%;
   margin: 0;
+    -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+ 
 }
 
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+
+.zen-paper {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
 
 .logo.vite:hover {
   filter: drop-shadow(0 0 2em #747bff);
@@ -23,6 +33,7 @@ html, body, #root {
   line-height: 24px;
   font-weight: 400;
     --zen-scrollbar-track: #f6f6f6;
+  --color-active-icon: #AC8E66;
 
   color: #0f0f0f;
   background-color: #f6f6f6;
@@ -32,6 +43,16 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+}
+
+.zen-no-scrollbar {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.zen-no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -161,22 +182,18 @@ button::-moz-focus-inner {
 
 
 @keyframes zenModalEnter {
-  0% {
+  from {
     opacity: 0;
-    transform: rotateY(-90deg) scale(0.9);
+    transform: translateY(8px) scale(0.985);
   }
-  60% {
+  to {
     opacity: 1;
-    transform: rotateY(10deg) scale(1.02);
-  }
-  100% {
-    opacity: 1;
-    transform: rotateY(0deg) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 .animate-zenModalEnter {
-  animation: zenModalEnter 0.7s cubic-bezier(0.33, 1, 0.68, 1) forwards;
+  animation: zenModalEnter 320ms cubic-bezier(0.22, 0.8, 0.32, 1) both;
 }
 
 .zen-rotate-bg {
@@ -229,6 +246,35 @@ button::-moz-focus-inner {
   scrollbar-color: #AC8E66 #2A2A2A;
 }
 
+.zen-tauri,
+.zen-tauri * {
+  scrollbar-width: thin;
+  scrollbar-color: #AC8E66 #1a1a1a;
+}
+
+.zen-tauri::-webkit-scrollbar,
+.zen-tauri *::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.zen-tauri::-webkit-scrollbar-track,
+.zen-tauri *::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.zen-tauri::-webkit-scrollbar-thumb,
+.zen-tauri *::-webkit-scrollbar-thumb {
+  background: #AC8E66;
+  border-radius: 8px;
+  border: 1px solid #1a1a1a;
+}
+
+.zen-tauri::-webkit-scrollbar-thumb:hover,
+.zen-tauri *::-webkit-scrollbar-thumb:hover {
+  background: #c4a578;
+}
+
 
 .zen-error {
   font-size: 13px;
@@ -236,5 +282,195 @@ button::-moz-focus-inner {
   color: #AC8E66;
   margin-top: 0.5rem;
 }
+
+
+
+/* Base track */
+.zen-slider {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+
+  -webkit-appearance: none;
+  appearance: none;
+
+  /* Track fill: gold until pct, then dark */
+  background: linear-gradient(
+    to right,
+    #ac8e66 0%,
+    #ac8e66 var(--zen-pct, 0%),
+    #2a2a2a var(--zen-pct, 0%),
+    #2a2a2a 100%
+  );
+}
+
+/* Disabled state */
+.zen-slider:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* WebKit thumb */
+.zen-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+
+  background: #ac8e66;
+  border: 2px solid #d4af78;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.28);
+
+  transition: transform 140ms ease, background 140ms ease, border 140ms ease;
+}
+
+.zen-slider:hover::-webkit-slider-thumb {
+  background: #d4af78;
+}
+
+.zen-slider:active::-webkit-slider-thumb {
+  transform: scale(0.96);
+  border: 2px solid #d4af78;
+}
+
+/* Firefox thumb */
+.zen-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+
+  background: #ac8e66;
+  border: 2px solid #d4af78;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.28);
+
+  transition: transform 140ms ease, background 140ms ease, border 140ms ease;
+}
+
+.zen-slider:hover::-moz-range-thumb {
+  background: #d4af78;
+}
+
+.zen-slider:active::-moz-range-thumb {
+  transform: scale(0.96);
+  border: 2px solid #d4af78;
+}
+
+/* Firefox track (optional; the linear-gradient on input works in modern FF, but this stabilizes) */
+.zen-slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+
+/* --- ZEN Step Cards ------------------------------------------------------- */
+
+.zen-step-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 26px;
+  width: 860px;
+  max-width: 92vw;
+  margin: 0 auto;
+}
+
+@media (max-width: 920px) {
+  .zen-step-grid { width: 92vw; }
+}
+
+@media (max-width: 720px) {
+  .zen-step-grid { grid-template-columns: 1fr; }
+}
+
+.zen-step-card {
+  position: relative;
+  border-radius: 22px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(16,16,16,0.55);
+  box-shadow: 0 16px 42px rgba(0,0,0,0.38);
+  padding: 26px 26px 22px;
+  transition: border 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.zen-step-card:hover {
+  box-shadow: 0 22px 56px rgba(0,0,0,0.45);
+  transform: translateY(-1px);
+}
+
+.zen-step-card--changed {
+  border: 1px solid rgba(172,142,102,0.75);
+  box-shadow:
+    0 16px 42px rgba(0,0,0,0.38),
+    0 0 0 1px rgba(172,142,102,0.22),
+    0 0 22px rgba(172,142,102,0.14);
+}
+
+.zen-step-indicator {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zen-step-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+}
+
+.zen-step-check {
+  width: 18px;
+  height: 18px;
+  border-radius: 7px;
+  background: #AC8E66;
+  box-shadow: 0 10px 22px rgba(172,142,102,0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Card content spacing */
+.zen-step-card-title {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(219,217,213,0.85);
+  margin: 0 0 14px 0;
+  text-align: center;
+}
+
+.zen-step-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Step header line (wie Step2) */
+.zen-step-headline {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-align: center;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.zen-step-rule {
+  margin: 10px auto 0;
+  height: 1px;
+  width: 260px;
+  background: linear-gradient(to right, rgba(0,0,0,0), rgba(172,142,102,0.35), rgba(0,0,0,0));
+}
+
+
+
+
 
 }

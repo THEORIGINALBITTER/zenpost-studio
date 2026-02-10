@@ -66,7 +66,7 @@ function MyScreen() {
 ### 3. Ollama
 - **Models**: llama3.1, codellama, mistral, mixtral, qwen2.5-coder
 - **Requires**: Local Ollama server running (`ollama serve`)
-- **Base URL**: `http://localhost:11434` (default)
+- **Base URL**: `http://127.0.0.1:11434` (default)
 - **Use Case**: Privacy-focused, offline AI
 
 ### 4. Custom API
@@ -90,7 +90,7 @@ Dynamically populated dropdown based on selected provider. Shows provider-specif
 
 ### Base URL (Ollama/Custom only)
 - Text input for custom endpoint URLs
-- Default for Ollama: `http://localhost:11434`
+- Default for Ollama: `http://127.0.0.1:11434`
 - Placeholder for Custom: `https://your-api.com`
 
 ### Temperature Slider

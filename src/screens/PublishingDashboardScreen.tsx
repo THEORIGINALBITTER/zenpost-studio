@@ -151,7 +151,7 @@ export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, on
             label={projectPath ? "Projekt wechseln" : "Projekt wählen"}
             icon={<FontAwesomeIcon icon={faFolderOpen} />}
             onClick={handleSelectProject}
-            variant="active"
+            variant="default"
           />
           {projectPath && (
             <ZenRoughButton
@@ -199,7 +199,7 @@ export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, on
               label="Ersten Artikel schreiben"
               icon={<FontAwesomeIcon icon={faMagicWandSparkles} />}
               onClick={onOpenContentAI}
-              variant="active"
+              variant="default"
             />
           </div>
         ) : (

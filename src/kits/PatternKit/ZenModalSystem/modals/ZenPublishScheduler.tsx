@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faLightbulb, faCalendarDays, faSave, faXmark } from '@fortawesome/free-solid-svg-icons';
+import {
+  faLinkedinIn,
+  faReddit,
+  faGithub,
+  faDev,
+  faMedium,
+  faHashnode,
+  faTwitter,
+} from '@fortawesome/free-brands-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import type { ScheduledPost, SocialPlatform } from '../../../../types/scheduling';
@@ -56,14 +65,14 @@ interface ZenPublishSchedulerProps {
   initialSchedules?: ScheduleOverrides;
 }
 
-const PLATFORM_INFO: Record<SocialPlatform, { emoji: string; name: string; color: string }> = {
-  linkedin: { emoji: '💼', name: 'LinkedIn', color: '#0077B5' },
-  reddit: { emoji: '🤖', name: 'Reddit', color: '#FF4500' },
-  github: { emoji: '⚙️', name: 'GitHub', color: '#181717' },
-  devto: { emoji: '👨‍💻', name: 'Dev.to', color: '#0A0A0A' },
-  medium: { emoji: '📝', name: 'Medium', color: '#00AB6C' },
-  hashnode: { emoji: '🔷', name: 'Hashnode', color: '#2962FF' },
-  twitter: { emoji: '🐦', name: 'Twitter/X', color: '#1DA1F2' },
+const PLATFORM_INFO: Record<SocialPlatform, { icon: any; name: string; color: string }> = {
+  linkedin: { icon: faLinkedinIn, name: 'LinkedIn', color: '#0077B5' },
+  reddit: { icon: faReddit, name: 'Reddit', color: '#FF4500' },
+  github: { icon: faGithub, name: 'GitHub', color: '#181717' },
+  devto: { icon: faDev, name: 'Dev.to', color: '#0A0A0A' },
+  medium: { icon: faMedium, name: 'Medium', color: '#00AB6C' },
+  hashnode: { icon: faHashnode, name: 'Hashnode', color: '#2962FF' },
+  twitter: { icon: faTwitter, name: 'Twitter/X', color: '#1DA1F2' },
 };
 
 export function ZenPublishScheduler({
@@ -225,7 +234,7 @@ export function ZenPublishScheduler({
                     marginBottom: '16px',
                   }}
                 >
-                  <span style={{ fontSize: '24px' }}>{info.emoji}</span>
+                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '22px', color: '#AC8E66' }} />
                   <div>
                     <h4
                       style={{

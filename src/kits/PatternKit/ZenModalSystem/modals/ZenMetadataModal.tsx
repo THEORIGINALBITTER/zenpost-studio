@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { ZenDropdown } from '../components/ZenDropdown';
@@ -223,29 +222,23 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
   if (!isOpen) return null;
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={modalPreset.title}
+      subtitle={modalPreset.subtitle}
+      showCloseButton={true}
+    >
       <div
         className="bg-[#1A1A1A] rounded-lg flex flex-col"
-    style={{
-    width: modalPreset.minWidth,
-    maxWidth: modalPreset.maxWidth,
-    minHeight: modalPreset.minHeight,
-    maxHeight: modalPreset.maxHeight,
-    overflow: 'hidden',
-  }}
+        style={{
+          width: modalPreset.minWidth,
+          maxWidth: modalPreset.maxWidth,
+          minHeight: modalPreset.minHeight,
+          maxHeight: modalPreset.maxHeight,
+          overflow: 'hidden',
+        }}
       >
-        <ZenModalHeader
-          title={modalPreset.title}
-          subtitle={modalPreset.subtitle}
-          titleColor={modalPreset.titleColor}
-          subtitleColor={modalPreset.subtitleColor}
-          titleSize={modalPreset.titleSize}
-          subtitleSize={modalPreset.subtitleSize}
-          onClose={onClose}
-        />
-
-        
-
         {/* Scrollable Content */}
         <div
           className="zen-scrollbar"
@@ -255,7 +248,6 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
             maxHeight: "70vh",
             overflowX: 'hidden',
             padding: '20px 28px',
-            marginTop: '80px',
           }}
         >
           {/* Author Information */}
@@ -394,7 +386,7 @@ export function ZenMetadataModal({ isOpen, onClose, metadata, onSave }: ZenMetad
               label="Speichern"
               icon={<FontAwesomeIcon icon={faSave} className="text-[#AC8E66]" />}
               onClick={handleSave}
-              variant="active"
+              variant="default"
             />
           </div>
         </ZenModalFooter>

@@ -1,5 +1,5 @@
-import { InfoBoxConfig } from '../config/ZenModalConfig';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { InfoBoxConfig } from "../config/ZenModalConfig";
+import { useOpenExternal } from "../../../../hooks/useOpenExternal";
 
 interface ZenInfoBoxProps extends InfoBoxConfig {
   className?: string;
@@ -22,37 +22,39 @@ export const ZenInfoBox = ({
   type = 'info',
   className = '',
 }: ZenInfoBoxProps) => {
+  const { openExternal } = useOpenExternal();
+
   const handleLinkClick = async (url: string) => {
     try {
-      await openUrl(url);
+      await openExternal(url);
     } catch (error) {
-      console.error('Failed to open URL:', error);
+      console.error("Failed to open URL:", error);
     }
   };
   // Type-basierte Farben für style={{}}
   const colorStyles = {
     info: {
-      bg: 'rgba(172, 142, 102, 0.1)',
-      border: 'rgba(172, 142, 102, 0.3)',
-      text: '#AC8E66',
-      hover: '#D4AF78',
+      bg: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
+      border: 'rgba(11, 11, 11, 0.3)',
+      text: '#555',
+      hover: '#AC8E66',
     },
     warning: {
-      bg: 'rgba(255, 167, 38, 0.1)',
-      border: 'rgba(255, 167, 38, 0.3)',
-      text: '#FFA726',
-      hover: '#FFB74D',
+      bg: 'rgba(239, 235, 220, 0.01)',
+      border: 'rgba(11, 11, 11, 0.3)',
+      text: '#555',
+      hover: '#111',
     },
     success: {
-      bg: 'rgba(76, 175, 80, 0.1)',
-      border: 'rgba(76, 175, 80, 0.3)',
-      text: '#4CAF50',
-      hover: '#66BB6A',
+      bg: 'rgba(76, 17, 80, 0.1)',
+      border: 'rgba(11, 11, 11, 0.3)',
+      text: '#555',
+      hover: '#AC8E66',
     },
     error: {
       bg: 'rgba(255, 107, 107, 0.1)',
-      border: 'rgba(255, 107, 107, 0.3)',
-      text: '#FF6B6B',
+      border: 'rgba(11, 11, 11, 0.3)',
+      text: '#555',
       hover: '#FF8787',
     },
   };
@@ -72,10 +74,10 @@ export const ZenInfoBox = ({
         className={className}
         style={{
           width: '100%',
-          maxWidth: '400px',
+          maxWidth: 'auto',
           padding: '20px 24px',
           backgroundColor: colorStyle.bg,
-          border: `2px solid ${colorStyle.border}`,
+          border: `1px dotted ${colorStyle.border}`,
           borderRadius: '12px',
         }}
       >
@@ -101,6 +103,7 @@ export const ZenInfoBox = ({
                 gap: '8px',
                 marginTop: '16px',
                 alignItems: 'center',
+                padding: '12px',
               }}
             >
               {links.map((link, index) => (
@@ -115,15 +118,16 @@ export const ZenInfoBox = ({
                     e.currentTarget.style.color = colorStyle.text;
                   }}
                   style={{
-                    padding: 0,
+                    padding: '12px',
                     font: 'inherit',
                     textAlign: 'center',
                     backgroundColor: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
-                    textDecoration: 'underline',
+                    
                     color: colorStyle.text,
-                    fontSize: '13px',
+                    fontSize: '12px',
+                   
                   }}
                 >
                   → {link.label}

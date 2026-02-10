@@ -9,8 +9,8 @@ import {
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
 import { ZenSettingsModal, ZenGeneratingModal } from '../kits/PatternKit/ZenModalSystem';
-import { ZenInfoFooter } from '../kits/PatternKit/ZenInfoFooter';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1FormatSelection } from './converter-steps/Step1FormatSelection';
 import { Step2ContentInput } from './converter-steps/Step2ContentInput';
@@ -43,9 +43,14 @@ const formatOptions: FormatOption[] = [
 interface ConverterScreenProps {
   onBack?: () => void;
   onStepChange?: (step: number) => void;
+  onOpenInContentStudio?: (content: string, fileName: string) => void;
 }
 
-export const ConverterScreen = ({ onBack: _onBack, onStepChange }: ConverterScreenProps) => {
+export const ConverterScreen = ({
+  onBack: _onBack,
+  onStepChange,
+  onOpenInContentStudio,
+}: ConverterScreenProps) => {
   // Step State
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -228,6 +233,13 @@ export const ConverterScreen = ({ onBack: _onBack, onStepChange }: ConverterScre
               setFileName('');
               setError(null);
             }}
+            showOpenInContentStudio={!isTauri() && !!outputContent}
+            onOpenInContentStudio={() => {
+              const name =
+                fileName?.trim() ||
+                `converted${getFileExtension(toFormat)}`;
+              onOpenInContentStudio?.(outputContent, name);
+            }}
           />
         );
       default:
@@ -266,14 +278,9 @@ export const ConverterScreen = ({ onBack: _onBack, onStepChange }: ConverterScre
       {renderStepContent()}
 
       {/* Footer */}
-      <ZenInfoFooter
-        onClick={() => setIsSettingsOpen(true)}
-        fixed={false}
-        className="mb-4"
-        iconType="settings"
-      />
+  
 
-      <ZenFooterText className="mb-8" />
+      <ZenFooterText className="mb-8 border-t border-[#AC8E66]" />
 
       {/* Settings Modal */}
       <ZenSettingsModal
@@ -287,6 +294,7 @@ export const ConverterScreen = ({ onBack: _onBack, onStepChange }: ConverterScre
       <ZenGeneratingModal
         isOpen={isConverting}
         templateName={`${toFormat.toUpperCase()} Konvertierung`}
+        onClose={() => setIsConverting(false)}
       />
     </div>
   );

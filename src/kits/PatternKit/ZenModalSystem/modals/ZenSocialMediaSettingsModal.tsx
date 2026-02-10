@@ -11,7 +11,6 @@ import {
   validateGitHubConfig,
 } from '../../../../services/socialMediaService';
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenInfoBox } from '../components/ZenInfoBox';
 
@@ -155,9 +154,13 @@ const ZenSocialMediaSettingsModal: React.FC<ZenSocialMediaSettingsModalProps> = 
   };
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose} size="xl">
-      <ZenModalHeader title="Social Media API Settings" onClose={onClose} />
-
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      title="Social Media API Settings"
+      subtitle="Configure your API credentials"
+    >
       <div className="p-6">
         <ZenInfoBox
           type="info"

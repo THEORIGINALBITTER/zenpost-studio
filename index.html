@@ -5,9 +5,57 @@
     <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ZenStudio - Post</title>
+    <style>
+      #zen-preloader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #0f0f0f;
+        color: #ac8e66;
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+        z-index: 9999;
+      }
+      #zen-preloader .zen-preloader-inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+      #zen-preloader .spinner {
+        width: 36px;
+        height: 36px;
+        border: 2px solid rgba(172, 142, 102, 0.3);
+        border-top-color: #ac8e66;
+        border-radius: 50%;
+        animation: zen-spin 0.9s linear infinite;
+      }
+      #zen-preloader .label {
+        font-size: 12px;
+        letter-spacing: 0.4px;
+      }
+      #zen-preloader .percent {
+        font-size: 12px;
+        letter-spacing: 0.6px;
+        color: #dbd9d5;
+      }
+      @keyframes zen-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
 
   <body>
+    <div id="zen-preloader">
+      <div class="zen-preloader-inner">
+        <div class="spinner"></div>
+        <div class="label">ZenPost Studio</div>
+        <div class="percent">0%</div>
+      </div>
+    </div>
     <div id="root"></div>
     <div id="zen-modal-root"></div>
     <script type="module" src="/src/main.tsx"></script>

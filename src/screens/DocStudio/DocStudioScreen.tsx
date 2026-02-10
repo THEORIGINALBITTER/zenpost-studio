@@ -1,0 +1,526 @@
+import { useEffect, useRef, useState } from 'react';
+import { exists, readTextFile } from '@tauri-apps/plugin-fs';
+import { save } from '@tauri-apps/plugin-dialog';
+import { DocStudioShell } from './DocStudioShell';
+import { ZenSaveSuccessModal, ZenEmptyState } from '../../kits/PatternKit/ZenModalSystem';
+import { useDocStudioState } from './hooks/useDocStudioState';
+import { DOC_STUDIO_STEPS, type DocStudioScreenProps, type DocStudioStep, type DocTemplate, type DocTab } from './types';
+import { StepSelectProject } from './steps/StepSelectProject';
+import { StepScanProject } from './steps/StepScanProject';
+import { StepChooseTemplates } from './steps/StepChooseTemplates';
+import { StepEditDocument } from './steps/StepEditDocument';
+import { generateDocFilename, saveDocToPath } from './services/docStudioService';
+import { getSmartDocTemplate, detectProjectType } from './templates';
+
+function stepFromIndex(index?: number): DocStudioStep {
+  if (index === undefined || index === null) return 'project';
+  return DOC_STUDIO_STEPS[Math.min(Math.max(index, 0), DOC_STUDIO_STEPS.length - 1)];
+}
+
+export function DocStudioScreen({
+  onBack: _onBack,
+  onStepChange: _onStepChange,
+  initialStep = 0,
+  savedState,
+  onStateChange,
+  onGeneratedContentChange,
+  headerAction,
+  onHeaderActionHandled,
+  requestedFilePath,
+  onFileRequestHandled,
+  scheduledPosts = [],
+  onFileSaved,
+}: DocStudioScreenProps) {
+  const initialRef = useRef(savedState);
+  const initialStepRef = useRef(stepFromIndex(initialStep));
+  const ds = useDocStudioState(
+    initialRef.current
+      ? {
+          step: initialStepRef.current,
+          projectPath: initialRef.current.projectPath,
+          projectInfo: initialRef.current.projectInfo,
+          metadata: initialRef.current.metadata,
+          generatedContent: initialRef.current.generatedContent,
+          activeTabId: initialRef.current.activeTabId,
+          openFileTabs: initialRef.current.openFileTabs,
+          tabContents: initialRef.current.tabContents,
+          dirtyTabs: initialRef.current.dirtyTabs,
+          selectedTemplates: initialRef.current.selectedTemplates,
+          tone: initialRef.current.tone,
+          length: initialRef.current.length,
+          audience: initialRef.current.audience,
+          targetLanguage: initialRef.current.targetLanguage,
+        }
+      : { step: initialStepRef.current }
+  );
+
+  const onStepChangeRef = useRef(_onStepChange);
+  const onStateChangeRef = useRef(onStateChange);
+  const onGeneratedContentChangeRef = useRef(onGeneratedContentChange);
+
+  useEffect(() => {
+    onStepChangeRef.current = _onStepChange;
+    onStateChangeRef.current = onStateChange;
+    onGeneratedContentChangeRef.current = onGeneratedContentChange;
+  }, [_onStepChange, onStateChange, onGeneratedContentChange]);
+
+  useEffect(() => {
+    onGeneratedContentChangeRef.current?.(ds.generatedContent);
+  }, [ds.generatedContent]);
+
+  useEffect(() => {
+    onStepChangeRef.current?.(DOC_STUDIO_STEPS.indexOf(ds.step));
+  }, [ds.step]);
+
+  useEffect(() => {
+    const next = stepFromIndex(initialStep);
+    if (next !== ds.step) {
+      ds.setStep(next);
+    }
+  }, [initialStep]);
+
+  const [previewMode, setPreviewMode] = useState(false);
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedFileName, setSavedFileName] = useState('');
+  const [savedFilePath, setSavedFilePath] = useState('');
+  const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
+  const [scrollToTemplates, setScrollToTemplates] = useState(false);
+  const [templateHintDismissed, setTemplateHintDismissed] = useState(false);
+
+  const templateTabId = (template: DocTemplate) => `tpl:${template}`;
+  const fileTabId = (path: string) => `file:${path}`;
+  const templateLabels: Record<DocTemplate, string> = {
+    readme: 'README',
+    changelog: 'Changelog',
+    'api-docs': 'API Docs',
+    contributing: 'Contributing',
+    'data-room': 'Data Room',
+    bug: 'Bug Report',
+    draft: 'Entwurf',
+  };
+
+  const templateTabs: DocTab[] = ds.selectedTemplates.map((template) => ({
+    id: templateTabId(template),
+    title: templateLabels[template],
+    kind: 'template',
+    template,
+  }));
+  const tabs: DocTab[] = [...templateTabs, ...ds.openFileTabs];
+  const activeTab = tabs.find((tab) => tab.id === ds.activeTabId) ?? tabs[0] ?? null;
+
+  // Template Hint: Zeigt Hinweis wenn README-Template aktiv und Scan keine ausreichenden Infos hatte
+  const computeTemplateHint = () => {
+    if (templateHintDismissed) return null;
+    if (!activeTab || activeTab.kind !== 'template' || activeTab.template !== 'readme') return null;
+
+    const projectType = detectProjectType(ds.projectInfo);
+    const typeLabels: Record<string, string> = {
+      library: 'Library/Package',
+      app: 'App/Frontend',
+      api: 'API/Backend',
+    };
+
+    // Prüfe ob Scan "schwach" war (keine/wenige Dependencies)
+    const hasWeakScan = !ds.projectInfo ||
+      !ds.projectInfo.dependencies ||
+      ds.projectInfo.dependencies.length < 3 ||
+      !ds.projectInfo.description;
+
+    if (hasWeakScan) {
+      return {
+        message: 'Diese Vorlage wurde geladen, weil der Projekt-Scan keine ausreichenden Infos gefunden hat.',
+        detectedType: `Erkannt: ${typeLabels[projectType]} → ${projectType.charAt(0).toUpperCase() + projectType.slice(1)}-Template`,
+      };
+    }
+
+    // Zeige trotzdem Typ-Info wenn erkannt
+    return {
+      message: 'Template basierend auf Projekt-Analyse gewählt.',
+      detectedType: `Erkannt: ${typeLabels[projectType]}`,
+    };
+  };
+  const templateHint = computeTemplateHint();
+
+  useEffect(() => {
+    const checkAnalysis = async () => {
+      if (ds.runtime !== 'tauri' || !ds.projectPath) {
+        setHasExistingAnalysis(false);
+        return;
+      }
+      const scanPath = `${ds.projectPath}/zenstudio/analysis/scan_summary.json`;
+      try {
+        const available = await exists(scanPath);
+        setHasExistingAnalysis(available);
+        if (available && ds.step === 'project') {
+          ds.setStep('edit');
+        }
+      } catch (error) {
+        console.error('[DocStudio] Failed to check analysis file', error);
+      }
+    };
+
+    void checkAnalysis();
+  }, [ds.projectPath, ds.runtime, ds.step]);
+
+  const handleSave = async () => {
+    if (!ds.projectPath || !activeTab) return;
+    const content = ds.tabContents[activeTab.id] ?? ds.generatedContent;
+
+    // Vorgeschlagener Dateiname mit Zeitstempel generieren
+    let suggestedName: string;
+    let defaultDir: string;
+
+    if (activeTab.kind === 'template' && activeTab.template) {
+      suggestedName = generateDocFilename(activeTab.template);
+      defaultDir = activeTab.template === 'data-room'
+        ? `${ds.projectPath}/data-room`
+        : ds.projectPath;
+    } else if (activeTab.kind === 'file' && activeTab.filePath) {
+      // Bei bestehenden Dateien: Original-Name vorschlagen
+      suggestedName = activeTab.filePath.split(/[\\/]/).pop() ?? 'Dokument.md';
+      defaultDir = activeTab.filePath.substring(0, activeTab.filePath.lastIndexOf('/'));
+    } else {
+      suggestedName = generateDocFilename('draft');
+      defaultDir = ds.projectPath;
+    }
+
+    // Save-Dialog öffnen
+    const filePath = await save({
+      defaultPath: `${defaultDir}/${suggestedName}`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+    });
+
+    // User hat abgebrochen
+    if (!filePath) return;
+
+    // Datei speichern
+    const fileName = await saveDocToPath(filePath, content);
+    setSavedFileName(fileName);
+    setSavedFilePath(filePath);
+
+    setShowSaveSuccess(true);
+    ds.setDirtyTabs((prev) => ({ ...prev, [activeTab.id]: false }));
+
+    // Notify parent about the saved file (for scheduled post updates)
+    onFileSaved?.(filePath, content, fileName);
+  };
+
+  useEffect(() => {
+    if (!headerAction) return;
+    if (headerAction === 'save') {
+      void handleSave();
+    }
+    if (headerAction === 'preview') {
+      setPreviewMode((prev) => !prev);
+    }
+    onHeaderActionHandled?.();
+  }, [headerAction, onHeaderActionHandled]);
+
+  useEffect(() => {
+    const openRequestedFile = async () => {
+      if (!requestedFilePath || ds.runtime !== 'tauri') return;
+
+      const fileName = requestedFilePath.split(/[\\/]/).pop() ?? '';
+      const lowerName = fileName.toLowerCase();
+      const isMarkdown = lowerName.endsWith('.md') || lowerName.endsWith('.markdown');
+
+      if (!isMarkdown) {
+        console.warn('[DocStudio] Unsupported document for editor tabs:', requestedFilePath);
+        onFileRequestHandled?.();
+        return;
+      }
+
+      let content = '';
+      let tabTitle = fileName || 'Dokument';
+
+      try {
+        // First, try to read the file from disk
+        content = await readTextFile(requestedFilePath);
+      } catch (error) {
+        console.warn('[DocStudio] File not found, trying to load from scheduled posts:', requestedFilePath);
+
+        // Multiple strategies to find the matching post
+        const baseName = fileName.replace(/\.md$/i, '');
+        let matchingPost: any = null;
+
+        // Strategy 1: Find post where `${platform}-${id}` matches exactly
+        matchingPost = scheduledPosts.find((p: any) => `${p.platform}-${p.id}` === baseName);
+
+        // Strategy 2: Extract ID after first dash and match by ID
+        if (!matchingPost) {
+          const dashIndex = baseName.indexOf('-');
+          if (dashIndex > 0) {
+            const postId = baseName.substring(dashIndex + 1);
+            matchingPost = scheduledPosts.find((p: any) => p.id === postId);
+            console.log('[DocStudio] Strategy 2 - Looking for ID:', postId);
+          }
+        }
+
+        // Strategy 3: Try to match by exact filename base (some IDs contain full platform-id)
+        if (!matchingPost) {
+          matchingPost = scheduledPosts.find((p: any) => p.id === baseName);
+        }
+
+        // Strategy 4: Match by platform prefix and partial ID
+        if (!matchingPost) {
+          const platforms = ['linkedin', 'twitter', 'instagram', 'facebook', 'tiktok', 'youtube', 'medium', 'devto', 'threads', 'bluesky', 'mastodon'];
+          for (const platform of platforms) {
+            if (baseName.startsWith(`${platform}-`)) {
+              const idPart = baseName.substring(platform.length + 1);
+              matchingPost = scheduledPosts.find((p: any) =>
+                p.platform === platform && (p.id === idPart || p.id.includes(idPart) || idPart.includes(p.id))
+              );
+              if (matchingPost) {
+                console.log('[DocStudio] Strategy 4 - Found match by platform+partial ID');
+                break;
+              }
+            }
+          }
+        }
+
+        if (matchingPost) {
+          // Reconstruct content with frontmatter from the scheduled post
+          const frontmatter = `---
+id: ${matchingPost.id}
+platform: ${matchingPost.platform}
+title: ${matchingPost.title || ''}
+scheduledDate: ${matchingPost.scheduledDate || ''}
+scheduledTime: ${matchingPost.scheduledTime || ''}
+status: ${matchingPost.status || 'draft'}
+characterCount: ${matchingPost.characterCount || 0}
+wordCount: ${matchingPost.wordCount || 0}
+createdAt: ${matchingPost.createdAt || new Date().toISOString()}
+---
+
+`;
+          content = frontmatter + (matchingPost.content || '');
+          tabTitle = matchingPost.title || matchingPost.platform || tabTitle;
+          console.log('[DocStudio] Loaded content from scheduled post:', matchingPost.id);
+        } else {
+          console.error('[DocStudio] No matching scheduled post found for:', baseName);
+          console.error('[DocStudio] Available posts:', scheduledPosts.map((p: any) => `${p.platform}-${p.id}`));
+          onFileRequestHandled?.();
+          return;
+        }
+      }
+
+      const tabId = fileTabId(requestedFilePath);
+      ds.setOpenFileTabs((prev) => {
+        if (prev.some((tab) => tab.id === tabId)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: tabId,
+            title: tabTitle,
+            kind: 'file',
+            filePath: requestedFilePath,
+          },
+        ];
+      });
+      ds.setTabContents((prev) => ({ ...prev, [tabId]: content }));
+      ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: false }));
+      ds.setActiveTabId(tabId);
+      ds.setGeneratedContent(content);
+      ds.setStep('edit');
+      onFileRequestHandled?.();
+    };
+
+    void openRequestedFile();
+  }, [requestedFilePath, onFileRequestHandled, ds.runtime, scheduledPosts]);
+
+  const emitStateChange = (override?: Partial<{
+    projectPath: string | null;
+    projectInfo: typeof ds.projectInfo;
+    selectedTemplate: DocTemplate | null;
+    selectedTemplates: DocTemplate[];
+    generatedContent: string;
+    activeTabId: typeof ds.activeTabId;
+    openFileTabs: typeof ds.openFileTabs;
+    tabContents: typeof ds.tabContents;
+    dirtyTabs: typeof ds.dirtyTabs;
+    metadata: typeof ds.metadata;
+  }>) => {
+    if (!onStateChangeRef.current) return;
+    onStateChangeRef.current({
+      projectPath: override?.projectPath ?? ds.projectPath,
+      projectInfo: override?.projectInfo ?? ds.projectInfo,
+      selectedTemplate:
+        override?.selectedTemplate ?? (activeTab?.kind === 'template' ? activeTab.template ?? null : null),
+      selectedTemplates: override?.selectedTemplates ?? ds.selectedTemplates,
+      generatedContent: override?.generatedContent ?? ds.generatedContent,
+      activeTabId: override?.activeTabId ?? ds.activeTabId,
+      openFileTabs: override?.openFileTabs ?? ds.openFileTabs,
+      tabContents: override?.tabContents ?? ds.tabContents,
+      dirtyTabs: override?.dirtyTabs ?? ds.dirtyTabs,
+      tone: ds.tone,
+      length: ds.length,
+      audience: ds.audience,
+      targetLanguage: ds.targetLanguage,
+      metadata: override?.metadata ?? ds.metadata,
+    });
+  };
+
+  return (
+    <DocStudioShell>
+      {ds.step === 'project' && (
+        <StepSelectProject
+          runtime={ds.runtime}
+          projectPath={ds.projectPath}
+          hasExistingAnalysis={hasExistingAnalysis}
+          onSelect={(path) => {
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('zenpost_last_project_path', path);
+            }
+            ds.setProjectPath(path);
+            ds.setScanSummary(null);
+            ds.setScanArtifacts(null);
+            ds.setStep('scan');
+            emitStateChange({ projectPath: path });
+          }}
+          onContinue={() => {
+            if (!ds.projectPath) return;
+            ds.setStep('scan');
+          }}
+          onContinueToEditor={() => {
+            if (!ds.projectPath) return;
+            ds.setStep('edit');
+          }}
+        />
+      )}
+
+      {ds.step === 'scan' && ds.projectPath && (
+        <StepScanProject
+          projectPath={ds.projectPath}
+          onScanComplete={(summary, artifacts, info) => {
+            ds.setScanSummary(summary);
+            ds.setScanArtifacts(artifacts);
+            ds.setProjectInfo(info);
+            ds.setStep('templates');
+            emitStateChange({ projectInfo: info });
+          }}
+        />
+      )}
+
+      {ds.step === 'templates' && (
+        <StepChooseTemplates
+          projectInfo={ds.projectInfo}
+          selected={ds.selectedTemplates}
+          onChange={ds.setSelectedTemplates}
+          tone={ds.tone}
+          length={ds.length}
+          audience={ds.audience}
+          targetLanguage={ds.targetLanguage}
+          onToneChange={ds.setTone}
+          onLengthChange={ds.setLength}
+          onAudienceChange={ds.setAudience}
+          onLanguageChange={ds.setTargetLanguage}
+          scrollToTemplates={scrollToTemplates}
+          onGenerate={(template) => {
+            setScrollToTemplates(false);
+            const nextTemplates = ds.selectedTemplates.includes(template)
+              ? ds.selectedTemplates
+              : [...ds.selectedTemplates, template];
+            ds.setSelectedTemplates(nextTemplates);
+            const tabId = templateTabId(template);
+            ds.setActiveTabId(tabId);
+            // Inhalt für ALLE ausgewählten Templates initialisieren
+            ds.setTabContents((prev) => {
+              const updated = { ...prev };
+              nextTemplates.forEach((tpl) => {
+                const tplTabId = templateTabId(tpl);
+                // Nur setzen wenn noch kein Inhalt vorhanden
+                if (!updated[tplTabId]) {
+                  updated[tplTabId] = tpl === 'draft' ? '' : getSmartDocTemplate(tpl, ds.projectInfo);
+                }
+              });
+              return updated;
+            });
+            // Dirty-State für alle Templates setzen
+            ds.setDirtyTabs((prev) => {
+              const updated = { ...prev };
+              nextTemplates.forEach((tpl) => {
+                const tplTabId = templateTabId(tpl);
+                if (updated[tplTabId] === undefined) {
+                  updated[tplTabId] = false;
+                }
+              });
+              return updated;
+            });
+            ds.setStep('edit');
+            emitStateChange({ selectedTemplate: template, activeTabId: tabId, selectedTemplates: nextTemplates });
+          }}
+        />
+      )}
+
+      {ds.step === 'edit' && (
+        activeTab ? (
+          <StepEditDocument
+            tabs={tabs}
+            activeTabId={activeTab.id}
+            contents={ds.tabContents}
+            showPreview={previewMode}
+            dirtyMap={ds.dirtyTabs}
+            templateHint={templateHint}
+            onDismissHint={() => setTemplateHintDismissed(true)}
+            onTabChange={(tabId) => {
+              ds.setActiveTabId(tabId);
+              const nextContent = ds.tabContents[tabId] ?? '';
+              ds.setGeneratedContent(nextContent);
+              const tab = tabs.find((item) => item.id === tabId);
+              emitStateChange({ selectedTemplate: tab?.kind === 'template' ? tab.template ?? null : null });
+            }}
+            onCloseTab={(tabId) => {
+              const tab = tabs.find((item) => item.id === tabId);
+              if (!tab) return;
+              if (tab.kind === 'template' && tab.template) {
+                ds.setSelectedTemplates((prev) => prev.filter((item) => item !== tab.template));
+              } else {
+                ds.setOpenFileTabs((prev) => prev.filter((item) => item.id !== tabId));
+              }
+              ds.setTabContents((prev) => {
+                const next = { ...prev };
+                delete next[tabId];
+                return next;
+              });
+              ds.setDirtyTabs((prev) => {
+                const next = { ...prev };
+                delete next[tabId];
+                return next;
+              });
+              if (ds.activeTabId === tabId) {
+                const remainingTabs = tabs.filter((item) => item.id !== tabId);
+                const nextActive = remainingTabs[0] ?? null;
+                ds.setActiveTabId(nextActive?.id ?? null);
+                ds.setGeneratedContent(nextActive ? ds.tabContents[nextActive.id] ?? '' : '');
+              }
+            }}
+            onContentChange={(tabId, value) => {
+              ds.setTabContents((prev) => ({ ...prev, [tabId]: value }));
+              ds.setGeneratedContent(value);
+              ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: true }));
+            }}
+          />
+        ) : (
+          <ZenEmptyState
+            title="Keine Dokumente geöffnet"
+            description="Wähle ein Dokument aus oder starte einen neuen Entwurf."
+            buttonLabel="Dokument auswählen"
+            onButtonClick={() => {
+              setScrollToTemplates(true);
+              ds.setStep('templates');
+            }}
+          />
+        )
+      )}
+
+      <ZenSaveSuccessModal
+        isOpen={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        fileName={savedFileName}
+        filePath={savedFilePath}
+      />
+    </DocStudioShell>
+  );
+}

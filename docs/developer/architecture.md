@@ -473,7 +473,7 @@ localStorage.setItem('zenpost_ai_config', JSON.stringify({
 
 ```bash
 npm run dev
-# Starts Vite dev server on http://localhost:5173
+# Starts Vite dev server on http://127.0.0.1:5173
 ```
 
 ### Production Build

@@ -1,12 +1,15 @@
 import React from "react";
 import BLogoIcon from "../../assets/branding/logo-main.png?url";
 import ZenPostLogo from "../../assets/ZenPost.png?url";
+import packageJson from "../../../package.json";
 
 interface ZenLogoFlipProps {
   className?: string;
 }
 
 export const ZenLogoFlip: React.FC<ZenLogoFlipProps> = ({ className = "" }) => {
+  const appVersion = packageJson.version;
+
   return (
     <div className={`zen-logo-flip-container ${className}`}>
       <div className="zen-logo-flip-inner">
@@ -20,31 +23,30 @@ export const ZenLogoFlip: React.FC<ZenLogoFlipProps> = ({ className = "" }) => {
         </div>
 
         {/* Rückseite */}
-<div className="zen-logo-flip-back">
-  <div className="flex flex-col items-center justify-center gap-1"
-    style={{marginTop: "10px"}}
+<div className="zen-logo-flip-back overlay-hidden border border-2 border-brand rounded-[12px]"
+  style={{ overflow: 'hidden' }}
+>
+  <div className="flex flex-col items-center justify-center"
+    style={{ padding: '6px', gap: '2px' }}
   >
     <img
       src={ZenPostLogo}
       alt="ZenPost Studio"
-      className="object-contain max-w-[50%] max-h-[50%]"
+      className="object-contain"
+      style={{ maxWidth: '70%', maxHeight: '70%' }}
     />
-    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
-      style={{paddingTop: "-10px"}}
-    >
+
+    <span className="pt-[10px] font-mono text-[9px] text-[#AC8E66] font-semibold" style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>
       ZenPost Studio
     </span>
-    <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
-    style={{marginTop: "-10px"}}
-    >
-      Version 1.0.0
+    <span className="font-mono text-[8px] text-[#AC8E66]" style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>
+      v{appVersion}
     </span>
-        <span className="font-mono text-[9px] text-[#AC8E66] font-semibold"
-    style={{marginTop: "-10px"}}
-    >
+    <span className="pt-[10px] font-mono text-[7px] text-[#dbd9d5]" style={{ whiteSpace: 'nowrap', lineHeight: 1 }}>
       by Denis Bitter
     </span>
   </div>
+ 
 </div>
 
 
@@ -108,6 +110,7 @@ export const ZenLogoFlip: React.FC<ZenLogoFlipProps> = ({ className = "" }) => {
   background: rgba(26,26,26,0.8);
   transform: rotateY(180deg);
   box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+  border-radius: 12px;
   opacity: 0;
   transition: opacity 0.3s ease 0.35s;
   pointer-events: none;

@@ -118,24 +118,63 @@ export const ZenBlockEditor = ({
   };
 
   /* ---------------- EditorJS → Markdown ---------------- */
-  const editorJSToMarkdown = (data: OutputData) =>
-    data.blocks
+  const editorJSToMarkdown = (data: OutputData) => {
+    const normalizeInlineText = (text: string) => {
+      const convertOrderedLists = (input: string) =>
+        input.replace(/<ol(\s+[^>]*)?>([\s\S]*?)<\/ol>/gi, (_match, _attrs, inner) => {
+          const items: string[] = [];
+          const liRegex = /<li(\s+[^>]*)?>([\s\S]*?)<\/li>/gi;
+          let m: RegExpExecArray | null;
+          let idx = 1;
+          while ((m = liRegex.exec(inner)) !== null) {
+            const raw = m[2] ?? '';
+            const cleaned = raw
+              .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+              .replace(/<br\s*\/?>/gi, '  \n')
+              .replace(/<[^>]+>/g, '')
+              .trim();
+            items.push(`${idx}. ${cleaned}`);
+            idx += 1;
+          }
+          return items.join('\n');
+        });
+
+      return convertOrderedLists(text)
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/<\/li>\s*<li(\s+[^>]*)?>/gi, '\n- ')
+        .replace(/<li(\s+[^>]*)?>/gi, '- ')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<\/ol>/gi, '\n')
+        .replace(/<\/ul>/gi, '\n')
+        .replace(/<ol(\s+[^>]*)?>/gi, '')
+        .replace(/<ul(\s+[^>]*)?>/gi, '')
+        .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)>/gi, '\n')
+        .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?span(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?a(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?strong(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?em(\s+[^>]*)?>/gi, '')
+        .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '  \n');
+    };
+
+    return data.blocks
       ?.map((b: any) => {
         switch (b.type) {
           case 'header':
-            return `${'#'.repeat(b.data.level)} ${b.data.text}`;
+            return `${'#'.repeat(b.data.level)} ${normalizeInlineText(b.data.text || '')}`;
           case 'paragraph':
-            return b.data.text;
+            return normalizeInlineText(b.data.text || '');
           case 'list':
             return b.data.items
               .map((i: string, idx: number) =>
-                b.data.style === 'ordered' ? `${idx + 1}. ${i}` : `- ${i}`
+                b.data.style === 'ordered' ? `${idx + 1}. ${normalizeInlineText(i)}` : `- ${normalizeInlineText(i)}`
               )
               .join('\n');
           case 'code':
             return `\`\`\`${b.data.language || ''}\n${b.data.code}\n\`\`\``;
           case 'quote':
-            return b.data.text.split('\n').map((l: string) => `> ${l}`).join('\n');
+            return normalizeInlineText(b.data.text || '').split('\n').map((l: string) => `> ${l}`).join('\n');
           case 'delimiter':
             return '---';
           default:
@@ -143,6 +182,7 @@ export const ZenBlockEditor = ({
         }
       })
       .join('\n\n') || '';
+  };
 
   /* ---------------- Floating Popover (Portal) ---------------- */
   const portalPopover = () => {

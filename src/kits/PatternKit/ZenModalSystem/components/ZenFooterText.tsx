@@ -47,7 +47,15 @@ export const ZenFooterText = ({
   };
 
   return (
-    <div className={`text-center ${className}`}>
+    <div
+      className={`
+        w-full
+        
+       
+        ${className}
+      `}
+      style={{ padding: "10px 0" }}
+    >
       <p className="font-mono text-[9px] text-[#666] flex items-center justify-center gap-1">
         <span>{text}</span>
         <span className="ml-[2px]">

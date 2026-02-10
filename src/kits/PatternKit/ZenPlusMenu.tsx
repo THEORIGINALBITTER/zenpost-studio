@@ -35,6 +35,7 @@ export const ZenPlusMenu = ({
   const [filter, setFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [activeSubmenu, setActiveSubmenu] = useState<string | null>(null); // Track active submenu
+  const [isHovered, setIsHovered] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -144,32 +145,43 @@ export const ZenPlusMenu = ({
         position: variant === 'floating' ? 'fixed' : 'relative',
         ...currentPosition,
         zIndex: 1000,
+        backgroundColor: 'rgba(18, 18, 18, 0.5)',
+        borderRadius: '50%',
+        border: '0.5px solid #121212',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
+        padding: 3,
       }}
     >
       {/* Plus Button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
         style={{
           width: currentSize.width,
           height: currentSize.height,
           borderRadius: '50%',
-          backgroundColor: isOpen ? '#AC8E66' : '#2A2A2A',
-          border: '1px solid #AC8E66',
-          color: isOpen ? '#1E1E1E' : '#AC8E66',
+          backgroundColor: isOpen ? '#151515' : '#171717',
+          border: isOpen ? '1px solid #AC8E66' : '1px solid #2E2E2E',
+          color: '#AC8E66',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
           transition: 'all 0.2s ease',
-          boxShadow: isOpen
-            ? '0 8px 16px rgba(172, 142, 102, 0.3)'
-            : '0 4px 8px rgba(0, 0, 0, 0.3)',
+          transform: isHovered ? 'scale(1.1)' : 'scale(1)',
+          boxShadow: 'none',
         }}
-        className="hover:scale-110 active:scale-95"
       >
         <FontAwesomeIcon
           icon={isOpen ? faTimes : faPlus}
-          style={{ fontSize: currentSize.iconSize }}
+          style={{
+            fontSize: currentSize.iconSize,
+            transition: 'transform 0.2s ease',
+            transform: isOpen ? 'rotate(0deg)' : 'rotate(0deg)',
+          }}
         />
       </button>
 
@@ -184,7 +196,9 @@ export const ZenPlusMenu = ({
             marginTop: variant === 'inline' ? 8 : 0,
             width: 320,
             maxHeight: 400,
-            backgroundColor: '#1E1E1E',
+            color: '#555',
+            backgroundColor: '#151515',
+            backdropFilter: 'blur(8px)',
             border: '1px solid #AC8E66',
             borderRadius: 8,
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.5)',
@@ -202,12 +216,12 @@ export const ZenPlusMenu = ({
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Suchen..."
               style={{
-                width: '100%',
+                width: '91%',
                 padding: '8px 12px',
-                backgroundColor: '#2A2A2A',
+                backgroundColor: '#d9d4c5',
                 border: '1px solid #3a3a3a',
                 borderRadius: 4,
-                color: '#e5e5e5',
+                color: '#151515',
                 fontSize: 12,
                 fontFamily: 'monospace',
                 outline: 'none',
@@ -229,7 +243,7 @@ export const ZenPlusMenu = ({
                 style={{
                   padding: 16,
                   textAlign: 'center',
-                  color: '#777',
+                  color: '#AC8E66',
                   fontSize: 11,
                   fontFamily: 'monospace',
                 }}
@@ -265,14 +279,14 @@ export const ZenPlusMenu = ({
                       marginBottom: activeSubmenu === item.id ? 0 : 4,
                       transition: 'all 0.15s ease',
                     }}
-                    className="hover:bg-[#AC8E66] hover:text-[#1E1E1E]"
+                    className="hover:bg-[#AC8E66] hover:text-[#151515]"
                   >
                     <FontAwesomeIcon
                       icon={item.icon}
-                      style={{ fontSize: 14, width: 16 }}
+                      style={{ fontSize: 10, width: 16, color: '#d9d4c5' }}
                     />
                     <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 500 }}>
+                      <div style={{ fontSize: 10, color: '#d9d4c5', fontFamily: 'monospace', fontWeight: 500 }}>
                         {item.label}
                       </div>
                       {item.description && (
@@ -296,7 +310,7 @@ export const ZenPlusMenu = ({
                           opacity: 0.5,
                           padding: '2px 6px',
                           backgroundColor:
-                            index === selectedIndex ? '#1E1E1E' : '#2A2A2A',
+                            index === selectedIndex ? '#d9d4c5' : '#2A2A2A',
                           borderRadius: 3,
                         }}
                       >

@@ -3,7 +3,7 @@
 .codex-editor__redactor {
   overflow: visible !important;
   color: #e5e5e5;
-  font-family: SF Mono, Monaco, monospace;
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
   padding-left: 48px !important;
   padding-right: 16px !important;
 }
@@ -48,44 +48,63 @@
 }
 
 /* ================= PLUS Button ================= */
-/* ================= PLUS Button (ZenPost FINAL) ================= */
 .ce-toolbar__plus {
   position: absolute !important;
-  left: -40px !important;
-  width: 30px;
-  height: 30px;
+  left: 0px !important;
+  top: 10px !important;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: radial-gradient(circle at top left, #d8b27c, #ac8e66);
-  border: 1px solid #d8b27c;
-  box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  background: #171717;
+  border: 1px solid #2E2E2E;
+  box-shadow:
+    0 0 0 3px rgba(18, 18, 18, 0.5),
+    0 0 0 3.5px rgba(18, 18, 18, 0.3),
+    0 10px 30px rgba(0,0,0,0.35);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s ease;
 }
 
-/* ❌ EditorJS Original-Plus */
+.ce-toolbar__plus:hover {
+  border-color: #AC8E66;
+  transform: scale(1.1);
+  background: #171717;  
+  box-shadow:
+    0 0 0 3px rgba(18, 18, 18, 0.5),
+    0 0 0 3.5px rgba(18, 18, 18, 0.3),
+    0 10px 30px rgba(0,0,0,0.45);
+}
+
+.ce-toolbar__plus:active {
+  transform: scale(0.95);
+}
+
+/* EditorJS Original-Plus SVG verstecken */
 .ce-toolbar__plus svg,
 .ce-toolbar__plus-icon {
   display: none !important;
 }
 
-/* ✅ ZenPost Plus */
+/* ZenPost Plus Icon */
 .ce-toolbar__plus::before {
   content: '';
   display: block;
   width: 16px;
   height: 16px;
-  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' stroke='%231e1e1e' fill='none'><path d='M12 5v14M5 12h14' stroke-width='2.2' stroke-linecap='round'/></svg>")
-    no-repeat center;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' stroke='%23AC8E66' fill='none'><path d='M12 5v14M5 12h14' stroke-width='2.2' stroke-linecap='round'/></svg>");
 }
 
-
-/* ================= Tune Button (⋮) ================= */
+/* ================= Tune Button ================= */
 .ce-toolbar__settings-btn {
-  right: -36px !important;
+  position: absolute !important;
+ 
+ left: 50px !important;
+ top: 15px !important;
   width: 32px;
   height: 32px;
-  background: rgba(172,142,102,.15);
+  background: rgba(172,142,102,);
   border: 1px solid rgba(172,142,102,.5);
   border-radius: 8px;
   display: flex !important;
@@ -106,29 +125,194 @@
 
 .ce-toolbar__settings-btn:hover {
   background: #ac8e66;
+  
 }
 .ce-toolbar__settings-btn:hover::before {
-  filter: brightness(0.1);
+  filter: brightness(0.14);
+  color:#AC8E66;
 }
 
-/* ================= Popover ================= */
+/* ================= Popover (ZenPlusMenu Design) ================= */
 .ce-popover {
-  position: fixed !important;
-  background: #64748b;
-  border: 1px solid #ac8e66;
-  border-radius: 10px;
-  box-shadow: 0 14px 36px rgba(0,0,0,.7);
-  z-index: 9999;
+  background: #151515 !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid #AC8E66 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  margin-left: 10px !important;
 }
 
-.ce-popover-item--confirmation {
-  display: none !important;
+/* Inner surfaces – dark background */
+.ce-popover__container,
+.ce-popover__items {
+  background: #151515 !important;
+  padding: 5px !important;
 }
+
+/* Search bar */
+.ce-popover__search {
+  background: #151515 !important;
+}
+
+.ce-popover__search input {
+  background: #d9d4c5 !important;
+  color: #151515 !important;
+  border: 1px solid #3a3a3a !important;
+  border-radius: 4px !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-size: 11px !important;
+}
+
+.ce-popover__search input:focus {
+  border-color: #AC8E66 !important;
+}
+
+/* Menu items */
+.ce-popover__item,
+.ce-popover-item {
+
+  color: transparent !important;
+  border-radius: 4px !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-size: 10px !important;
+  background: transparent !important;
+}
+
+.ce-popover__item:hover,
+.ce-popover__item--focused,
+.ce-popover-item:hover,
+.ce-popover-item--focused {
+  background: #AC8E66 !important;
+  color: #1E1E1E !important;
+}
+
+/* Item icon */
+.ce-popover-item__icon,
+.ce-popover__item-icon {
+  color: #d9d4c5 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.ce-popover-item:hover .ce-popover-item__icon,
+.ce-popover-item--focused .ce-popover-item__icon {
+  color: #1E1E1E !important;
+}
+
+/* Item title */
+.ce-popover-item__title {
+  color: #d9d4c5 !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-size: 10px !important;
+}
+
+.ce-popover-item:hover .ce-popover-item__title,
+.ce-popover-item--focused .ce-popover-item__title {
+  color: #1E1E1E !important;
+}
+
+/* Confirmation / delete */
+.ce-popover-item--confirmation {
+  background: rgba(180, 60, 60, 0.3) !important;
+  border: 1px solid rgba(180, 60, 60, 0.5) !important;
+}
+
+/* Nothing found text */
+.ce-popover__nothing-found-message {
+  color: #AC8E66 !important;
+  font-family: "IBM Plex Mono", monospace !important;
+  font-size: 11px !important;
+}
+
+/* ================= Co/* ================================
+   ZenCodeBlock – ruhig / präzise / warm
+================================ */
+
+.ce-code {
+  background: transparent !important;
+
+  /* viel subtiler */
+  border: 1px solid rgba(11,11,11,0.3) !important;
+
+  border-radius: 12px !important;
+
+  /* nur weiche Tiefe – kein Terminal-Inset */
+  box-shadow:
+    0 8px 20px -8px rgba(0,0,0,0.45),
+    0 2px 6px -4px rgba(0,0,0,0.35) !important;
+
+  padding: 14px !important;
+}
+
+
+/* Text */
+.ce-code__textarea {
+  background: #171717!important;
+
+  /* warmes Grau statt Neon */
+  color: #d9d4c5 !important;
+
+  font-family:
+    "IBM Plex Mono",
+    "SF Mono",
+    ui-monospace,
+    monospace !important;
+
+  font-size: 12.5px !important;
+  line-height: 1.75 !important;
+
+  caret-color: #AC8E66 !important;
+}
+
+
+/* Auswahl */
+.ce-code__textarea::selection {
+  background: rgba(172,142,102,0.22) !important;
+  color: #d9d4c5 !important;
+}
+
+
+/* Placeholder */
+.ce-code__textarea::placeholder {
+  color: rgba(214,209,198,0.35) !important;
+}
+
 
 /* ================= Typography ================= */
 .ce-paragraph {
   font-size: var(--zen-editor-font-size, 12px);
   line-height: 2;
+}
+
+.zen-block-editor .codex-editor,
+.zen-block-editor .codex-editor__redactor {
+  --color-placeholder: var(--zen-editor-placeholder, #7a7a7a);
+  --color-text-secondary: var(--zen-editor-placeholder, #7a7a7a);
+}
+
+.zen-block-editor .ce-paragraph[data-placeholder]::before,
+.zen-block-editor .ce-paragraph[data-placeholder]:empty::before,
+.zen-block-editor .ce-block__content[data-placeholder]::before,
+.zen-block-editor .cdx-input[data-placeholder]::before,
+.zen-block-editor .cdx-block[data-placeholder]::before {
+  color: var(--zen-editor-placeholder, #7a7a7a) !important;
+  opacity: 1 !important;
+}
+.zen-block-editor [data-placeholder] {
+  color: var(--zen-editor-placeholder, #7a7a7a) !important;
+}
+.zen-block-editor .ce-paragraph[data-empty="true"] {
+  color: var(--zen-editor-placeholder, #7a7a7a) !important;
+  opacity: 1 !important;
+}
+
+/* EditorJS placeholder-active rule override */
+.zen-block-editor .codex-editor [data-placeholder-active]:empty::before,
+.zen-block-editor .codex-editor [data-placeholder-active][data-empty="true"]::before,
+.zen-block-editor .codex-editor [data-placeholder-active]::before {
+  color: var(--zen-editor-placeholder, #7a7a7a) !important;
+  opacity: 1 !important;
 }
 
 /* ================= Editor Settings ================= */
@@ -139,18 +323,7 @@
 .zen-block-editor.zen-editor-line-numbers {
   position: relative;
   counter-reset: zenline;
-}
-
-.zen-block-editor.zen-editor-line-numbers::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 56px;
-  background: #141414;
-  border-right: 1px solid #3a3a3a;
-  pointer-events: none;
+  background-image: linear-gradient(to right, #232323 55px, rgba(172,142,102,0.5) 55px, rgba(172,142,102,0.5) 56px, transparent 56px) !important;
 }
 
 .zen-block-editor.zen-editor-line-numbers .codex-editor,
@@ -171,7 +344,7 @@
   width: 56px;
   padding-right: 8px;
   text-align: right;
-  font-family: SF Mono, Monaco, monospace;
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
   font-size: 10px;
   line-height: 2.9;
   color: #AC8E66;
@@ -188,3 +361,48 @@
 .ce-block--selected .ce-block__content {
   background: rgba(172,142,102,.12);
 }
+
+/* ================= Light Theme ================= */
+.zen-editor-theme-light .codex-editor,
+.zen-editor-theme-light .codex-editor__redactor {
+  color: #1a1a1a;
+}
+
+.zen-editor-theme-light .ce-paragraph {
+  color: #1a1a1a;
+}
+
+.zen-editor-theme-light .ce-header {
+  color: #8B7355;
+}
+
+.zen-editor-theme-light.zen-editor-line-numbers {
+  background-image: linear-gradient(to right, #C5C0B3 55px, #AC8E66 55px, #AC8E66 56px, transparent 56px) !important;
+}
+
+.zen-editor-theme-light.zen-editor-line-numbers .ce-block::before {
+  color: #8B7355;
+}
+
+.zen-editor-theme-light .ce-block--focused .ce-block__content {
+  background: linear-gradient(
+    to right,
+    rgba(172, 142, 102, 0.25),
+    rgba(172, 142, 102, 0.08)
+  );
+}
+
+.zen-editor-theme-light .ce-block--selected .ce-block__content {
+  background: rgba(172,142,102,.18);
+}
+
+/* ================= Dark Theme (explicit) ================= */
+.zen-editor-theme-dark .codex-editor,
+.zen-editor-theme-dark .codex-editor__redactor {
+  color: #e5e5e5;
+}
+
+.zen-editor-theme-dark .ce-paragraph {
+  color: #e5e5e5;
+}
+

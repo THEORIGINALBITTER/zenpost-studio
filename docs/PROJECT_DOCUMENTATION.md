@@ -720,7 +720,7 @@ const anthropicService = {
 **Ollama**
 ```typescript
 const ollamaService = {
-  baseURL: 'http://localhost:11434',
+  baseURL: 'http://127.0.0.1:11434',
   models: ['llama3.1', 'mistral', 'codellama', 'qwen2.5-coder'],
   requiresApiKey: false
 };
@@ -1162,7 +1162,7 @@ Für End-to-End Tests verwenden wir Playwright:
 import { test, expect } from '@playwright/test';
 
 test('user can transform content', async ({ page }) => {
-  await page.goto('http://localhost:5173');
+  await page.goto('http://127.0.0.1:5173');
 
   // Select Content AI Studio
   await page.click('text=Content AI Studio');

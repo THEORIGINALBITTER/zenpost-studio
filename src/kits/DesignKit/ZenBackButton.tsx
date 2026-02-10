@@ -75,7 +75,7 @@ export const ZenBackButton: React.FC<ZenBackButtonProps> = ({
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
         icon={faArrowLeft}
-        className="text-[14px] text-[#fffbeb] z-10 pointer-events-none group-hover:text-[#fef3c7]"
+        className="text-[14px] text-[#fffbeb] z-10 pointer-events-none group-hover:text-[#dbd9d5]"
       />
     </button>
   );

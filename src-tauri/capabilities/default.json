@@ -16,29 +16,49 @@
     "fs:allow-read-text-file",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
-    "fs:allow-exists",
-    "fs:allow-mkdir",
+   {
+  "identifier": "http:default",
+  "allow": [
+    { "url": "http://127.0.0.1:11434/**" },
+    { "url": "http://127.0.0.1:11434/**" },
+
+    { "url": "https://api.openai.com/**" },
+    { "url": "https://api.anthropic.com/**" }
+  ]
+
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$DOCUMENTS/**" },
+        { "path": "$APPDATA/**" }
+      ]
+    },
     "fs:read-all",
     "fs:write-all",
     {
       "identifier": "fs:scope",
       "allow": [
-        "$HOME/**"
+        "$HOME/**",
+        "$HOME/Documents/**",
+        "$DOCUMENTS/**",
+        "$APPDATA/**"
       ]
     },
     "fs:scope-app-recursive",
     "fs:scope-home-recursive",
-    "http:default",
-    "http:allow-fetch",
     {
       "identifier": "http:default",
       "allow": [
-        {
-          "url": "http://localhost:11434/*"
-        },
-        {
-          "url": "https://*/**"
-        }
+        { "url": "http://127.0.0.1:11434" },
+        { "url": "http://127.0.0.1:11434/*" },
+        { "url": "http://127.0.0.1:11434" },
+        { "url": "http://127.0.0.1:11434/*" },
+        { "url": "https://api.openai.com" },
+        { "url": "https://api.openai.com/*" },
+        { "url": "https://api.anthropic.com" },
+        { "url": "https://api.anthropic.com/*" }
       ]
     },
     "opener:default",

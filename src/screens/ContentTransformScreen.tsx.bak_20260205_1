@@ -1,0 +1,1578 @@
+import { useState, useEffect, useRef } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
+import { save } from '@tauri-apps/plugin-dialog';
+import {
+  faLinkedin,
+  faDev,
+  faTwitter,
+  faMedium,
+  faReddit,
+  faGithub,
+  faYoutube,
+} from '@fortawesome/free-brands-svg-icons';
+import { faNewspaper } from '@fortawesome/free-solid-svg-icons';
+import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, ZenSaveSuccessModal, ZenModal, ZenModalHeader, ZenRoughButton, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
+import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
+import { Step1SourceInput } from './transform-steps/Step1SourceInput';
+import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
+import { Step3StyleOptions } from './transform-steps/Step3StyleOptions';
+import { Step4TransformResult } from './transform-steps/Step4TransformResult';
+import {
+  transformContent,
+  translateContent,
+  type ContentPlatform,
+  type ContentTone,
+  type ContentLength,
+  type ContentAudience,
+  type TargetLanguage,
+} from '../services/aiService';
+import { loadArticle } from '../services/publishingService';
+import {
+  postToSocialMedia,
+  loadSocialConfig,
+  isPlatformConfigured,
+  type SocialPlatform,
+  type LinkedInPostOptions,
+  type TwitterPostOptions,
+  type RedditPostOptions,
+  type DevToPostOptions,
+  type MediumPostOptions,
+} from '../services/socialMediaService';
+import {
+  defaultEditorSettings,
+  loadEditorSettings,
+  saveEditorAutosave,
+  type EditorSettings,
+} from '../services/editorSettingsService';
+
+interface PlatformOption {
+  value: ContentPlatform;
+  label: string;
+  icon: any;
+  description: string;
+}
+
+const platformOptions: PlatformOption[] = [
+  {
+    value: 'linkedin',
+    label: 'LinkedIn Post',
+    icon: faLinkedin,
+    description: 'Professional business network post',
+  },
+  {
+    value: 'devto',
+    label: 'dev.to Article',
+    icon: faDev,
+    description: 'Community-focused developer article',
+  },
+  {
+    value: 'twitter',
+    label: 'Twitter Thread',
+    icon: faTwitter,
+    description: 'Concise, engaging thread',
+  },
+  {
+    value: 'medium',
+    label: 'Medium Blog',
+    icon: faMedium,
+    description: 'Long-form storytelling blog',
+  },
+  {
+    value: 'reddit',
+    label: 'Reddit Post',
+    icon: faReddit,
+    description: 'Community discussion post',
+  },
+  {
+    value: 'github-discussion',
+    label: 'GitHub Discussion',
+    icon: faGithub,
+    description: 'Technical collaborative discussion',
+  },
+  {
+    value: 'github-blog',
+    label: 'GitHub Blog Post',
+    icon: faGithub,
+    description: 'Markdown blog post for GitHub Pages',
+  },
+  {
+    value: 'youtube',
+    label: 'YouTube Description',
+    icon: faYoutube,
+    description: 'SEO-optimized video description',
+  },
+  {
+    value: 'blog-post',
+    label: 'Blog Post',
+    icon: faNewspaper,
+    description: 'Comprehensive blog article with SEO',
+  },
+];
+
+interface ContentTransformScreenProps {
+  onBack: () => void;
+  onStepChange?: (step: number) => void;
+  currentStep?: number;
+  initialContent?: string | null;
+  initialFileName?: string | null;
+  initialPlatform?: ContentPlatform;
+  cameFromDocStudio?: boolean;
+  cameFromDashboard?: boolean;
+  onBackToDocStudio?: (editedContent?: string) => void;
+  onBackToDashboard?: (generatedContent?: string) => void;
+  onOpenConverter?: () => void;
+  projectPath?: string | null;
+  requestedArticleId?: string | null;
+  onArticleRequestHandled?: () => void;
+  requestedFilePath?: string | null;
+  onFileRequestHandled?: () => void;
+  metadata?: ProjectMetadata;
+  onMetadataChange?: (metadata: ProjectMetadata) => void;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | null;
+  onHeaderActionHandled?: () => void;
+  onStep1BackToPostingChange?: (visible: boolean) => void;
+  onOpenDocStudioForPosting?: (content: string) => void;
+  onContentChange?: (content: string) => void;
+  editorType?: "block" | "markdown";
+  onEditorTypeChange?: (type: "block" | "markdown") => void;
+  multiPlatformMode?: boolean;
+  onMultiPlatformModeChange?: (enabled: boolean) => void;
+  /** Called when a file is saved successfully with the new path and content */
+  onFileSaved?: (filePath: string, content: string, fileName: string) => void;
+}
+
+type ContentDocTab = {
+  id: string;
+  title: string;
+  kind: 'draft' | 'file' | 'article';
+  filePath?: string;
+  articleId?: string;
+};
+
+export const ContentTransformScreen = ({
+  onBack: _onBack,
+  onStepChange,
+  currentStep: externalStep,
+  initialContent,
+  initialFileName,
+  initialPlatform,
+  cameFromDocStudio,
+  cameFromDashboard,
+  onBackToDocStudio,
+  onBackToDashboard,
+  onOpenConverter,
+  projectPath,
+  requestedArticleId,
+  onArticleRequestHandled,
+  requestedFilePath,
+  onFileRequestHandled,
+  metadata: externalMetadata,
+  onMetadataChange,
+  headerAction,
+  onHeaderActionHandled,
+  onStep1BackToPostingChange,
+  onOpenDocStudioForPosting,
+  onContentChange: onExternalContentChange,
+  editorType = "block",
+  onEditorTypeChange,
+  multiPlatformMode = false,
+  onMultiPlatformModeChange,
+  onFileSaved,
+}: ContentTransformScreenProps) => {
+  // Step Management
+  const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
+  const effectiveStep = externalStep ?? currentStep;
+  const setStep = (step: number) => {
+    if (externalStep !== undefined) {
+      onStepChange?.(step);
+      return;
+    }
+    setCurrentStep(step);
+    onStepChange?.(step);
+  };
+
+  // Step 1: Source Input
+  const [sourceContent, setSourceContent] = useState<string>('');
+  const [fileName, setFileName] = useState<string>('');
+  const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>([]);
+  const [activeDocTabId, setActiveDocTabId] = useState<string | null>(null);
+  const [docTabContents, setDocTabContents] = useState<Record<string, string>>({});
+  const [dirtyDocTabs, setDirtyDocTabs] = useState<Record<string, boolean>>({});
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>({
+    ...defaultEditorSettings,
+  });
+  const lastAutosaveRef = useRef<string>('');
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activeDocTabId) return;
+    if (!openDocTabs.find((tab) => tab.id === activeDocTabId)) {
+      setActiveDocTabId(null);
+    }
+  }, [openDocTabs, activeDocTabId]);
+
+  useEffect(() => {
+    if (activeDocTabId || openDocTabs.length === 0) return;
+    const nextTab = openDocTabs[0];
+    setActiveDocTabId(nextTab.id);
+    const nextContent = docTabContents[nextTab.id] ?? '';
+    setSourceContent(nextContent);
+    onExternalContentChange?.(nextContent);
+    setFileName(nextTab.title ?? '');
+  }, [openDocTabs, activeDocTabId, docTabContents, onExternalContentChange]);
+
+  const getActiveSavePlatform = (): ContentPlatform => {
+    if (multiPlatformMode && activeEditTab) return activeEditTab;
+    return selectedPlatform;
+  };
+
+  const buildDefaultSaveName = (baseName: string, version: number) => {
+    const date = new Date().toISOString().slice(0, 10);
+    return `${baseName}_${date}_v${version}.md`;
+  };
+
+  // Strip existing version pattern from filename: "Name_2026-02-03_v1.md" → "Name"
+  // Also handles multiple nested patterns: "Name_2026-02-03_v1_2026-02-03_v1" → "Name"
+  const stripVersionPattern = (name: string): string => {
+    // First remove .md extension
+    let base = name.replace(/\.md$/i, '');
+    // Remove ALL occurrences of _YYYY-MM-DD_vN pattern (no $ anchor, removes all)
+    // Pattern: underscore, 4 digits, dash, 2 digits, dash, 2 digits, underscore, v, digits
+    base = base.replace(/_\d{4}-\d{2}-\d{2}_v\d+/g, '');
+    return base;
+  };
+
+  const resolveNextAvailableName = async (baseName: string, baseDir: string) => {
+    // First strip any existing version pattern from the base name
+    const cleanBase = stripVersionPattern(baseName);
+    let version = 1;
+    let candidate = buildDefaultSaveName(cleanBase, version);
+    while (await exists(`${baseDir}/${candidate}`)) {
+      version += 1;
+      candidate = buildDefaultSaveName(cleanBase, version);
+    }
+    return candidate;
+  };
+
+  // Get the base name for saving - use original filename if available, otherwise use platform
+  const getSaveBaseName = (): string => {
+    // Check if there's an active tab with a file
+    if (activeDocTabId) {
+      const activeTab = openDocTabs.find((tab) => tab.id === activeDocTabId);
+      if (activeTab?.title) {
+        // Remove .md extension and version pattern to get clean base name
+        return stripVersionPattern(activeTab.title);
+      }
+    }
+    // Fallback to fileName state
+    if (fileName) {
+      return stripVersionPattern(fileName);
+    }
+    // Final fallback to platform
+    return getActiveSavePlatform();
+  };
+
+  const handleSaveSourceToProject = async () => {
+    if (!sourceContent.trim()) {
+      alert('Kein Inhalt zum Speichern.');
+      return;
+    }
+
+    const saveBaseName = getSaveBaseName();
+    const defaultName = buildDefaultSaveName(saveBaseName, 1);
+
+    if (isTauri()) {
+      if (!projectPath) {
+        alert('Kein Projektordner gesetzt.');
+        return;
+      }
+      const suggestedName = await resolveNextAvailableName(saveBaseName, projectPath);
+      const filePath = await save({
+        defaultPath: `${projectPath}/${suggestedName}`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (!filePath) return;
+      if (!filePath.startsWith(projectPath)) {
+        alert('Bitte speichere innerhalb des Projektordners.');
+        return;
+      }
+      await writeTextFile(filePath, sourceContent);
+      if (activeDocTabId) {
+        setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
+      }
+      // Show success modal
+      const savedName = filePath.split(/[\\/]/).pop() || suggestedName;
+      setSavedFileName(savedName);
+      setSavedFilePath(filePath);
+      setShowSaveSuccess(true);
+      // Notify parent about the saved file (for scheduled post updates)
+      onFileSaved?.(filePath, sourceContent, savedName);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('zenpost-project-files-updated'));
+      }
+      return;
+    }
+
+    const blob = new Blob([sourceContent], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const userName = window.prompt('Dateiname anpassen?', defaultName);
+    const finalName = (userName && userName.trim()) ? userName.trim() : defaultName;
+    link.download = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+    // Show success modal for web download
+    if (activeDocTabId) {
+      setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
+    }
+    setSavedFileName(finalName.endsWith('.md') ? finalName : `${finalName}.md`);
+    setSavedFilePath(undefined);
+    setShowSaveSuccess(true);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('zenpost-project-files-updated'));
+    }
+  };
+
+  // Track initial content load to prevent re-loading
+  const loadedInitialKeyRef = useRef<string | null>(null);
+  const lastRequestedArticleIdRef = useRef<string | null>(null);
+  const lastRequestedFilePathRef = useRef<string | null>(null);
+
+  // Load initial content if provided (from Doc Studio or Planner) - when content changes
+  useEffect(() => {
+    if (initialContent === null || initialContent === undefined) return;
+    const initialKey = `${initialFileName ?? ''}::${initialContent}`;
+    if (initialKey !== loadedInitialKeyRef.current) {
+      // Extract title from content if it starts with a markdown heading
+      const extractTitleFromContent = (content: string): string | null => {
+        const match = content.match(/^#\s+(.+)$/m);
+        return match ? match[1].trim() : null;
+      };
+
+      const contentTitle = extractTitleFromContent(initialContent);
+      const tabTitle = initialFileName || contentTitle || 'Geplanter Post';
+      const tabId = `initial-${Date.now()}`;
+
+      // Create a new tab for the initial content (don't clear existing tabs)
+      const newTab: ContentDocTab = {
+        id: tabId,
+        title: tabTitle,
+        kind: 'draft',
+      };
+
+      setOpenDocTabs((prev) => {
+        // Check if tab with same title already exists
+        const existingTab = prev.find((tab) => tab.title === tabTitle);
+        if (existingTab) {
+          // Update existing tab content
+          setDocTabContents((prevContents) => ({ ...prevContents, [existingTab.id]: initialContent }));
+          setActiveDocTabId(existingTab.id);
+          return prev;
+        }
+        // Add new tab
+        return [...prev, newTab];
+      });
+
+      setDocTabContents((prev) => ({ ...prev, [tabId]: initialContent }));
+      setActiveDocTabId(tabId);
+      setSourceContent(initialContent);
+      setFileName(tabTitle);
+      loadedInitialKeyRef.current = initialKey;
+    }
+  }, [initialContent, initialFileName]);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    let isMounted = true;
+    const loadSettings = async () => {
+      const loaded = await loadEditorSettings(projectPath);
+      if (isMounted) {
+        setEditorSettings(loaded);
+      }
+    };
+    loadSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<EditorSettings>).detail;
+      if (detail) {
+        setEditorSettings(detail);
+      }
+    };
+    window.addEventListener('zen-editor-settings-updated', handler);
+    return () => window.removeEventListener('zen-editor-settings-updated', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    if (!editorSettings.autoSaveEnabled) return;
+    if (!sourceContent.trim()) return;
+    const intervalMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
+    const timeout = setTimeout(() => {
+      if (sourceContent.trim() === lastAutosaveRef.current) return;
+      saveEditorAutosave(projectPath, sourceContent)
+        .then(() => {
+          lastAutosaveRef.current = sourceContent.trim();
+        })
+        .catch((error) => {
+          console.error('[ContentTransform] Autosave fehlgeschlagen:', error);
+        });
+    }, intervalMs);
+    return () => clearTimeout(timeout);
+  }, [projectPath, editorSettings.autoSaveEnabled, editorSettings.autoSaveIntervalSec, sourceContent]);
+
+  useEffect(() => {
+    if (!requestedArticleId || !projectPath) return;
+    if (requestedArticleId === lastRequestedArticleIdRef.current) return;
+    let isMounted = true;
+    const loadRequestedArticle = async () => {
+      const article = await loadArticle(projectPath, requestedArticleId);
+      if (!article || !isMounted) return;
+      const tabId = `article:${requestedArticleId}`;
+      const title = article.title || 'Artikel';
+      const content = article.content || '';
+      setOpenDocTabs((prev) =>
+        prev.some((tab) => tab.id === tabId)
+          ? prev
+          : [...prev, { id: tabId, title, kind: 'article', articleId: requestedArticleId }]
+      );
+      setDocTabContents((prev) => ({ ...prev, [tabId]: content }));
+      setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+      setActiveDocTabId(tabId);
+      setSourceContent(content);
+      setFileName(title);
+      setError(null);
+      setStep(1);
+      lastRequestedArticleIdRef.current = requestedArticleId;
+      onArticleRequestHandled?.();
+    };
+    loadRequestedArticle();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath, requestedArticleId, onArticleRequestHandled]);
+
+  useEffect(() => {
+    if (!requestedFilePath) return;
+    const tabId = `file:${requestedFilePath}`;
+    const alreadyOpen = openDocTabs.some((tab) => tab.id === tabId);
+    if (requestedFilePath === lastRequestedFilePathRef.current && alreadyOpen) {
+      const content = docTabContents[tabId] ?? '';
+      setActiveDocTabId(tabId);
+      setSourceContent(content);
+      const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+      setFileName(fileNameFromPath);
+      setError(null);
+      setStep(1);
+      onFileRequestHandled?.();
+      return;
+    }
+    let isMounted = true;
+    const loadRequestedFile = async () => {
+      try {
+        const content = await readTextFile(requestedFilePath);
+        if (!isMounted) return;
+        const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+        setOpenDocTabs((prev) =>
+          prev.some((tab) => tab.id === tabId)
+            ? prev
+            : [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }]
+        );
+        setDocTabContents((prev) => ({ ...prev, [tabId]: content }));
+        setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+        setActiveDocTabId(tabId);
+        setSourceContent(content);
+        setFileName(fileNameFromPath);
+        setError(null);
+        setStep(1);
+        lastRequestedFilePathRef.current = requestedFilePath;
+        onFileRequestHandled?.();
+      } catch (error) {
+        console.error('[ContentTransform] Datei konnte nicht geladen werden:', error);
+      }
+    };
+    loadRequestedFile();
+    return () => {
+      isMounted = false;
+    };
+  }, [requestedFilePath, openDocTabs, docTabContents, onFileRequestHandled]);
+
+  // Step 2: Platform Selection
+  const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin');
+
+  // Multi-platform selection (for multi-select mode)
+  const [selectedPlatforms, setSelectedPlatforms] = useState<ContentPlatform[]>([]);
+  const [activeEditTab, setActiveEditTab] = useState<ContentPlatform | null>(null);
+
+  // Step 3: Style Options
+  const [tone, setTone] = useState<ContentTone>('professional');
+  const [length, setLength] = useState<ContentLength>('medium');
+  const [audience, setAudience] = useState<ContentAudience>('intermediate');
+  const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>('deutsch');
+
+  // Step 4: Result
+  const [transformedContent, setTransformedContent] = useState<string>('');
+  const [isTransforming, setIsTransforming] = useState<boolean>(false);
+
+  // Multi-platform results (for multi-select mode)
+  const [transformedContents, setTransformedContents] = useState<Record<ContentPlatform, string>>({} as Record<ContentPlatform, string>);
+  const [activeResultTab, setActiveResultTab] = useState<ContentPlatform | null>(null);
+
+  // Propagate content changes to parent (for Export Modal)
+  useEffect(() => {
+    if (transformedContent) {
+      onExternalContentChange?.(transformedContent);
+    }
+  }, [transformedContent, onExternalContentChange]);
+
+  useEffect(() => {
+    if (effectiveStep !== 1) return;
+    if (!multiPlatformMode) return;
+    const tabs = Object.keys(transformedContents).length
+      ? (Object.keys(transformedContents) as ContentPlatform[])
+      : selectedPlatforms;
+    if (!activeEditTab && tabs.length > 0) {
+      setActiveEditTab(tabs[0]);
+      return;
+    }
+    if (activeEditTab && Object.prototype.hasOwnProperty.call(transformedContents, activeEditTab)) {
+      setSourceContent(transformedContents[activeEditTab] || '');
+    }
+  }, [effectiveStep, multiPlatformMode, transformedContents, selectedPlatforms, activeEditTab]);
+  const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [autoSelectedModel, setAutoSelectedModel] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState(false);
+
+  // Track if user came from "Nachbearbeiten" flow
+  const [cameFromEdit, setCameFromEdit] = useState<boolean>(false);
+
+  // Settings Modal
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor'>('ai');
+  const [settingsSocialTab, setSettingsSocialTab] = useState<
+    'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github' | undefined
+  >(undefined);
+  const [settingsMissingSocialHint, setSettingsMissingSocialHint] = useState(false);
+  const [settingsMissingSocialLabel, setSettingsMissingSocialLabel] = useState<string | undefined>(undefined);
+
+  // Metadata Modal
+  const [showMetadata, setShowMetadata] = useState(false);
+
+  // Save Success Modal
+  const [showSaveSuccess, setShowSaveSuccess] = useState(false);
+  const [savedFileName, setSavedFileName] = useState('');
+  const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
+  const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>({
+    authorName: '',
+    authorEmail: '',
+    companyName: '',
+    license: 'MIT',
+    year: new Date().getFullYear().toString(),
+    website: '',
+    repository: '',
+    contributingUrl: '',
+  });
+  const metadata = externalMetadata ?? localMetadata;
+  const handleMetadataSave = (newMetadata: ProjectMetadata) => {
+    if (onMetadataChange) {
+      onMetadataChange(newMetadata);
+    } else {
+      setLocalMetadata(newMetadata);
+    }
+  };
+
+  // Extract metadata from content (auto-detect from document)
+  // TODO: Implement auto-extraction feature
+  // const extractMetadataFromContent = (content: string): Partial<ProjectMetadata> => {
+  //   const extracted: Partial<ProjectMetadata> = {};
+  //   // Extract GitHub repository URL
+  //   const repoMatch = content.match(/https?:\/\/github\.com\/[\w-]+\/[\w-]+/i);
+  //   if (repoMatch) extracted.repository = repoMatch[0];
+  //   // ... weitere Extractions
+  //   return extracted;
+  // };
+
+  // Replace placeholders in content with metadata
+  const replacePlaceholders = (content: string): string => {
+    let result = content;
+
+    // Replace common placeholders
+    const replacements: Record<string, string> = {
+      '[yourName]': metadata.authorName || '[yourName]',
+      '[Your Name]': metadata.authorName || '[Your Name]',
+      '[authorName]': metadata.authorName || '[authorName]',
+      '[yourEmail]': metadata.authorEmail || '[yourEmail]',
+      '[Your Email]': metadata.authorEmail || '[Your Email]',
+      '[authorEmail]': metadata.authorEmail || '[authorEmail]',
+      '[companyName]': metadata.companyName || '[companyName]',
+      '[Company Name]': metadata.companyName || '[Company Name]',
+      '[website]': metadata.website || '[website]',
+      '[Website]': metadata.website || '[Website]',
+      '[repository]': metadata.repository || '[repository]',
+      '[Repository]': metadata.repository || '[Repository]',
+      '[year]': metadata.year || '[year]',
+      '[Year]': metadata.year || '[Year]',
+    };
+
+    Object.entries(replacements).forEach(([placeholder, value]) => {
+      result = result.replace(new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), value);
+    });
+
+    return result;
+  };
+
+  const getPlatformLabel = (platform: ContentPlatform) => {
+    const match = platformOptions.find((option) => option.value === platform);
+    return match?.label || platform;
+  };
+
+  const getSocialTabForPlatform = (platform: ContentPlatform) => {
+    switch (platform) {
+      case 'linkedin':
+        return 'linkedin';
+      case 'twitter':
+        return 'twitter';
+      case 'reddit':
+        return 'reddit';
+      case 'devto':
+        return 'devto';
+      case 'medium':
+        return 'medium';
+      case 'github-discussion':
+      case 'github-blog':
+        return 'github';
+      default:
+        return undefined;
+    }
+  };
+
+  const handleNextFromStep1 = () => {
+    if (!sourceContent.trim()) {
+      setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
+    
+      return;
+    }
+    setError(null);
+    setStep(2);
+  };
+
+  useEffect(() => {
+    onStep1BackToPostingChange?.(effectiveStep === 1 && cameFromEdit);
+  }, [cameFromEdit, effectiveStep, onStep1BackToPostingChange]);
+
+  useEffect(() => {
+    if (!headerAction) return;
+    if (headerAction === "preview") {
+      setPreviewMode(true);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+      onHeaderActionHandled?.();
+      return;
+    }
+    if (effectiveStep !== 1) return;
+    if (headerAction === "next") {
+      handleNextFromStep1();
+    }
+    if (headerAction === "back_posting") {
+      setPreviewMode(false);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+    }
+    if (headerAction === "save") {
+      handleSaveSourceToProject();
+    }
+    onHeaderActionHandled?.();
+  }, [
+    effectiveStep,
+    headerAction,
+    handleNextFromStep1,
+    onHeaderActionHandled,
+    sourceContent,
+    setCameFromEdit,
+  ]);
+
+  useEffect(() => {
+    if (headerAction !== "post") return;
+    if (effectiveStep !== 4) return;
+    setPreviewMode(false);
+    onOpenDocStudioForPosting?.(transformedContent);
+    onHeaderActionHandled?.();
+  }, [effectiveStep, headerAction, onHeaderActionHandled, onOpenDocStudioForPosting, transformedContent]);
+
+  const handleNextFromStep2 = () => {
+    setError(null);
+    setStep(3);
+  };
+
+  const handleDocTabChange = (tabId: string) => {
+    setActiveDocTabId(tabId);
+    const nextContent = docTabContents[tabId] ?? '';
+    setSourceContent(nextContent);
+    onExternalContentChange?.(nextContent);
+    const nextTitle = openDocTabs.find((tab) => tab.id === tabId)?.title ?? '';
+    setFileName(nextTitle);
+  };
+
+  const closeDocTab = (tabId: string, force = false) => {
+    // Only check dirty state if not forcing close (e.g., from "Nicht speichern" dialog)
+    if (!force && dirtyDocTabs[tabId]) {
+      return;
+    }
+    const remainingTabs = openDocTabs.filter((tab) => tab.id !== tabId);
+    setOpenDocTabs(remainingTabs);
+    setDocTabContents((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setDirtyDocTabs((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    if (activeDocTabId === tabId || remainingTabs.length === 0) {
+      const nextTab = remainingTabs[0] ?? null;
+      if (nextTab) {
+        setActiveDocTabId(nextTab.id);
+        const nextContent = docTabContents[nextTab.id] ?? '';
+        setSourceContent(nextContent);
+        onExternalContentChange?.(nextContent);
+        setFileName(nextTab.title ?? '');
+      } else {
+        setActiveDocTabId(null);
+        setSourceContent('');
+        onExternalContentChange?.('');
+        setFileName('');
+      }
+    }
+  };
+
+  const handleCloseDocTab = (tabId: string) => {
+    if (dirtyDocTabs[tabId]) {
+      setPendingCloseTabId(tabId);
+      return;
+    }
+    closeDocTab(tabId);
+  };
+
+  const saveTabContent = async (tabId: string) => {
+    const tab = openDocTabs.find((item) => item.id === tabId);
+    const content = docTabContents[tabId] ?? '';
+    if (!tab) return false;
+
+    if (isTauri() && tab.kind === 'file' && tab.filePath) {
+      await writeTextFile(tab.filePath, content);
+      setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+      setSavedFileName(tab.title);
+      setSavedFilePath(tab.filePath);
+      setShowSaveSuccess(true);
+      return true;
+    }
+
+    if (isTauri()) {
+      if (!projectPath) {
+        alert('Kein Projektordner gesetzt.');
+        return false;
+      }
+      const fallbackName = tab.title || buildDefaultSaveName(getActiveSavePlatform(), 1);
+      const filePath = await save({
+        defaultPath: `${projectPath}/${fallbackName}`,
+        filters: [{ name: 'Markdown', extensions: ['md'] }],
+      });
+      if (!filePath) return false;
+      if (!filePath.startsWith(projectPath)) {
+        alert('Bitte speichere innerhalb des Projektordners.');
+        return false;
+      }
+      await writeTextFile(filePath, content);
+      setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+      setSavedFileName(filePath.split(/[\\/]/).pop() || fallbackName);
+      setSavedFilePath(filePath);
+      setShowSaveSuccess(true);
+      return true;
+    }
+
+    const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const fallbackName = tab.title || buildDefaultSaveName(getActiveSavePlatform(), 1);
+    const userName = window.prompt('Dateiname anpassen?', fallbackName);
+    const finalName = (userName && userName.trim()) ? userName.trim() : fallbackName;
+    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = finalFileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+    setSavedFileName(finalFileName);
+    setSavedFilePath(undefined);
+    setShowSaveSuccess(true);
+    return true;
+  };
+
+  const renderDocTabsBar = () => {
+    if (openDocTabs.length === 0) return null;
+
+    return (
+      <div className="w-full flex flex-col items-center px-6 pt-3">
+        <div className="w-3/4 max-w-5xl">
+          <div
+            style={{
+              display: 'flex',
+              gap: '8px',
+              padding: '8px',
+              backgroundColor: '#1F1F1F',
+              borderRadius: '12px',
+              border: '1px solid #3A3A3A',
+              flexWrap: 'wrap',
+            }}
+          >
+            {openDocTabs.map((tab) => {
+              const isActive = activeDocTabId === tab.id;
+              const isDirty = !!dirtyDocTabs[tab.id];
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => handleDocTabChange(tab.id)}
+                  style={{
+                    flex: '1 1 140px',
+                    padding: '10px 16px',
+                    backgroundColor: isActive ? '#AC8E66' : 'transparent',
+                    border: isActive ? 'none' : '1px solid #3A3A3A',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '12px',
+                    fontWeight: isActive ? '600' : '400',
+                    color: isActive ? '#1A1A1A' : '#999',
+                    transition: 'all 0.2s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  {isDirty ? <span style={{ color: isActive ? '#1A1A1A' : '#AC8E66' }}>•</span> : null}
+                  <span>{tab.title}</span>
+                  <span
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleCloseDocTab(tab.id);
+                    }}
+                    style={{
+                      marginLeft: '6px',
+                      fontSize: '12px',
+                      color: isActive ? '#1A1A1A' : '#777',
+                      opacity: 0.8,
+                    }}
+                  >
+                    ×
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleSourceContentChange = (content: string) => {
+    setSourceContent(content);
+
+    // Determine which tab to mark as dirty
+    // Priority: activeDocTabId > tab matching fileName > first tab
+    let targetTabId: string | null = null;
+
+    if (openDocTabs.length > 0) {
+      // First try: use activeDocTabId if it's valid
+      if (activeDocTabId) {
+        const activeTab = openDocTabs.find((tab) => tab.id === activeDocTabId);
+        if (activeTab) {
+          targetTabId = activeDocTabId;
+        }
+      }
+
+      // Second try: find tab by filename
+      if (!targetTabId && fileName) {
+        const matchingTab = openDocTabs.find((tab) => tab.title === fileName);
+        if (matchingTab) {
+          targetTabId = matchingTab.id;
+          setActiveDocTabId(targetTabId);
+        }
+      }
+
+      // Third try: use first tab
+      if (!targetTabId) {
+        targetTabId = openDocTabs[0].id;
+        setActiveDocTabId(targetTabId);
+        setFileName(openDocTabs[0].title);
+      }
+
+      // Mark the tab as dirty and update content
+      setDocTabContents((prev) => ({ ...prev, [targetTabId as string]: content }));
+      setDirtyDocTabs((prev) => ({ ...prev, [targetTabId as string]: true }));
+    } else if (content && content.trim().length > 0) {
+      // No tabs exist - create a new draft tab automatically
+      const newTabId = `draft-${Date.now()}`;
+      const newTab: ContentDocTab = {
+        id: newTabId,
+        title: 'Entwurf',
+        kind: 'draft',
+      };
+
+      setOpenDocTabs([newTab]);
+      setDocTabContents({ [newTabId]: content });
+      setDirtyDocTabs({ [newTabId]: true });
+      setActiveDocTabId(newTabId);
+      setFileName('Entwurf');
+    }
+
+    onExternalContentChange?.(content);
+    if (multiPlatformMode && activeEditTab) {
+      setTransformedContents((prev) => ({ ...prev, [activeEditTab]: content }));
+      if (activeResultTab === activeEditTab) {
+        setTransformedContent(content);
+      }
+    }
+  };
+
+  const handleTransform = async () => {
+    setPreviewMode(false);
+    setIsTransforming(true);
+    setError(null);
+    setAutoSelectedModel(null);
+
+    try {
+      // Replace placeholders in source content before transforming
+      const processedContent = replacePlaceholders(sourceContent);
+
+      // Multi-platform mode: transform for all selected platforms
+      if (multiPlatformMode && selectedPlatforms.length > 0) {
+        const results: Record<ContentPlatform, string> = {} as Record<ContentPlatform, string>;
+        let firstAutoModel: string | null = null;
+
+        console.log('[Multi-Platform] Starting transformation for platforms:', selectedPlatforms);
+        console.log('[Multi-Platform] Source content length:', processedContent.length);
+
+        let platformIndex = 0;
+        for (const platform of selectedPlatforms) {
+          // Add small delay between API calls to avoid potential caching issues
+          if (platformIndex > 0) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+          platformIndex++;
+
+          console.log(`[Multi-Platform] Transforming for: ${platform}`);
+
+          const result = await transformContent(processedContent, {
+            platform,
+            tone,
+            length,
+            audience,
+            targetLanguage,
+          });
+
+          console.log(`[Multi-Platform] Result for ${platform}:`, {
+            success: result.success,
+            dataLength: result.data?.length,
+            dataPreview: result.data?.substring(0, 100),
+            error: result.error
+          });
+
+          if (result.success && result.data) {
+            let finalContent = result.data;
+
+            // Save first auto-selected model info
+            if (!firstAutoModel && result.autoSelectedModel) {
+              firstAutoModel = result.autoSelectedModel;
+            }
+
+            // Translate if target language is not deutsch
+            if (targetLanguage && targetLanguage !== 'deutsch') {
+              const translateResult = await translateContent(finalContent, targetLanguage);
+              if (translateResult.success && translateResult.data) {
+                finalContent = translateResult.data;
+              }
+            }
+
+            results[platform] = finalContent;
+          }
+        }
+
+        if (Object.keys(results).length > 0) {
+          setTransformedContents(results);
+          // Set the first platform as active tab
+          const firstPlatform = selectedPlatforms[0];
+          setActiveResultTab(firstPlatform);
+          setTransformedContent(results[firstPlatform] || '');
+          if (firstAutoModel) {
+            setAutoSelectedModel(firstAutoModel);
+          }
+          setStep(4);
+        } else {
+          setError('Transformation für alle Plattformen fehlgeschlagen');
+        }
+      } else {
+        // Single platform mode (original behavior)
+        const result = await transformContent(processedContent, {
+          platform: selectedPlatform,
+          tone,
+          length,
+          audience,
+          targetLanguage,
+        });
+
+        if (result.success && result.data) {
+          let finalContent = result.data;
+
+          // Save auto-selected model info if available
+          if (result.autoSelectedModel) {
+            setAutoSelectedModel(result.autoSelectedModel);
+          }
+
+          // Step 2: Translate if target language is not deutsch (assuming source is deutsch)
+          if (targetLanguage && targetLanguage !== 'deutsch') {
+            const translateResult = await translateContent(finalContent, targetLanguage);
+            if (translateResult.success && translateResult.data) {
+              finalContent = translateResult.data;
+            } else {
+              // Translation failed, but we still have the transformed content
+              console.warn('Translation failed:', translateResult.error);
+              setError(`Transformation erfolgreich, aber Übersetzung fehlgeschlagen: ${translateResult.error}`);
+            }
+          }
+
+          setTransformedContent(finalContent);
+          setStep(4);
+        } else {
+          const errorMsg = result.error || 'Transformation fehlgeschlagen';
+          setError(errorMsg);
+          // Show notification if error is related to AI configuration
+          if (
+            errorMsg.includes('API') ||
+            errorMsg.includes('konfiguriert') ||
+            errorMsg.includes('Konfiguration') ||
+            errorMsg.includes('fehlt') ||
+            errorMsg.includes('Einstellungen') ||
+            errorMsg.includes('Key')
+          ) {
+            // Settings notification handled by modal
+          }
+        }
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      setError(errorMsg);
+      // Show notification if error is related to AI configuration
+      if (
+        errorMsg.includes('API') ||
+        errorMsg.includes('konfiguriert') ||
+        errorMsg.includes('Konfiguration') ||
+        errorMsg.includes('fehlt') ||
+        errorMsg.includes('Einstellungen') ||
+        errorMsg.includes('Key')
+      ) {
+        // Settings notification handled by modal
+      }
+    } finally {
+      setIsTransforming(false);
+    }
+  };
+
+  const handleReset = () => {
+    setStep(1);
+    setSourceContent('');
+    setFileName('');
+    setTransformedContent('');
+    setError(null);
+    setPreviewMode(false);
+  };
+
+  const handlePostDirectly = async () => {
+    setIsPosting(true);
+    setError(null);
+    setSettingsMissingSocialHint(false);
+
+    try {
+      // Check if content exists
+      if (!sourceContent.trim()) {
+        setError('Kein Content zum Posten vorhanden');
+        setIsPosting(false);
+        return;
+      }
+
+      // Load social media config
+      const config = loadSocialConfig();
+
+      // Map ContentPlatform to SocialPlatform
+      const platformMap: Record<ContentPlatform, SocialPlatform | null> = {
+        'linkedin': 'linkedin',
+        'twitter': 'twitter',
+        'reddit': 'reddit',
+        'devto': 'devto',
+        'medium': 'medium',
+        'github-discussion': 'github',
+        'github-blog': 'github',
+        'youtube': null, // YouTube is not supported for direct posting
+        'blog-post': null, // Generic blog post is not supported for direct posting
+      };
+
+      const socialPlatform = platformMap[selectedPlatform];
+
+      if (!socialPlatform) {
+        setError('Diese Plattform unterstützt kein direktes Posten');
+        setIsPosting(false);
+        return;
+      }
+
+      // Check if platform is configured
+      if (!isPlatformConfigured(socialPlatform, config)) {
+        setSettingsDefaultTab('social');
+        setSettingsSocialTab(getSocialTabForPlatform(selectedPlatform));
+        setSettingsMissingSocialHint(true);
+        setSettingsMissingSocialLabel(getPlatformLabel(selectedPlatform));
+        setShowSettings(true);
+        setIsPosting(false);
+        return;
+      }
+
+      // Prepare content based on platform
+      let postContent: any;
+
+      switch (socialPlatform) {
+        case 'linkedin':
+          postContent = {
+            text: sourceContent,
+            visibility: 'PUBLIC',
+          } as LinkedInPostOptions;
+          break;
+
+        case 'twitter':
+          // Split content into thread if too long
+          const maxTweetLength = 280;
+          if (sourceContent.length > maxTweetLength) {
+            const sentences = sourceContent.split(/[.!?]+/).filter(s => s.trim());
+            const thread: string[] = [];
+            let currentTweet = '';
+
+            for (const sentence of sentences) {
+              if ((currentTweet + sentence).length > maxTweetLength) {
+                if (currentTweet) thread.push(currentTweet.trim());
+                currentTweet = sentence;
+              } else {
+                currentTweet += sentence + '.';
+              }
+            }
+            if (currentTweet) thread.push(currentTweet.trim());
+
+            postContent = {
+              text: thread[0],
+              thread: thread.slice(1),
+            } as TwitterPostOptions;
+          } else {
+            postContent = {
+              text: sourceContent,
+            } as TwitterPostOptions;
+          }
+          break;
+
+        case 'reddit':
+          // Extract title (first line or first 100 chars)
+          const lines = sourceContent.split('\n');
+          const title = lines[0] || sourceContent.substring(0, 100);
+          const body = lines.length > 1 ? lines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            subreddit: 'test', // User would need to specify subreddit
+            title: title,
+            text: body,
+          } as RedditPostOptions;
+
+          // For Reddit, we need subreddit - show error
+          setError('Für Reddit Posts muss ein Subreddit angegeben werden. Nutze die Transform-Funktion für mehr Optionen.');
+          setIsPosting(false);
+          return;
+
+        case 'devto':
+          // Extract title
+          const devtoLines = sourceContent.split('\n');
+          const devtoTitle = devtoLines[0] || 'Untitled';
+          const devtoBody = devtoLines.length > 1 ? devtoLines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            title: devtoTitle,
+            body_markdown: devtoBody,
+            published: false, // Save as draft by default
+            tags: [],
+          } as DevToPostOptions;
+          break;
+
+        case 'medium':
+          const mediumLines = sourceContent.split('\n');
+          const mediumTitle = mediumLines[0] || 'Untitled';
+          const mediumContent = mediumLines.length > 1 ? mediumLines.slice(1).join('\n') : sourceContent;
+
+          postContent = {
+            title: mediumTitle,
+            content: mediumContent,
+            contentFormat: 'markdown',
+            publishStatus: 'draft', // Save as draft by default
+            tags: [],
+          } as MediumPostOptions;
+          break;
+
+        case 'github':
+          setError('GitHub Discussions benötigt Repository-Informationen. Nutze die Transform-Funktion für mehr Optionen.');
+          setIsPosting(false);
+          return;
+
+        default:
+          setError('Plattform nicht unterstützt');
+          setIsPosting(false);
+          return;
+      }
+
+      // Post to social media
+      const result = await postToSocialMedia(socialPlatform, postContent, config);
+
+      if (result.success) {
+        // Show success message
+        alert(`✓ Erfolgreich auf ${selectedPlatform} gepostet!\n${result.url || ''}`);
+        handleReset();
+      } else {
+        setError(result.error || 'Posting fehlgeschlagen');
+        if (result.error?.includes('configuration') || result.error?.includes('not found')) {
+          // Settings notification handled by modal
+        }
+      }
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler beim Posten';
+      setError(errorMsg);
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  // Render Step Content
+  const renderStepContent = () => {
+    switch (effectiveStep) {
+      case 1:
+        const editTabs =
+          multiPlatformMode && Object.keys(transformedContents).length > 0
+            ? (Object.keys(transformedContents) as ContentPlatform[])
+            : [];
+        return (
+          <>
+            <Step1SourceInput
+              sourceContent={sourceContent}
+              fileName={fileName}
+              error={error}
+              editorSettings={editorSettings}
+              onSourceContentChange={handleSourceContentChange}
+              onFileNameChange={setFileName}
+              onNext={handleNextFromStep1}
+              onOpenMetadata={() => setShowMetadata(true)}
+              onError={setError}
+              onPreview={() => {
+                setPreviewMode(true);
+                setTransformedContent(sourceContent);
+                setCameFromEdit(false);
+                setStep(4);
+              }}
+              onSaveToProject={handleSaveSourceToProject}
+              canSaveToProject={!!sourceContent.trim() && (!isTauri() || !!projectPath)}
+              editTabs={editTabs}
+              activeEditTab={activeEditTab}
+              onEditTabChange={(platform) => {
+                setActiveEditTab(platform);
+                if (Object.prototype.hasOwnProperty.call(transformedContents, platform)) {
+                  const nextContent = transformedContents[platform] || '';
+                  setSourceContent(nextContent);
+                  setTransformedContent(nextContent);
+                } else {
+                  setSourceContent('');
+                  setTransformedContent('');
+                }
+              }}
+              cameFromEdit={cameFromEdit}
+              onBackToPosting={() => {
+                // User edited content, go directly to Step 4 for posting
+                setPreviewMode(false);
+                setTransformedContent(sourceContent); // Use edited content
+                setCameFromEdit(false); // Reset flag
+                setStep(4);
+              }}
+              cameFromDocStudio={cameFromDocStudio}
+              onBackToDocStudio={() => onBackToDocStudio?.(sourceContent)}
+              editorType={editorType}
+              onEditorTypeChange={onEditorTypeChange}
+              showInlineActions={false}
+              showDockedEditorToggle={true}
+              onOpenConverter={() => {
+                onOpenConverter?.();
+              }}
+              docTabs={openDocTabs}
+              activeDocTabId={activeDocTabId}
+              dirtyDocTabs={dirtyDocTabs}
+              onDocTabChange={handleDocTabChange}
+              onCloseDocTab={handleCloseDocTab}
+            />
+          </>
+        );
+      case 2:
+        return (
+          <Step2PlatformSelection
+            selectedPlatform={selectedPlatform}
+            platformOptions={platformOptions}
+            onPlatformChange={setSelectedPlatform}
+            onBack={() => setStep(1)}
+            onNext={handleNextFromStep2}
+            multiSelectMode={multiPlatformMode}
+            selectedPlatforms={selectedPlatforms}
+            onSelectedPlatformsChange={setSelectedPlatforms}
+          />
+        );
+      case 3:
+        const selectedPlatformOption = platformOptions.find(
+          (option) => option.value === selectedPlatform
+        );
+        const selectedPlatformLabels = multiPlatformMode
+          ? selectedPlatforms.map(p => platformOptions.find(o => o.value === p)?.label || p)
+          : [];
+        return (
+          <Step3StyleOptions
+            selectedPlatform={selectedPlatform}
+            platformLabel={selectedPlatformOption?.label || 'Plattform'}
+            selectedPlatforms={selectedPlatforms}
+            platformLabels={selectedPlatformLabels}
+            multiPlatformMode={multiPlatformMode}
+            tone={tone}
+            length={length}
+            audience={audience}
+            targetLanguage={targetLanguage}
+            onToneChange={setTone}
+            onLengthChange={setLength}
+            onAudienceChange={setAudience}
+            onTargetLanguageChange={setTargetLanguage}
+            onBack={() => setStep(2)}
+            onBackToEditor={() => setStep(1)}
+            onTransform={handleTransform}
+            onPostDirectly={handlePostDirectly}
+            isTransforming={isTransforming}
+            isPosting={isPosting}
+            error={error}
+          />
+        );
+      case 4:
+        const step4HeaderAction =
+          headerAction === "copy" ||
+          headerAction === "download" ||
+          headerAction === "edit" ||
+          headerAction === "reset" ||
+          headerAction === "post" ||
+          headerAction === "posten" ||
+          headerAction === "back_doc" ||
+          headerAction === "back_dashboard"
+            ? headerAction
+            : null;
+
+        return (
+          <>
+            {renderDocTabsBar()}
+            <Step4TransformResult
+              transformedContent={transformedContent}
+              platform={multiPlatformMode && activeResultTab ? activeResultTab : selectedPlatform}
+              autoSelectedModel={autoSelectedModel}
+              onReset={() => {
+                handleReset();
+                // Reset multi-platform state
+                if (multiPlatformMode) {
+                  setSelectedPlatforms([]);
+                  setTransformedContents({} as Record<ContentPlatform, string>);
+                  setActiveResultTab(null);
+                  onMultiPlatformModeChange?.(false);
+                }
+              }}
+              onBack={() => {
+                // Nachbearbeiten: Zum Editor mit transformiertem Content
+                setPreviewMode(false);
+                if (multiPlatformMode) {
+                  const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
+                  setActiveEditTab(nextTab);
+                  if (nextTab && Object.prototype.hasOwnProperty.call(transformedContents, nextTab)) {
+                    setSourceContent(transformedContents[nextTab] || '');
+                  } else {
+                    setSourceContent('');
+                  }
+                } else {
+                  setSourceContent(transformedContent);
+                }
+                setCameFromEdit(true); // Mark that user came from edit
+                setStep(1);
+              }}
+              onOpenSettings={() => {
+                setSettingsDefaultTab('ai');
+                setSettingsSocialTab(undefined);
+                setSettingsMissingSocialHint(false);
+                setSettingsMissingSocialLabel(undefined);
+                setShowSettings(true);
+              }}
+              onContentChange={(content) => {
+                if (activeDocTabId && activeDocTabId !== 'draft') {
+                  setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: content }));
+                  setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
+                  setSourceContent(content);
+                  return;
+                }
+                setTransformedContent(content);
+                if (multiPlatformMode && activeResultTab) {
+                  setTransformedContents((prev) => ({ ...prev, [activeResultTab]: content }));
+                }
+              }}
+              cameFromDocStudio={cameFromDocStudio}
+              cameFromDashboard={cameFromDashboard}
+              isPreview={previewMode}
+              useHeaderActions
+              headerAction={step4HeaderAction}
+              onHeaderActionHandled={onHeaderActionHandled}
+              onBackToDocStudio={() => onBackToDocStudio?.(transformedContent)}
+              onBackToDashboard={() => onBackToDashboard?.(transformedContent)}
+              onGoToTransform={(targetPlatform) => {
+                // Navigate to Step 2 with the selected platform, then to Step 3
+                setSelectedPlatform(targetPlatform);
+                setStep(3); // Go directly to Step 3 (Style Options)
+              }}
+              multiPlatformMode={multiPlatformMode}
+              transformedContents={transformedContents}
+              activeResultTab={activeResultTab}
+            onActiveResultTabChange={(platform) => {
+              setActiveResultTab(platform);
+              // Update the displayed content to match the selected tab
+              if (Object.prototype.hasOwnProperty.call(transformedContents, platform)) {
+                setTransformedContent(transformedContents[platform] || '');
+              }
+            }}
+              activeDocTabId={activeDocTabId}
+              activeDocTabContent={activeDocTabId ? docTabContents[activeDocTabId] ?? '' : ''}
+            />
+          </>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-[transparent] text-[#e5e5e5] overflow-hidden">
+      {/* Main Content */}
+      <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
+
+      {/* Footer */}
+      <div className="relative border-t border-[#AC8E66] py-3">
+        <ZenFooterText />
+      </div>
+
+      {/* Settings Modal */}
+      <ZenSettingsModal
+        isOpen={showSettings}
+        onClose={() => {
+          setShowSettings(false);
+          setSettingsMissingSocialHint(false);
+          setSettingsMissingSocialLabel(undefined);
+        }}
+        onSave={() => setError(null)}
+        defaultTab={settingsDefaultTab}
+        defaultSocialTab={settingsSocialTab}
+        showMissingSocialHint={settingsMissingSocialHint}
+        missingSocialLabel={settingsMissingSocialLabel}
+      />
+
+      {/* Metadata Modal */}
+      <ZenMetadataModal
+        isOpen={showMetadata}
+        onClose={() => setShowMetadata(false)}
+        metadata={metadata}
+        onSave={(newMetadata) => {
+          handleMetadataSave(newMetadata);
+          setShowMetadata(false);
+        }}
+      />
+
+      {/* Generating Modal */}
+      <ZenGeneratingModal
+        isOpen={isTransforming}
+        templateName={`${selectedPlatform} Content`}
+      />
+
+      {/* Save Success Modal */}
+      <ZenSaveSuccessModal
+        isOpen={showSaveSuccess}
+        onClose={() => setShowSaveSuccess(false)}
+        fileName={savedFileName}
+        filePath={savedFilePath}
+      />
+
+      <ZenModal
+        isOpen={!!pendingCloseTabId}
+        onClose={() => setPendingCloseTabId(null)}
+        size="md"
+      >
+        <ZenModalHeader
+          title="Ungespeicherte Änderungen"
+          subtitle="Dieses Dokument hat Änderungen, die noch nicht gespeichert sind."
+     
+        />
+        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#999', textAlign: 'center'  }}>
+            Möchtest du vor dem Schließen speichern?
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+            <ZenRoughButton
+              label="Abbrechen"
+              size="small"
+              width={120}
+              height={38}
+              onClick={() => setPendingCloseTabId(null)}
+            />
+            <ZenRoughButton
+              label="Nicht speichern"
+              size="small"
+              width={160}
+              height={38}
+              onClick={() => {
+                if (!pendingCloseTabId) return;
+                closeDocTab(pendingCloseTabId, true); // force close without saving
+                setPendingCloseTabId(null);
+              }}
+            />
+            <ZenRoughButton
+              label="Speichern"
+              size="small"
+              width={140}
+              height={38}
+              onClick={async () => {
+                if (!pendingCloseTabId) return;
+                const saved = await saveTabContent(pendingCloseTabId);
+                if (saved) {
+                  closeDocTab(pendingCloseTabId);
+                  setPendingCloseTabId(null);
+                }
+              }}
+            />
+          </div>
+        </div>
+      </ZenModal>
+    </div>
+  );
+};

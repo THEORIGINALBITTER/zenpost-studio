@@ -1,28 +1,28 @@
 import { useEffect, useState } from 'react';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { downloadDir, join } from '@tauri-apps/api/path';
-
+import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faRotateLeft,
-  faCopy,
   faDownload,
   faCheck,
-  faRocket,
   faCog,
-  faLightbulb,
-  faArrowLeft,
-  faTableList,
   faCalendarDays,
-  faWandMagicSparkles,
+
   faArrowRight,
   faCompress,
   faCode,
-  faPaperPlane,
+  faEdit,
+  faWandMagicSparkles,
+  faBriefcase,
+  faWrench,
+  faBolt,
+  faPenNib,
 } from '@fortawesome/free-solid-svg-icons';
-import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
+import { useZenIdle } from '../../hooks/useZenIdle';
 import {
   ContentPlatform,
   improveText,
@@ -39,6 +39,7 @@ import {
   SocialPlatform,
   PostResult,
 } from '../../services/socialMediaService';
+import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
 
 interface Step4TransformResultProps {
   transformedContent: string;
@@ -62,9 +63,53 @@ interface Step4TransformResultProps {
   transformedContents?: Partial<Record<ContentPlatform, string>>;
   activeResultTab?: ContentPlatform | null;
   onActiveResultTabChange?: (platform: ContentPlatform) => void;
+  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' }>;
+  activeDocTabId?: string | null;
+  dirtyDocTabs?: Record<string, boolean>;
+  onDocTabChange?: (tabId: string) => void;
+  onCloseDocTab?: (tabId: string) => void;
+  activeDocTabContent?: string;
 }
 
+type ImproveOption = {
+  style: ImprovementStyle;
+  icon: IconDefinition;
+  label: string;
+  desc: string;
+};
 
+
+const improveBaseStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '10px 12px',
+  backgroundColor: '#2A2A2A',
+  border: '0.5px solid #3a3a3a',
+  borderRadius: '8px',
+  cursor: 'pointer',
+  transition: 'all 0.2s ease',
+  textAlign: 'left',
+};
+
+const improveHoverStyle: React.CSSProperties = {
+  backgroundColor: '#3a3a3a',
+  borderColor: '#AC8E66',
+
+};
+
+const improveDisabledStyle: React.CSSProperties = {
+  opacity: 0.5,
+  cursor: 'not-allowed',
+};
+
+
+
+const IMPROVE_OPTIONS: ImproveOption[] = [
+  { style: 'charming',      icon: faWandMagicSparkles, label: 'Mehr Charme',        desc: 'Persönlicher & einladender' },
+  { style: 'professional',  icon: faBriefcase,         label: 'Professioneller',   desc: 'Formell & business-gerecht' },
+  { style: 'technical',     icon: faWrench,            label: 'Technischer',       desc: 'Präzise & detailliert' },
+  { style: 'concise',       icon: faBolt,              label: 'Kürzer & knapper',  desc: 'Auf den Punkt gebracht' },
+  { style: 'general',       icon: faPenNib,            label: 'Allgemein',         desc: 'Grammatik & Lesbarkeit' },
+];
 
 const platformLabels: Record<ContentPlatform, string> = {
   linkedin: 'LinkedIn Post',
@@ -99,8 +144,8 @@ export const Step4TransformResult = ({
   onBack,
   onOpenSettings,
   onContentChange,
-  cameFromDocStudio,
-  cameFromDashboard,
+  cameFromDocStudio: _cameFromDocStudio,
+  cameFromDashboard: _cameFromDashboard,
   isPreview = false,
   headerAction,
   onHeaderActionHandled,
@@ -112,9 +157,16 @@ export const Step4TransformResult = ({
   transformedContents = {},
   activeResultTab,
   onActiveResultTabChange,
+  docTabs = [],
+  activeDocTabId = null,
+  dirtyDocTabs = {},
+  onDocTabChange,
+  onCloseDocTab,
+  activeDocTabContent = '',
 }: Step4TransformResultProps) => {
-  const [copied, setCopied] = useState(false);
-  const [isPosting, setIsPosting] = useState(false);
+  const isIdle = useZenIdle(2000);
+  const [_copied, setCopied] = useState(false);
+  const [_isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
   const [currentContent, setCurrentContent] = useState(transformedContent);
 
@@ -125,6 +177,11 @@ export const Step4TransformResult = ({
     }
   }, [transformedContent]);
 
+  useEffect(() => {
+    if (!activeDocTabId || activeDocTabId === 'draft') return;
+    setCurrentContent(activeDocTabContent);
+  }, [activeDocTabId, activeDocTabContent]);
+
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
 
@@ -132,8 +189,9 @@ export const Step4TransformResult = ({
   const [showPostenModal, setShowPostenModal] = useState(false);
   const [showPostMethodModal, setShowPostMethodModal] = useState(false);
   const [selectedPostPlatforms, setSelectedPostPlatforms] = useState<SocialPlatform[]>([]);
-  const [isMultiPosting, setIsMultiPosting] = useState(false);
+  const [_isMultiPosting, setIsMultiPosting] = useState(false);
   const [multiPostResults, setMultiPostResults] = useState<PostResult[]>([]);
+  const [isAITransformMode, setIsAITransformMode] = useState(false);
 
   // Text-AI State
   const [showTextAI, setShowTextAI] = useState(false);
@@ -390,7 +448,26 @@ const handleDownload = async () => {
   const handlePlatformSelection = (platforms: SocialPlatform[]) => {
     setSelectedPostPlatforms(platforms);
     setShowPostenModal(false);
-    setShowPostMethodModal(true);
+
+    // If in AI Transform mode, go directly to transformation
+    if (isAITransformMode) {
+      setIsAITransformMode(false);
+      // Navigate to Step 2/3 for AI transformation
+      if (platforms.length > 0 && onGoToTransform) {
+        const socialToContent: Record<SocialPlatform, ContentPlatform> = {
+          linkedin: 'linkedin',
+          twitter: 'twitter',
+          reddit: 'reddit',
+          devto: 'devto',
+          medium: 'medium',
+          github: 'github-discussion',
+        };
+        const contentPlatform = socialToContent[platforms[0]];
+        onGoToTransform(contentPlatform);
+      }
+    } else {
+      setShowPostMethodModal(true);
+    }
   };
 
   const prepareContentForPlatform = (targetPlatform: SocialPlatform): any => {
@@ -536,42 +613,32 @@ const handleDownload = async () => {
   ]);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12"
-        style={{ padding: '0.5rem 1.5rem' }}
-    
+    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 "
+        style={{ padding: '0.5rem 1.5rem', marginTop: '28px' }}
+  
     >
 
 
+        <div className="flex flex-col items-center w-full max-w-4xl"></div>
 
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#fef3c7] text-center">
-            {isPreview ? "Dein Posting Vorschau " : "Transformation abgeschlossen :)"}
+          <h2 className="font-mono text-3xl text-[#dbd9d5] text-center">
+            {isPreview ? " " : "Transformation abgeschlossen :)"}
           </h2>
         </div>
 
-        {/* Subtitle */}
-        <div className="mb-12 text-center">
-          <ZenSubtitle>
-         {isPreview ? (
-  <>
-    Du siehst hier, wie dein Artikel aussieht.
-    <br />
-    Für Optimierung kannst du TEXT-AI nutzen oder auf Nachbearbeiten gehen und deine Plattform wählen.
-  </>
-) : multiPlatformMode && Object.keys(transformedContents).length > 1 ? (
-  `Dein Content wurde für ${Object.keys(transformedContents).length} Plattformen optimiert`
-) : (
-  `Dein Content wurde für ${platformLabels[platform]} optimiert`
-)}
+        <div style={{ height: '48px' }} />
 
-          </ZenSubtitle>
-        </div>
-
+   
+       
         {/* Multi-Platform Tab Bar */}
         {multiPlatformMode && Object.keys(transformedContents).length > 1 && (
-          <div className="mb-8 w-full max-w-2xl">
+          <div
+            className="mb-8 w-full max-w-2xl"
+            style={{ opacity: isIdle ? 0.35 : 1, transition: 'opacity 250ms ease' }}
+          >
             <div
               style={{
                 display: 'flex',
@@ -669,52 +736,61 @@ const handleDownload = async () => {
         )}
 
         {/* Result Container */}
-        <div className="w-full bg-[#2A2A2A] border border-[#AC8E66] "
+        <div className=" border-[10px] border-[#AC8E66] "
           style={{
-    width: "100%",
-    backgroundColor: "#2A2A2A",
-    border: "1px solid #AC8E66",
-    borderRadius: "1.5rem",
+            width: "90vw",
+            
+            backgroundColor: "#151515",
+            border: "1px solid #AC8E66",
+            borderRadius: "1.5rem",
             padding: '0.5rem 0',
   }}
         >
           <div className="flex justify-between items-center mb-4"
-              style={{ padding: '0.5rem 1.5rem' }}
+             style={{ padding: '0.5rem 2rem' }}
           >
-            <h3 className="font-mono text-sm text-[#AC8E66]">Vorschau - Transformierter Content:</h3>
-            <div className="flex items-center gap-3 px-[-10px]">
-              {/* Text-AI Toggle Button */}
-              <div className='px-[10px]'>
-              <button
-                onClick={() => setShowTextAI(!showTextAI)}
-                className={`font-mono text-[10px] px-[10px] py-[10px] paddingLeft-[10px] rounded-lg border transition-all ${
-                  showTextAI
-                    ? 'bg-[#AC8E66] text-[#1A1A1A] border-[#AC8E66]'
-                    : 'bg-transparent text-[#AC8E66] border-[#AC8E66] hover:bg-[#AC8E66]/10'
-                }`}
-                disabled={isAIProcessing}
-              >
-                <FontAwesomeIcon icon={faWandMagicSparkles} className="mr-2" />
-                Text-AI
-              </button>
+            {currentContent && currentContent.trim() ? (
+              <div className="flex items-center gap-3 px-[-10px]">
+                {/* Text-AI Toggle Button */}
+                <div className='px-[10px]'>
+                <button
+                  onClick={() => setShowTextAI(!showTextAI)}
+                  className={`font-mono text-[10px] px-[10px] py-[10px] paddingLeft-[10px] rounded-lg border transition-all ${
+                    showTextAI
+                      ? 'bg-[transparent]  text-[#555] border-[#555]'
+                      : 'bg-[transparent] text-[#AC8E66] border-[#AC8E66] hover:bg-[#AC8E66]/10'
+                  }`}
+                  disabled={isAIProcessing}
+                >
+                  <FontAwesomeIcon icon={faWandMagicSparkles} className="mr-2" />
+                  Text-AI
+                </button>
+                </div>
+                <div className="font-mono text-[12px] text-[#AC8E66] px-3 py-1 rounded">
+                  Preview-Modus
+                </div>
               </div>
-              <div className="font-mono text-[12px] text-[#AC8E66] px-3 py-1 rounded">
-                Preview-Modus
-              </div>
-            </div>
+            ) : <div />}
+            <ZenCloseButton onClick={onBack} size="sm" />
           </div>
 
-          {/* Text-AI Tab Bar */}
-          {showTextAI && (
-            <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+    {/* Text-AI Tab Bar */}
+          {showTextAI && currentContent && currentContent.trim() && (
+            <div
+              style={{
+                padding: '0 1.5rem 1rem 1.5rem',
+                opacity: isIdle ? 0.35 : 1,
+                transition: 'opacity 250ms ease',
+              }}
+            >
               <div
                 style={{
                   display: 'flex',
                   gap: '8px',
                   padding: '12px',
-                  backgroundColor: '#1A1A1A',
+                  backgroundColor: 'transparent',
                   borderRadius: '12px',
-                  border: '1px solid #3a3a3a',
+                  border: '0.5px dotted #3a3a3a',
                   flexWrap: 'wrap',
                 }}
               >
@@ -726,8 +802,8 @@ const handleDownload = async () => {
                     style={{
                       width: '100%',
                       padding: '12px 16px',
-                      backgroundColor: showImproveOptions ? '#3a3a3a' : '#2A2A2A',
-                      border: showImproveOptions ? '1px solid #AC8E66' : '1px solid #3a3a3a',
+                      backgroundColor: showImproveOptions ? 'transparent' : 'transparent',
+                      border: showImproveOptions ? '0.5px solid #AC8E66' : '1px solid #3a3a3a',
                       borderRadius: '8px',
                       color: '#e5e5e5',
                       fontFamily: 'monospace',
@@ -742,13 +818,13 @@ const handleDownload = async () => {
                     }}
                     onMouseEnter={(e) => {
                       if (!isAIProcessing && !showImproveOptions) {
-                        e.currentTarget.style.backgroundColor = '#3a3a3a';
+                        e.currentTarget.style.backgroundColor = 'transparent';
                         e.currentTarget.style.borderColor = '#AC8E66';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!showImproveOptions) {
-                        e.currentTarget.style.backgroundColor = '#2A2A2A';
+                        e.currentTarget.style.backgroundColor = 'transparent';
                         e.currentTarget.style.borderColor = '#3a3a3a';
                       }
                     }}
@@ -763,11 +839,11 @@ const handleDownload = async () => {
                       style={{
                         position: 'absolute',
                         top: '100%',
-                        left: '50%',
+                        left: '65%',
                         transform: 'translateX(-50%)',
-                        marginTop: '8px',
-                        backgroundColor: '#1A1A1A',
-                        border: '1px solid #AC8E66',
+                        marginTop: '10px',
+                        backgroundColor: '#0A0A0A',
+                        border: '0.5px solid #AC8E66',
                         borderRadius: '12px',
                         padding: '8px',
                         minWidth: '350px',
@@ -787,45 +863,33 @@ const handleDownload = async () => {
                       </p>
 
                       {/* Style Options */}
-                      {[
-                        { style: 'charming' as ImprovementStyle, label: '✨ Mehr Charme', desc: 'Persönlicher & einladender' },
-                        { style: 'professional' as ImprovementStyle, label: '👔 Professioneller', desc: 'Formell & business-gerecht' },
-                        { style: 'technical' as ImprovementStyle, label: '🔧 Technischer', desc: 'Präzise & detailliert' },
-                        { style: 'concise' as ImprovementStyle, label: '⚡ Kürzer & knapper', desc: 'Auf den Punkt gebracht' },
-                        { style: 'general' as ImprovementStyle, label: '📝 Allgemein', desc: 'Grammatik & Lesbarkeit' },
-                      ].map((option) => (
-                        <button
-                          key={option.style}
-                          onClick={() => handleTextAI('improve', option.style)}
-                          disabled={isAIProcessing}
-                          style={{
-                            width: '100%',
-                            padding: '10px 12px',
-                            backgroundColor: '#2A2A2A',
-                            border: '1px solid #3a3a3a',
-                            borderRadius: '8px',
-                            marginBottom: '6px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            textAlign: 'left',
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#3a3a3a';
-                            e.currentTarget.style.borderColor = '#AC8E66';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = '#2A2A2A';
-                            e.currentTarget.style.borderColor = '#3a3a3a';
-                          }}
-                        >
-                          <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
-                            {option.label}
-                          </div>
-                          <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
-                            {option.desc}
-                          </div>
-                        </button>
-                      ))}
+                {IMPROVE_OPTIONS.map((option) => (
+  <button
+    key={option.style}
+    onClick={() => handleTextAI('improve', option.style)}
+    disabled={isAIProcessing}
+    style={{
+      ...improveBaseStyle,
+      ...(isAIProcessing ? improveDisabledStyle : {}),
+    }}
+    onMouseEnter={(e) => {
+      if (!isAIProcessing) Object.assign(e.currentTarget.style, improveHoverStyle);
+    }}
+    onMouseLeave={(e) => {
+      Object.assign(e.currentTarget.style, improveBaseStyle);
+    }}
+  >
+    <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <FontAwesomeIcon icon={option.icon} style={{ color: '#AC8E66', fontSize: '12px' }} />
+      <span>{option.label}</span>
+    </div>
+
+    <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
+      {option.desc}
+    </div>
+  </button>
+))}
+
 
                       {/* Custom Input Toggle */}
                       <button
@@ -854,8 +918,8 @@ const handleDownload = async () => {
                         }}
                       >
                         <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
-                             <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '10px' , marginTop: '-2px'}} />
-                          Eigene Anweisung
+                            <FontAwesomeIcon icon={faEdit} style={{ fontSize: '10px', marginTop: '-2px', color: '#AC8E66', marginRight: '8px' }} />
+                              Eigene Anweisung
                         </div>
                         <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
                           Beschreibe selbst wie
@@ -923,7 +987,7 @@ const handleDownload = async () => {
                     flex: '1 1 auto',
                     minWidth: '140px',
                     padding: '12px 16px',
-                    backgroundColor: '#2A2A2A',
+                    backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
                     color: '#e5e5e5',
@@ -939,12 +1003,12 @@ const handleDownload = async () => {
                   }}
                   onMouseEnter={(e) => {
                     if (!isAIProcessing) {
-                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.backgroundColor = 'transparent';
                       e.currentTarget.style.borderColor = '#AC8E66';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.backgroundColor = 'transparent';
                     e.currentTarget.style.borderColor = '#3a3a3a';
                   }}
                 >
@@ -960,7 +1024,7 @@ const handleDownload = async () => {
                     flex: '1 1 auto',
                     minWidth: '140px',
                     padding: '12px 16px',
-                    backgroundColor: '#2A2A2A',
+                    backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
                     color: '#e5e5e5',
@@ -976,12 +1040,12 @@ const handleDownload = async () => {
                   }}
                   onMouseEnter={(e) => {
                     if (!isAIProcessing) {
-                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.backgroundColor = 'transparent';
                       e.currentTarget.style.borderColor = '#AC8E66';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.backgroundColor = 'transparent';
                     e.currentTarget.style.borderColor = '#3a3a3a';
                   }}
                 >
@@ -997,7 +1061,7 @@ const handleDownload = async () => {
                     flex: '1 1 auto',
                     minWidth: '140px',
                     padding: '12px 16px',
-                    backgroundColor: '#2A2A2A',
+                    backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
                     color: '#e5e5e5',
@@ -1013,12 +1077,12 @@ const handleDownload = async () => {
                   }}
                   onMouseEnter={(e) => {
                     if (!isAIProcessing) {
-                      e.currentTarget.style.backgroundColor = '#3a3a3a';
+                      e.currentTarget.style.backgroundColor = 'transparent';
                       e.currentTarget.style.borderColor = '#AC8E66';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#2A2A2A';
+                    e.currentTarget.style.backgroundColor = 'transparent';
                     e.currentTarget.style.borderColor = '#3a3a3a';
                   }}
                 >
@@ -1033,12 +1097,13 @@ const handleDownload = async () => {
                   style={{
                     marginTop: '12px',
                     padding: '12px',
-                    backgroundColor: '#2A2A2A',
+                    backgroundColor: 'transparent',
                     borderRadius: '8px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     gap: '12px',
+                    height: '40px',
                   }}
                 >
                   <div
@@ -1051,7 +1116,7 @@ const handleDownload = async () => {
                       animation: 'spin 1s linear infinite',
                     }}
                   />
-                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66' }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66', fontWeight: '600' }}>
                     AI verarbeitet...
                   </span>
                 </div>
@@ -1109,6 +1174,97 @@ const handleDownload = async () => {
             </div>
           )}
 
+
+          {docTabs.length > 0 && currentContent && currentContent.trim() && (
+            <div style={{ padding: '0 25px', position: 'relative' }}>
+              <div
+                className="zen-no-scrollbar"
+                style={{
+                  display: 'flex',
+                  width: '100%',
+                  gap: 8,
+                  borderRadius: '12px 12px 0 0',
+                  border: '2',
+                  borderBottom: 'none',
+                  flexWrap: 'nowrap',
+                  overflowX: 'auto',
+                  marginTop: '10px',
+                }}
+              >
+                {docTabs.map((tab) => {
+                  const isActive = activeDocTabId === tab.id;
+                  const isDirty = !!dirtyDocTabs[tab.id];
+                  return (
+                    <button
+                      key={tab.id}
+                      ref={(el) => {
+                        if (isActive && el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                        }
+                      }}
+                      onClick={() => onDocTabChange?.(tab.id)}
+                      style={{
+                        transform: 'translateY(12px)',
+                        flex: '0 0 auto',
+                        padding: '12px 16px',
+                        backgroundColor: isActive ? '#d9d4c5' : '#151515',
+                        border: isActive ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                        borderRadius: '8px 8px 0px 0px',
+                        borderBottom: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: isActive ? '9px' : '10px',
+                        fontWeight: isActive ? '200' : '400',
+                        color: isActive ? '#151515' : '#333',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'left',
+                        gap: '8px',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.color = '#AC8E66';
+                          e.currentTarget.style.borderColor = '#AC8E66';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isActive) {
+                          e.currentTarget.style.color = '#333';
+                          e.currentTarget.style.borderColor = '#3A3A3A';
+                        }
+                      }}
+                    >
+                      {isDirty ? <span 
+                      style={{ 
+                        color: isActive ? '#151515' : '#555' }}>•</span> : null}
+                      <span style={{ whiteSpace: 'nowrap' }}>{tab.title}</span>
+                      {tab.kind !== 'draft' && (
+                        <span
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onCloseDocTab?.(tab.id);
+                          }}
+                          style={{
+                            marginLeft: 'auto',
+                         
+                            fontSize: '12px',
+                            color: isActive ? '#151515' : '#555',
+                            opacity: 0.8,
+                          }}
+                        >
+                          ×
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+      
+
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
             {currentContent && currentContent.trim() ? (
@@ -1127,14 +1283,15 @@ const handleDownload = async () => {
                   justifyContent: 'center',
                   color: '#777',
                   fontFamily: 'monospace',
-                  fontSize: '12px',
+                  fontSize: '14px',
                   gap: '8px',
+                  fontWeight: '400'
                 }}
               >
-                <span style={{ color: '#AC8E66' }}>⚠️</span>
-                <span>Kein Inhalt für diese Plattform vorhanden.</span>
-                <span style={{ fontSize: '10px', color: '#555' }}>
-                  Die Transformation ist möglicherweise fehlgeschlagen.
+                <span style={{ color: '#AC8E66' }}></span>
+                <span>Schreibe was du denkst, nutze dafür einfach den Nachbearbeiten Tab.</span>
+                <span style={{ fontSize: '11px', color: '#555' }}>
+                  Kein Inhalt vorhanden.
                 </span>
               </div>
             )}
@@ -1143,7 +1300,7 @@ const handleDownload = async () => {
 
         {/* Character Count */}
         <div className="mb-12">
-          <p className="text-[#777] font-mono text-[10px] mt-2">
+          <p className="text-[#555] font-mono text-[10px] mt-[5px]">
             {currentContent.length} Zeichen • {currentContent.split('\n').length} Zeilen
           </p>
         </div>
@@ -1204,56 +1361,9 @@ const handleDownload = async () => {
             style={{ padding: "0.5rem 1.5rem" }}
           >
             <ZenRoughButton
-              label={copied ? "✓ Kopiert!" : "Kopieren"}
-              icon={<FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-[#AC8E66]" />}
-              onClick={handleCopy}
-              variant={copied ? "active" : "default"}
-            />
-
-            <ZenRoughButton
-              label="Download"
+              label="Export"
               icon={<FontAwesomeIcon icon={faDownload} className="text-[#AC8E66]" />}
               onClick={handleDownload}
-            />
-
-            <ZenRoughButton
-              label="Nachbearbeiten"
-              icon="✏️"
-              onClick={onBack}
-              variant="active"
-            />
-
-            {cameFromDocStudio && onBackToDocStudio && (
-              <ZenRoughButton
-                label="Zurück zu Doc Studio"
-                icon={<FontAwesomeIcon icon={faArrowLeft} className="text-[#AC8E66]" />}
-                onClick={() => onBackToDocStudio(currentContent)}
-                variant="default"
-              />
-            )}
-
-            {cameFromDashboard && onBackToDashboard && (
-              <ZenRoughButton
-                label="Zum Dashboard"
-                icon={<FontAwesomeIcon icon={faTableList} className="text-[#AC8E66]" />}
-                onClick={() => onBackToDashboard(currentContent)}
-                variant="active"
-              />
-            )}
-
-            {socialPlatform && (
-              <ZenRoughButton
-                label="Direkt posten"
-                icon={<FontAwesomeIcon icon={faRocket} className="text-[#AC8E66]" />}
-                onClick={handlePost}
-                disabled={isPosting}
-              />
-            )}
-
-            <ZenRoughButton
-              label="Neuer Transform"
-              icon={<FontAwesomeIcon icon={faRotateLeft} className="text-[#AC8E66]" />}
-              onClick={onReset}
             />
 
             <ZenRoughButton
@@ -1261,14 +1371,6 @@ const handleDownload = async () => {
               icon={<FontAwesomeIcon icon={faCalendarDays} className="text-[#AC8E66]" />}
               onClick={() => setShowPlannerModal(true)}
               variant="default"
-            />
-
-            <ZenRoughButton
-              label="Posten"
-              icon={<FontAwesomeIcon icon={faPaperPlane} className="text-[#AC8E66]" />}
-              onClick={() => setShowPostenModal(true)}
-              variant="active"
-              disabled={isMultiPosting}
             />
           </div>
         )}
@@ -1295,17 +1397,10 @@ const handleDownload = async () => {
 
         {/* Info Text */}
         <div className="text-center max-w-2xl space-y-2">
-          <p className="text-[#777] font-mono text-[12px] text-[#AC8E66] leading-relaxed">
-            {socialPlatform && hasConfig
-              ? `Du kannst den Content direkt auf ${platformMapping[platform]} posten oder manuell kopieren.`
-              : `Kopiere den Content und füge ihn in ${platformLabels[platform]} ein.`}
-          </p>
-          {socialPlatform && !hasConfig && (
-            <p className="text-[#555] font-mono text-[10px] italic">
-              <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '4px' }} />
-              Optional: API-Credentials konfigurieren für direktes Posten
-            </p>
-          )}
+      
+
+          
+          
         </div>
       </div>
 

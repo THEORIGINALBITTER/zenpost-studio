@@ -20,6 +20,8 @@ export interface ScheduledPost {
   wordCount: number;
   createdAt: Date;
   seriesId?: string;
+  /** The actual file path where the post was saved (in project folder) */
+  savedFilePath?: string;
 }
 
 export interface ContentSeries {

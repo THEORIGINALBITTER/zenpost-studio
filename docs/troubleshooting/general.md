@@ -306,7 +306,7 @@ QuotaExceededError: The quota has been exceeded
 **Ollama:**
 ```bash
 # Check if Ollama is running
-curl http://localhost:11434/api/tags
+curl http://127.0.0.1:11434/api/tags
 ```
 
 **4. Check rate limits:**

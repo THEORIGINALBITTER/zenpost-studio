@@ -1,0 +1,189 @@
+/* ================= Base ================= */
+.codex-editor,
+.codex-editor__redactor {
+  overflow: visible !important;
+  color: #e5e5e5;
+  font-family: SF Mono, Monaco, monospace;
+  padding-left: 48px !important;
+  padding-right: 16px !important;
+}
+
+/* ================= Blocks ================= */
+.ce-block {
+  position: relative;
+  padding: 6px 0;
+}
+
+.ce-block__content {
+  margin-left: 0 !important;
+  margin-right: 40px !important;
+  max-width: 100% !important;
+}
+
+/* ================= Active Block (Gold) ================= */
+.ce-block--focused .ce-block__content {
+  background: linear-gradient(
+    to right,
+    rgba(172, 142, 102, 0.14),
+    rgba(172, 142, 102, 0.02)
+  );
+  border-left: 3px solid #ac8e66;
+  padding-left: 12px;
+  border-radius: 4px;
+}
+
+/* ================= Write Mode ================= */
+.zen-write-mode .ce-toolbar,
+.zen-write-mode .ce-toolbar__plus,
+.zen-write-mode .ce-toolbar__settings-btn {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.ce-block:hover .ce-toolbar,
+.ce-block:hover .ce-toolbar__plus,
+.ce-block:hover .ce-toolbar__settings-btn {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+
+/* ================= PLUS Button ================= */
+/* ================= PLUS Button (ZenPost FINAL) ================= */
+.ce-toolbar__plus {
+  position: absolute !important;
+  left: -40px !important;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at top left, #d8b27c, #ac8e66);
+  border: 1px solid #d8b27c;
+  box-shadow: 0 4px 12px rgba(0,0,0,.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ❌ EditorJS Original-Plus */
+.ce-toolbar__plus svg,
+.ce-toolbar__plus-icon {
+  display: none !important;
+}
+
+/* ✅ ZenPost Plus */
+.ce-toolbar__plus::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' stroke='%231e1e1e' fill='none'><path d='M12 5v14M5 12h14' stroke-width='2.2' stroke-linecap='round'/></svg>")
+    no-repeat center;
+}
+
+
+/* ================= Tune Button (⋮) ================= */
+.ce-toolbar__settings-btn {
+  right: -36px !important;
+  width: 32px;
+  height: 32px;
+  background: rgba(172,142,102,.15);
+  border: 1px solid rgba(172,142,102,.5);
+  border-radius: 8px;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+.ce-toolbar__settings-btn svg {
+  display: none !important;
+}
+
+.ce-toolbar__settings-btn::before {
+  content: '';
+  width: 14px;
+  height: 18px;
+  background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ac8e66'><circle cx='12' cy='5' r='1.6'/><circle cx='12' cy='12' r='1.6'/><circle cx='12' cy='19' r='1.6'/></svg>") no-repeat center;
+}
+
+.ce-toolbar__settings-btn:hover {
+  background: #ac8e66;
+}
+.ce-toolbar__settings-btn:hover::before {
+  filter: brightness(0.1);
+}
+
+/* ================= Popover ================= */
+.ce-popover {
+  position: fixed !important;
+  background: #dbd9d5;
+  border: 1px solid #ac8e66;
+  border-radius: 10px;
+  box-shadow: 0 14px 36px rgba(0,0,0,.7);
+  z-index: 9999;
+}
+
+.ce-popover-item--confirmation {
+  display: none !important;
+}
+
+/* ================= Typography ================= */
+.ce-paragraph {
+  font-size: var(--zen-editor-font-size, 12px);
+  line-height: 2;
+}
+
+/* ================= Editor Settings ================= */
+.zen-block-editor.zen-editor-nowrap .ce-paragraph {
+  white-space: pre;
+}
+
+.zen-block-editor.zen-editor-line-numbers {
+  position: relative;
+  counter-reset: zenline;
+}
+
+.zen-block-editor.zen-editor-line-numbers::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 44px;
+  background: #141414;
+  border-right: 1px solid #3a3a3a;
+  pointer-events: none;
+}
+
+.zen-block-editor.zen-editor-line-numbers .codex-editor,
+.zen-block-editor.zen-editor-line-numbers .codex-editor__redactor {
+  padding-left: 56px !important;
+}
+
+.zen-block-editor.zen-editor-line-numbers .ce-block {
+  counter-increment: zenline;
+  position: relative;
+}
+
+.zen-block-editor.zen-editor-line-numbers .ce-block::before {
+  content: counter(zenline);
+  position: absolute;
+  left: -44px;
+  top: 8px;
+  width: 32px;
+  text-align: right;
+  font-family: SF Mono, Monaco, monospace;
+  font-size: 10px;
+  line-height: 1.8;
+  color: #AC8E66;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.ce-header {
+  color: #ac8e66;
+  margin: 24px 0 12px;
+}
+
+/* ================= Selection ================= */
+.ce-block--selected .ce-block__content {
+  background: rgba(172,142,102,.12);
+}

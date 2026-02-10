@@ -177,7 +177,7 @@ npm install
 npx expo start
 
 # Runs on:
-- Web: localhost:8081
+- Web: 127.0.0.1:8081
 - iOS Simulator: Expo Go app
 - Android Emulator: Expo Go app
 ```

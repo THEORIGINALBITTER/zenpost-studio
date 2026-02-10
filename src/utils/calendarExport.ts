@@ -15,6 +15,16 @@ const PLATFORM_NAMES: Record<SocialPlatform, string> = {
   twitter: 'Twitter/X',
 };
 
+const PLATFORM_PREFIX: Record<SocialPlatform, string> = {
+  linkedin: '[in]',
+  reddit: '[rd]',
+  github: '[gh]',
+  devto: '[dev]',
+  medium: '[md]',
+  hashnode: '[hn]',
+  twitter: '[x]',
+};
+
 /**
  * Format date for iCalendar format (YYYYMMDDTHHmmss)
  */
@@ -86,13 +96,15 @@ const createCalendarEvent = (post: ScheduledPost): string => {
     `Wörter: ${post.wordCount}\n\n` +
     `Erstellt mit ZenPost Studio`;
 
+  const prefix = PLATFORM_PREFIX[post.platform];
+
   return [
     'BEGIN:VEVENT',
     `UID:${generateUID(post)}`,
     `DTSTAMP:${formatICalDate(now)}`,
     `DTSTART:${formatICalDate(startDate)}`,
     `DTEND:${formatICalDate(endDate)}`,
-    `SUMMARY:${escapeICalText(`📱 ${platformName}: ${title}`)}`,
+    `SUMMARY:${escapeICalText(`${prefix} ${platformName}: ${title}`)}`,
     `DESCRIPTION:${escapeICalText(description)}`,
     `STATUS:CONFIRMED`,
     `TRANSP:OPAQUE`,

@@ -1,115 +1,93 @@
 // ./screens/WelcomeScreen.tsx
-import { useState } from "react";
-
 import { ZenLogoFlip } from "../kits/DesignKit/ZenLogoFlip";
+import { PaperBG } from "../kits/DesignKit/PaperBG";
 import { ZenSubtitle } from "../kits/PatternKit/ZenSubtitle";
-import { ZenRoughButton, ZenFooterText, ZenAboutModal } from "../kits/PatternKit/ZenModalSystem";
-import { ZenInfoText } from "../kits/PatternKit/ZenInfoText";
-import { ZenInfoFooter } from "../kits/PatternKit/ZenInfoFooter";
-import { WalkthroughModal } from "../kits/HelpDocStudio";
+import { ZenRoughButton, ZenFooterText} from "../kits/PatternKit/ZenModalSystem";
+
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faFileLines, faMagicWandSparkles, faBook, faCircleQuestion, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
+import { faMagicWandSparkles, faBook, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 
 interface WelcomeScreenProps {
   onSelectConverter?: () => void;
   onSelectContentTransform?: () => void;
   onSelectDocStudio?: () => void;
-  onSelectPublishingDashboard?: () => void;
+  onSelectGettingStarted?: () => void;
 }
 
 export const WelcomeScreen = ({
-  onSelectConverter,
+  onSelectConverter: _onSelectConverter,
   onSelectContentTransform,
   onSelectDocStudio,
-  onSelectPublishingDashboard,
+  onSelectGettingStarted,
 }: WelcomeScreenProps) => {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
+
 
   return (
-    <div className="min-h-screen bg-[#1A1A1A] flex flex-col">
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
+    <PaperBG>
+      <div className="min-h-screen flex flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
         {/* Logo Flip Card */}
-        <div style={{ width: '130px', height: '130px' }}>
+        <div style={{ width: '130px', height: '130px', marginTop: '20px' }}>
           <ZenLogoFlip />
         </div>
-        <h4 className="font-mono text-2xl text-[#e5e5e5] font-normal "
+        <h4 className="font-mono text-2xl text-[#AC8E66] font-normal "
         
         style={{padding: "10px"}}
-        >Willkommen</h4>
-        <ZenSubtitle>Content konvertieren, mit KI transformieren oder Dokumentation generieren</ZenSubtitle>
+        >ZenPost Studio</h4>
+        <ZenSubtitle className="text-[#999] text-center max-w-md mt-[-20px]">
+          1 mal Schreiben - 9 mal Veröffentlichen<br/> Wähle dein Studio
+        </ZenSubtitle>
 
         <div className="flex flex-col gap-3 mt-6">
+
+              <ZenRoughButton
+            label="Getting Started"
+            icon={<FontAwesomeIcon 
+              icon={faLayerGroup} 
+              className="text-[#AC8E66]" />}
+            onClick={onSelectGettingStarted}
+            title="Was möchtest du heute machen?"
+          />
+       
+          <ZenRoughButton
+            label="Content AI Studio"
+            icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
+            onClick={onSelectContentTransform}
+            title="Content mit KI für Social Media transformieren"
+          />
+
+          <ZenRoughButton
+            label="Doc Studio"
+            icon={<FontAwesomeIcon icon={faBook} className="text-[#AC8E66]" />}
+            onClick={onSelectDocStudio}
+            title="Projekt-Dokumentation automatisch generieren "
+          />
+      
+
+          {/*
           <ZenRoughButton
             label="Converter Studio"
             icon={<FontAwesomeIcon icon={faFileLines} className="text-[#AC8E66]" />}
             onClick={onSelectConverter}
             title="Markdown & Editor.js konvertieren und bereinigen"
           />
+          */}
 
-          {/* Content AI Studio mit Help Button */}
-          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <ZenRoughButton
-              label="Content AI Studio"
-              icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
-              onClick={onSelectContentTransform}
-              title="Content mit KI für Social Media transformieren"
-            />
-
-            {/* Help/Tutorial Button */}
-            <ZenRoughButton
-              label=""
-              size="compact"
-              icon={<FontAwesomeIcon icon={faCircleQuestion} className="text-[#AC8E66]" />}
-              onClick={() => setIsWalkthroughOpen(true)}
-              title="Wie funktioniert das Content AI Studio?"
-            />
-          </div>
-
-          <ZenRoughButton
-            label="Doc Studio"
-            icon={<FontAwesomeIcon icon={faBook} className="text-[#AC8E66]" />}
-            onClick={onSelectDocStudio}
-            title="Projekt-Dokumentation automatisch generieren"
-          />
-          <ZenRoughButton
-            label="Publishing Dashboard"
-            icon={<FontAwesomeIcon icon={faLayerGroup} className="text-[#AC8E66]" />}
-            onClick={onSelectPublishingDashboard}
-            title="Zentraler Hub für Artikel & Publishing"
-          />
         </div>
 
-        <div className="mt-16 text-[9px] leading-relaxed max-w-xs text-center text-[#777]">
-          <ZenInfoText>
-            Wähle dein Studio: Content konvertieren, mit KI transformieren oder Dokumentation generieren …
-          </ZenInfoText>
+      
         </div>
+
+        {/* Eigene Footer-Komponente */}
+  
+
+        {/* Copyright Footer */}
+        <ZenFooterText className="mb-8 border-t border-[#AC8E66]"  />
+
+        {/* About Modal */}
+ 
+
       </div>
-
-      {/* Eigene Footer-Komponente */}
-      <ZenInfoFooter
-        onClick={() => setIsModalOpen(true)}
-        fixed={false}
-        className="mb-4"
-      />
-
-      {/* Copyright Footer */}
-      <ZenFooterText className="mb-8" />
-
-      {/* About Modal */}
-      <ZenAboutModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-      />
-
-      {/* Walkthrough Modal */}
-      <WalkthroughModal
-        isOpen={isWalkthroughOpen}
-        onClose={() => setIsWalkthroughOpen(false)}
-        autoStart={true}
-      />
-
-    </div>
+    </PaperBG>
   );
 };

@@ -37,7 +37,7 @@ export const ZenInfoIcon = ({ onClick, iconType = 'info', pulseSpeed = 1 }: ZenI
     const btn = canvas.parentElement;
     if (!btn) return;
 
-    const onEnter = () => drawCircle("#AC8E66");
+    const onEnter = () => drawCircle("");
     const onLeave = () => drawCircle("#3a3a3a");
 
     btn.addEventListener("mouseenter", onEnter);

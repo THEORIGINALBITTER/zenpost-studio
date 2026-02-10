@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBold,
@@ -24,6 +25,13 @@ interface ZenMarkdownEditorProps {
   showCharCount?: boolean;
   showPreview?: boolean;
   showLineNumbers?: boolean;
+  title?: string;
+  subtitle?: string;
+  showHeader?: boolean;
+  theme?: 'dark' | 'light';
+
+  onTitleChange?: (title: string) => void;
+  onSubtitleChange?: (subtitle: string) => void;
 }
 
 interface ToolbarButton {
@@ -54,11 +62,17 @@ export const ZenMarkdownEditor = ({
   showCharCount = true,
   showPreview = false,
   showLineNumbers = true,
+  title,
+  subtitle,
+  showHeader = true,
+  theme = 'light',
 }: ZenMarkdownEditorProps) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const commandMenuRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
 
   const [isFocused, setIsFocused] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
@@ -81,6 +95,128 @@ export const ZenMarkdownEditor = ({
   const [isFormatting, setIsFormatting] = useState(false);
   const [formatError, setFormatError] = useState<string | null>(null);
 
+  const hasInjectedHeaderRef = useRef(false);
+  const prevShowPreviewRef = useRef(showPreview);
+
+  // Scroll to preview when toggled on, back to editor when toggled off
+  useEffect(() => {
+    if (showPreview !== prevShowPreviewRef.current) {
+      if (showPreview && previewRef.current) {
+        // Preview opened → scroll to preview
+        setTimeout(() => {
+          previewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      } else if (!showPreview && editorContainerRef.current) {
+        // Preview closed → scroll to editor
+        setTimeout(() => {
+          editorContainerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+      }
+      prevShowPreviewRef.current = showPreview;
+    }
+  }, [showPreview]);
+
+  const applyTitleSubtitle = (content: string, nextTitle?: string, nextSubtitle?: string) => {
+    const trimmedTitle = nextTitle?.trim();
+    const trimmedSubtitle = nextSubtitle?.trim();
+
+    if (!trimmedTitle && !trimmedSubtitle) return content;
+
+    const lines = content.split('\n');
+    let idx = 0;
+    while (idx < lines.length && lines[idx].trim() === '') idx += 1;
+
+    if (trimmedTitle) {
+      if (lines[idx]?.startsWith('# ')) {
+        lines[idx] = `# ${trimmedTitle}`;
+      } else {
+        lines.splice(idx, 0, `# ${trimmedTitle}`);
+      }
+    }
+
+    const titleIndex = trimmedTitle ? idx : -1;
+    const subtitleIndex = titleIndex + 1;
+
+    if (trimmedSubtitle) {
+      if (lines[subtitleIndex]?.startsWith('## ')) {
+        lines[subtitleIndex] = `## ${trimmedSubtitle}`;
+      } else {
+        lines.splice(subtitleIndex, 0, `## ${trimmedSubtitle}`);
+      }
+    }
+
+    return lines.join('\n');
+  };
+
+  useEffect(() => {
+    if (hasInjectedHeaderRef.current) return;
+
+    const lines = value.split('\n');
+    const firstNonEmpty = lines.find((line) => line.trim() !== '');
+    if (firstNonEmpty?.startsWith('# ') || firstNonEmpty?.startsWith('## ')) {
+      hasInjectedHeaderRef.current = true;
+      return;
+    }
+
+    if (value.trim() === '') {
+      const nextValue = applyTitleSubtitle(value, title, subtitle);
+      if (nextValue !== value) {
+        onChange(nextValue);
+      }
+      hasInjectedHeaderRef.current = true;
+      return;
+    }
+
+    // Content already exists without heading — do not overwrite.
+    hasInjectedHeaderRef.current = true;
+  }, [title, subtitle, value]);
+
+
+  // Aktive Zeile visuell hervorheben (im Editor)
+
+  const [activeLine, setActiveLine] = useState(0);
+  const [editorScrollTop, setEditorScrollTop] = useState(0);
+
+  const [lineMetrics, setLineMetrics] = useState({ lineHeight: 21, paddingTop: 12 });
+
+
+
+
+
+
+// Helper Aktive Zeile 
+
+
+
+  const updateActiveLine = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const pos = textarea.selectionStart;
+    const textBefore = value.substring(0, pos);
+    const lineIndex = textBefore.split('\n').length - 1;
+    setActiveLine(lineIndex);
+  };
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const styles = window.getComputedStyle(textarea);
+    const lineHeightRaw = styles.lineHeight;
+    const fontSizeRaw = styles.fontSize;
+    let lineHeight = parseFloat(lineHeightRaw);
+    if (Number.isNaN(lineHeight)) {
+      const fontSize = parseFloat(fontSizeRaw);
+      lineHeight = Number.isNaN(fontSize) ? 21 : Math.round(fontSize * 1.75);
+    }
+    const paddingTop = parseFloat(styles.paddingTop);
+    setLineMetrics({
+      lineHeight: Number.isNaN(lineHeight) ? 21 : lineHeight,
+      paddingTop: Number.isNaN(paddingTop) ? 12 : paddingTop,
+    });
+  }, []);
+
+
   // Helper: Get current selection or cursor position
   const getSelectionInfo = () => {
     const textarea = textareaRef.current;
@@ -96,28 +232,61 @@ export const ZenMarkdownEditor = ({
   };
 
   // Helper: Calculate cursor position in pixels
-  const getCursorPosition = () => {
-    const textarea = textareaRef.current;
-    if (!textarea) return { top: 0, left: 0 };
+ const getCursorPosition = () => {
+  const textarea = textareaRef.current;
+  if (!textarea) return { top: 0, left: 0 };
 
-    const textareaRect = textarea.getBoundingClientRect();
+  const textareaRect = textarea.getBoundingClientRect();
+  const cursorPos = textarea.selectionStart;
+  const textBeforeCursor = value.substring(0, cursorPos);
+  const lines = textBeforeCursor.split('\n');
+  const currentLineIndex = lines.length - 1;
+  const currentLineText = lines[currentLineIndex];
 
-    // Rough estimation based on line height and character position
-    const cursorPos = textarea.selectionStart;
-    const textBeforeCursor = value.substring(0, cursorPos);
-    const lines = textBeforeCursor.split('\n');
-    const currentLineIndex = lines.length - 1;
-    const currentLineText = lines[currentLineIndex];
+  const lineHeight = 21;
+  const charWidth = 8.4;
 
-    // Estimate position
-    const lineHeight = 20; // Approximate line height in pixels
-    const charWidth = 8; // Approximate character width in monospace
+  const top =
+    textareaRect.top +
+    12 + // paddingTop
+    currentLineIndex * lineHeight -
+    textarea.scrollTop +
+    2;
 
-    const top = textareaRect.top + (currentLineIndex * lineHeight) + 30;
-    const left = textareaRect.left + (currentLineText.length * charWidth) + 12;
+  const left =
+    textareaRect.left +
+    12 + // paddingLeft
+    currentLineText.length * charWidth;
 
-    return { top, left };
-  };
+  return { top, left };
+};
+
+// Timer + Scheduler 
+
+const cursorToolbarTimerRef = useRef<number | null>(null);
+
+const scheduleCursorToolbar = () => {
+  if (cursorToolbarTimerRef.current) {
+    window.clearTimeout(cursorToolbarTimerRef.current);
+  }
+
+  cursorToolbarTimerRef.current = window.setTimeout(() => {
+    const info = getSelectionInfo();
+    if (!info) return;
+
+    // nur wenn kein CommandMenu, kein Selection, Fokus da
+    if (!isFocused) return;
+    if (showCommandMenu) return;
+    if (info.selectedText.length > 0) return;
+
+    const pos = getCursorPosition();
+    setToolbarPosition(pos);
+    setShowToolbar(true);
+  }, 500);
+};
+
+
+
 
   // Helper: Calculate floating toolbar position based on textarea selection
   const calculateToolbarPosition = () => {
@@ -185,6 +354,7 @@ export const ZenMarkdownEditor = ({
       setTimeout(calculateToolbarPosition, 0);
     } else if (!hasSelection) {
       setShowToolbar(false);
+      scheduleCursorToolbar();
     }
   };
 
@@ -224,31 +394,144 @@ export const ZenMarkdownEditor = ({
     return () => window.removeEventListener('scroll', handleScroll, true);
   }, [showToolbar]);
 
-  // Helper: Insert text at cursor or wrap selection
-  const insertText = (
-    before: string,
-    after: string = '',
-    placeholderText: string = ''
-  ) => {
-    const info = getSelectionInfo();
-    if (!info) return;
+// hier der Fix 
+const toggleWrap = (marker: string) => {
+  const info = getSelectionInfo();
+  if (!info) return;
 
-    const { start, selectedText, beforeText, afterText } = info;
-    const textToWrap = selectedText || placeholderText;
-    const newText = beforeText + before + textToWrap + after + afterText;
+  const { start, end, selectedText, beforeText, afterText } = info;
+  const hasSelection = end > start;
 
-    onChange(newText);
+  if (hasSelection) {
+    const leftHas = beforeText.endsWith(marker);
+    const rightHas = afterText.startsWith(marker);
+
+    if (leftHas && rightHas) {
+      const newBefore = beforeText.slice(0, -marker.length);
+      const newAfter = afterText.slice(marker.length);
+      const newText = newBefore + selectedText + newAfter;
+
+      onChange(newText);
+
+      setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(
+          start - marker.length,
+          end - marker.length
+        );
+      }, 0);
+
+      setShowToolbar(false);
+      return;
+    }
+
+    insertText(marker, marker);
+    return;
+  }
+
+  const left = value.substring(start - marker.length, start);
+  const right = value.substring(start, start + marker.length);
+
+  if (left === marker && right === marker) {
+    // remove left + right marker around cursor
+    const withoutRight =
+      value.substring(0, start) + value.substring(start + marker.length);
+    const withoutBoth =
+      withoutRight.substring(0, start - marker.length) + withoutRight.substring(start);
+
+    onChange(withoutBoth);
 
     setTimeout(() => {
-      if (textareaRef.current) {
-        const newPosition = start + before.length + textToWrap.length;
-        textareaRef.current.focus();
-        textareaRef.current.setSelectionRange(newPosition, newPosition);
-      }
+      textareaRef.current?.focus();
+      const pos = start - marker.length;
+      textareaRef.current?.setSelectionRange(pos, pos);
     }, 0);
 
     setShowToolbar(false);
-  };
+    return;
+  }
+
+  const wrapped =
+    value.substring(0, start) + marker + marker + value.substring(start);
+
+  onChange(wrapped);
+
+  setTimeout(() => {
+    textareaRef.current?.focus();
+    const pos = start + marker.length;
+    textareaRef.current?.setSelectionRange(pos, pos);
+  }, 0);
+
+  setShowToolbar(false);
+};
+
+const selectWordAtCursor = () => {
+  const textarea = textareaRef.current;
+  if (!textarea) return false;
+
+  const pos = textarea.selectionStart;
+  if (textarea.selectionStart !== textarea.selectionEnd) return true;
+
+  const isWordChar = (ch: string) => /[A-Za-z0-9_äöüÄÖÜß-]/.test(ch);
+
+  let left = pos;
+  let right = pos;
+
+  while (left > 0 && isWordChar(value[left - 1])) left--;
+  while (right < value.length && isWordChar(value[right])) right++;
+
+  if (left === right) return false;
+
+  textarea.setSelectionRange(left, right);
+  return true;
+};
+
+
+
+  // Helper: Insert text at cursor or wrap selection
+const insertText = (
+  before: string,
+  after: string = '',
+  placeholderText?: string
+) => {
+  const info = getSelectionInfo();
+  if (!info) return;
+
+  const { start, selectedText, beforeText, afterText } = info;
+
+  const hasSelection = selectedText.length > 0;
+  const textToWrap = hasSelection ? selectedText : (placeholderText ?? '');
+
+  const newText =
+    beforeText +
+    before +
+    textToWrap +
+    after +
+    afterText;
+
+  onChange(newText);
+
+  setTimeout(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+
+      if (hasSelection) {
+        const cursorPos = start + before.length + textToWrap.length + after.length;
+        textareaRef.current.setSelectionRange(cursorPos, cursorPos);
+      } else if (placeholderText) {
+        const selectionStart = start + before.length;
+        const selectionEnd = selectionStart + placeholderText.length;
+        textareaRef.current.setSelectionRange(selectionStart, selectionEnd);
+      } else {
+        const cursorPos = start + before.length; // Cursor zwischen Marker
+        textareaRef.current.setSelectionRange(cursorPos, cursorPos);
+      }
+    }
+  }, 0);
+
+  setShowToolbar(false);
+};
+
 
   // Insert text at start of line(s)
   const insertAtLineStart = (prefix: string) => {
@@ -287,9 +570,9 @@ export const ZenMarkdownEditor = ({
   };
 
   // Markdown Actions
-  const makeBold = () => insertText('**', '**', 'fetter Text');
-  const makeItalic = () => insertText('*', '*', 'kursiver Text');
-  const makeStrikethrough = () => insertText('~~', '~~', 'durchgestrichen');
+const makeBold = () => toggleWrap('**');
+const makeItalic = () => toggleWrap('*');
+const makeStrikethrough = () => insertText('~~', '~~');
   const makeHeading = () => insertAtLineStart('## ');
   const makeUnorderedList = () => insertAtLineStart('- ');
   const makeOrderedList = () => insertAtLineStart('1. ');
@@ -308,6 +591,15 @@ export const ZenMarkdownEditor = ({
     }
   };
   const makeQuote = () => insertAtLineStart('> ');
+
+
+  // Helper toogle Wrapper unwrap 
+
+
+
+
+
+// neu Auto election bei UnWRAP
 
   // AI-powered Markdown Formatting
   const handleAutoFormat = async () => {
@@ -339,9 +631,20 @@ export const ZenMarkdownEditor = ({
     }
   };
 
+
+  // BEim Spiechern title zurückgeben
   // Detect if Mac or Windows/Linux for keyboard shortcuts
   const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const modKey = isMac ? '⌘' : 'Ctrl';
+
+    // Shortcut Footer Items (left side)
+  const shortcutFooterItems = [
+    { key: `${modKey}+B`, label: 'Bold' },
+    { key: `${modKey}+I`, label: 'Italic' },
+    { key: `${modKey}+K`, label: 'Link' },
+    { key: '/', label: 'Commands' },
+    { key: 'Select', label: 'Toolbar' },
+  ];
 
   // Command Menu Items
   const commandMenuItems: CommandMenuItem[] = [
@@ -457,6 +760,25 @@ export const ZenMarkdownEditor = ({
       }
     }
 
+    // Paragraph vs. line break handling
+    if (e.key === 'Enter' && !showCommandMenu) {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      e.preventDefault();
+      const insert = e.shiftKey ? '  \n' : '\n\n';
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const beforeText = value.substring(0, start);
+      const afterText = value.substring(end);
+      onChange(beforeText + insert + afterText);
+      setTimeout(() => {
+        textarea.focus();
+        const cursorPos = start + insert.length;
+        textarea.setSelectionRange(cursorPos, cursorPos);
+      }, 0);
+      return;
+    }
+
     // Detect slash command (only trigger on '/' without Shift key)
     if (e.key === '/' && !e.shiftKey && !showCommandMenu) {
       const textarea = textareaRef.current;
@@ -482,45 +804,53 @@ export const ZenMarkdownEditor = ({
     const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
     const modifier = isMac ? e.metaKey : e.ctrlKey;
 
-    if (modifier && !showCommandMenu) {
-      switch (e.key.toLowerCase()) {
-        case 'b':
-          e.preventDefault();
-          makeBold();
-          break;
-        case 'i':
-          e.preventDefault();
-          makeItalic();
-          break;
-        case 'k':
-          e.preventDefault();
-          makeLink();
-          break;
-      }
-    }
+if (modifier && !showCommandMenu) {
+  switch (e.key.toLowerCase()) {
+    case 'b':
+      e.preventDefault();
+      selectWordAtCursor();
+      makeBold();
+      break;
+    case 'i':
+      e.preventDefault();
+      selectWordAtCursor();
+      makeItalic();
+      break;
+    case 'k':
+      e.preventDefault();
+      selectWordAtCursor();
+      makeLink();
+      break;
+  }
+}
+
   };
 
   // Handle input for command filtering
-  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = e.target.value;
-    onChange(newValue);
+const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const newValue = e.target.value;
+  onChange(newValue);
 
-    if (showCommandMenu && slashCommandStart >= 0) {
-      const cursorPos = e.target.selectionStart;
-      const commandText = newValue.substring(slashCommandStart + 1, cursorPos);
+  setShowToolbar(false);
+  setTimeout(updateActiveLine, 0);
+  scheduleCursorToolbar();
 
-      // Check if user deleted the slash or moved away
-      if (cursorPos < slashCommandStart || !newValue[slashCommandStart]?.startsWith('/')) {
-        setShowCommandMenu(false);
-        setCommandFilter('');
-        setSlashCommandStart(-1);
-        return;
-      }
+  if (showCommandMenu && slashCommandStart >= 0) {
+    const cursorPos = e.target.selectionStart;
+    const commandText = newValue.substring(slashCommandStart + 1, cursorPos);
 
-      setCommandFilter(commandText);
-      setSelectedCommandIndex(0);
+    if (cursorPos < slashCommandStart || !newValue[slashCommandStart]?.startsWith('/')) {
+      setShowCommandMenu(false);
+      setCommandFilter('');
+      setSlashCommandStart(-1);
+      return;
     }
-  };
+
+    setCommandFilter(commandText);
+    setSelectedCommandIndex(0);
+  }
+};
+
 
   // Toolbar buttons configuration
   const toolbarButtons: ToolbarButton[] = [
@@ -535,18 +865,73 @@ export const ZenMarkdownEditor = ({
   const lineCount = Math.max(1, value.split('\n').length);
   const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1);
 
+  const themeStyles = {
+    dark: {
+      background: '#1A1A1A',
+      border: '#AC8E66',
+      text: '#dbd9d5',
+      lineNumbersBg: '#141414',
+      lineNumbersBorder: '#3a3a3a',
+      lineNumbersText: '#AC8E66',
+      activeLine: 'rgba(172, 142, 102, 0.12)',
+    },
+    light: {
+      background: '#D9D4C5',
+      border: '#AC8E66',
+      text: '#1a1a1a',
+      lineNumbersBg: '#cfc7b6',
+      lineNumbersBorder: '#b8a88f',
+      lineNumbersText: '#8b7a5a',
+      activeLine: 'rgba(172, 142, 102, 0.18)',
+    },
+  };
+
+  const colors = themeStyles[theme];
+
   return (
     <div className="w-full relative">
+      {showHeader && (title || subtitle) && (
+        <div style={{ marginBottom: '16px' }}>
+          {title && (
+            <h2
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '16px',
+                color: '#e5e5e5',
+                margin: 0,
+                marginBottom: subtitle ? '6px' : 0,
+              }}
+            >
+              {title}
+            </h2>
+          )}
+          {subtitle && (
+            <p
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '12px',
+                color: '#777',
+                margin: 0,
+              }}
+            >
+              {subtitle}
+            </p>
+          )}
+        </div>
+      )}
       {/* Desktop Split-View or Mobile Stacked */}
       <div className={`flex gap-4 ${showPreview ? 'md:flex-row flex-col' : ''}`}>
         {/* Editor Section - always visible */}
-        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} flex-1 min-w-0`}>
+        <div
+          ref={editorContainerRef}
+          className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} flex-1 min-w-0`}
+        >
           {/* Floating Toolbar - Appears on text selection */}
           {showToolbar && !showCommandMenu && (
             <div
               ref={toolbarRef}
               className="fixed z-50 flex items-center gap-0.5 p-0.5 
-              bg-[#2A2A2A] border border-[#AC8E66] rounded rounded-[6px] shadow-lg"
+              bg-[#1a1a1a] border border-[#AC8E66] rounded rounded-[6px] shadow-lg"
               style={{
                 top: `${toolbarPosition.top}px`,
                 left: `${toolbarPosition.left}px`,
@@ -662,17 +1047,34 @@ export const ZenMarkdownEditor = ({
           </div>
         )}
 
-        <div
-          style={{
-            display: 'flex',
-            width: '100%',
-            height: '100%',
-            border: `0.5px solid ${isFocused ? '#AC8E66' : '#AC8E66'}`,
-            borderRadius: '10px',
-            backgroundColor: '#1A1A1A',
-            overflow: 'hidden',
-          }}
-        >
+  <div
+   style={{
+      display: 'flex',
+      width: '100%',
+      height: '100%',
+      border: `0.5px solid ${colors.border}`,
+      borderRight: '1px solid rgba(172, 142, 102, 0.5)',
+      borderRadius: '10px',
+      backgroundColor: colors.background,
+      boxShadow:
+        '1px 2px 8px -4px rgba(0,0,0,0.35), 1px 1px 8px -6px rgba(0,0,0,0.25)',
+      overflow: 'hidden',
+      position: 'relative',
+    }}
+  >
+  {/* Active line highlight Hintegrund wo man schreibt  */}
+  <div
+    style={{
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: lineMetrics.paddingTop + activeLine * lineMetrics.lineHeight - editorScrollTop,
+      height: lineMetrics.lineHeight,
+      background: colors.activeLine,
+      pointerEvents: 'none',
+      zIndex: 0,
+    }}
+  />
           {showLineNumbers && (
             <div
               ref={lineNumbersRef}
@@ -681,24 +1083,39 @@ export const ZenMarkdownEditor = ({
                 width: '48px',
                 flex: '0 0 48px',
                 height: '100%',
-                paddingTop: '12px',
+                paddingTop: `${lineMetrics.paddingTop}px`,
                 paddingRight: '8px',
-                paddingBottom: '12px',
+                paddingBottom: `${lineMetrics.paddingTop}px`,
                 paddingLeft: '8px',
-                backgroundColor: '#141414',
-                borderRight: '1px solid #3a3a3a',
-                color: '#AC8E66',
-                fontFamily: 'SF Mono, Monaco, monospace',
-                fontSize: '14px',
-                lineHeight: '21px',
+                backgroundColor: colors.lineNumbersBg,
+                borderRight: `1px solid ${colors.lineNumbersBorder}`,
+                color: colors.lineNumbersText,
+                fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
+                fontSize: '12px',
+                lineHeight: `${lineMetrics.lineHeight}px`,
                 opacity: '0.65',
                 textAlign: 'right',
                 overflow: 'hidden',
                 userSelect: 'none',
+                position: 'relative',
               }}
             >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  right: 0,
+                  top: lineMetrics.paddingTop + activeLine * lineMetrics.lineHeight - editorScrollTop,
+                  height: lineMetrics.lineHeight,
+                  background: colors.activeLine,
+                  pointerEvents: 'none',
+                  zIndex: 0,
+                }}
+              />
               {lineNumbers.map((line) => (
-                <div key={line}>{line}</div>
+                <div key={line} style={{ position: 'relative', zIndex: 1 }}>
+                  {line}
+                </div>
               ))}
             </div>
           )}
@@ -708,7 +1125,19 @@ export const ZenMarkdownEditor = ({
             value={value}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            onFocus={() => setIsFocused(true)}
+            onFocus={() => {
+  setIsFocused(true);
+  setTimeout(updateActiveLine, 0);
+  scheduleCursorToolbar();
+}}
+onClick={() => {
+  setTimeout(updateActiveLine, 0);
+  scheduleCursorToolbar();
+}}
+onKeyUp={() => {
+  setTimeout(updateActiveLine, 0);
+  scheduleCursorToolbar();
+}}
             onBlur={() => {
               setIsFocused(false);
               setTimeout(() => {
@@ -717,6 +1146,10 @@ export const ZenMarkdownEditor = ({
               }, 200);
             }}
             onScroll={(event) => {
+              const st = event.currentTarget.scrollTop;
+              setEditorScrollTop(st);
+
+
               if (showLineNumbers && lineNumbersRef.current) {
                 lineNumbersRef.current.scrollTop = event.currentTarget.scrollTop;
               }
@@ -733,12 +1166,16 @@ export const ZenMarkdownEditor = ({
               paddingLeft: '12px',
               flex: 1,
               caretColor: '#AC8E66',
-              fontSize: '14px',
+              fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
+              fontSize: '12px',
               lineHeight: '21px',
               whiteSpace: 'pre',
               overflowX: 'auto',
               border: 'none',
               outline: 'none',
+              position: 'relative',
+              zIndex: 1,
+              color: colors.text,
             }}
           />
         </div>
@@ -755,33 +1192,36 @@ export const ZenMarkdownEditor = ({
         <div className="mt-2 flex items-center justify-between"
           style={{ paddingTop: '2px', paddingLeft: '4px' }}
         >
-          {/* Shortcuts */}
-          <div className="flex"
-            style={{ marginTop: '8px', paddingLeft: '10px', textAlign: 'center' }}
-          >
-            <span className="text-[#777] font-mono text-[10px]">
-              <span className="text-[#AC8E66]">{modKey}+B</span> Bold
+          {/* Shortcuts linke Seite  */}
+        <div
+          className="flex flex-wrap items-center justify-center font-mono text-[10px] text-[#777]"
+          style={{ marginTop: '8px', paddingLeft: '10px', textAlign: 'center' }}
+        >
+          {shortcutFooterItems.map((item, index) => (
+            <span key={`${item.key}-${item.label}`} className="flex items-center">
+              <span className="text-[#AC8E66] mr-[4px]">{item.key}</span>
+              {item.label}
+
+              {index < shortcutFooterItems.length - 1 && (
+                <span className="mx-[12px] opacity-40">|</span>
+              )}
             </span>
-            <span className="text-[#777] font-mono text-[10px]">
-              <span className="text-[#AC8E66]">{modKey}+I</span> Italic
-            </span>
-            <span className="text-[#777] font-mono text-[10px]">
-              <span className="text-[#AC8E66]">{modKey}+K</span> Link
-            </span>
-            <span className="text-[#777] font-mono text-[10px]">
-              <span className="text-[#AC8E66]">/</span> Commands
-            </span>
-            <span className="text-[#777] font-mono text-[10px]">
-              <span className="text-[#AC8E66]">Select</span> Toolbar
-            </span>
-          </div>
+          ))}
+          <span className="mx-[12px] opacity-40">|</span>
+          <span className="flex items-center">
+            <span className="text-[#AC8E66] mr-[4px]">Enter</span>Absatz
+            <span className="mx-[8px] opacity-40">·</span>
+            <span className="text-[#AC8E66] mr-[4px]">Shift+Enter</span>Zeilenumbruch
+          </span>
+        </div>
+
 
           {/* Right Side: Character Count */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 mr-[10px] mt-[3px]">
             {/* Character Count */}
             {showCharCount && (
-              <span className="text-[#777] font-mono text-[10px]">
-                {value.length} Zeichen
+              <span className="text-[#AC8E66] font-mono text-[10px]">
+                {value.length} <span className="text-[#777]">Zeichen</span>
               </span>
             )}
           </div>
@@ -790,7 +1230,10 @@ export const ZenMarkdownEditor = ({
 
       {/* Preview Section - Responsive */}
       {showPreview && (
-        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'hidden'} ${showPreview ? 'block md:block' : 'hidden'}`}>
+        <div
+          ref={previewRef}
+          className={`${showPreview ? 'md:w-1/2 w-full' : 'hidden'} ${showPreview ? 'block md:block' : 'hidden'}`}
+        >
           <ZenMarkdownPreview content={value} height={height} />
         </div>
       )}

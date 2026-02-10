@@ -1,0 +1,797 @@
+import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faBold,
+  faItalic,
+  faStrikethrough,
+  faHeading,
+  faListUl,
+  faListOl,
+  faLink,
+  faCode,
+  faQuoteRight,
+  faWandMagicSparkles,
+} from '@fortawesome/free-solid-svg-icons';
+import { ZenMarkdownPreview } from './ZenMarkdownPreview';
+import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
+import { textToMarkdown } from '../../services/aiService';
+
+interface ZenMarkdownEditorProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  height?: string;
+  showCharCount?: boolean;
+  showPreview?: boolean;
+  showLineNumbers?: boolean;
+}
+
+interface ToolbarButton {
+  icon: any;
+  label: string;
+  action: () => void;
+  shortcut?: string;
+}
+
+interface CommandMenuItem {
+  command: string;
+  label: string;
+  description: string;
+  icon: any;
+  action: () => void;
+}
+
+interface FloatingToolbarPosition {
+  top: number;
+  left: number;
+}
+
+export const ZenMarkdownEditor = ({
+  value,
+  onChange,
+  placeholder = '# Dein Markdown Inhalt hier einfügen...',
+  height = '400px',
+  showCharCount = true,
+  showPreview = false,
+  showLineNumbers = true,
+}: ZenMarkdownEditorProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lineNumbersRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const commandMenuRef = useRef<HTMLDivElement>(null);
+
+  const [isFocused, setIsFocused] = useState(false);
+  const [showToolbar, setShowToolbar] = useState(false);
+  const [toolbarPosition, setToolbarPosition] = useState<FloatingToolbarPosition>({
+    top: 0,
+    left: 0,
+  });
+
+  // Slash Command Menu State
+  const [showCommandMenu, setShowCommandMenu] = useState(false);
+  const [commandMenuPosition, setCommandMenuPosition] = useState<FloatingToolbarPosition>({
+    top: 0,
+    left: 0,
+  });
+  const [commandFilter, setCommandFilter] = useState('');
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [slashCommandStart, setSlashCommandStart] = useState(-1);
+
+  // AI Formatting State
+  const [isFormatting, setIsFormatting] = useState(false);
+  const [formatError, setFormatError] = useState<string | null>(null);
+
+  // Helper: Get current selection or cursor position
+  const getSelectionInfo = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return null;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = value.substring(start, end);
+    const beforeText = value.substring(0, start);
+    const afterText = value.substring(end);
+
+    return { start, end, selectedText, beforeText, afterText };
+  };
+
+  // Helper: Calculate cursor position in pixels
+  const getCursorPosition = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return { top: 0, left: 0 };
+
+    const textareaRect = textarea.getBoundingClientRect();
+
+    // Rough estimation based on line height and character position
+    const cursorPos = textarea.selectionStart;
+    const textBeforeCursor = value.substring(0, cursorPos);
+    const lines = textBeforeCursor.split('\n');
+    const currentLineIndex = lines.length - 1;
+    const currentLineText = lines[currentLineIndex];
+
+    // Estimate position
+    const lineHeight = 20; // Approximate line height in pixels
+    const charWidth = 8; // Approximate character width in monospace
+
+    const top = textareaRect.top + (currentLineIndex * lineHeight) + 30;
+    const left = textareaRect.left + (currentLineText.length * charWidth) + 12;
+
+    return { top, left };
+  };
+
+  // Helper: Calculate floating toolbar position based on textarea selection
+  const calculateToolbarPosition = () => {
+    const textarea = textareaRef.current;
+    const toolbar = toolbarRef.current;
+    if (!textarea || !toolbar) return;
+
+    const textareaRect = textarea.getBoundingClientRect();
+    const selectionStart = textarea.selectionStart;
+    const selectionEnd = textarea.selectionEnd;
+
+    // Calculate position based on selection in textarea
+    const textBeforeSelection = value.substring(0, selectionStart);
+    const selectedText = value.substring(selectionStart, selectionEnd);
+    const linesBeforeSelection = textBeforeSelection.split('\n');
+    const startLineIndex = linesBeforeSelection.length - 1;
+    const startCharIndex = linesBeforeSelection[startLineIndex].length;
+
+    // Calculate middle of selection for horizontal centering
+    const selectionLines = selectedText.split('\n');
+    const midCharOffset = selectionLines[0].length / 2;
+
+    // Estimate position (monospace font assumptions)
+    const lineHeight = 20;
+    const charWidth = 8.4;
+    const paddingTop = 12; // textarea padding
+    const paddingLeft = 12;
+
+    // Account for scroll position within textarea
+    const scrollTop = textarea.scrollTop;
+
+    const toolbarWidth = toolbar.offsetWidth || 200;
+    const toolbarHeight = toolbar.offsetHeight || 36;
+
+    // Position toolbar above the selection
+    let top = textareaRect.top + paddingTop + (startLineIndex * lineHeight) - scrollTop - toolbarHeight - 8;
+    let left = textareaRect.left + paddingLeft + ((startCharIndex + midCharOffset) * charWidth);
+
+    // Keep toolbar in viewport
+    if (top < 8) {
+      // Show below selection if not enough space above
+      top = textareaRect.top + paddingTop + ((startLineIndex + 1) * lineHeight) - scrollTop + 8;
+    }
+
+    // Horizontal bounds
+    const viewportWidth = window.innerWidth;
+    if (left < 8) {
+      left = 8;
+    } else if (left + toolbarWidth > viewportWidth - 8) {
+      left = viewportWidth - toolbarWidth - 8;
+    }
+
+    setToolbarPosition({ top, left });
+  };
+
+  // Handle text selection for floating toolbar
+  const handleSelectionChange = () => {
+    const info = getSelectionInfo();
+    if (!info) return;
+
+    const hasSelection = info.selectedText.length > 0;
+
+    if (hasSelection && !showCommandMenu) {
+      setShowToolbar(true);
+      setTimeout(calculateToolbarPosition, 0);
+    } else if (!hasSelection) {
+      setShowToolbar(false);
+    }
+  };
+
+  // Listen for selection changes
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const handleMouseUp = () => {
+      setTimeout(handleSelectionChange, 10);
+    };
+
+    const handleKeyUp = () => {
+      setTimeout(handleSelectionChange, 10);
+    };
+
+    textarea.addEventListener('mouseup', handleMouseUp);
+    textarea.addEventListener('keyup', handleKeyUp);
+    textarea.addEventListener('touchend', handleMouseUp);
+
+    return () => {
+      textarea.removeEventListener('mouseup', handleMouseUp);
+      textarea.removeEventListener('keyup', handleKeyUp);
+      textarea.removeEventListener('touchend', handleMouseUp);
+    };
+  }, [value, showCommandMenu]);
+
+  // Hide toolbar on scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      if (showToolbar) {
+        calculateToolbarPosition();
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, true);
+    return () => window.removeEventListener('scroll', handleScroll, true);
+  }, [showToolbar]);
+
+  // Helper: Insert text at cursor or wrap selection
+  const insertText = (
+    before: string,
+    after: string = '',
+    placeholderText: string = ''
+  ) => {
+    const info = getSelectionInfo();
+    if (!info) return;
+
+    const { start, selectedText, beforeText, afterText } = info;
+    const textToWrap = selectedText || placeholderText;
+    const newText = beforeText + before + textToWrap + after + afterText;
+
+    onChange(newText);
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const newPosition = start + before.length + textToWrap.length;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(newPosition, newPosition);
+      }
+    }, 0);
+
+    setShowToolbar(false);
+  };
+
+  // Insert text at start of line(s)
+  const insertAtLineStart = (prefix: string) => {
+    const info = getSelectionInfo();
+    if (!info) return;
+
+    const { end, beforeText } = info;
+
+    const lineStart = beforeText.lastIndexOf('\n') + 1;
+    const lineEnd = value.indexOf('\n', end);
+    const currentLine = value.substring(
+      lineStart,
+      lineEnd === -1 ? value.length : lineEnd
+    );
+
+    if (currentLine.startsWith(prefix)) {
+      const newLine = currentLine.substring(prefix.length);
+      const newText =
+        value.substring(0, lineStart) +
+        newLine +
+        value.substring(lineEnd === -1 ? value.length : lineEnd);
+      onChange(newText);
+    } else {
+      const newText =
+        value.substring(0, lineStart) +
+        prefix +
+        currentLine +
+        value.substring(lineEnd === -1 ? value.length : lineEnd);
+      onChange(newText);
+    }
+
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+    setShowToolbar(false);
+  };
+
+  // Markdown Actions
+  const makeBold = () => insertText('**', '**', 'fetter Text');
+  const makeItalic = () => insertText('*', '*', 'kursiver Text');
+  const makeStrikethrough = () => insertText('~~', '~~', 'durchgestrichen');
+  const makeHeading = () => insertAtLineStart('## ');
+  const makeUnorderedList = () => insertAtLineStart('- ');
+  const makeOrderedList = () => insertAtLineStart('1. ');
+  const makeLink = () => insertText('[', '](url)', 'Link-Text');
+  const makeCode = (language?: string) => {
+    const info = getSelectionInfo();
+    if (!info) return;
+
+    if (info.selectedText.includes('\n') || language) {
+      // Multi-line code block with optional language
+      const lang = language || '';
+      insertText(`\`\`\`${lang}\n`, '\n```', 'code');
+    } else {
+      // Inline code
+      insertText('`', '`', 'code');
+    }
+  };
+  const makeQuote = () => insertAtLineStart('> ');
+
+  // AI-powered Markdown Formatting
+  const handleAutoFormat = async () => {
+    if (!value || value.trim().length < 10) {
+      setFormatError('Text ist zu kurz zum Formatieren');
+      setTimeout(() => setFormatError(null), 3000);
+      return;
+    }
+
+    setIsFormatting(true);
+    setFormatError(null);
+
+    try {
+      const result = await textToMarkdown(value);
+
+      if (result.success && result.data) {
+        onChange(result.data);
+        setFormatError(null);
+      } else {
+        setFormatError(result.error || 'Formatierung fehlgeschlagen');
+        setTimeout(() => setFormatError(null), 5000);
+      }
+    } catch (error) {
+      console.error('Auto-format error:', error);
+      setFormatError('Formatierung fehlgeschlagen');
+      setTimeout(() => setFormatError(null), 5000);
+    } finally {
+      setIsFormatting(false);
+    }
+  };
+
+  // Detect if Mac or Windows/Linux for keyboard shortcuts
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const modKey = isMac ? '⌘' : 'Ctrl';
+
+  // Command Menu Items
+  const commandMenuItems: CommandMenuItem[] = [
+    { command: 'bold', label: 'Bold', description: 'Fetter Text', icon: faBold, action: makeBold },
+    { command: 'italic', label: 'Italic', description: 'Kursiver Text', icon: faItalic, action: makeItalic },
+    { command: 'heading', label: 'Heading', description: 'Überschrift', icon: faHeading, action: makeHeading },
+    { command: 'list', label: 'List', description: 'Aufzählungsliste', icon: faListUl, action: makeUnorderedList },
+    { command: 'code', label: 'Code', description: 'Code-Block', icon: faCode, action: makeCode },
+    { command: 'link', label: 'Link', description: 'Hyperlink', icon: faLink, action: makeLink },
+    { command: 'quote', label: 'Quote', description: 'Zitat', icon: faQuoteRight, action: makeQuote },
+  ];
+
+  // Plus Menu Items (similar to command menu but different format)
+  const plusMenuItems: ZenPlusMenuItem[] = [
+    { id: 'auto-format', label: 'Als Markdown formatieren', icon: faWandMagicSparkles, description: 'KI formatiert Text automatisch', action: handleAutoFormat },
+    { id: 'bold', label: 'Bold', icon: faBold, description: 'Fetter Text', action: makeBold, shortcut: `${modKey}+B` },
+    { id: 'italic', label: 'Italic', icon: faItalic, description: 'Kursiver Text', action: makeItalic, shortcut: `${modKey}+I` },
+    { id: 'strikethrough', label: 'Strikethrough', icon: faStrikethrough, description: 'Durchgestrichen', action: makeStrikethrough },
+    { id: 'heading', label: 'Heading', icon: faHeading, description: 'Überschrift', action: makeHeading },
+    { id: 'ul-list', label: 'Unordered List', icon: faListUl, description: 'Aufzählungsliste', action: makeUnorderedList },
+    { id: 'ol-list', label: 'Ordered List', icon: faListOl, description: 'Nummerierte Liste', action: makeOrderedList },
+    { id: 'link', label: 'Link', icon: faLink, description: 'Hyperlink', action: makeLink, shortcut: `${modKey}+K` },
+    {
+      id: 'code',
+      label: 'Code',
+      icon: faCode,
+      description: 'Code-Block mit Sprache',
+      submenu: [
+        { id: 'code-inline', label: 'Inline Code', action: () => makeCode() },
+        { id: 'code-javascript', label: 'JavaScript', action: () => makeCode('javascript') },
+        { id: 'code-typescript', label: 'TypeScript', action: () => makeCode('typescript') },
+        { id: 'code-python', label: 'Python', action: () => makeCode('python') },
+        { id: 'code-rust', label: 'Rust', action: () => makeCode('rust') },
+        { id: 'code-bash', label: 'Bash/Shell', action: () => makeCode('bash') },
+        { id: 'code-html', label: 'HTML', action: () => makeCode('html') },
+        { id: 'code-css', label: 'CSS', action: () => makeCode('css') },
+        { id: 'code-java', label: 'Java', action: () => makeCode('java') },
+        { id: 'code-swift', label: 'Swift', action: () => makeCode('swift') },
+        { id: 'code-go', label: 'Go', action: () => makeCode('go') },
+        { id: 'code-json', label: 'JSON', action: () => makeCode('json') },
+        { id: 'code-yaml', label: 'YAML', action: () => makeCode('yaml') },
+        { id: 'code-sql', label: 'SQL', action: () => makeCode('sql') },
+        { id: 'code-markdown', label: 'Markdown', action: () => makeCode('markdown') },
+      ]
+    },
+    { id: 'quote', label: 'Quote', icon: faQuoteRight, description: 'Zitat', action: makeQuote },
+  ];
+
+  // Filter commands based on user input
+  const filteredCommands = commandMenuItems.filter(
+    (item) =>
+      item.command.toLowerCase().includes(commandFilter.toLowerCase()) ||
+      item.label.toLowerCase().includes(commandFilter.toLowerCase())
+  );
+
+  // Execute selected command
+  const executeCommand = (command: CommandMenuItem) => {
+    // Remove slash command text
+    if (slashCommandStart >= 0) {
+      const beforeSlash = value.substring(0, slashCommandStart);
+      const afterCommand = value.substring(textareaRef.current?.selectionStart || slashCommandStart);
+      onChange(beforeSlash + afterCommand);
+
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.setSelectionRange(slashCommandStart, slashCommandStart);
+          textareaRef.current.focus();
+          command.action();
+        }
+      }, 0);
+    }
+
+    setShowCommandMenu(false);
+    setCommandFilter('');
+    setSlashCommandStart(-1);
+    setSelectedCommandIndex(0);
+  };
+
+  // Keyboard shortcuts and command menu handling
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Command menu navigation
+    if (showCommandMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedCommandIndex((prev) =>
+          prev < filteredCommands.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedCommandIndex((prev) =>
+          prev > 0 ? prev - 1 : filteredCommands.length - 1
+        );
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (filteredCommands[selectedCommandIndex]) {
+          executeCommand(filteredCommands[selectedCommandIndex]);
+        }
+        return;
+      }
+
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowCommandMenu(false);
+        setCommandFilter('');
+        setSlashCommandStart(-1);
+        return;
+      }
+    }
+
+    // Detect slash command (only trigger on '/' without Shift key)
+    if (e.key === '/' && !e.shiftKey && !showCommandMenu) {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      const cursorPos = textarea.selectionStart;
+      const textBefore = value.substring(0, cursorPos);
+
+      // Only trigger if at start of line or after whitespace
+      if (textBefore.length === 0 || textBefore.endsWith('\n') || textBefore.endsWith(' ')) {
+        setSlashCommandStart(cursorPos);
+        setShowCommandMenu(true);
+        setCommandFilter('');
+        setSelectedCommandIndex(0);
+
+        const pos = getCursorPosition();
+        setCommandMenuPosition(pos);
+      }
+      return;
+    }
+
+    // Regular keyboard shortcuts
+    const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+    const modifier = isMac ? e.metaKey : e.ctrlKey;
+
+    if (modifier && !showCommandMenu) {
+      switch (e.key.toLowerCase()) {
+        case 'b':
+          e.preventDefault();
+          makeBold();
+          break;
+        case 'i':
+          e.preventDefault();
+          makeItalic();
+          break;
+        case 'k':
+          e.preventDefault();
+          makeLink();
+          break;
+      }
+    }
+  };
+
+  // Handle input for command filtering
+  const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = e.target.value;
+    onChange(newValue);
+
+    if (showCommandMenu && slashCommandStart >= 0) {
+      const cursorPos = e.target.selectionStart;
+      const commandText = newValue.substring(slashCommandStart + 1, cursorPos);
+
+      // Check if user deleted the slash or moved away
+      if (cursorPos < slashCommandStart || !newValue[slashCommandStart]?.startsWith('/')) {
+        setShowCommandMenu(false);
+        setCommandFilter('');
+        setSlashCommandStart(-1);
+        return;
+      }
+
+      setCommandFilter(commandText);
+      setSelectedCommandIndex(0);
+    }
+  };
+
+  // Toolbar buttons configuration
+  const toolbarButtons: ToolbarButton[] = [
+    { icon: faBold, label: 'Bold', action: makeBold, shortcut: `${modKey}+B` },
+    { icon: faItalic, label: 'Italic', action: makeItalic, shortcut: `${modKey}+I` },
+    { icon: faHeading, label: 'Heading', action: makeHeading },
+    { icon: faListUl, label: 'List', action: makeUnorderedList },
+    { icon: faCode, label: 'Code', action: makeCode },
+    { icon: faLink, label: 'Link', action: makeLink, shortcut: `${modKey}+K` },
+  ];
+
+  const lineCount = Math.max(1, value.split('\n').length);
+  const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1);
+
+  return (
+    <div className="w-full relative">
+      {/* Desktop Split-View or Mobile Stacked */}
+      <div className={`flex gap-4 ${showPreview ? 'md:flex-row flex-col' : ''}`}>
+        {/* Editor Section - always visible */}
+        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'}`}>
+          {/* Floating Toolbar - Appears on text selection */}
+          {showToolbar && !showCommandMenu && (
+            <div
+              ref={toolbarRef}
+              className="fixed z-50 flex items-center gap-0.5 p-0.5 
+              bg-[#2A2A2A] border border-[#AC8E66] rounded rounded-[6px] shadow-lg"
+              style={{
+                top: `${toolbarPosition.top}px`,
+                left: `${toolbarPosition.left}px`,
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+              }}
+            >
+              {toolbarButtons.map((button, index) => (
+                <button
+                  key={index}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    button.action();
+                  }}
+                  title={`${button.label}${button.shortcut ? ` (${button.shortcut})` : ''}`}
+                  className="p-1.5 w-5 h-5 flex items-center justify-center
+                    text-[#888] hover:text-[#AC8E66] hover:bg-[AC8E66] hover:bg-opacity-10
+                    rounded rounded-[6px] transition-colors touch-manipulation"
+                >
+                  <FontAwesomeIcon icon={button.icon} className="text-[10px]" />
+                </button>
+              ))}
+            </div>
+          )}
+
+      {/* Slash Command Menu */}
+      {showCommandMenu && (
+        <div
+          ref={commandMenuRef}
+          className="
+          fixed z-50 w-32 bg-[#2A2A2A] 
+          border border-[#AC8E66] rounded rounded-[6px]  shadow-lg overflow-hidden"
+          style={{
+            top: `${commandMenuPosition.top}px`,
+            left: `${commandMenuPosition.left}px`,
+          }}
+        >
+          {filteredCommands.length > 0 ? (
+            <div className="py-1">
+              {filteredCommands.map((item, index) => (
+                <button
+                  key={item.command}
+                  onClick={() => executeCommand(item)}
+                  className={`w-full px-3 py-2 flex items-center gap-3 text-left transition-colors
+                    ${
+                      index === selectedCommandIndex
+                        ? 'bg-[#3a3a3a] text-[#AC8E66]'
+                        : 'text-[#e5e5e5] hover:bg-[#3a3a3a]'
+                    }`}
+                >
+                  <FontAwesomeIcon
+                    icon={item.icon}
+                    className={`text-sm ${
+                      index === selectedCommandIndex ? 'text-[#AC8E66]' : 'text-[#888]'
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <div className="font-mono text-sm">{item.label}</div>
+                    <div className="font-mono text-xs text-[#777]">{item.description}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="px-3 py-4 text-center text-[#777] font-mono text-sm">
+              Kein Befehl gefunden
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Plus Menu Button */}
+      <div style={{ position: 'relative', width: '100%', height, minHeight: height }}>
+        <div style={{ position: 'absolute', top: 8, right: 8, zIndex: 10 }}>
+          <ZenPlusMenu
+            items={plusMenuItems}
+            position="top-right"
+            size="small"
+            variant="inline"
+          />
+        </div>
+
+        {/* Loading Overlay */}
+        {isFormatting && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(26, 26, 26, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 20,
+            borderRadius: '8px'
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                border: '3px solid #AC8E66',
+                borderTopColor: 'transparent',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+                margin: '0 auto 12px'
+              }} />
+              <p style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66' }}>
+                Formatiere mit KI...
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div
+          style={{
+            display: 'flex',
+            width: '100%',
+            height: '100%',
+            border: `1px solid ${isFocused ? '#AC8E66' : '#3a3a3a'}`,
+            borderRadius: '10px',
+            backgroundColor: '#1A1A1A',
+            overflow: 'hidden',
+          }}
+        >
+          {showLineNumbers && (
+            <div
+              ref={lineNumbersRef}
+              className="zen-scrollbar"
+              style={{
+                width: '44px',
+                flex: '0 0 44px',
+                height: '100%',
+                padding: '12px 6px',
+                backgroundColor: '#141414',
+                borderRight: '1px solid #3a3a3a',
+                color: '#AC8E66',
+                fontFamily: 'SF Mono, Monaco, monospace',
+                fontSize: '10px',
+                lineHeight: '2.2',
+                opacity: '0.65',
+                textAlign: 'right',
+                overflow: 'hidden',
+                userSelect: 'none',
+              }}
+            >
+              {lineNumbers.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </div>
+          )}
+          {/* Editor Textarea */}
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleInput}
+            onKeyDown={handleKeyDown}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => {
+              setIsFocused(false);
+              setTimeout(() => {
+                setShowToolbar(false);
+                setShowCommandMenu(false);
+              }, 200);
+            }}
+            onScroll={(event) => {
+              if (showLineNumbers && lineNumbersRef.current) {
+                lineNumbersRef.current.scrollTop = event.currentTarget.scrollTop;
+              }
+            }}
+            placeholder={placeholder}
+            className="flex-1 min-w-0 bg-transparent text-[#e5e5e5] font-mono text-sm
+              focus:outline-none
+              resize-none transition-colors zen-scrollbar"
+            style={{
+              height: '100%',
+              padding: '12px',
+              paddingRight: '60px',
+              flex: 1,
+              caretColor: '#AC8E66',
+            }}
+          />
+        </div>
+      </div>
+
+        {/* Error Message */}
+        {formatError && (
+          <div className="mt-2 p-2 bg-red-900/20 border border-red-600 rounded text-center">
+            <p className="text-red-400 font-mono text-[10px]">{formatError}</p>
+          </div>
+        )}
+
+        {/* Shortcut Footer - Always visible */}
+        <div className="mt-2 flex items-center justify-between"
+          style={{ paddingTop: '2px', paddingLeft: '4px' }}
+        >
+          {/* Shortcuts */}
+          <div className="flex"
+            style={{ marginTop: '8px', paddingLeft: '10px', textAlign: 'center' }}
+          >
+            <span className="text-[#777] font-mono text-[10px]">
+              <span className="text-[#AC8E66]">{modKey}+B</span> Bold
+            </span>
+            <span className="text-[#777] font-mono text-[10px]">
+              <span className="text-[#AC8E66]">{modKey}+I</span> Italic
+            </span>
+            <span className="text-[#777] font-mono text-[10px]">
+              <span className="text-[#AC8E66]">{modKey}+K</span> Link
+            </span>
+            <span className="text-[#777] font-mono text-[10px]">
+              <span className="text-[#AC8E66]">/</span> Commands
+            </span>
+            <span className="text-[#777] font-mono text-[10px]">
+              <span className="text-[#AC8E66]">Select</span> Toolbar
+            </span>
+          </div>
+
+          {/* Right Side: Character Count */}
+          <div className="flex items-center gap-3">
+            {/* Character Count */}
+            {showCharCount && (
+              <span className="text-[#777] font-mono text-[10px]">
+                {value.length} Zeichen
+              </span>
+            )}
+          </div>
+        </div>
+        </div>
+
+      {/* Preview Section - Responsive */}
+      {showPreview && (
+        <div className={`${showPreview ? 'md:w-1/2 w-full' : 'hidden'} ${showPreview ? 'block md:block' : 'hidden'}`}>
+          <ZenMarkdownPreview content={value} height={height} />
+        </div>
+      )}
+      </div>
+
+      {/* CSS Animation for Spinner */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
+};

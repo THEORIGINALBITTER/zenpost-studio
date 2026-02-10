@@ -96,7 +96,7 @@ export function ZenSaveConfirmationModal({
             label="Weiteres Dokument erstellen"
             icon="📝"
             onClick={onNewDocument}
-            variant="active"
+            variant="default"
           />
           <ZenRoughButton
             label="Zurück zum Hauptmenü"

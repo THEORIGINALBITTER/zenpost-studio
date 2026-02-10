@@ -1,0 +1,52 @@
+{
+  "title": "Bug Report",
+  "intro": "Bitte fülle alle Felder so präzise wie möglich aus.",
+  "sections": [
+    {
+      "heading": "Bereich",
+      "body": "- [ ] Content AI\n- [ ] DocStudio\n- [ ] Beides\n- [ ] Andere (bitte angeben)"
+    },
+    {
+      "heading": "Kurzbeschreibung",
+      "body": ""
+    },
+    {
+      "heading": "Schritte zur Reproduktion",
+      "body": "1.\n2.\n3."
+    },
+    {
+      "heading": "Erwartetes Verhalten",
+      "body": ""
+    },
+    {
+      "heading": "Tatsächliches Verhalten",
+      "body": ""
+    },
+    {
+      "heading": "Screenshots (falls relevant)",
+      "body": ""
+    },
+    {
+      "heading": "Umgebung",
+      "body": "- OS:\n- App-Version:\n- Weitere Details:"
+    },
+      {
+      "heading": "kontakt Optional",
+      "body": "- EMail:\n- GitHub:\n- Weitere Details:\n-\n\n"
+      
+    },
+    {
+      "heading": "Danke... für deine Unterstützung",
+     "body": "EMail: saghallo@denisbitter.de\nGitHub: https://github.com/THEORIGINALBITTER/zenpost-studio "
+    },
+    {
+      "heading": "Fehlerbericht abschicken",
+      "body": "Fehlerbericht abschicken zu GitHub oder per EMail...\nExport Tab nutzen. \n\n\n"
+    },
+    {
+      "heading": "Vielen Dank...",
+      "body": " \n\n\n"
+    }
+  
+  ]
+}

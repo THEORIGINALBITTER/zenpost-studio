@@ -7,8 +7,19 @@ interface ZenModalProps {
   onClose: () => void;
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl" | "xxl" | "small" | "medium" | "large";
+  /** Modal-Titel (wird im sticky Header angezeigt) */
   title?: string;
+  /** Modal-Untertitel (wird im sticky Header angezeigt) */
+  subtitle?: React.ReactNode;
+  /** Ausrichtung von title/subtitle im sticky Header */
+  headerAlign?: "left" | "center" | "right";
   showCloseButton?: boolean;
+  /** Fester Header-Bereich (optional) - überschreibt title/subtitle */
+  header?: React.ReactNode;
+  /** Fester Footer-Bereich (optional) */
+  footer?: React.ReactNode;
+  fullscreen?: boolean;
+  theme?: "dark" | "paper";
 }
 
 export const ZenModal = ({
@@ -16,14 +27,19 @@ export const ZenModal = ({
   onClose,
   children,
   size = "md",
+  fullscreen = false,
   title,
+  subtitle,
+  headerAlign = "left",
   showCloseButton = true,
+  header,
+  footer,
+  theme = "paper",
 }: ZenModalProps) => {
   const modalRoot = document.getElementById("zen-modal-root");
 
   useEffect(() => {
     const appRoot = document.getElementById("root");
-
     if (isOpen) {
       if (appRoot) {
         appRoot.style.filter = "blur(4px)";
@@ -45,32 +61,59 @@ export const ZenModal = ({
 
   // ✅ Tailwind-unabhängig: konkrete px/rem-Werte
   const maxWidthBySize: Record<string, string> = {
-    sm: "24rem",     // ~ max-w-sm
-    md: "32rem",     // ~ max-w-lg
-    lg: "42rem",     // ~ max-w-2xl
-    xl: "56rem",     // ~ max-w-4xl
-    xxl: "75rem",    // optional größer als 6xl; oder 72rem
+    sm: "24rem", // ~ max-w-sm
+    md: "32rem", // ~ max-w-lg
+    lg: "42rem", // ~ max-w-2xl
+    xl: "56rem", // ~ max-w-4xl
+    xxl: "75rem", // optional größer als 6xl; oder 72rem
     small: "24rem",
     medium: "32rem",
     large: "56rem",
   };
 
   // ✅ “Viewport-Limit” + “maxWidth” sauber kombinieren
-  const containerStyle: React.CSSProperties = {
-    width: "95vw",
-    maxWidth: maxWidthBySize[size] ?? "32rem",
-    maxHeight: "90vh",
-  };
+  const containerStyle: React.CSSProperties = fullscreen
+    ? {
+        width: "100vw",
+        height: "100vh",
+        maxWidth: "99vw",
+        maxHeight: "100vh",
+        paddingTop: "40px",
+      }
+    : {
+        width: "95vw",
+        maxWidth: maxWidthBySize[size] ?? "32rem",
+        maxHeight: "90vh",
+      };
+
+  const modalBg =
+    theme === "paper"
+      ? "linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)"
+      : "linear-gradient(0deg, #0B0B0B 0%, #171717 100%)";
+
+  const headerBg =
+    theme === "paper"
+      ? " #151515"
+      : "linear-gradient(0deg, #0B0B0B 0%, #171717 100%)";
+
+  const borderColor = theme === "paper" ? "#555)" : "#555";
+
+  const titleColor = theme === "paper" ? "#AC8E66" : "#AC8E66";
+  const subtitleColor = theme === "paper" ? "#7a6a52" : "#777";
+
+  const backdropOpacity = theme === "paper" ? "bg-black/20" : "bg-black/0";
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center"
+      className={`fixed inset-0 z-[10000] flex ${
+        fullscreen ? "items-stretch justify-stretch" : "items-center justify-center"
+      }`}
       role="dialog"
       aria-modal="true"
     >
-      {/* 🌫 Hintergrund */}
+      {/* Hintergrund */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-lg cursor-pointer"
+        className={`absolute inset-0 ${backdropOpacity} backdrop-blur-lg cursor-pointer`}
         style={{
           backdropFilter: "blur(8px)",
           WebkitBackdropFilter: "blur(8px)",
@@ -78,61 +121,82 @@ export const ZenModal = ({
         onClick={onClose}
       />
 
-      {/* 📦 Container */}
+      {/* Container */}
       <div
         className="relative z-20 pointer-events-auto"
         style={containerStyle}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Close Button */}
+        {showCloseButton && (
+          <div style={{ position: "absolute", top: "40px", right: "16px", zIndex: 50 }}>
+            <ZenCloseButton onClick={onClose} size="md" />
+          </div>
+        )}
+
         <div
-          className="relative bg-[#1A1A1A] border border-[#AC8E66] rounded-3xl
-                     p-8 shadow-[0_6px_25px_rgba(0,0,0,0.5)]
-                     animate-zenModalEnter overflow-hidden transition-transform duration-300 ease-out"
+          className="relative shadow-[0_6px_25px_rgba(0,0,0,0.5)] animate-zenModalEnter overflow-hidden"
           style={{
-            borderRadius: "24px",
-            maxHeight: "90vh",
+            borderRadius: "12px",
+            height: fullscreen ? "calc(100vh - 16px)" : "auto",
+            maxHeight: fullscreen ? "calc(100vh - 16px)" : "90vh",
             display: "flex",
             flexDirection: "column",
+            background: modalBg,
+            border: `0.5px solid ${borderColor}`,
           }}
         >
-          {/* Close Button */}
-          {showCloseButton && (
+          {/* Sticky Header */}
+          {(title || subtitle) && !header && (
             <div
               style={{
-                position: "absolute",
-                top: "16px",
-                right: "16px",
-                zIndex: 10,
+                position: "sticky",
+                top: 0,
+                zIndex: 20,
+                background: headerBg,
+                borderBottom: `1px solid ${borderColor}`,
+                padding: "20px 24px",
+                flexShrink: 0,
               }}
             >
-              <ZenCloseButton onClick={onClose} size="md" />
+              {title && (
+                <h2
+                  style={{
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: "22px",
+                    color: titleColor,
+                    margin: 0,
+                    marginBottom: subtitle ? "6px" : 0,
+                    textAlign: headerAlign,
+                  }}
+                >
+                  {title}
+                </h2>
+              )}
+              {subtitle && (
+                <p
+                  style={{
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: "12px",
+                    color: subtitleColor,
+                    margin: 0,
+                    textAlign: headerAlign,
+                  }}
+                >
+                  {subtitle}
+                </p>
+              )}
             </div>
           )}
 
-          {/* Title */}
-          {title && (
-            <div
-              style={{
-                marginBottom: "24px",
-                paddingBottom: "16px",
-                borderBottom: "1px solid #3A3A3A",
-              }}
-            >
-              <h2
-                style={{
-                  fontFamily: "monospace",
-                  fontSize: "20px",
-                  fontWeight: "bold",
-                  color: "#e5e5e5",
-                  margin: 0,
-                }}
-              >
-                {title}
-              </h2>
-            </div>
-          )}
+          {header && <div style={{ flexShrink: 0 }}>{header}</div>}
 
-          {children}
+          {/* Content */}
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            {children}
+          </div>
+
+          {footer && <div style={{ flexShrink: 0 }}>{footer}</div>}
         </div>
       </div>
     </div>

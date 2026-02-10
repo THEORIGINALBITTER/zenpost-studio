@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { ZenModal } from "../components/ZenModal";
-import { ZenModalHeader } from "../components/ZenModalHeader";
 import { ZenModalFooter } from "../components/ZenModalFooter";
 import { ZenRoughButton } from "../components/ZenRoughButton";
 import { getModalPreset } from "../config/ZenModalConfig";
@@ -66,23 +65,18 @@ export const ZenGithubModal = ({ isOpen, onClose }: ZenGithubModalProps) => {
   }
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="GitHub Integration"
+      subtitle="Verbinde dein Repository"
+    >
       <div
         className="relative flex flex-col"
         style={{ minHeight: modalPreset.minHeight }}
       >
-        {/* Inhalt mit zusätzlichem oberen Abstand */}
-        <div className="flex-1 flex flex-col gap-6 p-8 pt-20 overflow-y-auto">
-          {/* Header */}
-          <ZenModalHeader
-            title="GitHub Integration"
-            subtitle="Verbinde dein Repository"
-            titleColor="#AC8E66"
-            subtitleColor="#777"
-            titleSize="24px"
-            subtitleSize="12px"
-          />
-
+        {/* Content */}
+        <div className="flex-1 flex flex-col gap-6 p-8 overflow-y-auto">
           {/* GitHub Icon */}
           <div className="flex justify-center">
             <FontAwesomeIcon
@@ -92,7 +86,7 @@ export const ZenGithubModal = ({ isOpen, onClose }: ZenGithubModalProps) => {
           </div>
 
           {/* Description */}
-          <p className="font-mono text-[12px] text-[#ccc] text-center"
+          <p className="font-mono text-[12px] text-[#] text-center"
             style={{padding: "10px"}}
           >
             Verwalte deine GitHub Repository-Integration für Versionskontrolle und Zusammenarbeit.

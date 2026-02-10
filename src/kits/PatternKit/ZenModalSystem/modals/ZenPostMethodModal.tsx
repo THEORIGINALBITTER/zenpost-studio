@@ -4,7 +4,6 @@ import {
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
@@ -33,24 +32,18 @@ export const ZenPostMethodModal = ({
     : `${platformCount} Plattformen`;
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={modalPreset.title}
+      subtitle={`${platformText} ausgewählt`}
+    >
       <div
         className="relative flex flex-col"
         style={{ minHeight: modalPreset.minHeight, minWidth: modalPreset.minWidth }}
       >
         {/* Content */}
-        <div className="flex-1 flex flex-col gap-6 p-8 pt-16 overflow-y-auto">
-
-          {/* Header */}
-          <ZenModalHeader
-            title={modalPreset.title}
-            subtitle={`${platformText} ausgewählt`}
-            titleColor={modalPreset.titleColor}
-            subtitleColor={modalPreset.subtitleColor}
-            titleSize={modalPreset.titleSize}
-            subtitleSize={modalPreset.subtitleSize}
-          />
-
+        <div className="flex-1 flex flex-col gap-6 p-8 overflow-y-auto">
           {/* Options */}
           <div className="flex flex-col gap-4 mt-4">
 

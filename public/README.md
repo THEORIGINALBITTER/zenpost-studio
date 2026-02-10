@@ -1,63 +1,89 @@
-Here is the README.md file for the project:
+# ZenPost Studio
 
-# public
-================
+**A calm, local-first content & documentation studio powered by AI.**
 
-## Description
--------------
+Write, transform, and document content with clarity. From markdown conversion to AI-assisted publishing and structured project documentation — all in one focused, Zen-inspired workspace.
 
-No description available.
+---
 
-## Installation Instructions
----------------------------
+## Features
 
-To install this project, simply clone the repository using Git:
+### Converter Studio
 
-```bash
-git clone https://github.com/Project-Author/public.git
-```
+Clean, convert, and normalize content formats.
 
-Navigate to the project directory and run the following command to install any dependencies:
+- Markdown parsing and normalization
+- Editor.js JSON to Markdown conversion
+- Smart cleaning of formatting artifacts
+- Export to Markdown, HTML, Plain Text
 
-```bash
-npm install
-```
+### Content AI Studio
 
-## Usage Examples
------------------
+Transform existing content for different platforms.
 
-This project is designed for intermediate developers. Here are a few examples of how to use it:
+- LinkedIn, dev.to, Twitter/X, Medium, Reddit
+- GitHub Discussions, YouTube descriptions
+- Tone, length, and audience control
+- Multi-platform transformation
 
-*   Import an SVG file: `import svg from './path/to/svg.svg';`
-*   Use a PNG image: `const png = require('./path/to/png.png');`
+### Content Planner
 
-## Features List
-----------------
+Plan and schedule your content publishing.
 
-*   Supports SVG and PNG files
-*   No dependencies required
+- Visual calendar with monthly overview
+- Drag & drop scheduling
+- Status tracking (draft, scheduled, published)
+- Auto-save functionality
 
-## Technology Stack
--------------------
+### Doc Studio
 
-*   Node.js
-*   JavaScript
-*   SVG and PNG file support
+Structured documentation workspace.
 
-## Contributing Guidelines
--------------------------
+- README.md, CHANGELOG.md generation
+- API Documentation
+- CONTRIBUTING.md templates
+- Smart project analysis
 
-Contributions are welcome! If you'd like to contribute, please fork the repository and submit a pull request.
+---
+
+## AI Providers
+
+Works with your preferred AI provider:
+
+- **OpenAI** (GPT-4o, GPT-4o-mini)
+- **Anthropic** (Claude 3.5 Sonnet, Opus, Haiku)
+- **Ollama** (local models like llama3, mistral)
+- **Custom APIs** (self-hosted endpoints)
+
+---
+
+## System Requirements
+
+- **Windows** 10/11 (64-bit)
+- **macOS** 12+ (Intel & Apple Silicon)
+- **Linux** (Ubuntu 20.04+, Fedora 36+)
+
+---
+
+## Getting Started
+
+1. Download the installer for your platform
+2. Install and launch ZenPost Studio
+3. Configure your AI provider in Settings
+4. Start creating content
+
+---
+
+## Links
+
+- [Website](https://zenpost-studio.vercel.app)
+- [GitHub](https://github.com/theoriginalbitter/zenpost-studio)
+- [Releases](https://github.com/THEORIGINALBITTER/zenpost-studio/releases)
+
+---
 
 ## License
-----------
 
-Copyright (c) 2025 Project Author
+MIT License - Copyright (c) 2026 Denis Bitter
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-Note: This is a basic README file and you may want to add more sections or details depending on your project's needs.
+See [LICENSE](LICENSE) for details.

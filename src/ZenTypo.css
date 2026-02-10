@@ -1,0 +1,207 @@
+/* ZenTypography.css
+   Paper-first typography for ZenPost Studio / ZenStudio
+   Usage:
+   - Wrap markdown preview with: class="zen-paper zen-md"
+   - Wrap normal paper text areas with: class="zen-paper zen-text"
+   -import "./ZenTypo.css";
+
+   Wrapper nutzen 
+   <div className="zen-paper zen-md zen-paper-pad bg-[#efe9df] rounded-lg overflow-y-auto">
+  <ReactMarkdown ...>{previewContent}</ReactMarkdown>
+</div>
+*/
+
+/* 1) Paper surface rendering (font smoothing + base render quality) */
+.zen-paper {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  /* WKWebView/Safari: sometimes more visible than optimizeLegibility */
+  text-rendering: geometricPrecision;
+}
+
+/* 2) Base text defaults (iA/Notion-ish calm reading) */
+.zen-text,
+.zen-md {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  letter-spacing: 0.01em;
+
+  color: #222; /* calmer than #3a3a3a */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* Optional: slightly smaller on very small containers */
+@media (max-width: 640px) {
+  .zen-text,
+  .zen-md {
+    font-size: 14px;
+    line-height: 1.7;
+  }
+}
+
+/* 3) RESET: remove browser default margins (prevents surprise spacing) */
+.zen-md :where(h1,h2,h3,h4,h5,h6,p,ul,ol,pre,blockquote,table,figure,hr) {
+  margin: 0;
+}
+
+/* 4) Vertical rhythm: one single system for spacing (stable + predictable) */
+.zen-md > :where(* + *) {
+  margin-top: 0.85rem; /* the “breathing” unit */
+}
+
+/* 5) Headings: clear hierarchy without “feature page” vibes */
+.zen-md h1 {
+  font-size: 1.55rem;
+  line-height: 1.15;
+  margin-top: 1.4rem;
+  font-weight: 700;
+  color: #ac8e66;
+}
+
+.zen-md h2 {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  margin-top: 1.2rem;
+  font-weight: 700;
+  color: #d4af78;
+}
+
+.zen-md h3 {
+  font-size: 1.08rem;
+  line-height: 1.25;
+  margin-top: 1.05rem;
+  font-weight: 700;
+  color: #c4a578;
+}
+
+.zen-md h4,
+.zen-md h5,
+.zen-md h6 {
+  font-size: 1rem;
+  line-height: 1.3;
+  margin-top: 0.95rem;
+  font-weight: 700;
+  color: #c4a578;
+}
+
+/* 6) Paragraphs (no big custom margins — rhythm handles it) */
+.zen-md p {
+  color: #2a2a2a;
+}
+
+/* 7) Links */
+.zen-md a {
+  color: #ac8e66;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.zen-md a:hover {
+  color: #d4af78;
+}
+
+/* 8) Lists: stable indent, calm spacing */
+.zen-md ul,
+.zen-md ol {
+  padding-left: 1.25rem;
+}
+.zen-md li + li {
+  margin-top: 0.35rem;
+}
+.zen-md li {
+  color: #2a2a2a;
+}
+
+/* 9) Blockquotes */
+.zen-md blockquote {
+  border-left: 3px solid #ac8e66;
+  background: #e8e4dc;
+  padding: 0.75rem 0.9rem;
+  border-radius: 10px;
+  color: #5a5a5a;
+  font-style: italic;
+}
+
+/* 10) Inline code */
+.zen-md code {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+}
+
+.zen-md :not(pre) > code {
+  background: #e0dcd4;
+  color: #8b6914;
+  padding: 0.1rem 0.35rem;
+  border-radius: 7px;
+}
+
+/* 11) Code blocks */
+.zen-md pre {
+  background: #2a2a2a;
+  color: #e5e5e5;
+  border: 1px solid #ac8e66;
+  border-radius: 12px;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+
+  /* important: keep code formatting */
+  white-space: pre;
+}
+
+/* 12) Tables */
+.zen-md table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.zen-md thead {
+  background: #1a1a1a;
+}
+
+.zen-md th,
+.zen-md td {
+  border: 1px solid #3a3a3a;
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+}
+
+.zen-md th {
+  color: #ac8e66;
+  font-weight: 700;
+}
+
+.zen-md td {
+  color: #2a2a2a;
+}
+
+/* 13) HR */
+.zen-md hr {
+  border: 0;
+  border-top: 1px solid #3a3a3a;
+  margin-top: 1.1rem;
+}
+
+/* 14) Emphasis */
+.zen-md strong {
+  color: #ac8e66;
+  font-weight: 700;
+}
+.zen-md em {
+  color: #d4af78;
+  font-style: italic;
+}
+
+/* 15) Optional helper: paper container padding presets */
+.zen-paper-pad {
+  padding: 40px;
+}
+@media (max-width: 640px) {
+  .zen-paper-pad {
+    padding: 20px;
+  }
+}

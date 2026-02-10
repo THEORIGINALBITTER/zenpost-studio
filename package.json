@@ -1,11 +1,13 @@
 {
   "name": "zenpost-studio",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/check-port.mjs && TAURI_DEV_HOST=127.0.0.1 vite",
     "build": "tsc && vite build",
+    "build:all": "bash scripts/build-all.sh",
+    "release": "bash scripts/release.sh",
     "preview": "vite preview",
     "tauri": "tauri",
     "icons:generate": "tauri icon src/assets/branding/logo-icon.png",
@@ -31,6 +33,7 @@
     "@tauri-apps/plugin-shell": "^2.3.3",
     "dompurify": "^3.3.0",
     "editorjs-drag-drop": "^1.1.16",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.23.24",
     "jszip": "^3.10.1",
     "lottie-react": "^2.4.1",

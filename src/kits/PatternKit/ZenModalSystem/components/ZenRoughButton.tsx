@@ -1,19 +1,74 @@
-import { useState, useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import rough from "roughjs/bin/rough";
+
+type Variant = "default" | "active";
+type Size = "default" | "compact" | "small";
 
 interface ZenRoughButtonProps {
   label: string;
   icon?: ReactNode;
   onClick?: () => void;
-  variant?: "default" | "active";
-  size?: "default" | "compact" | "small"; // New size prop for compact buttons
+  variant?: Variant;
+  size?: Size;
   width?: number;
   height?: number;
   href?: string;
   target?: string;
   rel?: string;
   disabled?: boolean;
-  title?: string; // Tooltip text for hover
+  title?: string;
+}
+
+function drawRoughBorder(opts: {
+  canvas: HTMLCanvasElement;
+  width: number;
+  height: number;
+  size: Size;
+  stroke: string;
+}) {
+  const { canvas, width, height, size, stroke } = opts;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  // Clear
+  ctx.clearRect(0, 0, width, height);
+
+  const rc = rough.canvas(canvas);
+  const radius = 8;
+
+  if (size === "compact") {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const circleRadius = (width - 8) / 2;
+
+    rc.circle(centerX, centerY, circleRadius * 2, {
+      roughness: 0.12,
+      bowing: 1,
+      stroke,
+      strokeWidth: 1,
+    });
+    return;
+  }
+
+  const pad = 4;
+  const pathStr = `
+    M ${pad + radius} ${pad}
+    L ${width - pad - radius} ${pad}
+    Q ${width - pad} ${pad}, ${width - pad} ${pad + radius}
+    L ${width - pad} ${height - pad - radius}
+    Q ${width - pad} ${height - pad}, ${width - pad - radius} ${height - pad}
+    L ${pad + radius} ${height - pad}
+    Q ${pad} ${height - pad}, ${pad} ${height - pad - radius}
+    L ${pad} ${pad + radius}
+    Q ${pad} ${pad}, ${pad + radius} ${pad}
+  `;
+
+  rc.path(pathStr, {
+    roughness: 0.02,
+    bowing: 0.3,
+    stroke,
+    strokeWidth: 0.7,
+  });
 }
 
 export const ZenRoughButton = ({
@@ -28,244 +83,145 @@ export const ZenRoughButton = ({
   target,
   rel,
   disabled = false,
-  title,
+  title: _title,
 }: ZenRoughButtonProps) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
+  const [hovered, setHovered] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const tooltipTimerRef = useRef<number | null>(null);
 
-  // Size based dimensions
-  const defaultWidth = size === "compact" ? 40 : size === "small" ? 220 : 320;
-  const defaultHeight = size === "compact" ? 40 : size === "small" ? 46 : 56;
-  const resolvedWidth = width ?? defaultWidth;
-  const resolvedHeight = height ?? defaultHeight;
+  const dims = useMemo(() => {
+    const defaultWidth = size === "compact" ? 40 : size === "small" ? 220 : 320;
+    const defaultHeight = size === "compact" ? 40 : size === "small" ? 46 : 56;
+    return {
+      w: width ?? defaultWidth,
+      h: height ?? defaultHeight,
+    };
+  }, [size, width, height]);
+
+  const strokeColor = useMemo(() => {
+    if (variant === "active") return "#AC8E66";
+    if (hovered) return "#AC8E66";
+    return "#555555";
+  }, [variant, hovered]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const rc = rough.canvas(canvas);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Canvas vorher löschen
-    ctx.clearRect(0, 0, resolvedWidth, resolvedHeight);
-
-    // 🔄 Browser-Repaint erzwingen
-    canvas.style.transform = "translateZ(0)";
-
-    // Immer einen Rahmen zeichnen
-    const radius = 8;
-
-    // Farbe abhängig von Hover und Variant
-    let strokeColor = "#555555"; // gray-500 default
-
-    if (variant === "active") {
-      strokeColor = "#AC8E66"; // gold für active
-    } else if (isHovered) {
-      strokeColor = "#AC8E66"; // gold für hover
-    }
-
-    // Draw circle for compact size, rounded rectangle for default
-    if (size === "compact") {
-      // Draw circle
-      const centerX = resolvedWidth / 2;
-      const centerY = resolvedHeight / 2;
-      const circleRadius = (resolvedWidth - 8) / 2;
-
-      rc.circle(centerX, centerY, circleRadius * 2, {
-        roughness: 0.1,
-        bowing: 1,
+    // Draw in next frame (keeps hover silky)
+    const id = requestAnimationFrame(() => {
+      drawRoughBorder({
+        canvas,
+        width: dims.w,
+        height: dims.h,
+        size,
         stroke: strokeColor,
-        strokeWidth: 1,
       });
-    } else {
-      // Rounded rectangle path for default size
-      const pathStr = `
-        M ${4 + radius} 4
-        L ${resolvedWidth - 4 - radius} 4
-        Q ${resolvedWidth - 4} 4, ${resolvedWidth - 4} ${4 + radius}
-        L ${resolvedWidth - 4} ${resolvedHeight - 4 - radius}
-        Q ${resolvedWidth - 4} ${resolvedHeight - 4}, ${resolvedWidth - 4 - radius} ${resolvedHeight - 4}
-        L ${4 + radius} ${resolvedHeight - 4}
-        Q 4 ${resolvedHeight - 4}, 4 ${resolvedHeight - 4 - radius}
-        L 4 ${4 + radius}
-        Q 4 4, ${4 + radius} 4
-      `;
+    });
 
-      rc.path(pathStr, {
-        roughness: 0.1,
-        bowing: 1,
-        stroke: strokeColor,
-        strokeWidth: 1,
-      });
-    }
-  }, [isHovered, variant, size, resolvedWidth, resolvedHeight]);
+    return () => cancelAnimationFrame(id);
+  }, [dims.w, dims.h, size, strokeColor]);
 
-  const baseClasses = size === "compact"
-    ? "relative rounded-full font-mono text-[10px] transition-all duration-200 flex items-center justify-center border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]"
-    : size === "small"
-      ? "relative rounded-lg font-mono text-[9px] transition-all duration-200 flex items-center justify-center gap-2 border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]"
-      : "relative px-6 py-3 rounded-lg font-mono text-[10px] transition-all duration-200 flex items-center justify-center gap-2 min-w-[280px] border-0 outline-none focus:outline-none focus:border-0 focus:ring-0 active:outline-none active:border-0 no-underline cursor-pointer hover:text-[#AC8E66]";
+  const sizeClasses: Record<Size, string> = {
+    compact:
+      "relative rounded-full font-mono text-[10px] flex items-center justify-center",
+    small:
+      "relative rounded-lg font-mono text-[9px] flex items-center justify-center gap-2",
+    default:
+      "relative px-6 py-3 rounded-lg font-mono text-[10px] flex items-center justify-center gap-2 min-w-[280px]",
+  };
 
-  const variantClasses = {
-    default: "bg-transparent text-[#e5e5e5]",
+  const base =
+    "group transition-colors duration-200 border-0 outline-none focus:outline-none focus:ring-0 active:bg-transparent focus:bg-transparent no-underline";
+  const hover = disabled ? "" : "cursor-pointer hover:text-[#AC8E66]";
+  const state = disabled ? "opacity-50 cursor-not-allowed" : "";
+  const variantClasses: Record<Variant, string> = {
+    default: "bg-transparent text-[#555]",
     active: "bg-[#AC8E66]/10 text-[#AC8E66]",
   };
 
-  const handleMouseEnter = () => {
-    if (!disabled) {
-      setIsHovered(true);
-      if (title) {
-        tooltipTimerRef.current = window.setTimeout(() => setShowTooltip(true), 500); // Show tooltip after 500ms delay
-      }
-    }
+  const commonStyle: React.CSSProperties = {
+    width: dims.w,
+    height: dims.h,
+    outline: "none",
+    border: "none",
+    boxShadow: "none",
+    WebkitTapHighlightColor: "transparent",
   };
 
-  const handleMouseLeave = () => {
-    if (!disabled) {
-      setIsHovered(false);
-      setShowTooltip(false);
-      if (tooltipTimerRef.current) {
-        clearTimeout(tooltipTimerRef.current);
-        tooltipTimerRef.current = null;
-      }
-    }
-  };
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (tooltipTimerRef.current) {
-        clearTimeout(tooltipTimerRef.current);
-      }
-    };
-  }, []);
-
-  const commonProps = {
-    onMouseEnter: handleMouseEnter,
-    onMouseLeave: handleMouseLeave,
-    className: `${baseClasses} ${variantClasses[variant]} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`,
-    style: {
-      width: resolvedWidth,
-      height: resolvedHeight,
-      outline: "none",
-      border: "none",
-      boxShadow: "none",
-      WebkitTapHighlightColor: "transparent",
-    },
-  };
+  const commonHandlers = disabled
+    ? {}
+    : {
+        onMouseEnter: () => setHovered(true),
+        onMouseLeave: () => setHovered(false),
+        onFocus: () => setHovered(true),
+        onBlur: () => setHovered(false),
+      };
 
   const content = (
     <>
-      {/* 🧩 Optionales key-Attribut für erzwungenen Repaint */}
       <canvas
-        key={isHovered ? "hover" : "idle"}
         ref={canvasRef}
-        width={resolvedWidth}
-        height={resolvedHeight}
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          pointerEvents: "none",
-        }}
+        width={dims.w}
+        height={dims.h}
+        className="absolute inset-0 pointer-events-none"
       />
-      <span
-        style={{ position: "relative", zIndex: 1 }}
-        className="inline-flex items-center justify-center gap-3"
-      >
+
+      <span className="relative z-[1] inline-flex items-center justify-center gap-3">
         {size === "compact" ? (
-          // Compact size: only show icon, no label
-          icon && (
-            <span className="inline-block text-[14px] text-[#AC8E66]">
-              {icon}
-            </span>
-          )
+          icon ? <span className="text-[14px] text-[#AC8E66]">{icon}</span> : null
         ) : (
-          // Default size: show both icon and label
           <>
-            {icon && (
-              <span className="inline-block text-[10px] text-[#AC8E66] relative top-[1px] mr-[4px]">
+            {icon ? (
+              <span className="text-[10px] text-[#AC8E66] relative top-[1px] mr-[4px]">
                 {icon}
               </span>
-            )}
+            ) : null}
             <span className="text-[9px]">{label}</span>
           </>
         )}
       </span>
+
+      {/* Tooltip (CSS-only, calm) */}
+      
     </>
   );
 
-  const buttonElement = href ? (
-    <a href={href} target={target} rel={rel} {...commonProps}>
-      {content}
-    </a>
-  ) : (
-    <button onClick={onClick} {...commonProps} disabled={disabled}>
-      {content}
-    </button>
-  );
+  const className = `${base} ${sizeClasses[size]} ${variantClasses[variant]} ${hover} ${state}`;
 
-  // Wrap with tooltip container if title is provided
-  if (title) {
+  // Link
+  if (href) {
+    const effectiveRel = rel ?? (target === "_blank" ? "noopener noreferrer" : undefined);
+
     return (
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        {buttonElement}
-        {showTooltip && (
-          <div
-            style={{
-              position: 'absolute',
-              bottom: '100%',
-              left: '50%',
-              transform: 'translateX(-50%) translateY(-8px)',
-              backgroundColor: '#2A2A2A',
-              color: '#e5e5e5',
-              padding: '8px 12px',
-              borderRadius: '6px',
-              fontSize: '11px',
-              fontFamily: 'monospace',
-              whiteSpace: 'nowrap',
-              zIndex: 1000,
-              border: '1px solid #AC8E66',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)',
-              pointerEvents: 'none',
-              animation: 'fadeIn 0.2s ease-in',
-            }}
-          >
-            {title}
-            {/* Tooltip arrow */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: 0,
-                height: 0,
-                borderLeft: '6px solid transparent',
-                borderRight: '6px solid transparent',
-                borderTop: '6px solid #AC8E66',
-              }}
-            />
-          </div>
-        )}
-        <style>{`
-          @keyframes fadeIn {
-            from {
-              opacity: 0;
-              transform: translateX(-50%) translateY(-4px);
-            }
-            to {
-              opacity: 1;
-              transform: translateX(-50%) translateY(-8px);
-            }
-          }
-        `}</style>
-      </div>
+      <a
+        href={disabled ? undefined : href}
+        target={target}
+        rel={effectiveRel}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
+        className={className}
+        style={commonStyle}
+        {...commonHandlers}
+        onClick={(e) => {
+          if (disabled) e.preventDefault();
+        }}
+      >
+        {content}
+      </a>
     );
   }
 
-  return buttonElement;
+  // Button
+  return (
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      className={className}
+      style={commonStyle}
+      {...commonHandlers}
+    >
+      {content}
+    </button>
+  );
 };

@@ -75,7 +75,7 @@ export const ZenSettingsButton: React.FC<ZenSettingsButtonProps> = ({
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
         icon={faCog}
-        className="text-[14px] z-10 text-[#fef3c7] pointer-events-none group-hover:text-[#64748b]"
+        className="text-[14px] z-10 text-[#AC8E66] pointer-events-none group-hover:text-[#dbd9d5]"
       />
     </button>
   );

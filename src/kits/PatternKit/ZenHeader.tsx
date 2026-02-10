@@ -8,10 +8,12 @@ import { ZenInfoButton } from "../DesignKit/ZenInfoButton";
 interface ZenHeaderProps {
   leftText?: React.ReactNode;
   rightText?: React.ReactNode;
+  rightAddon?: React.ReactNode;
   onBack?: () => void;
   onHome?: () => void;  
   onSettings?: () => void;
   onInfo?: () => void;
+  onHelp?: () => void;
 
   showSettingsNotification?: boolean;
   showInfoNotification?: boolean;
@@ -22,10 +24,12 @@ interface ZenHeaderProps {
 export const ZenHeader = ({
   leftText = "ZenPost Markdown → JSON Editor",
   rightText = "Step 0/5 · JSON Format oder Markdown",
+  rightAddon,
   onBack,
   onHome,
   onSettings,
-    onInfo,
+  onInfo,
+ 
   showSettingsNotification = false,
 
   showInfoNotification: _showInfoNotification = false,
@@ -34,13 +38,13 @@ export const ZenHeader = ({
 }: ZenHeaderProps) => {
 
   return (
-    <div className="w-full py-4 border-b border-[#AC8E66] relative">
+    <div className="w-full py-[0px] border-b border-[#AC8E66] relative bg-[#151515]">
       <div className="flex justify-between items-center max-w-6xl mx-auto px-[4vw]">
 
         {/* LEFT */}
         <div className="flex items-center gap-3">
           {onBack && <ZenBackButton onClick={onBack} size="sm" />}
-          <p className="font-mono text-[9px] tracking-tight text-[#777]">
+          <p className="font-mono text-[9px] tracking-tight text-[#b4b3b0]">
             {leftText}
           </p>
         </div>
@@ -54,10 +58,12 @@ export const ZenHeader = ({
 
         {/* RIGHT */}
         <div className="flex items-center gap-3 min-w-0">
-          <p className="font-mono text-[9px] text-[#777] tracking-tight text-right max-w-[50vw] truncate">
+          <p className="font-mono text-[9px] text-[#b4b3b0] tracking-tight 
+          text-right max-w-[50vw] truncate">
             {rightText}
           </p>
           <div className="flex items-center gap-3 flex-shrink-0">
+            {rightAddon}
             {onSettings && (
               <div style={{ position: "relative" }}>
                 <ZenSettingsButton onClick={onSettings} size="sm" />
@@ -72,6 +78,7 @@ export const ZenHeader = ({
                 <ZenInfoButton onClick={onInfo} size="sm" />
               </div>
             )}
+           
           </div>
         </div>
 

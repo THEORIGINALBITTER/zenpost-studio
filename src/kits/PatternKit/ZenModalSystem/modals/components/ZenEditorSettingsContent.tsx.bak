@@ -1,0 +1,204 @@
+import { useEffect, useState } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
+import { ZenSlider } from '../../components/ZenSlider';
+import { ZenRoughButton } from '../../components/ZenRoughButton';
+import {
+  defaultEditorSettings,
+  loadEditorSettings,
+  saveEditorSettings,
+  type EditorSettings,
+} from '../../../../../services/editorSettingsService';
+
+const STORAGE_KEY = 'zenpost_editor_settings';
+
+const loadSettingsFromStorage = (): EditorSettings | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    return { ...defaultEditorSettings, ...JSON.parse(raw) };
+  } catch {
+    return null;
+  }
+};
+
+export const ZenEditorSettingsContent = () => {
+  const [projectPath, setProjectPath] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('zenpost_last_project_path');
+  });
+  const [settings, setSettings] = useState<EditorSettings>(
+    loadSettingsFromStorage() ?? { ...defaultEditorSettings }
+  );
+
+  useEffect(() => {
+    if (!projectPath) return;
+    let isMounted = true;
+    const loadSettings = async () => {
+      const loaded = await loadEditorSettings(projectPath);
+      if (isMounted) {
+        setSettings(loaded);
+      }
+    };
+    loadSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [projectPath]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      window.dispatchEvent(
+        new CustomEvent('zen-editor-settings-updated', { detail: settings })
+      );
+    }
+    if (!projectPath) return;
+    const timeout = setTimeout(() => {
+      saveEditorSettings(projectPath, settings).catch((error) => {
+        console.error('[EditorSettings] Failed to save settings:', error);
+      });
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [settings, projectPath]);
+
+  const handleSelectProject = async () => {
+    try {
+      const result = await open({
+        directory: true,
+        multiple: false,
+        title: 'Projektordner waehlen',
+      });
+      if (typeof result === 'string') {
+        localStorage.setItem('zenpost_last_project_path', result);
+        setProjectPath(result);
+      }
+    } catch (error) {
+      console.error('[EditorSettings] Projektwahl fehlgeschlagen.', error);
+    }
+  };
+
+  const handleAutoSaveToggle = async (enabled: boolean) => {
+    if (enabled && !projectPath) {
+      await handleSelectProject();
+    }
+    setSettings((prev) => ({ ...prev, autoSaveEnabled: enabled }));
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: '24px 32px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#999' }}>
+          Projektordner:
+        </div>
+        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5' }}>
+          {projectPath ?? 'Kein Projekt gewaehlt'}
+        </div>
+        <ZenRoughButton
+          label={projectPath ? 'Projekt wechseln' : 'Projekt waehlen'}
+          onClick={handleSelectProject}
+        />
+      </div>
+
+      <ZenSlider
+        label="Schriftgroesse"
+        value={settings.fontSize}
+        min={10}
+        max={20}
+        step={1}
+        valueFormatter={(value) => `${value}px`}
+        onChange={(value) => setSettings((prev) => ({ ...prev, fontSize: value }))}
+      />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 10px',
+            backgroundColor: '#0A0A0A',
+            border: '1px solid #3A3A3A',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            color: '#e5e5e5',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={settings.autoSaveEnabled}
+            onChange={(e) => handleAutoSaveToggle(e.target.checked)}
+            style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#AC8E66' }}
+          />
+          Automatisch speichern
+        </label>
+
+        <ZenSlider
+          label="Intervall"
+          value={settings.autoSaveIntervalSec}
+          min={5}
+          max={120}
+          step={5}
+          valueFormatter={(value) => `${value} Sekunden`}
+          onChange={(value) =>
+            setSettings((prev) => ({ ...prev, autoSaveIntervalSec: value }))
+          }
+        />
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 10px',
+            backgroundColor: '#0A0A0A',
+            border: '1px solid #3A3A3A',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            color: '#e5e5e5',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={settings.wrapLines}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, wrapLines: e.target.checked }))
+            }
+            style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#AC8E66' }}
+          />
+          Automatischer Zeilenumbruch
+        </label>
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '8px 10px',
+            backgroundColor: '#0A0A0A',
+            border: '1px solid #3A3A3A',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontFamily: 'monospace',
+            fontSize: '11px',
+            color: '#e5e5e5',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={settings.showLineNumbers}
+            onChange={(e) =>
+              setSettings((prev) => ({ ...prev, showLineNumbers: e.target.checked }))
+            }
+            style={{ width: '16px', height: '16px', cursor: 'pointer', accentColor: '#AC8E66' }}
+          />
+          Zeilennummern anzeigen
+        </label>
+      </div>
+    </div>
+  );
+};

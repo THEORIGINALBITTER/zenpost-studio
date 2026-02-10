@@ -14,7 +14,6 @@ import {
 } from '@fortawesome/free-brands-svg-icons';
 import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { ZenModal } from '../components/ZenModal';
-import { ZenModalHeader } from '../components/ZenModalHeader';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
@@ -110,24 +109,18 @@ export const ZenPostenModal = ({
   const isSelected = (platform: SocialPlatform) => selectedPlatforms.includes(platform);
 
   return (
-    <ZenModal isOpen={isOpen} onClose={onClose}>
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={modalPreset.title}
+      subtitle={modalPreset.subtitle}
+    >
       <div
         className="relative flex flex-col"
         style={{ minHeight: modalPreset.minHeight, minWidth: modalPreset.minWidth }}
       >
         {/* Content */}
-        <div className="flex-1 flex flex-col gap-4 p-8 pt-16 overflow-y-auto">
-
-          {/* Header */}
-          <ZenModalHeader 
-            title={modalPreset.title}
-            subtitle={modalPreset.subtitle}
-            titleColor={modalPreset.titleColor}
-            subtitleColor={modalPreset.subtitleColor}
-            titleSize={modalPreset.titleSize}
-            subtitleSize={modalPreset.subtitleSize}
-          />
-
+        <div className="flex-1 flex flex-col gap-4 p-8 overflow-y-auto">
           {/* Platform Grid */}
           <div className="grid grid-cols-2 gap-3 mt-4">
             {ALL_PLATFORMS.map((platform) => {

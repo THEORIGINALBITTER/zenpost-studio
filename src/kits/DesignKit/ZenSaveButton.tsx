@@ -76,7 +76,7 @@ export const ZenSaveButton: React.FC<ZenSaveButtonProps> = ({
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
         icon={faCheck}
-        className="text-[14px] z-10 pointer-events-none"
+        className="text-[14px] z-10 pointer-events-none text-[#AC8E66]"
       />
     </button>
   );

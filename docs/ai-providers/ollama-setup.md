@@ -127,7 +127,7 @@ Your new public key is: ssh-ed25519 AAAAC3Nza...
 
 **Important:**
 - Keep this terminal window **open** while using ZenPost Studio
-- The server runs on `http://localhost:11434` by default
+- The server runs on `http://127.0.0.1:11434` by default
 - Press `Ctrl+C` to stop the server
 
 ### Alternative: Run as Background Service
@@ -159,7 +159,7 @@ brew services start ollama
 
 3. **Configure Ollama**
    - **AI Provider:** Select `Ollama`
-   - **Base URL:** `http://localhost:11434` (default)
+   - **Base URL:** `http://127.0.0.1:11434` (default)
    - **Model:** Select your downloaded model (e.g., `llama3.1`)
    - **Temperature:** `0.3` (recommended for coding tasks)
 
@@ -185,7 +185,7 @@ brew services start ollama
 
 **Test if Ollama is running:**
 ```bash
-curl http://localhost:11434/api/tags
+curl http://127.0.0.1:11434/api/tags
 ```
 
 **Expected response:**
@@ -261,7 +261,7 @@ kill -9 <PID>
 
 # Or use a different port
 ollama serve --port 11435
-# Then update Base URL in ZenPost Studio to http://localhost:11435
+# Then update Base URL in ZenPost Studio to http://127.0.0.1:11435
 ```
 
 ---

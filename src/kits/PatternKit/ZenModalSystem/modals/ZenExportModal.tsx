@@ -10,8 +10,7 @@ import {
   faFileAlt,
   faCheck,
   faSpinner,
-  faCopy,
-  faWandMagicSparkles,
+  
 } from '@fortawesome/free-solid-svg-icons';
 import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
 
@@ -37,7 +36,24 @@ interface ZenExportModalProps {
   onClose: () => void;
   content: string;
   platform?: string;
+  documentName?: string; // Name of the document being exported (e.g., "README", "API Docs")
   onNavigateToTransform?: () => void; // Navigate to Content AI Studio for multi-platform transform
+}
+
+/**
+ * Generates a smart filename with timestamp
+ */
+function generateExportFilename(documentName: string | undefined, extension: string): string {
+  const now = new Date();
+  const date = now.toISOString().split('T')[0]; // 2026-02-02
+  const time = now.toTimeString().slice(0, 5).replace(':', ''); // 2127
+
+  // Use document name or fallback to "export"
+  const baseName = documentName
+    ? documentName.toUpperCase().replace(/\s+/g, '-').replace(/[^A-Z0-9-]/g, '')
+    : 'EXPORT';
+
+  return `${baseName}_${date}_${time}.${extension}`;
 }
 
 interface ExportOption {
@@ -124,12 +140,12 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
 ];
 
-export function ZenExportModal({ isOpen, onClose, content, platform: _platform, onNavigateToTransform }: ZenExportModalProps) {
+export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [optimizingPlatform, setOptimizingPlatform] = useState<string | null>(null);
-  const [optimizedPlatform, setOptimizedPlatform] = useState<string | null>(null);
+  const [_copied, setCopied] = useState(false);
+  const [_optimizingPlatform, setOptimizingPlatform] = useState<string | null>(null);
+  const [_optimizedPlatform, setOptimizedPlatform] = useState<string | null>(null);
   const [showToneSelector, setShowToneSelector] = useState(false);
   const [pendingPlatform, setPendingPlatform] = useState<PublishOption | null>(null);
   const { openExternal } = useOpenExternal();
@@ -144,59 +160,392 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       .replace(/&#39;/g, "'");
     const pdfDoc = await PDFDocument.create();
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const fontSize = 12;
-    const lineHeight = 16;
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+    const fontBoldItalic = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
+    const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
     const margin = 40;
+    const baseFontSize = 11;
 
     let page = pdfDoc.addPage();
     let { width, height } = page.getSize();
     let y = height - margin;
 
-    const maxWidth = width - margin * 2;
-    const rawLines = normalizedText.replace(/\r\n/g, '\n').split('\n');
-
-    const wrapLine = (line: string) => {
-      if (!line) return [''];
-      const words = line.split(' ');
-      const lines: string[] = [];
-      let current = '';
-      words.forEach((word) => {
-        const test = current ? `${current} ${word}` : word;
-        const testWidth = font.widthOfTextAtSize(test, fontSize);
-        if (testWidth <= maxWidth) {
-          current = test;
-        } else {
-          if (current) lines.push(current);
-          current = word;
-        }
-      });
-      if (current) lines.push(current);
-      return lines;
-    };
-
-    const drawLine = (line: string) => {
-      if (y < margin + lineHeight) {
+    const ensureSpace = (neededHeight: number) => {
+      if (y < margin + neededHeight) {
         page = pdfDoc.addPage();
         ({ width, height } = page.getSize());
         y = height - margin;
       }
-      page.drawText(line, {
-        x: margin,
-        y,
-        size: fontSize,
-        font,
-        color: rgb(0, 0, 0),
-      });
-      y -= lineHeight;
     };
 
-    rawLines.forEach((line) => {
-      const wrapped = wrapLine(line);
-      wrapped.forEach(drawLine);
-      if (line === '') {
-        y -= lineHeight / 2;
+    type InlineSegment = {
+      text: string;
+      font: any;
+      size: number;
+      color: { r: number; g: number; b: number };
+      link?: string;
+    };
+
+    const defaultColor = { r: 0, g: 0, b: 0 };
+    const linkColor = { r: 0.1, g: 0.35, b: 0.8 };
+
+    const tokenizeInline = (line: string, size: number): InlineSegment[] => {
+      const segments: InlineSegment[] = [];
+      let i = 0;
+      let bold = false;
+      let italic = false;
+      let code = false;
+
+      const pushText = (value: string) => {
+        if (!value) return;
+        const activeFont = code
+          ? fontMono
+          : bold && italic
+            ? fontBoldItalic
+            : bold
+              ? fontBold
+              : italic
+                ? fontItalic
+                : font;
+        segments.push({
+          text: value,
+          font: activeFont,
+          size,
+          color: defaultColor,
+        });
+      };
+
+      while (i < line.length) {
+        // Links: [text](url)
+        if (line[i] === '[') {
+          const closeText = line.indexOf(']', i + 1);
+          const openUrl = closeText >= 0 ? line.indexOf('(', closeText) : -1;
+          const closeUrl = openUrl >= 0 ? line.indexOf(')', openUrl) : -1;
+          if (closeText >= 0 && openUrl === closeText + 1 && closeUrl > openUrl) {
+            const label = line.slice(i + 1, closeText);
+            const url = line.slice(openUrl + 1, closeUrl);
+            if (label) {
+              segments.push({
+                text: label,
+                font: font,
+                size,
+                color: linkColor,
+                link: url,
+              });
+            }
+            if (url) {
+              segments.push({
+                text: ` (${url})`,
+                font: font,
+                size: size - 1,
+                color: linkColor,
+              });
+            }
+            i = closeUrl + 1;
+            continue;
+          }
+        }
+
+        // Code span
+        if (line[i] === '`') {
+          code = !code;
+          i += 1;
+          continue;
+        }
+
+        // Bold/Italic toggles
+        if (line.startsWith('**', i) || line.startsWith('__', i)) {
+          bold = !bold;
+          i += 2;
+          continue;
+        }
+        if (line[i] === '*' || line[i] === '_') {
+          italic = !italic;
+          i += 1;
+          continue;
+        }
+
+        // Regular text
+        let j = i + 1;
+        while (j < line.length) {
+          if (line[j] === '`') break;
+          if (line.startsWith('**', j) || line.startsWith('__', j)) break;
+          if (line[j] === '*' || line[j] === '_') break;
+          if (line[j] === '[') break;
+          j += 1;
+        }
+        pushText(line.slice(i, j));
+        i = j;
       }
-    });
+
+      return segments;
+    };
+
+    const splitSegmentsToWords = (segments: InlineSegment[]) => {
+      const words: InlineSegment[] = [];
+      segments.forEach((seg) => {
+        const parts = seg.text.split(/(\s+)/);
+        parts.forEach((part) => {
+          if (part === '') return;
+          words.push({ ...seg, text: part });
+        });
+      });
+      return words;
+    };
+
+    const wrapSegments = (segments: InlineSegment[], maxWidth: number) => {
+      const lines: InlineSegment[][] = [];
+      let current: InlineSegment[] = [];
+      let currentWidth = 0;
+      const words = splitSegmentsToWords(segments);
+
+      words.forEach((word) => {
+        const wordWidth = word.font.widthOfTextAtSize(word.text, word.size);
+        if (currentWidth + wordWidth <= maxWidth || current.length === 0) {
+          current.push(word);
+          currentWidth += wordWidth;
+          return;
+        }
+        lines.push(current);
+        current = [word];
+        currentWidth = wordWidth;
+      });
+
+      if (current.length > 0) lines.push(current);
+      return lines;
+    };
+
+    const drawWrappedSegments = (
+      segments: InlineSegment[],
+      size: number,
+      indent = 0
+    ) => {
+      const lineHeight = size + 4;
+      const maxWidth = width - margin * 2 - indent;
+      const lines = wrapSegments(segments, maxWidth);
+      const startY = y;
+      lines.forEach((lineSegments) => {
+        ensureSpace(lineHeight);
+        let x = margin + indent;
+        lineSegments.forEach((seg) => {
+          page.drawText(seg.text, {
+            x,
+            y,
+            size: seg.size,
+            font: seg.font,
+            color: rgb(seg.color.r, seg.color.g, seg.color.b),
+          });
+          x += seg.font.widthOfTextAtSize(seg.text, seg.size);
+        });
+        y -= lineHeight;
+      });
+      return {
+        height: lines.length * lineHeight,
+        topY: startY,
+        bottomY: y,
+      };
+    };
+
+    const stripInline = (line: string) =>
+      line
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/_([^_]+)_/g, '$1');
+
+    const rawLines = normalizedText.replace(/\r\n/g, '\n').split('\n');
+    let inCodeBlock = false;
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+
+    const splitTableRow = (line: string) => {
+      const trimmed = line.trim();
+      const noEdge = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+      return noEdge.split('|').map((cell) => cell.trim());
+    };
+
+    const drawTable = (rows: string[][]) => {
+      if (rows.length === 0) return;
+      const header = rows[0];
+      const body = rows.slice(1);
+      const colCount = Math.max(...rows.map((r) => r.length));
+      const colWidths = new Array(colCount).fill(0).map(() => 0);
+      const tableWidth = width - margin * 2;
+      const columnWidth = tableWidth / colCount;
+      colWidths.fill(columnWidth);
+      const cellPadding = 6;
+      const headerFontSize = 11;
+      const cellFontSize = 10;
+
+      const measureRowHeight = (cells: string[], size: number) => {
+        const rowSegments = cells.map((cell) => tokenizeInline(cell, size));
+        const wrappedCells = rowSegments.map((segments, idx) =>
+          wrapSegments(segments, colWidths[idx] - cellPadding * 2)
+        );
+        const maxLines = Math.max(...wrappedCells.map((lines) => lines.length || 1));
+        return maxLines * (size + 4) + cellPadding * 2;
+      };
+
+      const drawRow = (cells: string[], isHeader = false) => {
+        const size = isHeader ? headerFontSize : cellFontSize;
+        const rowSegments = cells.map((cell) => tokenizeInline(cell, size));
+        const wrappedCells = rowSegments.map((segments, idx) =>
+          wrapSegments(segments, colWidths[idx] - cellPadding * 2)
+        );
+        const maxLines = Math.max(...wrappedCells.map((lines) => lines.length || 1));
+        const rowHeight = maxLines * (size + 4) + cellPadding * 2;
+        const rowTop = y;
+        let x = margin;
+
+        for (let c = 0; c < colCount; c += 1) {
+          const cellLines = wrappedCells[c] || [[]];
+          let textY = y - cellPadding - (size + 4);
+          cellLines.forEach((lineSegments) => {
+            let textX = x + cellPadding;
+            lineSegments.forEach((seg) => {
+              page.drawText(seg.text, {
+                x: textX,
+                y: textY,
+                size: seg.size,
+                font: isHeader ? fontBold : seg.font,
+                color: rgb(seg.color.r, seg.color.g, seg.color.b),
+              });
+              textX += seg.font.widthOfTextAtSize(seg.text, seg.size);
+            });
+            textY -= size + 4;
+          });
+
+          page.drawLine({
+            start: { x, y: rowTop },
+            end: { x, y: rowTop - rowHeight },
+            thickness: 0.5,
+            color: rgb(0.8, 0.8, 0.8),
+          });
+          x += colWidths[c];
+        }
+        page.drawLine({
+          start: { x: margin + tableWidth, y: rowTop },
+          end: { x: margin + tableWidth, y: rowTop - rowHeight },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+        page.drawLine({
+          start: { x: margin, y: rowTop },
+          end: { x: margin + tableWidth, y: rowTop },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+        page.drawLine({
+          start: { x: margin, y: rowTop - rowHeight },
+          end: { x: margin + tableWidth, y: rowTop - rowHeight },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+
+        y -= rowHeight + 2;
+      };
+
+      drawRow(header, true);
+      body.forEach((row) => {
+        const headerHeight = measureRowHeight(header, headerFontSize);
+        const rowHeight = measureRowHeight(row, cellFontSize);
+        if (y < margin + rowHeight + 2) {
+          page = pdfDoc.addPage();
+          ({ width, height } = page.getSize());
+          y = height - margin;
+          if (y < margin + headerHeight + 2) {
+            // Ensure space for header on very small pages
+            y = height - margin;
+          }
+          drawRow(header, true);
+        }
+        drawRow(row, false);
+      });
+      y -= baseFontSize / 2;
+    };
+
+    for (let idx = 0; idx < rawLines.length; idx += 1) {
+      const rawLine = rawLines[idx];
+      const line = rawLine ?? '';
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        y -= baseFontSize / 2;
+        continue;
+      }
+
+      if (!trimmed) {
+        y -= baseFontSize;
+        continue;
+      }
+
+      if (inCodeBlock) {
+        const segments = tokenizeInline(line, 10).map((seg) => ({
+          ...seg,
+          font: fontMono,
+          color: defaultColor,
+        }));
+        drawWrappedSegments(segments, 10, 12);
+        continue;
+      }
+
+      if (idx + 1 < rawLines.length && isTableSeparator(rawLines[idx + 1])) {
+        const rows: string[][] = [];
+        rows.push(splitTableRow(line));
+        idx += 2;
+        while (idx < rawLines.length && rawLines[idx].includes('|')) {
+          rows.push(splitTableRow(rawLines[idx]));
+          idx += 1;
+        }
+        idx -= 1;
+        drawTable(rows);
+        continue;
+      }
+
+      const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const headingText = stripInline(headingMatch[2]);
+        const size = Math.max(12, 20 - level * 2);
+        const segments = tokenizeInline(headingText, size).map((seg) => ({
+          ...seg,
+          font: fontBold,
+        }));
+        drawWrappedSegments(segments, size, 0);
+        y -= size / 3;
+        continue;
+      }
+
+      const blockquoteMatch = line.match(/^>\s?(.*)$/);
+      if (blockquoteMatch) {
+        const quoteText = blockquoteMatch[1];
+        const segments = tokenizeInline(`“${quoteText}”`, 10);
+        const { topY, bottomY } = drawWrappedSegments(segments, 10, 16);
+        page.drawLine({
+          start: { x: margin + 8, y: topY - 2 },
+          end: { x: margin + 8, y: bottomY + 2 },
+          thickness: 1,
+          color: rgb(0.7, 0.7, 0.7),
+        });
+        continue;
+      }
+
+      const listMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s+(.*)$/);
+      if (listMatch) {
+        const bullet = listMatch[1].trim().endsWith('.') ? listMatch[1].trim() : '•';
+        const listText = listMatch[2];
+        const segments = tokenizeInline(`${bullet} ${listText}`, baseFontSize);
+        drawWrappedSegments(segments, baseFontSize, 12);
+        continue;
+      }
+
+      const segments = tokenizeInline(line, baseFontSize);
+      drawWrappedSegments(segments, baseFontSize, 0);
+    }
 
     return pdfDoc.save();
   };
@@ -251,15 +600,16 @@ ${normalizedContent.replace(/\n/g, '<br>')}
       }
 
       const inTauri = isTauri();
+      const suggestedFilename = generateExportFilename(documentName, extension);
       const filePath = inTauri
         ? await save({
-            defaultPath: `export.${extension}`,
+            defaultPath: suggestedFilename,
             filters: [{ name: option.label, extensions: [extension] }],
           })
         : null;
 
       if (option.format === 'pdf') {
-        const pdfBytes = await createPdfBytes(content);
+        const pdfBytes = await createPdfBytes(normalizedContent);
         if (filePath) {
           const ensureExt = (path: string, ext: string) =>
             path.toLowerCase().endsWith(`.${ext}`) ? path : `${path}.${ext}`;
@@ -271,7 +621,7 @@ ${normalizedContent.replace(/\n/g, '<br>')}
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `export.${extension}`;
+          a.download = suggestedFilename;
           a.click();
           URL.revokeObjectURL(url);
         }
@@ -294,7 +644,7 @@ ${normalizedContent.replace(/\n/g, '<br>')}
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `export.${extension}`;
+        a.download = suggestedFilename;
         a.click();
         URL.revokeObjectURL(url);
       }
@@ -325,22 +675,6 @@ ${normalizedContent.replace(/\n/g, '<br>')}
       // Fallback: try window.open directly
       window.open(option.url, '_blank', 'noopener,noreferrer');
     }
-  };
-
-  const handleCopyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  // Show tone selector before optimization
-  const handleOptimizeAndPublish = (option: PublishOption) => {
-    setPendingPlatform(option);
-    setShowToneSelector(true);
   };
 
   // Handle tone selection and start optimization
@@ -403,92 +737,27 @@ ${normalizedContent.replace(/\n/g, '<br>')}
     <ZenModal
       isOpen={isOpen}
       onClose={onClose}
-      title=""
+      title="Export & Veröffentlichen"
+      subtitle="Exportiere deinen Content oder teile ihn direkt auf Plattformen"
       size="large"
       showCloseButton={true}
     >
       <div style={{ padding: '24px', maxHeight: '80vh', overflowY: 'auto', position: 'relative' }}>
-        {/* Header */}
-        <h2 style={{
-          fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '24px',
-          color: '#AC8E66',
-          marginBottom: '8px',
-          textDecoration: 'underline',
-          textUnderlineOffset: '4px',
-        }}>
-          Export & Veröffentlichen
-        </h2>
-        <p style={{
-          fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '14px',
-          color: '#777',
-          marginBottom: '24px',
-        }}>
-          Exportiere deinen Content oder teile ihn direkt auf Plattformen
-        </p>
-
-        <hr style={{ border: 'none', borderTop: '1px solid #AC8E66', marginBottom: '24px' }} />
 
         {/* Mit KI Transformieren - Prominent CTA */}
-        {onNavigateToTransform && (
-          <div style={{ marginBottom: '32px' }}>
-            <button
-              onClick={() => {
-                onClose();
-                onNavigateToTransform();
-              }}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '12px',
-                padding: '20px 24px',
-                backgroundColor: '#AC8E66',
-                border: 'none',
-                borderRadius: '12px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#1A1A1A',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#C4A67A';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#AC8E66';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              <FontAwesomeIcon icon={faWandMagicSparkles} style={{ fontSize: '20px' }} />
-              Mit KI für mehrere Plattformen transformieren
-            </button>
-            <p style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              color: '#777',
-              textAlign: 'center',
-              marginTop: '8px',
-            }}>
-              Wähle mehrere Plattformen und erhalte optimierten Content für jede einzelne
-            </p>
-          </div>
-        )}
+      
 
         {/* Datei-Export Section */}
         <div style={{ marginBottom: '32px' }}>
           <h3 style={{
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '16px',
-            color: '#e5e5e5',
+            color: '#555',
             marginBottom: '16px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
+            fontWeight: 'normal'
           }}>
             <FontAwesomeIcon icon={faFileLines} style={{ color: '#AC8E66' }} />
             Datei-Export
@@ -505,39 +774,42 @@ ${normalizedContent.replace(/\n/g, '<br>')}
                 onClick={() => handleExport(option)}
                 disabled={exportingId !== null}
                 style={{
-                  display: 'flex',
+                   display: 'flex',
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: '12px',
                   padding: '24px 16px',
-                  backgroundColor: '#1A1A1A',
-                  border: '2px solid #3A3A3A',
+                  backgroundColor: 'transparent',
+                  border: '0.5px solid #3A3A3A',
                   borderRadius: '12px',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#AC8E66';
+                  e.currentTarget.style.borderColor = '#555';
+                    e.currentTarget.style.backgroundColor = '#555555' + '20';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#3A3A3A';
+                  e.currentTarget.style.borderColor = '#3A3A3A' + '20';
                   e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.backgroundColor = 'transparent';
                 }}
               >
                 <FontAwesomeIcon
                   icon={exportingId === option.id ? faSpinner : (exportedId === option.id ? faCheck : option.icon)}
                   style={{
                     fontSize: '32px',
-                    color: exportedId === option.id ? '#4CAF50' : '#AC8E66',
+                    color: exportedId === option.id ? '#4CAF50' : '#555',
                   }}
                   spin={exportingId === option.id}
                 />
                 <span style={{
                   fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '14px',
-                  color: '#e5e5e5',
+                  fontSize: '11px',
+                  color: '#555',
+                  fontWeight: 'normal'
                 }}>
                   {option.label}
                 </span>
@@ -551,11 +823,12 @@ ${normalizedContent.replace(/\n/g, '<br>')}
           <h3 style={{
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '16px',
-            color: '#e5e5e5',
+            color: '#555',
             marginBottom: '8px',
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
+            fontWeight: 'normal'
           }}>
             <FontAwesomeIcon icon={faMedium} style={{ color: '#AC8E66' }} />
             Direkt Veröffentlichen
@@ -585,20 +858,20 @@ ${normalizedContent.replace(/\n/g, '<br>')}
                   justifyContent: 'center',
                   gap: '12px',
                   padding: '24px 16px',
-                  backgroundColor: '#1A1A1A',
-                  border: '2px solid #3A3A3A',
+                  backgroundColor: 'transparent',
+                  border: '0.5px solid #3A3A3A',
                   borderRadius: '12px',
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = option.color;
-                  e.currentTarget.style.backgroundColor = option.color + '20';
+                  e.currentTarget.style.borderColor = '#555555';
+                  e.currentTarget.style.backgroundColor = '#555555' + '20';
                   e.currentTarget.style.transform = 'translateY(-2px)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.borderColor = '#3A3A3A';
-                  e.currentTarget.style.backgroundColor = '#1A1A1A';
+                  e.currentTarget.style.backgroundColor = 'transparent';
                   e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
@@ -606,13 +879,14 @@ ${normalizedContent.replace(/\n/g, '<br>')}
                   icon={option.icon}
                   style={{
                     fontSize: '32px',
-                    color: '#e5e5e5',
+                    color: '#555',
                   }}
                 />
                 <span style={{
                   fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '14px',
-                  color: '#e5e5e5',
+                  fontSize: '11px',
+                  color: '#555',
+                  fontWeight: 'normal'
                 }}>
                   {option.label}
                 </span>
@@ -621,124 +895,9 @@ ${normalizedContent.replace(/\n/g, '<br>')}
           </div>
         </div>
 
-        {/* KI-Optimierung + Veröffentlichen */}
-        <div style={{ marginTop: '32px' }}>
-          <h3 style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '16px',
-            color: '#e5e5e5',
-            marginBottom: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-          }}>
-            <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66' }} />
-            Mit KI optimieren & Veröffentlichen
-          </h3>
-          <p style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '12px',
-            color: '#777',
-            marginBottom: '16px',
-          }}>
-            Content wird mit KI verbessert, kopiert und die Plattform geöffnet
-          </p>
+      
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(3, 1fr)',
-            gap: '12px',
-          }}>
-            {PUBLISH_OPTIONS.map((option) => (
-              <button
-                key={`ai-${option.id}`}
-                onClick={() => handleOptimizeAndPublish(option)}
-                disabled={optimizingPlatform !== null}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  padding: '20px 16px',
-                  backgroundColor: optimizedPlatform === option.id ? '#4CAF5020' : '#1A1A1A',
-                  border: `2px solid ${optimizedPlatform === option.id ? '#4CAF50' : '#AC8E66'}`,
-                  borderRadius: '12px',
-                  cursor: optimizingPlatform ? 'wait' : 'pointer',
-                  transition: 'all 0.2s',
-                  opacity: optimizingPlatform && optimizingPlatform !== option.id ? 0.5 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (!optimizingPlatform) {
-                    e.currentTarget.style.backgroundColor = '#AC8E6620';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!optimizingPlatform) {
-                    e.currentTarget.style.backgroundColor = optimizedPlatform === option.id ? '#4CAF5020' : '#1A1A1A';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }
-                }}
-              >
-                <div style={{ position: 'relative' }}>
-                  <FontAwesomeIcon
-                    icon={optimizingPlatform === option.id ? faSpinner : (optimizedPlatform === option.id ? faCheck : option.icon)}
-                    style={{
-                      fontSize: '24px',
-                      color: optimizedPlatform === option.id ? '#4CAF50' : '#e5e5e5',
-                    }}
-                    spin={optimizingPlatform === option.id}
-                  />
-                  {optimizingPlatform !== option.id && optimizedPlatform !== option.id && (
-                    <FontAwesomeIcon
-                      icon={faWandMagicSparkles}
-                      style={{
-                        fontSize: '10px',
-                        color: '#AC8E66',
-                        position: 'absolute',
-                        top: '-4px',
-                        right: '-8px',
-                      }}
-                    />
-                  )}
-                </div>
-                <span style={{
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '12px',
-                  color: '#e5e5e5',
-                }}>
-                  {optimizingPlatform === option.id ? 'Optimiere...' : option.label}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Quick Copy Button */}
-        <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'center' }}>
-          <button
-            onClick={handleCopyToClipboard}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '12px 24px',
-              backgroundColor: copied ? '#4CAF50' : '#AC8E66',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '14px',
-              color: '#1A1A1A',
-              fontWeight: '500',
-              transition: 'all 0.2s',
-            }}
-          >
-            <FontAwesomeIcon icon={copied ? faCheck : faCopy} />
-            {copied ? 'Kopiert!' : 'In Zwischenablage kopieren'}
-          </button>
-        </div>
+     
 
         {/* Tone Selector Overlay */}
         {showToneSelector && (
@@ -815,7 +974,7 @@ ${normalizedContent.replace(/\n/g, '<br>')}
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#e5e5e5',
+                    color: '#555',
                   }}>
                     {option.label}
                   </span>
@@ -847,7 +1006,7 @@ ${normalizedContent.replace(/\n/g, '<br>')}
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.borderColor = '#AC8E66';
-                e.currentTarget.style.color = '#e5e5e5';
+                e.currentTarget.style.color = '#555';
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.borderColor = '#555';

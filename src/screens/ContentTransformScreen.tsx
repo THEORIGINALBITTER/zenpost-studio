@@ -129,15 +129,18 @@ interface ContentTransformScreenProps {
   onFileRequestHandled?: () => void;
   metadata?: ProjectMetadata;
   onMetadataChange?: (metadata: ProjectMetadata) => void;
-  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | null;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "transform" | null;
   onHeaderActionHandled?: () => void;
   onStep1BackToPostingChange?: (visible: boolean) => void;
+  onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
   onOpenDocStudioForPosting?: (content: string) => void;
   onContentChange?: (content: string) => void;
   editorType?: "block" | "markdown";
   onEditorTypeChange?: (type: "block" | "markdown") => void;
   multiPlatformMode?: boolean;
   onMultiPlatformModeChange?: (enabled: boolean) => void;
+  /** Called when a file is saved successfully with the new path and content */
+  onFileSaved?: (filePath: string, content: string, fileName: string) => void;
 }
 
 type ContentDocTab = {
@@ -170,12 +173,14 @@ export const ContentTransformScreen = ({
   headerAction,
   onHeaderActionHandled,
   onStep1BackToPostingChange,
+  onStep2SelectionChange,
   onOpenDocStudioForPosting,
   onContentChange: onExternalContentChange,
   editorType = "block",
   onEditorTypeChange,
   multiPlatformMode = false,
   onMultiPlatformModeChange,
+  onFileSaved,
 }: ContentTransformScreenProps) => {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
@@ -229,12 +234,25 @@ export const ContentTransformScreen = ({
     return `${baseName}_${date}_v${version}.md`;
   };
 
+  // Strip existing version pattern from filename: "Name_2026-02-03_v1.md" → "Name"
+  // Also handles multiple nested patterns: "Name_2026-02-03_v1_2026-02-03_v1" → "Name"
+  const stripVersionPattern = (name: string): string => {
+    // First remove .md extension
+    let base = name.replace(/\.md$/i, '');
+    // Remove ALL occurrences of _YYYY-MM-DD_vN pattern (no $ anchor, removes all)
+    // Pattern: underscore, 4 digits, dash, 2 digits, dash, 2 digits, underscore, v, digits
+    base = base.replace(/_\d{4}-\d{2}-\d{2}_v\d+/g, '');
+    return base;
+  };
+
   const resolveNextAvailableName = async (baseName: string, baseDir: string) => {
+    // First strip any existing version pattern from the base name
+    const cleanBase = stripVersionPattern(baseName);
     let version = 1;
-    let candidate = buildDefaultSaveName(baseName, version);
+    let candidate = buildDefaultSaveName(cleanBase, version);
     while (await exists(`${baseDir}/${candidate}`)) {
       version += 1;
-      candidate = buildDefaultSaveName(baseName, version);
+      candidate = buildDefaultSaveName(cleanBase, version);
     }
     return candidate;
   };
@@ -245,15 +263,13 @@ export const ContentTransformScreen = ({
     if (activeDocTabId) {
       const activeTab = openDocTabs.find((tab) => tab.id === activeDocTabId);
       if (activeTab?.title) {
-        // Remove .md extension if present to get base name
-        const nameWithoutExt = activeTab.title.replace(/\.md$/i, '');
-        return nameWithoutExt;
+        // Remove .md extension and version pattern to get clean base name
+        return stripVersionPattern(activeTab.title);
       }
     }
     // Fallback to fileName state
     if (fileName) {
-      const nameWithoutExt = fileName.replace(/\.md$/i, '');
-      return nameWithoutExt;
+      return stripVersionPattern(fileName);
     }
     // Final fallback to platform
     return getActiveSavePlatform();
@@ -288,9 +304,12 @@ export const ContentTransformScreen = ({
         setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
       }
       // Show success modal
-      setSavedFileName(filePath.split(/[\\/]/).pop() || suggestedName);
+      const savedName = filePath.split(/[\\/]/).pop() || suggestedName;
+      setSavedFileName(savedName);
       setSavedFilePath(filePath);
       setShowSaveSuccess(true);
+      // Notify parent about the saved file (for scheduled post updates)
+      onFileSaved?.(filePath, sourceContent, savedName);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('zenpost-project-files-updated'));
       }
@@ -319,13 +338,15 @@ export const ContentTransformScreen = ({
   };
 
   // Track initial content load to prevent re-loading
-  const loadedInitialContentRef = useRef<string | null>(null);
+  const loadedInitialKeyRef = useRef<string | null>(null);
   const lastRequestedArticleIdRef = useRef<string | null>(null);
   const lastRequestedFilePathRef = useRef<string | null>(null);
 
   // Load initial content if provided (from Doc Studio or Planner) - when content changes
   useEffect(() => {
-    if (initialContent && initialContent !== loadedInitialContentRef.current) {
+    if (initialContent === null || initialContent === undefined) return;
+    const initialKey = `${initialFileName ?? ''}::${initialContent}`;
+    if (initialKey !== loadedInitialKeyRef.current) {
       // Extract title from content if it starts with a markdown heading
       const extractTitleFromContent = (content: string): string | null => {
         const match = content.match(/^#\s+(.+)$/m);
@@ -360,7 +381,7 @@ export const ContentTransformScreen = ({
       setActiveDocTabId(tabId);
       setSourceContent(initialContent);
       setFileName(tabTitle);
-      loadedInitialContentRef.current = initialContent;
+      loadedInitialKeyRef.current = initialKey;
     }
   }, [initialContent, initialFileName]);
 
@@ -442,14 +463,25 @@ export const ContentTransformScreen = ({
 
   useEffect(() => {
     if (!requestedFilePath) return;
-    if (requestedFilePath === lastRequestedFilePathRef.current) return;
+    const tabId = `file:${requestedFilePath}`;
+    const alreadyOpen = openDocTabs.some((tab) => tab.id === tabId);
+    if (requestedFilePath === lastRequestedFilePathRef.current && alreadyOpen) {
+      const content = docTabContents[tabId] ?? '';
+      setActiveDocTabId(tabId);
+      setSourceContent(content);
+      const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+      setFileName(fileNameFromPath);
+      setError(null);
+      setStep(1);
+      onFileRequestHandled?.();
+      return;
+    }
     let isMounted = true;
     const loadRequestedFile = async () => {
       try {
         const content = await readTextFile(requestedFilePath);
         if (!isMounted) return;
         const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
-        const tabId = `file:${requestedFilePath}`;
         setOpenDocTabs((prev) =>
           prev.some((tab) => tab.id === tabId)
             ? prev
@@ -472,7 +504,7 @@ export const ContentTransformScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [requestedFilePath, onFileRequestHandled]);
+  }, [requestedFilePath, openDocTabs, docTabContents, onFileRequestHandled]);
 
   // Step 2: Platform Selection
   const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin');
@@ -639,39 +671,6 @@ export const ContentTransformScreen = ({
   }, [cameFromEdit, effectiveStep, onStep1BackToPostingChange]);
 
   useEffect(() => {
-    if (!headerAction) return;
-    if (headerAction === "preview") {
-      setPreviewMode(true);
-      setTransformedContent(sourceContent);
-      setCameFromEdit(false);
-      setStep(4);
-      onHeaderActionHandled?.();
-      return;
-    }
-    if (effectiveStep !== 1) return;
-    if (headerAction === "next") {
-      handleNextFromStep1();
-    }
-    if (headerAction === "back_posting") {
-      setPreviewMode(false);
-      setTransformedContent(sourceContent);
-      setCameFromEdit(false);
-      setStep(4);
-    }
-    if (headerAction === "save") {
-      handleSaveSourceToProject();
-    }
-    onHeaderActionHandled?.();
-  }, [
-    effectiveStep,
-    headerAction,
-    handleNextFromStep1,
-    onHeaderActionHandled,
-    sourceContent,
-    setCameFromEdit,
-  ]);
-
-  useEffect(() => {
     if (headerAction !== "post") return;
     if (effectiveStep !== 4) return;
     setPreviewMode(false);
@@ -679,7 +678,21 @@ export const ContentTransformScreen = ({
     onHeaderActionHandled?.();
   }, [effectiveStep, headerAction, onHeaderActionHandled, onOpenDocStudioForPosting, transformedContent]);
 
+  const step2SelectionCount = multiPlatformMode ? selectedPlatforms.length : selectedPlatform ? 1 : 0;
+  const step2CanProceed = step2SelectionCount > 0;
+
+  useEffect(() => {
+    if (effectiveStep !== 2) {
+      onStep2SelectionChange?.(0, false);
+      return;
+    }
+    onStep2SelectionChange?.(step2SelectionCount, step2CanProceed);
+  }, [effectiveStep, onStep2SelectionChange, step2SelectionCount, step2CanProceed]);
+
   const handleNextFromStep2 = () => {
+    if (!step2CanProceed) {
+      return;
+    }
     setError(null);
     setStep(3);
   };
@@ -693,8 +706,9 @@ export const ContentTransformScreen = ({
     setFileName(nextTitle);
   };
 
-  const closeDocTab = (tabId: string) => {
-    if (dirtyDocTabs[tabId]) {
+  const closeDocTab = (tabId: string, force = false) => {
+    // Only check dirty state if not forcing close (e.g., from "Nicht speichern" dialog)
+    if (!force && dirtyDocTabs[tabId]) {
       return;
     }
     const remainingTabs = openDocTabs.filter((tab) => tab.id !== tabId);
@@ -787,73 +801,6 @@ export const ContentTransformScreen = ({
     setSavedFilePath(undefined);
     setShowSaveSuccess(true);
     return true;
-  };
-
-  const renderDocTabsBar = () => {
-    if (openDocTabs.length === 0) return null;
-
-    return (
-      <div className="w-full flex flex-col items-center px-6 pt-3">
-        <div className="w-3/4 max-w-5xl">
-          <div
-            style={{
-              display: 'flex',
-              gap: '8px',
-              padding: '8px',
-              backgroundColor: '#1F1F1F',
-              borderRadius: '12px',
-              border: '1px solid #3A3A3A',
-              flexWrap: 'wrap',
-            }}
-          >
-            {openDocTabs.map((tab) => {
-              const isActive = activeDocTabId === tab.id;
-              const isDirty = !!dirtyDocTabs[tab.id];
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => handleDocTabChange(tab.id)}
-                  style={{
-                    flex: '1 1 140px',
-                    padding: '10px 16px',
-                    backgroundColor: isActive ? '#AC8E66' : 'transparent',
-                    border: isActive ? 'none' : '1px solid #3A3A3A',
-                    borderRadius: '8px',
-                    cursor: 'pointer',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '12px',
-                    fontWeight: isActive ? '600' : '400',
-                    color: isActive ? '#1A1A1A' : '#999',
-                    transition: 'all 0.2s',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  {isDirty ? <span style={{ color: isActive ? '#1A1A1A' : '#AC8E66' }}>•</span> : null}
-                  <span>{tab.title}</span>
-                  <span
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      handleCloseDocTab(tab.id);
-                    }}
-                    style={{
-                      marginLeft: '6px',
-                      fontSize: '12px',
-                      color: isActive ? '#1A1A1A' : '#777',
-                      opacity: 0.8,
-                    }}
-                  >
-                    ×
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
   };
 
   const handleSourceContentChange = (content: string) => {
@@ -1233,6 +1180,51 @@ export const ContentTransformScreen = ({
     }
   };
 
+  useEffect(() => {
+    if (!headerAction) return;
+    if (headerAction === "preview") {
+      setPreviewMode(true);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+      onHeaderActionHandled?.();
+      return;
+    }
+    if (headerAction === "next") {
+      if (effectiveStep === 1) {
+        handleNextFromStep1();
+      }
+      if (effectiveStep === 2) {
+        handleNextFromStep2();
+      }
+    }
+    if (headerAction === "back_posting" && effectiveStep === 1) {
+      setPreviewMode(false);
+      setTransformedContent(sourceContent);
+      setCameFromEdit(false);
+      setStep(4);
+    }
+    if (headerAction === "transform" && effectiveStep === 3) {
+      handleTransform();
+    }
+    if (headerAction === "post_direct" && effectiveStep === 3) {
+      handlePostDirectly();
+    }
+    if (headerAction === "save" && effectiveStep === 1) {
+      handleSaveSourceToProject();
+    }
+    onHeaderActionHandled?.();
+  }, [
+    effectiveStep,
+    headerAction,
+    handleNextFromStep1,
+    handlePostDirectly,
+    handleTransform,
+    onHeaderActionHandled,
+    sourceContent,
+    setCameFromEdit,
+  ]);
+
   // Render Step Content
   const renderStepContent = () => {
     switch (effectiveStep) {
@@ -1296,6 +1288,7 @@ export const ContentTransformScreen = ({
               dirtyDocTabs={dirtyDocTabs}
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
+              projectPath={projectPath}
             />
           </>
         );
@@ -1358,7 +1351,6 @@ export const ContentTransformScreen = ({
 
         return (
           <>
-            {renderDocTabsBar()}
             <Step4TransformResult
               transformedContent={transformedContent}
               platform={multiPlatformMode && activeResultTab ? activeResultTab : selectedPlatform}
@@ -1432,7 +1424,11 @@ export const ContentTransformScreen = ({
                 setTransformedContent(transformedContents[platform] || '');
               }
             }}
+              docTabs={openDocTabs}
               activeDocTabId={activeDocTabId}
+              dirtyDocTabs={dirtyDocTabs}
+              onDocTabChange={handleDocTabChange}
+              onCloseDocTab={handleCloseDocTab}
               activeDocTabContent={activeDocTabId ? docTabContents[activeDocTabId] ?? '' : ''}
             />
           </>
@@ -1443,7 +1439,7 @@ export const ContentTransformScreen = ({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[#2b2e2e] text-[#e5e5e5] overflow-hidden">
+    <div className="flex flex-col h-screen bg-[transparent] text-[#e5e5e5] overflow-hidden">
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
 
@@ -1482,6 +1478,7 @@ export const ContentTransformScreen = ({
       <ZenGeneratingModal
         isOpen={isTransforming}
         templateName={`${selectedPlatform} Content`}
+        onClose={() => setIsTransforming(false)}
       />
 
       {/* Save Success Modal */}
@@ -1495,15 +1492,19 @@ export const ContentTransformScreen = ({
       <ZenModal
         isOpen={!!pendingCloseTabId}
         onClose={() => setPendingCloseTabId(null)}
-        size="sm"
+        size="md"
       >
         <ZenModalHeader
           title="Ungespeicherte Änderungen"
-          subtitle="Dieses Dokument hat Änderungen, die noch nicht gespeichert sind."
-          onClose={() => setPendingCloseTabId(null)}
+     
         />
-        <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#999' }}>
+        <div style={{ 
+          padding: '24px', 
+          display: 'flex', 
+          flexDirection: 'column', gap: '16px' }}>
+          <p style={{ 
+            fontFamily: 'IBM Plex Mono, monospace', 
+            fontSize: '12px', color: '#555', textAlign: 'center'  }}>
             Möchtest du vor dem Schließen speichern?
           </p>
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
@@ -1521,7 +1522,7 @@ export const ContentTransformScreen = ({
               height={38}
               onClick={() => {
                 if (!pendingCloseTabId) return;
-                closeDocTab(pendingCloseTabId);
+                closeDocTab(pendingCloseTabId, true); // force close without saving
                 setPendingCloseTabId(null);
               }}
             />

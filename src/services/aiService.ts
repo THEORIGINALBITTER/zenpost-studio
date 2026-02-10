@@ -3,8 +3,53 @@
  * Unterstützt mehrere AI-Provider
  */
 
-import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '@tauri-apps/api/core';
+
+interface RustHttpResponse {
+  status: number;
+  body: string;
+}
+
+/**
+ * Universelle Fetch-Funktion: Rust Command im Desktop, Browser-Fetch im Web
+ * Verwendet Rust-seitigen HTTP-Client um JS HTTP-Plugin Scope-Probleme zu umgehen
+ */
+async function universalFetch(url: string, options?: RequestInit): Promise<Response> {
+  if (isTauri()) {
+    // Use Rust command to bypass JS HTTP plugin scope issues
+    const headers: Record<string, string> = {};
+    if (options?.headers) {
+      if (options.headers instanceof Headers) {
+        options.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+      } else if (Array.isArray(options.headers)) {
+        options.headers.forEach(([key, value]) => {
+          headers[key] = value;
+        });
+      } else {
+        Object.assign(headers, options.headers);
+      }
+    }
+
+    const result = await invoke<RustHttpResponse>('http_fetch', {
+      request: {
+        url,
+        method: options?.method || 'GET',
+        headers,
+        body: options?.body ? String(options.body) : null,
+      }
+    });
+
+    // Create a Response-like object
+    return new Response(result.body, {
+      status: result.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return fetch(url, options);
+}
 
 export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'custom' | 'auto';
 
@@ -60,7 +105,7 @@ export interface TransformResult {
 const defaultConfig: AIConfig = {
   provider: 'ollama',
   model: 'llama3.1:latest',
-  baseUrl: 'http://localhost:11434',
+  baseUrl: 'http://127.0.0.1:11434',
   temperature: 0.3,
 };
 
@@ -212,7 +257,7 @@ async function callOpenAI(
   }
 
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await universalFetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -276,7 +321,7 @@ async function callAnthropic(
   }
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await universalFetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -333,7 +378,7 @@ async function callOllama(
   config: AIConfig,
   prompt: string
 ): Promise<CodeAnalysisResult> {
-  const baseUrl = config.baseUrl || 'http://localhost:11434';
+  const baseUrl = config.baseUrl || 'http://127.0.0.1:11434';
 
   try {
     console.log('[Ollama] Making request to:', `${baseUrl}/api/chat`);
@@ -341,10 +386,6 @@ async function callOllama(
 
     let response;
     try {
-      // Determine which fetch to use based on environment
-      const isRunningInTauri = isTauri();
-      console.log('[Ollama] Running in Tauri:', isRunningInTauri);
-
       const requestBody = JSON.stringify({
         model: config.model || 'llama3.1:latest',
         messages: [
@@ -359,37 +400,37 @@ async function callOllama(
         },
       });
 
-      if (isRunningInTauri) {
-        // Use Tauri's fetch to avoid CORS issues with localhost
-        response = await tauriFetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: requestBody,
-        });
-      } else {
-        // Use standard fetch in browser (requires Ollama CORS to be enabled)
-        response = await fetch(`${baseUrl}/api/chat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: requestBody,
-        });
-      }
+      response = await universalFetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: requestBody,
+      });
 
       console.log('[Ollama] Response received:', response);
       console.log('[Ollama] Response status:', response.status);
       console.log('[Ollama] Response ok:', response.ok);
-    } catch (fetchError) {
+    } catch (fetchError: unknown) {
       console.error('[Ollama] Fetch error:', fetchError);
-      const errorMsg = fetchError instanceof Error ? fetchError.message : JSON.stringify(fetchError);
-      // Add helpful hint for CORS issues in browser
+      console.error('[Ollama] Fetch error type:', typeof fetchError);
+      console.error('[Ollama] Fetch error keys:', fetchError && typeof fetchError === 'object' ? Object.keys(fetchError) : 'N/A');
+      console.error('[Ollama] isTauri:', isTauri());
+
+      let errorMsg = 'Unbekannter Fehler';
+      if (fetchError instanceof Error) {
+        errorMsg = `${fetchError.name}: ${fetchError.message}`;
+      } else if (typeof fetchError === 'string') {
+        errorMsg = fetchError;
+      } else if (fetchError && typeof fetchError === 'object') {
+        errorMsg = JSON.stringify(fetchError, null, 2);
+      }
+
+      const tauriHint = isTauri() ? ' [Tauri Build - prüfe HTTP Scope in capabilities]' : '';
       const corsHint = !isTauri() ? ' Im Browser kann es CORS-Probleme geben. Starte Ollama mit: OLLAMA_ORIGINS=* ollama serve' : '';
       return {
         success: false,
-        error: `Fetch Fehler: ${errorMsg}${corsHint}`,
+        error: `Fetch Fehler: ${errorMsg}${tauriHint}${corsHint}`,
       };
     }
 
@@ -397,9 +438,18 @@ async function callOllama(
       console.log('[Ollama] Response not OK, getting error text...');
       const errorText = await response.text().catch(() => response.statusText);
       console.error('[Ollama] Error response:', errorText);
+
+      // 403 in Tauri = HTTP Plugin Scope blockiert die URL
+      if (response.status === 403 && isTauri()) {
+        return {
+          success: false,
+          error: `Tauri HTTP Scope blockiert! Status 403. URL: ${baseUrl}/api/chat - Prüfe capabilities/default.json`,
+        };
+      }
+
       return {
         success: false,
-        error: `Ollama Fehler: ${response.status} - ${errorText}`,
+        error: `Ollama Fehler: ${response.status} - ${errorText || 'Keine Details'}`,
       };
     }
 
@@ -436,7 +486,7 @@ async function callOllama(
     console.error('[Ollama] Error details:', JSON.stringify(error, null, 2));
     return {
       success: false,
-      error: `Ollama Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}. Stelle sicher, dass Ollama läuft (http://localhost:11434)`,
+      error: `Ollama Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}. Stelle sicher, dass Ollama läuft (http://127.0.0.1:11434)`,
     };
   }
 }
@@ -456,7 +506,7 @@ async function callCustomAPI(
   }
 
   try {
-    const response = await fetch(config.baseUrl, {
+    const response = await universalFetch(config.baseUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

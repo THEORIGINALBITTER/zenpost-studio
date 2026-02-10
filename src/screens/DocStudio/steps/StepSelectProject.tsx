@@ -1,0 +1,148 @@
+import { useState } from 'react';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { ZenRoughButton } from '../../../kits/PatternKit/ZenModalSystem';
+import { ProjectPickerModal } from '../../../components/DocStudio/ProjectPickerModal';
+import type { DocStudioRuntime } from '../types';
+
+export function StepSelectProject({
+  runtime,
+  projectPath,
+  hasExistingAnalysis,
+  onSelect,
+  onContinue,
+  onContinueToEditor,
+}: {
+  runtime: DocStudioRuntime;
+  projectPath: string | null;
+  hasExistingAnalysis?: boolean;
+  onSelect: (path: string) => void;
+  onContinue?: () => void;
+  onContinueToEditor?: () => void;
+}) {
+  const [showPicker, setShowPicker] = useState(false);
+
+  return (
+    <div className="flex items-center justify-center mt-[50px] mb-[24px] px-[12px]">
+      <div
+        style={{
+          width: '100%',
+          maxWidth: '960px',
+          
+          borderRadius: '8px',
+          border: '0.5px dotted #AC8E66',
+          padding: '48px',
+          textAlign: 'center',
+        }}
+      >
+        <div style={{ marginBottom: '24px' }}>
+          <FontAwesomeIcon
+            icon={faFolderOpen}
+            style={{
+              fontSize: '60px',
+              color: '#AC8E66',
+              filter: 'drop-shadow(0 4px 6px rgba(172, 142, 102, 0.3))',
+            }}
+          />
+        </div>
+        <h2 style={{ fontSize: '12px', fontWeight: '400', color: '#e5e5e5', marginBottom: '16px' }}>
+          Projekt wählen
+        </h2>
+        <p
+          style={{
+            color: '#999',
+            marginBottom: '24px',
+            maxWidth: '520px',
+            marginLeft: 'auto',
+            marginRight: 'auto',
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            fontWeight: '400'
+          }}
+        >
+          Wähle deinen Projekt-Order, um die Struktur zu analysieren und anschließend Dokumentation zu generieren.
+        </p>
+
+        {projectPath && (
+          <div
+            style={{
+              marginBottom: '24px',
+              backgroundColor: '#1A1A1A',
+              borderRadius: '8px',
+              padding: '16px',
+              textAlign: 'left',
+              border: '1px solid #3A3A3A',
+            }}
+          >
+            <p style={{ fontSize: '11px', color: '#777', fontFamily: 'monospace', marginBottom: '8px' }}>
+              Aktueller Ordner
+            </p>
+            <p style={{ fontSize: '12px', color: '#AC8E66', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+              {projectPath}
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          {projectPath ? (
+            <>
+              {hasExistingAnalysis && (
+                <ZenRoughButton
+                  label="Weiterbearbeiten"
+                  icon="✎"
+                  onClick={() => {
+                    if (runtime === 'web') return;
+                    onContinueToEditor?.();
+                  }}
+                  variant="default"
+                  disabled={runtime === 'web'}
+                  title={runtime === 'web' ? 'Scan ist nur in der Desktop-App verfuegbar.' : undefined}
+                />
+              )}
+              <ZenRoughButton
+                label={hasExistingAnalysis ? 'Neue Analyse' : 'Weiter'}
+                icon="→"
+                onClick={() => {
+                  if (runtime === 'web') return;
+                  onContinue?.();
+                }}
+             
+                disabled={runtime === 'web'}
+                title={runtime === 'web' ? 'Scan ist nur in der Desktop-App verfuegbar.' : undefined}
+              />
+              <ZenRoughButton
+                label="Projektordner wechseln"
+                icon={<FontAwesomeIcon icon={faFolderOpen} />}
+                onClick={() => setShowPicker(true)}
+                variant="default"
+              />
+            </>
+          ) : (
+            <ZenRoughButton
+              label="Projektordner wählen"
+              icon={<FontAwesomeIcon icon={faFolderOpen} />}
+              onClick={() => setShowPicker(true)}
+              variant="default"
+            />
+          )}
+        </div>
+
+        {runtime === 'web' && (
+          <p style={{ marginTop: '16px', fontSize: '10px', color: '#777', fontFamily: 'monospace' }}>
+            Browser-Modus: Projekt-Scan funktioniert nur in der Desktop-App (Tauri).
+          </p>
+        )}
+      </div>
+
+      <ProjectPickerModal
+        isOpen={showPicker}
+        isWebRuntime={runtime === 'web'}
+        onClose={() => setShowPicker(false)}
+        onPathSelected={(path) => {
+          onSelect(path);
+          setShowPicker(false);
+        }}
+      />
+    </div>
+  );
+}

@@ -29,6 +29,12 @@ export const Step1FormatSelection = ({
 }: Step1FormatSelectionProps) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-6">
+            {/* Subtitle */}
+        <div className="mt[20px]">
+          <ZenSubtitle className="text-center max-w-md mb-[20px]">
+            Wähle das Quell- und Zielformat für die Konvertierung
+          </ZenSubtitle>
+        </div>
       <div className="flex flex-col items-center">
         {/* Title */}
         <div className="mb-4">
@@ -38,12 +44,7 @@ export const Step1FormatSelection = ({
 </h2>
         </div>
 
-        {/* Subtitle */}
-        <div className="mt[20px]">
-          <ZenSubtitle className="text-center max-w-md mb-[20px]">
-            Wähle das Quell- und Zielformat für die Konvertierung
-          </ZenSubtitle>
-        </div>
+  
 
         {/* From Format */}
         <div className="mb-32">
@@ -99,7 +100,7 @@ export const Step1FormatSelection = ({
             label="Weiter zum Inhalt"
             icon={<FontAwesomeIcon icon={faArrowRight} className="text-[#AC8E66]" />}
             onClick={onNext}
-            variant="active"
+            variant="default"
           />
         </div>
       </div>

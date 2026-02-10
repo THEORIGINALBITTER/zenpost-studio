@@ -13,7 +13,9 @@ export { ZenModalFooter } from './components/ZenModalFooter';
 export { ZenFooterText } from './components/ZenFooterText';
 export { ZenDropdown } from './components/ZenDropdown';
 export { ZenRoughButton } from './components/ZenRoughButton';
+export { ZenExportCard } from './components/ZenExportCard';
 export { ZenInfoBox } from './components/ZenInfoBox';
+export { ZenEmptyState } from './components/ZenEmptyState';
 export { ZenSlider } from './components/ZenSlider';
 
 // Configuration
@@ -46,6 +48,8 @@ export type { ProjectMetadata } from './modals/ZenMetadataModal';
 export { ZenGeneratingModal } from './modals/ZenGeneratingModal';
 export { ZenSaveConfirmationModal } from './modals/ZenSaveConfirmationModal';
 export { ZenSaveSuccessModal } from './modals/ZenSaveSuccessModal';
+export { ZenBugReportModal } from './modals/ZenBugReportModal';
+export { ZenMailSuccessModal } from './modals/ZenMailSuccessModal';
 export { ZenPublishScheduler } from './modals/ZenPublishScheduler';
 export { ZenContentCalendar } from './modals/ZenContentCalendar';
 export { ZenTodoChecklist } from './modals/ZenTodoChecklist';

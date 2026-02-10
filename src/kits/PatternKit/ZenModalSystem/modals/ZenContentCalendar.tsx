@@ -157,7 +157,7 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
             }}
           >
             <div style={{ fontFamily: 'monospace', fontSize: '14px', color: '#AC8E66', fontWeight: 'bold' }}>
-              {scheduledCount}
+              {scheduledCount} Geplant
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777' }}>
               Geplant
@@ -167,7 +167,7 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
             style={{
               padding: '8px 16px',
               backgroundColor: '#0A0A0A',
-              borderRadius: '6px',
+              borderRadius: '8px 8px 0 0',
               border: '1px solid #3A3A3A',
               textAlign: 'center',
             }}
@@ -176,7 +176,7 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
               {draftCount}
             </div>
             <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777' }}>
-              Entwürfe
+            Entwürfe...
             </div>
           </div>
         </div>
@@ -195,8 +195,9 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
               padding: '6px 12px',
               backgroundColor: '#0A0A0A',
               border: '1px solid #3A3A3A',
-              borderRadius: '4px',
-              color: '#e5e5e5',
+              borderBottom: 'none',               
+              borderRadius: '8px 8px 0 0',
+              color: '#555',
               fontFamily: 'monospace',
               fontSize: '11px',
               cursor: 'pointer',
@@ -396,7 +397,7 @@ export function ZenContentCalendar({ isOpen, onClose, scheduledPosts, onEditPost
           <ZenRoughButton
             label="Schließen"
             onClick={onClose}
-            variant="active"
+            variant="default"
           />
         </div>
       </div>

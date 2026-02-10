@@ -8,6 +8,9 @@ import Delimiter from '@editorjs/delimiter';
 import DragDrop from 'editorjs-drag-drop';
 import './ZenBlockEditor.css';
 
+
+export type EditorTheme = 'dark' | 'light';
+
 interface ZenBlockEditorProps {
   value: string; // Markdown input
   onChange: (value: string) => void; // Markdown output
@@ -16,6 +19,7 @@ interface ZenBlockEditorProps {
   fontSize?: number;
   wrapLines?: boolean;
   showLineNumbers?: boolean;
+  theme?: EditorTheme;
 }
 
 /**
@@ -30,10 +34,16 @@ export const ZenBlockEditor = ({
   fontSize,
   wrapLines = true,
   showLineNumbers = true,
+  theme = 'light',
 }: ZenBlockEditorProps) => {
   const editorRef = useRef<EditorJS | null>(null);
   const holderRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
+  // Use ref to always have latest onChange callback (fixes closure bug)
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   // Convert Markdown to EditorJS format
   const markdownToEditorJS = (markdown: string): OutputData => {
@@ -187,24 +197,63 @@ export const ZenBlockEditor = ({
       return '';
     }
 
+    const normalizeInlineText = (text: string) => {
+      const convertOrderedLists = (input: string) =>
+        input.replace(/<ol(\s+[^>]*)?>([\s\S]*?)<\/ol>/gi, (_match, _attrs, inner) => {
+          const items: string[] = [];
+          const liRegex = /<li(\s+[^>]*)?>([\s\S]*?)<\/li>/gi;
+          let m: RegExpExecArray | null;
+          let idx = 1;
+          while ((m = liRegex.exec(inner)) !== null) {
+            const raw = m[2] ?? '';
+            const cleaned = raw
+              .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+              .replace(/<br\s*\/?>/gi, '  \n')
+              .replace(/<[^>]+>/g, '')
+              .trim();
+            items.push(`${idx}. ${cleaned}`);
+            idx += 1;
+          }
+          return items.join('\n');
+        });
+
+      return convertOrderedLists(text)
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/<\/li>\s*<li(\s+[^>]*)?>/gi, '\n- ')
+        .replace(/<li(\s+[^>]*)?>/gi, '- ')
+        .replace(/<\/li>/gi, '\n')
+        .replace(/<\/ol>/gi, '\n')
+        .replace(/<\/ul>/gi, '\n')
+        .replace(/<ol(\s+[^>]*)?>/gi, '')
+        .replace(/<ul(\s+[^>]*)?>/gi, '')
+        .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)>/gi, '\n')
+        .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?span(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?a(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?strong(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?em(\s+[^>]*)?>/gi, '')
+        .replace(/<br\s*\/?>\s*<br\s*\/?>/gi, '\n\n')
+        .replace(/<br\s*\/?>/gi, '  \n');
+    };
+
     return data.blocks
       .map((block) => {
         switch (block.type) {
           case 'header':
             const level = '#'.repeat(block.data.level || 1);
-            return `${level} ${block.data.text}`;
+            return `${level} ${normalizeInlineText(block.data.text || '')}`;
 
           case 'paragraph':
-            return block.data.text;
+            return normalizeInlineText(block.data.text || '');
 
           case 'list':
             const style = block.data.style === 'ordered' ? '1.' : '-';
             return block.data.items
               .map((item: string, index: number) => {
                 if (block.data.style === 'ordered') {
-                  return `${index + 1}. ${item}`;
+                  return `${index + 1}. ${normalizeInlineText(item)}`;
                 }
-                return `${style} ${item}`;
+                return `${style} ${normalizeInlineText(item)}`;
               })
               .join('\n');
 
@@ -213,7 +262,7 @@ export const ZenBlockEditor = ({
             return `\`\`\`${lang}\n${block.data.code}\n\`\`\``;
 
           case 'quote':
-            return block.data.text
+            return normalizeInlineText(block.data.text || '')
               .split('\n')
               .map((line: string) => `> ${line}`)
               .join('\n');
@@ -264,7 +313,8 @@ export const ZenBlockEditor = ({
         try {
           const outputData = await editorRef.current.save();
           const markdown = editorJSToMarkdown(outputData);
-          onChange(markdown);
+          // Use ref to always call the latest onChange callback
+          onChangeRef.current(markdown);
         } catch (error) {
           console.error('Error saving EditorJS data:', error);
         }
@@ -310,32 +360,92 @@ export const ZenBlockEditor = ({
     updateEditor();
   }, [value, isReady]);
 
+  // Theme-based colors
+  const themeStyles = {
+    dark: {
+      background: '#151515',
+      text: '#dbd9d5',
+      placeholder: '#dbd9d5',
+      border: '#AC8E66',
+      BorderStyle: 'dotted',
+    },
+    light: {
+      background: '#D9D4C5',
+      text: '#1a1a1a',
+      placeholder: '#6b6b6b',
+      border: '#AC8E66',
+    },
+  };
+
+  const colors = themeStyles[theme];
+
   const className = [
     'zen-block-editor',
     wrapLines ? '' : 'zen-editor-nowrap',
     showLineNumbers ? 'zen-editor-line-numbers' : '',
+    `zen-editor-theme-${theme}`,
   ]
     .filter(Boolean)
     .join(' ');
 
+  // Capture-phase listener: fires BEFORE EditorJS handles the click
+  const containerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || !showLineNumbers) return;
+
+    const handler = (e: MouseEvent) => {
+      const rect = el.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      if (clickX > 56) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const blocks = el.querySelectorAll('.ce-block');
+      for (const block of blocks) {
+        const blockRect = block.getBoundingClientRect();
+        if (e.clientY >= blockRect.top && e.clientY <= blockRect.bottom) {
+          const contentEl = block.querySelector('.ce-block__content');
+          if (contentEl) {
+            const range = document.createRange();
+            range.selectNodeContents(contentEl);
+            const sel = window.getSelection();
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+          }
+          break;
+        }
+      }
+    };
+
+    el.addEventListener('mousedown', handler, true); // capture phase
+    return () => el.removeEventListener('mousedown', handler, true);
+  }, [showLineNumbers]);
+
   return (
     <div
+      ref={containerRef}
       className={className}
       style={{
-        border: '1px solid #AC8E66',
+        border: `1px solid ${colors.border}`,
         borderRadius: 8,
-        backgroundColor: '#1E1E1E',
-        overflow: 'hidden',
-        minHeight: height,
-        fontFamily: 'monospace',
+        backgroundColor: colors.background,
+        overflow: 'auto',
+        height,
+        fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
         ...(fontSize ? { ['--zen-editor-font-size' as any]: `${fontSize}px` } : {}),
+        ['--zen-editor-placeholder' as any]: colors.placeholder,
+        ['--color-placeholder' as any]: colors.placeholder,
+        ['--color-text-secondary' as any]: colors.placeholder,
+        position: 'relative',
       }}
     >
       <div
         ref={holderRef}
         style={{
           padding: 16,
-          color: '#e5e5e5',
+          color: colors.text,
         }}
       />
     </div>
