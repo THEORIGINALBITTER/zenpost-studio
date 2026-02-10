@@ -177,6 +177,14 @@
       font-weight: 500;
     }
 
+    /* Heading anchors (Docsify wraps heading text in <a>) must inherit heading color */
+    .markdown-section h1 a,
+    .markdown-section h2 a,
+    .markdown-section h3 a,
+    .markdown-section h4 a {
+      color: inherit !important;
+    }
+
     /* Links — no underline */
     .markdown-section a {
       color: var(--zen-gold) !important;
