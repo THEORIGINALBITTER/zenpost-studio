@@ -1,33 +1,26 @@
-<!-- _sidebar.md -->
+<!-- ZenPost Studio – Guide -->
 
-- **Getting Started**
-  - [Quick Start](README.md)
-  - [Installation](#) 🚧
+- Getting Started
+  - [Willkommen](/README.md)
+  - [Erste Schritte](/getting-started.md)
+  - [Installation](/installation.md)
 
-- **AI Providers**
-  - [Overview](ai-providers/README.md)
-  - [Ollama Setup](ai-providers/ollama-setup.md)
-  - [OpenAI Setup](ai-providers/openai-setup.md)
-  - [Anthropic Setup](ai-providers/anthropic-setup.md)
+- Arbeiten mit ZenPost
+  - [Überblick](/workflows/overview.md)
+  - [Inhalte transformieren](/workflows/content-transform.md)
+  - [Dateien konvertieren](/workflows/file-converter.md)
+  - [Seiten exportieren](/workflows/pages-export.md)
 
-- **Features**
-  - [File Converter](#) 🚧
-  - [Content Transform](#) 🚧
-  - [Supported Formats](#) 🚧
-  - [Pages Export Guide](pages-export.md)
+- KI
+  - [Übersicht](/ai/overview.md)
+  - [Lokale KI (Ollama)](/ai/ollama.md)
+  - [Cloud-Provider](/ai/cloud.md)
 
-- **Troubleshooting**
-  - [General Issues](troubleshooting/general.md)
-  - [Ollama Troubleshooting](ai-providers/ollama-setup.md#common-issues--solutions)
-  - [OpenAI Troubleshooting](ai-providers/openai-setup.md#common-issues--solutions)
-  - [Anthropic Troubleshooting](ai-providers/anthropic-setup.md#common-issues--solutions)
+- Hilfe
+  - [FAQ](/help/faq.md)
+  - [Allgemeine Probleme](/help/general.md)
+  - [KI-Fehlerbehebung](/help/ai.md)
 
-- **Developer**
-  - [Architecture Overview](developer/architecture.md)
-  - [Component Library](developer/components.md)
-  - [API Reference](developer/api.md)
-  - [Contributing Guide](developer/contributing.md)
-
-- **Links**
-  - [GitHub Repo](https://github.com/theoriginalbitter/zenpost-studio)
-  - [Report Issue](https://github.com/theoriginalbitter/zenpost-studio/issues)
+- Entwicklung
+  - [Architektur](/dev/architecture.md)
+  - [API](/dev/api.md)
