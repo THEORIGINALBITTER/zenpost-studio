@@ -884,7 +884,7 @@ export const Step1SourceInput = ({
               }}
             >
               <ZenRoughButton
-                label="Wiki / Docs"
+                label="ZenPost Guide"
                 icon={
                   <FontAwesomeIcon
                     icon={faExternalLinkAlt}

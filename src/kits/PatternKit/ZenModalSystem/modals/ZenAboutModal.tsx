@@ -30,7 +30,7 @@ export const ZenAboutModal = ({ isOpen, onClose, onOpenBugReport }: ZenAboutModa
   const links = [
     {
       icon: faBook,
-      label: "Wiki & Docs",
+      label: "ZenPost Guide",
       url: "https://theoriginalbitter.github.io/zenpost-studio/",
       description: "View documentation and guides",
     },

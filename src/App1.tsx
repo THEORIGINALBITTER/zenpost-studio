@@ -1165,7 +1165,7 @@ function AppContent() {
                 cursor: "pointer",
               }}
             >
-              Wiki & Docs
+              ZenPost Guide
             </button>
             <button
               onClick={() => openExternal("https://github.com/THEORIGINALBITTER/zenpost-studio")}
