@@ -10,6 +10,9 @@
 [![AI](https://img.shields.io/badge/AI-local--first-gold)]()
 
 ---
+> **Aktueller stabiler Stand:**  
+> https://github.com/THEORIGINALBITTER/zenpost-studio/releases/tag/ZenPost
+---
 
 ## Mission
 
