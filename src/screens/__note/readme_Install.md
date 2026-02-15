@@ -138,7 +138,7 @@ Contributions welcome! Please follow the Zen design principles:
 
 ## License
 
-Made with ❤️ by Denis Bitter
+
 
 ---
 

@@ -151,9 +151,9 @@ export const ZenSaveSuccessModal = ({
           >
             <div
               style={{
-                fontFamily: 'monospace',
+                fontFamily: 'IBM monospace font, monospace',
                 fontSize: '10px',
-                fontWeight: '400',
+                fontWeight: '200',
                 color: '#dbd9d5',
               }}
             >

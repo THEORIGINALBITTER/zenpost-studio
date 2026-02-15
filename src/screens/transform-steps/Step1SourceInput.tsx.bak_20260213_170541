@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
@@ -39,15 +39,14 @@ interface Step1SourceInputProps {
   onNext: () => void;
   onOpenMetadata?: () => void;
   onError?: (error: string) => void;
-  onPreview?: (content?: string) => void;
-  onSaveToProject?: (content?: string) => void;
-  onSaveAsToProject?: (content?: string) => void;
+  onPreview?: () => void;
+  onSaveToProject?: () => void;
   canSaveToProject?: boolean;
   editTabs?: ContentPlatform[];
   activeEditTab?: ContentPlatform | null;
   onEditTabChange?: (platform: ContentPlatform) => void;
   cameFromEdit?: boolean; // Flag to show "Back to Posting" button
-  onBackToPosting?: (content?: string) => void; // Callback to go directly to Step 4
+  onBackToPosting?: () => void; // Callback to go directly to Step 4
   cameFromDocStudio?: boolean; // Flag to show "Back to Doc Studio" button
   onBackToDocStudio?: (editedContent?: string) => void; // Callback to go back to Doc Studio
   editorType?: "block" | "markdown"; // Editor type to use
@@ -61,7 +60,6 @@ interface Step1SourceInputProps {
   onDocTabChange?: (tabId: string) => void;
   onCloseDocTab?: (tabId: string) => void;
   projectPath?: string | null;
-  onRegisterLiveContentGetter?: (getter: (() => Promise<string>) | null) => void;
 }
 
 const EXTERNAL_DOCS_URL =
@@ -212,7 +210,6 @@ export const Step1SourceInput = ({
   onError,
   onPreview,
   onSaveToProject,
-  onSaveAsToProject,
   canSaveToProject = false,
   editTabs = [],
   activeEditTab = null,
@@ -232,57 +229,15 @@ export const Step1SourceInput = ({
   onDocTabChange,
   onCloseDocTab,
   projectPath,
-  onRegisterLiveContentGetter,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
-  const latestContentRef = useRef(sourceContent);
-  const editorSnapshotGetterRef = useRef<(() => Promise<string>) | null>(null);
-
-  useEffect(() => {
-    latestContentRef.current = sourceContent;
-  }, [sourceContent]);
-
-  const emitSourceContentChange = (content: string) => {
-    latestContentRef.current = content;
-    onSourceContentChange(content);
-  };
-
-  const resolveLiveContent = useCallback(async (): Promise<string> => {
-    const getter = editorSnapshotGetterRef.current;
-    if (!getter) return latestContentRef.current;
-    try {
-      const snapshot = await getter();
-      if (typeof snapshot === 'string') {
-        if (snapshot !== latestContentRef.current) {
-          latestContentRef.current = snapshot;
-          onSourceContentChange(snapshot);
-        }
-        return snapshot;
-      }
-    } catch {
-      // fallback to latest ref
-    }
-    return latestContentRef.current;
-  }, [onSourceContentChange]);
-
-  useEffect(() => {
-    onRegisterLiveContentGetter?.(resolveLiveContent);
-    return () => onRegisterLiveContentGetter?.(null);
-  }, [onRegisterLiveContentGetter, resolveLiveContent]);
-
-  useEffect(() => {
-    if (editorType !== 'block') {
-      editorSnapshotGetterRef.current = null;
-    }
-  }, [editorType]);
 
 
   const [showOutline, setShowOutline] = useState(false);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
-  const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
   const [activeCursorLine, setActiveCursorLine] = useState<number>(0);
   useEffect(() => {
   const onKey = (e: KeyboardEvent) => {
@@ -340,7 +295,7 @@ export const Step1SourceInput = ({
           const result = await convertFile(arrayBuffer, detectedFormat, 'md', file.name);
 
           if (result.success && result.data) {
-            emitSourceContentChange(result.data);
+            onSourceContentChange(result.data);
             if (onError) onError(''); // Clear any previous errors
           } else {
             console.error('Document conversion error:', result.error);
@@ -365,7 +320,7 @@ export const Step1SourceInput = ({
 
       // If it's already markdown or text, use directly
       if (detectedFormat === 'md' || detectedFormat === 'txt' || detectedFormat === 'gfm') {
-        emitSourceContentChange(content);
+        onSourceContentChange(content);
         return;
       }
 
@@ -376,22 +331,22 @@ export const Step1SourceInput = ({
           const result = await convertFile(content, detectedFormat, 'md', file.name);
 
           if (result.success && result.data) {
-            emitSourceContentChange(result.data);
+            onSourceContentChange(result.data);
           } else {
             console.error('Conversion error:', result.error);
             // Fall back to raw content
-            emitSourceContentChange(content);
+            onSourceContentChange(content);
           }
         } catch (err) {
           console.error('File conversion failed:', err);
           // Fall back to raw content
-          emitSourceContentChange(content);
+          onSourceContentChange(content);
         } finally {
           setIsConverting(false);
         }
       } else {
         // Unknown format, try to use as-is
-        emitSourceContentChange(content);
+        onSourceContentChange(content);
       }
     };
     reader.readAsText(file);
@@ -434,24 +389,19 @@ export const Step1SourceInput = ({
     const prefix = `${'#'.repeat(level)} `;
     const trimmed = sourceContent.replace(/\s*$/, '');
     const next = trimmed ? `${trimmed}\n\n${prefix}` : `${prefix}`;
-    emitSourceContentChange(next);
+    onSourceContentChange(next);
   };
 
-  const handleOutlineItemClick = (itemLine: number, headingIndex: number) => {
-    setActiveCursorLine(itemLine);
-    if (editorType === 'block') {
-      if (headingIndex >= 0) {
-        setOutlineBlockFocusRequest({ headingIndex, token: Date.now() });
-      }
+  const handleOutlineItemClick = (line: number) => {
+    setActiveCursorLine(line);
+    if (editorType === 'block' && onEditorTypeChange) {
+      onEditorTypeChange('markdown');
+      window.setTimeout(() => {
+        setOutlineFocusRequest({ line, token: Date.now() });
+      }, 80);
       return;
     }
-    setOutlineFocusRequest({ line: itemLine, token: Date.now() });
-  };
-
-  const handleActiveBlockHeadingChange = (headingIndex: number) => {
-    const outlineItem = outlineItems[headingIndex];
-    if (!outlineItem) return;
-    setActiveCursorLine(outlineItem.line);
+    setOutlineFocusRequest({ line, token: Date.now() });
   };
 
   return (
@@ -678,14 +628,14 @@ export const Step1SourceInput = ({
                   zIndex: 6,
                 }}
               >
-                <div className="font-mono text-[9px] text-[#AC8E66] tracking-wide">Struktur ESC Closed</div>
+                <div className="font-mono text-[11px] text-[#AC8E66] tracking-wide">Struktur ESC Closed</div>
                 {editorType === 'block' && (
                   <div className="
                   font-mono 
                   text-[9px]
                   leading-[12px]
                   text-[#e3d4bf]">
-                    Kapitelklick bleibt im Block-Editor und springt zur passenden Ueberschrift.
+                    Kapitelklick wechselt in den Markdown-Editor und springt zur Stelle.
                   </div>
                 )}
 
@@ -781,7 +731,7 @@ export const Step1SourceInput = ({
                               borderRadius: 6,
                               color: item.line === activeOutlineLine ? '#151515' : '#c8c8c8',
                             }}
-                            onClick={() => handleOutlineItemClick(item.line, idx)}
+                            onClick={() => handleOutlineItemClick(item.line)}
                           >
                             {item.text}
                           </button>
@@ -806,12 +756,7 @@ export const Step1SourceInput = ({
                 <ZenBlockEditor
                   key={`block-${activeDocTabId ?? 'no-tab'}`}
                   value={sourceContent}
-                  onChange={emitSourceContentChange}
-                  onRegisterContentSnapshotGetter={(getter) => {
-                    editorSnapshotGetterRef.current = getter;
-                  }}
-                  focusHeadingRequest={outlineBlockFocusRequest}
-                  onActiveHeadingChange={handleActiveBlockHeadingChange}
+                  onChange={onSourceContentChange}
                   placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
                   height="calc(100vh - 340px)"
                   fontSize={editorSettings?.fontSize}
@@ -823,7 +768,7 @@ export const Step1SourceInput = ({
                 <ZenMarkdownEditor
                   key={`markdown-${activeDocTabId ?? 'no-tab'}`}
                   value={sourceContent}
-                  onChange={emitSourceContentChange}
+                  onChange={onSourceContentChange}
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
                   placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
@@ -892,7 +837,7 @@ export const Step1SourceInput = ({
                    <button
                      onClick={() => updateEditorTheme('dark')}
                      style={{
-                       padding: "6px 10px",
+                       padding: "5px 10px",
                        borderRadius: "4px",
                        border: editorSettings?.theme === 'dark' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
                        backgroundColor: editorSettings?.theme === 'dark' ? "#1a1a1a" : "transparent",
@@ -915,7 +860,7 @@ export const Step1SourceInput = ({
                      onClick={() => updateEditorTheme('light')}
                      style={{
                        zIndex: 0,
-                       padding: "6px 10px",
+                       padding: "3px 10px",
                        borderRadius: "4px",
                        border: editorSettings?.theme === 'light' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
                        backgroundColor: editorSettings?.theme === 'light' ? "#D9D4C5" : "transparent",
@@ -983,10 +928,7 @@ export const Step1SourceInput = ({
               {editorType === "block" ? "Markdown" : "Block Editor"}
             </button>
             <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onPreview?.(content);
-              }}
+              onClick={onPreview}
               style={{
                 padding: '8px 16px',
                 backgroundColor: 'transparent',
@@ -1012,10 +954,7 @@ export const Step1SourceInput = ({
               Preview
             </button>
             <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onSaveToProject?.(content);
-              }}
+              onClick={onSaveToProject}
               disabled={!canSaveToProject}
               style={{
                 padding: '8px 16px',
@@ -1041,37 +980,6 @@ export const Step1SourceInput = ({
             >
               <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
               Speichern
-            </button>
-            <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onSaveAsToProject?.(content);
-              }}
-              disabled={!canSaveToProject}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '6px',
-                cursor: canSaveToProject ? 'pointer' : 'not-allowed',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: canSaveToProject ? '#e5e5e5' : '#555',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-                opacity: canSaveToProject ? 1 : 0.5,
-              }}
-              onMouseEnter={(e) => {
-                if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3A3A3A';
-              }}
-            >
-              <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
-              Speichern unter
             </button>
             <div style={{ flex: 1 }} />
             <button

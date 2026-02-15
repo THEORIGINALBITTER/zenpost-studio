@@ -38,9 +38,11 @@ export const WelcomeScreen = ({
           1 mal Schreiben - 9 mal Veröffentlichen<br/> Wähle dein Studio
         </ZenSubtitle>
 
-        <div className="flex flex-col gap-3 mt-6">
+        <div className="flex flex-col gap-3 mt-6 text-[#fff] ">
 
               <ZenRoughButton
+
+
             label="Getting Started"
             icon={<FontAwesomeIcon 
               icon={faLayerGroup} 

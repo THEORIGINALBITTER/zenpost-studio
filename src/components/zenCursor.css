@@ -12,6 +12,11 @@
   opacity: 1;
 }
 
+/* Force-hide custom cursor (e.g. reading mode in Step4) */
+body.zen-cursor-force-hidden .zen-cursor {
+  opacity: 0 !important;
+}
+
 /* Inner Core (kleiner Punkt in der Mitte) */
 .zen-core {
   width: 12px;

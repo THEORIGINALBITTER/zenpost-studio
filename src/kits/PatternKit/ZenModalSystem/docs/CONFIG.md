@@ -128,7 +128,7 @@ interface ZenModalFooterProps {
 #### Default Footer
 ```tsx
 <ZenModalFooter />
-// Shows: "Made with ❤️ by Denis Bitter"
+// Shows: ""
 ```
 
 #### Without Footer Text

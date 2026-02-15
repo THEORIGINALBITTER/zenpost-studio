@@ -1,28 +1,61 @@
 # Installation
 
-Diese Anleitung ist bewusst knapp und sachlich gehalten.
-
 ## Desktop
 
-1. Installer herunterladen
-2. App starten
+Empfohlen fuer lokale KI (Ollama) und volles Feature-Set.
+
+1. Installer herunterladen: [GitHub Releases](https://github.com/theoriginalbitter/zenpost-studio/releases)
+2. Installieren und App starten
 3. In den Einstellungen den KI-Provider setzen
 
-Empfohlen, wenn du lokal mit Ollama arbeiten willst.
+**Systemanforderungen:**
+
+| OS | Version | Hinweis |
+| --- | --- | --- |
+| macOS | 11+ (Big Sur) | Intel und Apple Silicon |
+| Windows | 10+ | 64-bit |
+| Linux | Ubuntu 20.04+ | AppImage oder .deb |
+
+Fuer lokale KI zusaetzlich: [Ollama installieren](ai/ollama.md)
 
 ## Web
 
-1. `https://zenpost.denisbitter.de` oeffnen
-2. KI-Provider konfigurieren
+Kein Download noetig. Laeuft direkt im Browser.
 
-Im Web brauchst du fuer lokale KI eine CORS-Freigabe.
+1. [zenpost.denisbitter.de](https://zenpost.denisbitter.de) oeffnen
+2. KI-Provider konfigurieren (Einstellungen → AI Einstellungen)
 
-## Lokale KI
+**Einschraenkungen im Web:**
 
-- Ollama muss laufen
-- Standard-URL ist `http://127.0.0.1:11434`
+- Lokale KI (Ollama) ist **nicht verfuegbar** — der Browser kann aus Sicherheitsgruenden nicht auf lokale Dienste zugreifen
+- Datei-Export nutzt den Browser-Download statt nativer Dialoge
+- Projekt-Ordner nicht verfuegbar (kein Dateisystem-Zugriff)
 
-## Cloud-KI
+## KI-Provider einrichten
 
-- API-Key hinterlegen
-- Modell auswaehlen
+### Lokale KI (Ollama) — nur Desktop
+
+1. Ollama installieren: [ollama.com](https://ollama.com)
+2. Modell herunterladen: `ollama pull llama3.1`
+3. Server starten: `ollama serve`
+4. In ZenPost: Einstellungen → AI → Provider: **Ollama**
+5. Base URL: `http://127.0.0.1:11434` (Standard)
+
+Detaillierte Anleitung: [Ollama Setup](ai/ollama.md)
+
+### Cloud-KI
+
+1. API-Key beim Anbieter erstellen
+2. In ZenPost: Einstellungen → AI → Provider waehlen
+3. API-Key eingeben
+4. Modell auswaehlen
+
+**Verfuegbare Modelle:**
+
+| Provider | Modelle |
+| --- | --- |
+| OpenAI | gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo |
+| Anthropic | claude-3-5-sonnet, claude-3-opus, claude-3-sonnet, claude-3-haiku |
+| Ollama | llama3.2, llama3.1, mistral, mixtral, codellama, qwen2.5-coder |
+
+Detaillierte Anleitung: [Cloud-Provider](ai/cloud.md)

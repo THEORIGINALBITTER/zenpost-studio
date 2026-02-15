@@ -278,6 +278,8 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
       });
 
     return convertOrderedLists(text)
+      .replace(/<span[^>]*text-decoration\s*:\s*underline[^>]*>([\s\S]*?)<\/span>/gi, '<u>$1</u>')
+      .replace(/<ins(\s+[^>]*)?>([\s\S]*?)<\/ins>/gi, '<u>$2</u>')
       .replace(/&nbsp;/gi, ' ')
       .replace(/<\/li>\s*<li(\s+[^>]*)?>/gi, '\n- ')
       .replace(/<li(\s+[^>]*)?>/gi, '- ')

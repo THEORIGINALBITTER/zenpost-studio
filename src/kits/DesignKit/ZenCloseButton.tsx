@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import rough from "roughjs/bin/rough";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCheck } from "@fortawesome/free-solid-svg-icons";
 
 interface ZenCloseButtonProps {
   onClick?: () => void;
@@ -75,8 +75,9 @@ export const ZenCloseButton: React.FC<ZenCloseButtonProps> = ({
       />
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
-        icon={faXmark}
-        className="text-[14px] z-10 text-[#AC8E66] pointer-events-none group-hover:text-[#555]"
+        icon={faCheck}
+        className="text-[14px] z-10 text-[#AC8E66] pointer-events-none 
+        group-hover:text-[#D9D4C5] transition-colors"
       />
     </button>
   );

@@ -12,6 +12,7 @@ import {
   faFileExport,
   faWandMagicSparkles,
   faSave,
+  faChevronDown,
   faRotateLeft,
   faPaperPlane,
 } from "@fortawesome/free-solid-svg-icons";
@@ -189,9 +190,12 @@ function AppContent() {
     | "back_dashboard"
     | "back_posting"
     | "save"
+    | "save_as"
     | "transform"
     | null
   >(null);
+  const [showContentSaveMenu, setShowContentSaveMenu] = useState(false);
+  const contentSaveMenuRef = useRef<HTMLDivElement | null>(null);
   const [_contentTransformHeaderTab, setContentTransformHeaderTab] = useState<"preview" | "next">("next");
   const [_contentTransformShowBackToPosting, setContentTransformShowBackToPosting] = useState(false);
   const [contentTransformStep2SelectionCount, setContentTransformStep2SelectionCount] = useState(0);
@@ -222,6 +226,24 @@ function AppContent() {
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | null>(null);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
+
+  useEffect(() => {
+    if (!showContentSaveMenu) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (contentSaveMenuRef.current && target && !contentSaveMenuRef.current.contains(target)) {
+        setShowContentSaveMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [showContentSaveMenu]);
+
+  useEffect(() => {
+    if (currentScreen !== "content-transform" || contentTransformStep !== 1) {
+      setShowContentSaveMenu(false);
+    }
+  }, [currentScreen, contentTransformStep]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -998,11 +1020,70 @@ function AppContent() {
                 icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
                 onClick={handleNavigateToMultiPlatformTransform}
               />
-              <StudioBarButton
-                label="Speichern"
-                icon={<FontAwesomeIcon icon={faSave} />}
-                onClick={() => setContentTransformHeaderAction("save")}
-              />
+              <div ref={contentSaveMenuRef} style={{ position: "relative" }}>
+                <StudioBarButton
+                  label={showContentSaveMenu ? "Speichern ▲" : "Speichern ▾"}
+                  icon={<FontAwesomeIcon icon={faChevronDown} style={{ transform: showContentSaveMenu ? "rotate(180deg)" : "none" }} />}
+                  onClick={() => setShowContentSaveMenu((prev) => !prev)}
+                  active={showContentSaveMenu}
+                />
+                {showContentSaveMenu && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "42px",
+                      left: 0,
+                      width: "149px",
+                      border: "0.5px solid #AC8E66",
+                      borderRadius: "0 0 10px 10px",
+                      background: "#121212",
+                      boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
+                      zIndex: 60,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowContentSaveMenu(false);
+                        setContentTransformHeaderAction("save");
+                      }}
+                      style={saveMenuItemStyle}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(172, 142, 102, 0.16)";
+                        e.currentTarget.style.color = "#F4E8D5";
+                        e.currentTarget.style.border = "0 0 12px 12px";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "#121212";
+                        e.currentTarget.style.color = "#EFEBDC";
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faSave} />
+                      <span>Speichern</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowContentSaveMenu(false);
+                        setContentTransformHeaderAction("save_as");
+                      }}
+                      style={saveMenuItemStyle}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = "rgba(172, 142, 102, 0.16)";
+                        e.currentTarget.style.color = "#F4E8D5";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "#121212";
+                        e.currentTarget.style.color = "#EFEBDC";
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faSave} />
+                      <span>Speichern unter...</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <StudioBarButton
                 label="Preview"
                 icon={<FontAwesomeIcon icon={faFileLines} />}
@@ -1525,6 +1606,23 @@ interface StudioFile {
   name: string;
   modifiedAt?: number;
 }
+
+const saveMenuItemStyle: React.CSSProperties = {
+  width: "100%",
+  height: "38px",
+  border: "0",
+  borderTop: "0.5px solid #2A2A2A",
+  background: "#121212",
+  color: "#EFEBDC",
+  display: "flex",
+  alignItems: "center",
+  gap: "8px",
+  padding: "0 12px",
+  fontFamily: "IBM Plex Mono, monospace",
+  fontSize: "10px",
+  cursor: "pointer",
+  textAlign: "left",
+};
 
 const scanProjectFiles = async (rootPath: string, limit: number): Promise<StudioFile[]> => {
   const results: StudioFile[] = [];

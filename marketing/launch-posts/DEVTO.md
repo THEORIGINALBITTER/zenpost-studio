@@ -1,13 +1,5 @@
 # dev.to Launch Article
 
----
-title: I Built a Free AI Tool to Transform Content for Any Platform (Open Source)
-published: true
-tags: opensource, ai, react, productivity
-cover_image:
-canonical_url:
----
-
 ## The Problem
 
 Every developer who creates content knows this pain:
@@ -25,8 +17,8 @@ That's **2-3 hours** of manual work. For *every single article*.
 
 I built an AI-powered tool that transforms your content for any platform in seconds.
 
-🔗 **GitHub:** https://github.com/theoriginalbitter/zenpost-studio
-📚 **Docs:** https://theoriginalbitter.github.io/zenpost-studio/
+**GitHub:** https://github.com/theoriginalbitter/zenpost-studio
+**Docs:** https://theoriginalbitter.github.io/zenpost-studio/
 
 ### What It Does
 
@@ -37,24 +29,24 @@ I built an AI-powered tool that transforms your content for any platform in seco
 
 ### Why It's Different
 
-**🔒 Privacy First**
+** Privacy First**
 - No backend servers
 - API keys stored locally (LocalStorage only)
 - Your content never leaves your browser
 - Open source - see exactly what it does
 
-**💰 Free Forever**
+** Free Forever**
 - MIT licensed open source
 - No subscriptions ($0/month)
 - Pay only AI provider costs
 - Or use Ollama locally (100% free)
 
-**🎨 Beautiful Design**
+** Beautiful Design**
 - Hand-drawn Zen aesthetics (powered by rough.js)
 - Dark theme, monospace typography
 - Not another Bootstrap clone
 
-**🤖 Flexible AI**
+** Flexible AI**
 - OpenAI (GPT-4o, GPT-4o-mini)
 - Anthropic (Claude 3.5 Sonnet)
 - Ollama (llama3.1, mistral, codellama - runs locally)
@@ -91,7 +83,7 @@ Click "Transform" and get platform-optimized content in seconds.
 
 **LinkedIn Output:**
 ```
-🚀 Just discovered a game-changing approach to React state management
+Just discovered a game-changing approach to React state management
 
 Most developers struggle with:
 • Props drilling through 5+ components
@@ -138,7 +130,7 @@ State management has evolved. Here's what I learned...
 
 **Twitter Output:**
 ```
-🧵 Thread: The state management approach that changed how I build React apps
+Thread: The state management approach that changed how I build React apps
 
 (1/8)
 
@@ -147,7 +139,7 @@ Traditional approaches have 3 problems:
 2️⃣ Redux boilerplate
 3️⃣ Unnecessary re-renders
 
-Let me show you a better way 👇
+Let me show you a better way
 
 [Continues for 8 tweets]
 ```
@@ -274,28 +266,28 @@ GitHub discussion → LinkedIn thought leadership post
 
 **Coming Soon:**
 
-🖥️ **Desktop App (Tauri)**
+**Desktop App (Tauri)**
 - Native Windows/macOS/Linux app
 - Better performance
 - System integration
 
-📱 **Mobile Version**
+**Mobile Version**
 - iOS/Android apps
 - Content on-the-go
 
-🎨 **Custom Templates**
+**Custom Templates**
 - Save transformation styles
 - Share with community
 
-🔌 **Plugin System**
+**Plugin System**
 - Community extensions
 - Custom transformations
 
-📊 **Analytics Dashboard**
+**Analytics Dashboard**
 - Track transformation usage
 - Popular platforms
 
-🌍 **Internationalization**
+**Internationalization**
 - Multi-language support
 
 ## Contributing
@@ -303,12 +295,12 @@ GitHub discussion → LinkedIn thought leadership post
 This is open source! Contributions welcome:
 
 **Ways to help:**
-- ⭐ Star the repo on GitHub
-- 🐛 Report bugs or suggest features
-- 📝 Improve documentation
-- 🎨 Design new components
-- 🔧 Submit pull requests
-- 💬 Join discussions
+- Star the repo on GitHub
+- Report bugs or suggest features
+- Improve documentation
+- Design new components
+- Submit pull requests
+- Join discussions
 
 **Tech you'll use:**
 - React 18 + TypeScript
@@ -367,11 +359,11 @@ A: Absolutely! See contributing guide.
 Content repurposing is a pain. I built ZenPost Studio to solve it.
 
 **What you get:**
-- ✅ Transform content for any platform in seconds
-- ✅ Generate code documentation automatically
-- ✅ Beautiful, privacy-first design
-- ✅ Free & open source forever
-- ✅ Choose your own AI provider
+- Transform content for any platform in seconds
+- Generate code documentation automatically
+- Beautiful, privacy-first design
+- Free & open source forever
+- Choose your own AI provider
 
 **Try it now:**
 ```bash
@@ -380,9 +372,9 @@ npm install && npm run dev
 ```
 
 **Links:**
-- 🌟 GitHub: https://github.com/theoriginalbitter/zenpost-studio
-- 📚 Documentation: https://theoriginalbitter.github.io/zenpost-studio/
-- 🐛 Issues: https://github.com/theoriginalbitter/zenpost-studio/issues
+- GitHub: https://github.com/theoriginalbitter/zenpost-studio
+- Documentation: https://theoriginalbitter.github.io/zenpost-studio/
+- Issues: https://github.com/theoriginalbitter/zenpost-studio/issues
 
 ---
 
@@ -393,12 +385,12 @@ Is content repurposing a pain point for you? How do you currently handle multi-p
 Drop a comment – I'd love to hear your workflow and suggestions!
 
 **If you found this useful:**
-- ⭐ Star the repo
-- 🔄 Share with your network
-- 💬 Join the discussion
+- Star the repo
+- Share with your network
+- Join the discussion
 
 ---
 
-**Made with ❤️ by Denis Bitter**
+**Made with love by Denis Bitter**
 
 Follow me: [@theoriginalbitter](https://github.com/theoriginalbitter)

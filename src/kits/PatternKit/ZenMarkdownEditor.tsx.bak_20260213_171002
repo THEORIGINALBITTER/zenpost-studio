@@ -12,7 +12,6 @@ import {
   faCode,
   faQuoteRight,
   faWandMagicSparkles,
-  faTable,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
@@ -181,7 +180,6 @@ export const ZenMarkdownEditor = ({
 
   const [activeLine, setActiveLine] = useState(0);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
-  const handledFocusTokenRef = useRef<number | null>(null);
 
   const [lineMetrics, setLineMetrics] = useState({ lineHeight: 21, paddingTop: 12 });
 
@@ -199,7 +197,7 @@ export const ZenMarkdownEditor = ({
     if (!textarea) return;
 
     const pos = textarea.selectionStart;
-    const textBefore = textarea.value.substring(0, pos);
+    const textBefore = value.substring(0, pos);
     const lineIndex = textBefore.split('\n').length - 1;
     setActiveLine(lineIndex);
     onActiveLineChange?.(lineIndex);
@@ -225,12 +223,10 @@ export const ZenMarkdownEditor = ({
 
   useEffect(() => {
     if (!focusLineRequest) return;
-    if (handledFocusTokenRef.current === focusLineRequest.token) return;
     const textarea = textareaRef.current;
     if (!textarea) return;
-    handledFocusTokenRef.current = focusLineRequest.token;
 
-    const lines = textarea.value.split('\n');
+    const lines = value.split('\n');
     const targetLine = Math.max(0, Math.min(focusLineRequest.line, lines.length - 1));
     let cursorPos = 0;
     for (let i = 0; i < targetLine; i += 1) {
@@ -249,7 +245,7 @@ export const ZenMarkdownEditor = ({
     if (showLineNumbers && lineNumbersRef.current) {
       lineNumbersRef.current.scrollTop = targetScrollTop;
     }
-  }, [focusLineRequest, lineMetrics.lineHeight, onActiveLineChange, showLineNumbers]);
+  }, [focusLineRequest, lineMetrics.lineHeight, onActiveLineChange, showLineNumbers, value]);
 
 
   // Helper: Get current selection or cursor position
@@ -267,54 +263,31 @@ export const ZenMarkdownEditor = ({
   };
 
   // Helper: Calculate cursor position in pixels
-const getCursorPosition = () => {
+ const getCursorPosition = () => {
   const textarea = textareaRef.current;
-  const container = editorContainerRef.current;
-  if (!textarea || !container) return { top: 0, left: 0 };
+  if (!textarea) return { top: 0, left: 0 };
 
   const textareaRect = textarea.getBoundingClientRect();
-  const containerRect = container.getBoundingClientRect();
   const cursorPos = textarea.selectionStart;
   const textBeforeCursor = value.substring(0, cursorPos);
   const lines = textBeforeCursor.split('\n');
   const currentLineIndex = lines.length - 1;
   const currentLineText = lines[currentLineIndex];
 
-  const lineHeight = lineMetrics.lineHeight || 21;
+  const lineHeight = 21;
   const charWidth = 8.4;
-  const paddingTop = lineMetrics.paddingTop || 12;
-  const paddingLeft = 12;
-  const toolbarHeight = toolbarRef.current?.offsetHeight || 30;
-  const gap = 4;
 
-  let top =
-    (textareaRect.top - containerRect.top) +
-    paddingTop +
+  const top =
+    textareaRect.top +
+    12 + // paddingTop
     currentLineIndex * lineHeight -
     textarea.scrollTop +
-    2 -
-    toolbarHeight -
-    gap;
+    2;
 
-  let left =
-    (textareaRect.left - containerRect.left) +
-    paddingLeft +
+  const left =
+    textareaRect.left +
+    12 + // paddingLeft
     currentLineText.length * charWidth;
-
-  if (top < 8) {
-    top =
-      (textareaRect.top - containerRect.top) +
-      paddingTop +
-      currentLineIndex * lineHeight -
-      textarea.scrollTop +
-      lineHeight +
-      gap;
-  }
-
-  const toolbarWidth = toolbarRef.current?.offsetWidth || 220;
-  const maxLeft = Math.max(8, container.clientWidth - toolbarWidth - 8);
-  if (left < 8) left = 8;
-  if (left > maxLeft) left = maxLeft;
 
   return { top, left };
 };
@@ -350,11 +323,9 @@ const scheduleCursorToolbar = () => {
   const calculateToolbarPosition = () => {
     const textarea = textareaRef.current;
     const toolbar = toolbarRef.current;
-    const container = editorContainerRef.current;
-    if (!textarea || !toolbar || !container) return;
+    if (!textarea || !toolbar) return;
 
     const textareaRect = textarea.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
     const selectionStart = textarea.selectionStart;
     const selectionEnd = textarea.selectionEnd;
 
@@ -370,9 +341,9 @@ const scheduleCursorToolbar = () => {
     const midCharOffset = selectionLines[0].length / 2;
 
     // Estimate position (monospace font assumptions)
-    const lineHeight = lineMetrics.lineHeight || 21;
+    const lineHeight = 20;
     const charWidth = 8.4;
-    const paddingTop = lineMetrics.paddingTop || 12;
+    const paddingTop = 12; // textarea padding
     const paddingLeft = 12;
 
     // Account for scroll position within textarea
@@ -382,35 +353,21 @@ const scheduleCursorToolbar = () => {
     const toolbarHeight = toolbar.offsetHeight || 36;
 
     // Position toolbar above the selection
-    let top =
-      (textareaRect.top - containerRect.top) +
-      paddingTop +
-      (startLineIndex * lineHeight) -
-      scrollTop -
-      toolbarHeight -
-      4;
-    let left =
-      (textareaRect.left - containerRect.left) +
-      paddingLeft +
-      ((startCharIndex + midCharOffset) * charWidth);
+    let top = textareaRect.top + paddingTop + (startLineIndex * lineHeight) - scrollTop - toolbarHeight - 8;
+    let left = textareaRect.left + paddingLeft + ((startCharIndex + midCharOffset) * charWidth);
 
     // Keep toolbar in viewport
     if (top < 8) {
       // Show below selection if not enough space above
-      top =
-        (textareaRect.top - containerRect.top) +
-        paddingTop +
-        ((startLineIndex + 1) * lineHeight) -
-        scrollTop +
-        4;
+      top = textareaRect.top + paddingTop + ((startLineIndex + 1) * lineHeight) - scrollTop + 8;
     }
 
-    // Horizontal bounds within editor container
-    const maxLeft = Math.max(8, container.clientWidth - toolbarWidth - 8);
+    // Horizontal bounds
+    const viewportWidth = window.innerWidth;
     if (left < 8) {
       left = 8;
-    } else if (left > maxLeft) {
-      left = maxLeft;
+    } else if (left + toolbarWidth > viewportWidth - 8) {
+      left = viewportWidth - toolbarWidth - 8;
     }
 
     setToolbarPosition({ top, left });
@@ -454,7 +411,7 @@ const scheduleCursorToolbar = () => {
       textarea.removeEventListener('keyup', handleKeyUp);
       textarea.removeEventListener('touchend', handleMouseUp);
     };
-  }, [value, showCommandMenu, lineMetrics.lineHeight, lineMetrics.paddingTop]);
+  }, [value, showCommandMenu]);
 
   // Hide toolbar on scroll
   useEffect(() => {
@@ -741,10 +698,6 @@ const makeStrikethrough = () => insertText('~~', '~~');
     { id: 'ul-list', label: 'Unordered List', icon: faListUl, description: 'Aufzählungsliste', action: makeUnorderedList },
     { id: 'ol-list', label: 'Ordered List', icon: faListOl, description: 'Nummerierte Liste', action: makeOrderedList },
     { id: 'link', label: 'Link', icon: faLink, description: 'Hyperlink', action: makeLink, shortcut: `${modKey}+K` },
-    { id: 'table', label: 'Table', icon: faTable, description: 'Markdown-Tabelle einfügen', action: () => {
-      const tableMarkdown = `| Header 1 | Header 2 |\n| --- | --- |\n| Cell 1 | Cell 2 |`;
-      insertText(tableMarkdown);
-    } },
     {
       id: 'code',
       label: 'Code',
@@ -836,77 +789,6 @@ const makeStrikethrough = () => insertText('~~', '~~');
         setSlashCommandStart(-1);
         return;
       }
-    }
-
-    // Tab indentation / outdentation
-    if (e.key === 'Tab' && !showCommandMenu) {
-      e.preventDefault();
-      const textarea = textareaRef.current;
-      if (!textarea) return;
-
-      const current = value;
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const lineStart = current.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
-      const lineEndIdx = current.indexOf('\n', end);
-      const lineEnd = lineEndIdx === -1 ? current.length : lineEndIdx;
-      const selectionBlock = current.slice(lineStart, lineEnd);
-      const lines = selectionBlock.split('\n');
-
-      if (start !== end || selectionBlock.includes('\n')) {
-        if (e.shiftKey) {
-          const outdented = lines
-            .map((line) => {
-              if (line.startsWith('\t')) return line.slice(1);
-              if (line.startsWith('  ')) return line.slice(2);
-              return line;
-            })
-            .join('\n');
-          const next = current.slice(0, lineStart) + outdented + current.slice(lineEnd);
-          onChange(next);
-          setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(lineStart, lineStart + outdented.length);
-          }, 0);
-        } else {
-          const indented = lines.map((line) => `\t${line}`).join('\n');
-          const next = current.slice(0, lineStart) + indented + current.slice(lineEnd);
-          onChange(next);
-          setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(lineStart, lineStart + indented.length);
-          }, 0);
-        }
-        return;
-      }
-
-      if (e.shiftKey) {
-        const before = current.slice(0, start);
-        if (before.endsWith('\t')) {
-          const next = current.slice(0, start - 1) + current.slice(end);
-          onChange(next);
-          setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(start - 1, start - 1);
-          }, 0);
-        } else if (before.endsWith('  ')) {
-          const next = current.slice(0, start - 2) + current.slice(end);
-          onChange(next);
-          setTimeout(() => {
-            textarea.focus();
-            textarea.setSelectionRange(start - 2, start - 2);
-          }, 0);
-        }
-      } else {
-        const next = current.slice(0, start) + '\t' + current.slice(end);
-        onChange(next);
-        setTimeout(() => {
-          textarea.focus();
-          const cursor = start + 1;
-          textarea.setSelectionRange(cursor, cursor);
-        }, 0);
-      }
-      return;
     }
 
     // Paragraph vs. line break handling
@@ -1073,13 +955,13 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         {/* Editor Section - always visible */}
         <div
           ref={editorContainerRef}
-          className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} flex-1 min-w-0 relative`}
+          className={`${showPreview ? 'md:w-1/2 w-full' : 'w-full'} flex-1 min-w-0`}
         >
           {/* Floating Toolbar - Appears on text selection */}
           {showToolbar && !showCommandMenu && (
             <div
               ref={toolbarRef}
-              className="absolute z-50 flex items-center gap-0.5 p-0.5 
+              className="fixed z-50 flex items-center gap-0.5 p-0.5 
               bg-[#1a1a1a] border border-[#AC8E66] rounded rounded-[6px] shadow-lg"
               style={{
                 top: `${toolbarPosition.top}px`,
@@ -1112,7 +994,7 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         <div
           ref={commandMenuRef}
           className="
-          absolute z-50 w-32 bg-[#2A2A2A] 
+          fixed z-50 w-32 bg-[#2A2A2A] 
           border border-[#AC8E66] rounded rounded-[6px]  shadow-lg overflow-hidden"
           style={{
             top: `${commandMenuPosition.top}px`,
@@ -1304,8 +1186,7 @@ onKeyUp={() => {
               }
             }}
             placeholder={placeholder}
-            className="flex-1 min-w-0 
-            bg-transparent text-[#151515] font-mono
+            className="flex-1 min-w-0 bg-transparent text-[#e5e5e5] font-mono
               focus:outline-none
               resize-none transition-colors zen-scrollbar"
             style={{
@@ -1317,7 +1198,7 @@ onKeyUp={() => {
               flex: 1,
               caretColor: '#AC8E66',
               fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
-              fontSize: '11px',
+              fontSize: '12px',
               lineHeight: '21px',
               whiteSpace: 'pre',
               overflowX: 'auto',

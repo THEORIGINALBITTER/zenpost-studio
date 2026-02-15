@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { downloadDir, join } from '@tauri-apps/api/path';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
@@ -21,7 +21,7 @@ import {
   faPenNib,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal } from '../../kits/PatternKit/ZenModalSystem';
-import { ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
+import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { useZenIdle } from '../../hooks/useZenIdle';
 import {
   ContentPlatform,
@@ -48,7 +48,7 @@ interface Step4TransformResultProps {
   onReset: () => void;
   onBack: () => void;
   onOpenSettings: () => void;
-  onContentChange?: (content: string) => void; // Allow updating content after translation
+  onContentChange?: (content: string, meta?: { source: 'ai' | 'translator' | 'manual'; action?: string }) => void; // Allow updating content after translation
   cameFromDocStudio?: boolean;
   cameFromDashboard?: boolean;
   isPreview?: boolean;
@@ -63,12 +63,14 @@ interface Step4TransformResultProps {
   transformedContents?: Partial<Record<ContentPlatform, string>>;
   activeResultTab?: ContentPlatform | null;
   onActiveResultTabChange?: (platform: ContentPlatform) => void;
-  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' }>;
+  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' | 'derived' }>;
   activeDocTabId?: string | null;
   dirtyDocTabs?: Record<string, boolean>;
   onDocTabChange?: (tabId: string) => void;
   onCloseDocTab?: (tabId: string) => void;
   activeDocTabContent?: string;
+  originalContent?: string;
+  originalLabel?: string;
 }
 
 type ImproveOption = {
@@ -76,6 +78,12 @@ type ImproveOption = {
   icon: IconDefinition;
   label: string;
   desc: string;
+};
+
+type LineDiffRow = {
+  left: string;
+  right: string;
+  status: 'same' | 'added' | 'removed';
 };
 
 
@@ -163,6 +171,8 @@ export const Step4TransformResult = ({
   onDocTabChange,
   onCloseDocTab,
   activeDocTabContent = '',
+  originalContent = '',
+  originalLabel = 'Original',
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
   const [_copied, setCopied] = useState(false);
@@ -178,9 +188,10 @@ export const Step4TransformResult = ({
   }, [transformedContent]);
 
   useEffect(() => {
+    if (isPreview) return;
     if (!activeDocTabId || activeDocTabId === 'draft') return;
     setCurrentContent(activeDocTabContent);
-  }, [activeDocTabId, activeDocTabContent]);
+  }, [activeDocTabId, activeDocTabContent, isPreview]);
 
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
@@ -206,6 +217,63 @@ export const Step4TransformResult = ({
   // Success feedback
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastAction, setLastAction] = useState<string>('');
+  const [previewThemeByKey, setPreviewThemeByKey] = useState<Record<string, PreviewThemeId>>({
+    default: 'mono-clean',
+  });
+  const [showComparison, setShowComparison] = useState(false);
+
+  const previewContextKey = useMemo(() => {
+    if (activeDocTabId) return `doc:${activeDocTabId}`;
+    if (multiPlatformMode && activeResultTab) return `platform:${activeResultTab}`;
+    return 'default';
+  }, [activeDocTabId, activeResultTab, multiPlatformMode]);
+
+  const activePreviewTheme = previewThemeByKey[previewContextKey] ?? previewThemeByKey.default ?? 'mono-clean';
+  const previewStyleMode: 'mono' | 'color' = activePreviewTheme.startsWith('mono') ? 'mono' : 'color';
+
+  const hasComparison = !!originalContent && originalContent !== currentContent;
+  const comparisonRows = useMemo<LineDiffRow[]>(() => {
+    if (!hasComparison) return [];
+    const leftLines = originalContent.split('\n');
+    const rightLines = currentContent.split('\n');
+    const n = leftLines.length;
+    const m = rightLines.length;
+    const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+
+    for (let i = n - 1; i >= 0; i -= 1) {
+      for (let j = m - 1; j >= 0; j -= 1) {
+        dp[i][j] = leftLines[i] === rightLines[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+
+    const rows: LineDiffRow[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (leftLines[i] === rightLines[j]) {
+        rows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
+        i += 1;
+        j += 1;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        rows.push({ left: leftLines[i], right: '', status: 'removed' });
+        i += 1;
+      } else {
+        rows.push({ left: '', right: rightLines[j], status: 'added' });
+        j += 1;
+      }
+    }
+    while (i < n) {
+      rows.push({ left: leftLines[i], right: '', status: 'removed' });
+      i += 1;
+    }
+    while (j < m) {
+      rows.push({ left: '', right: rightLines[j], status: 'added' });
+      j += 1;
+    }
+    return rows;
+  }, [hasComparison, originalContent, currentContent]);
 
   useEffect(() => {
     if (multiPlatformMode && activeResultTab && transformedContents[activeResultTab] !== undefined) {
@@ -269,7 +337,7 @@ export const Step4TransformResult = ({
         setTimeout(() => setShowSuccessMessage(false), 3000);
 
         setCurrentContent(result.data);
-        onContentChange?.(result.data);
+        onContentChange?.(result.data, { source: 'ai', action });
         setShowTextAI(false);
         setShowImproveOptions(false);
         setShowCustomInput(false);
@@ -315,7 +383,7 @@ export const Step4TransformResult = ({
 
   const handleContentUpdate = (newContent: string) => {
     setCurrentContent(newContent);
-    onContentChange?.(newContent);
+    onContentChange?.(newContent, { source: 'translator' });
   };
 
 const handleDownload = async () => {
@@ -613,19 +681,19 @@ const handleDownload = async () => {
   ]);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 "
-        style={{ padding: '0.5rem 1.5rem', marginTop: '28px' }}
+    <div className="flex-1 flex flex-col items-center justify-center px-6  "
+        style={{ padding: '0.5rem 1.5rem', }}
   
     >
 
 
-        <div className="flex flex-col items-center w-full max-w-4xl"></div>
+        <div className="flex flex-col items-center w-full max-w-4xl bg-[#fff]"></div>
 
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#dbd9d5] text-center">
-            {isPreview ? " " : "Transformation abgeschlossen :)"}
+          <h2 className="font-mono text-3xl text-[#dbd9d5]  text-center">
+            {isPreview ? " " : "Transformation abgeschlossen."}
           </h2>
         </div>
 
@@ -739,36 +807,38 @@ const handleDownload = async () => {
         <div className=" border-[10px] border-[#AC8E66] "
           style={{
             width: "90vw",
-            
             backgroundColor: "#151515",
-            border: "1px solid #AC8E66",
+            border: "0.5px solid #AC8E66",
             borderRadius: "1.5rem",
-            padding: '0.5rem 0',
+            padding: '0.9rem 0',
   }}
         >
           <div className="flex justify-between items-center mb-4"
              style={{ padding: '0.5rem 2rem' }}
           >
             {currentContent && currentContent.trim() ? (
-              <div className="flex items-center gap-3 px-[-10px]">
-                {/* Text-AI Toggle Button */}
-                <div className='px-[10px]'>
-                <button
-                  onClick={() => setShowTextAI(!showTextAI)}
-                  className={`font-mono text-[10px] px-[10px] py-[10px] paddingLeft-[10px] rounded-lg border transition-all ${
-                    showTextAI
-                      ? 'bg-[transparent]  text-[#555] border-[#555]'
-                      : 'bg-[transparent] text-[#AC8E66] border-[#AC8E66] hover:bg-[#AC8E66]/10'
-                  }`}
-                  disabled={isAIProcessing}
-                >
-                  <FontAwesomeIcon icon={faWandMagicSparkles} className="mr-2" />
-                  Text-AI
-                </button>
-                </div>
-                <div className="font-mono text-[12px] text-[#AC8E66] px-3 py-1 rounded">
+              <div className="flex items-center gap-4 py-[10px]">
+                <div className="font-mono text-[12px] text-[#AC8E66] px-1 py-1 rounded">
                   Preview-Modus
                 </div>
+                <div className="
+                font-mono 
+                text-[10px] 
+                text-[#e3d4bf] 
+                px-1 py-1 rounded mt-[0px] ml-[5px]">
+                  im Style: {previewStyleMode === 'color' ? 'Color' : 'Mono'} · {PREVIEW_THEME_LABELS[activePreviewTheme]}
+                </div>
+                {hasComparison && (
+             
+                  <button
+                    onClick={() => setShowComparison((prev) => !prev)}
+                    className=" ml-[40px] mt-[2px] font-mono text-[9px] px-2 py-[5px] rounded 
+                    border border-[#3A3A3A] text-[#999] 
+                    hover:text-[#AC8E66] hover:border-[#AC8E66] transition-colors"
+                  >
+                    Vergleich {showComparison ? 'an' : 'aus'}
+                  </button>
+                )}
               </div>
             ) : <div />}
             <ZenCloseButton onClick={onBack} size="sm" />
@@ -1267,11 +1337,100 @@ const handleDownload = async () => {
 
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+            {showComparison && hasComparison && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  padding: '10px',
+                  border: '0.5px solid #3a3a3a',
+                  borderRadius: '10px',
+                  backgroundColor: '#101010',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
+                  <div className="font-mono text-[10px] text-[#AC8E66]">
+                    Vorher: {originalLabel}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div className="font-mono text-[10px] text-[#777]">
+                      Zeichen Δ {currentContent.length - originalContent.length}
+                    </div>
+                    <button
+                      onClick={onBack}
+                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] hover:bg-[#AC8E66]/10 transition-colors"
+                      title="Änderungen als neue Version in den Editor übernehmen"
+                    >
+                      Änderungen übernehmen
+                    </button>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '8px',
+                    maxHeight: '260px',
+                    overflow: 'auto',
+                  }}
+                >
+                  <div style={{ border: '0.5px solid #3a3a3a', borderRadius: '8px', overflow: 'hidden' }}>
+                    {comparisonRows.map((row, index) => (
+                      <div
+                        key={`left-${index}`}
+                        style={{
+                          padding: '3px 8px',
+                          minHeight: '18px',
+                          borderBottom: '0.5px solid #202020',
+                          backgroundColor: row.status === 'removed' ? 'rgba(239,68,68,0.12)' : '#171717',
+                          color: row.status === 'removed' ? '#fca5a5' : '#888',
+                          fontFamily: 'monospace',
+                          fontSize: '10px',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {row.left || ' '}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ border: '0.5px solid #AC8E66', borderRadius: '8px', overflow: 'hidden' }}>
+                    {comparisonRows.map((row, index) => (
+                      <div
+                        key={`right-${index}`}
+                        style={{
+                          padding: '3px 8px',
+                          minHeight: '18px',
+                          borderBottom: '0.5px solid #202020',
+                          backgroundColor: row.status === 'added' ? 'rgba(34,197,94,0.12)' : '#171717',
+                          color: row.status === 'added' ? '#86efac' : '#d9d4c5',
+                          fontFamily: 'monospace',
+                          fontSize: '10px',
+                          whiteSpace: 'pre-wrap',
+                        }}
+                      >
+                        {row.right || ' '}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {currentContent && currentContent.trim() ? (
               <ZenMarkdownPreview
                 content={currentContent}
                 height="500px"
                 onContentChange={handleContentUpdate}
+                showTextAI={showTextAI}
+                onToggleTextAI={() => setShowTextAI((prev) => !prev)}
+                isTextAIDisabled={isAIProcessing}
+                autoHideReadingCursor={isIdle}
+                collapseControlsByDefault
+                previewTheme={activePreviewTheme}
+                onPreviewThemeChange={(theme) => {
+                  setPreviewThemeByKey((prev) => ({
+                    ...prev,
+                    [previewContextKey]: theme,
+                  }));
+                }}
               />
             ) : (
               <div
@@ -1283,16 +1442,16 @@ const handleDownload = async () => {
                   justifyContent: 'center',
                   color: '#777',
                   fontFamily: 'monospace',
-                  fontSize: '14px',
+                  fontSize: '12px',
                   gap: '8px',
-                  fontWeight: '400'
+                  fontWeight: '200',
+                  background : '#e3d4bf',
+                  borderRadius: '12px'
                 }}
               >
                 <span style={{ color: '#AC8E66' }}></span>
                 <span>Schreibe was du denkst, nutze dafür einfach den Nachbearbeiten Tab.</span>
-                <span style={{ fontSize: '11px', color: '#555' }}>
-                  Kein Inhalt vorhanden.
-                </span>
+               
               </div>
             )}
           </div>

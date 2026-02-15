@@ -85,5 +85,5 @@ Drop a comment – I'd love to hear your workflow! 👇
 
 ---
 
-**Made with ❤️ by Denis Bitter**
+**Made with love by Denis Bitter**
 GitHub: github.com/theoriginalbitter

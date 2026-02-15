@@ -58,7 +58,7 @@ export const ZenHeader = ({
 
         {/* RIGHT */}
         <div className="flex items-center gap-3 min-w-0">
-          <p className="font-mono text-[9px] text-[#b4b3b0] tracking-tight 
+          <p className="font-mono text-[9px] text-[#b4b3b0] tracking-tight mr-[10px]
           text-right max-w-[50vw] truncate">
             {rightText}
           </p>

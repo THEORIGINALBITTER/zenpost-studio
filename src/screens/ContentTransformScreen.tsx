@@ -129,7 +129,7 @@ interface ContentTransformScreenProps {
   onFileRequestHandled?: () => void;
   metadata?: ProjectMetadata;
   onMetadataChange?: (metadata: ProjectMetadata) => void;
-  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "transform" | null;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "transform" | null;
   onHeaderActionHandled?: () => void;
   onStep1BackToPostingChange?: (visible: boolean) => void;
   onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
@@ -146,7 +146,7 @@ interface ContentTransformScreenProps {
 type ContentDocTab = {
   id: string;
   title: string;
-  kind: 'draft' | 'file' | 'article';
+  kind: 'draft' | 'file' | 'article' | 'derived';
   filePath?: string;
   articleId?: string;
 };
@@ -196,9 +196,12 @@ export const ContentTransformScreen = ({
 
   // Step 1: Source Input
   const [sourceContent, setSourceContent] = useState<string>('');
+  const sourceContentRef = useRef<string>('');
+  const liveContentGetterRef = useRef<(() => Promise<string>) | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>([]);
   const [activeDocTabId, setActiveDocTabId] = useState<string | null>(null);
+  const activeDocTabIdRef = useRef<string | null>(null);
   const [docTabContents, setDocTabContents] = useState<Record<string, string>>({});
   const [dirtyDocTabs, setDirtyDocTabs] = useState<Record<string, boolean>>({});
   const [editorSettings, setEditorSettings] = useState<EditorSettings>({
@@ -206,6 +209,14 @@ export const ContentTransformScreen = ({
   });
   const lastAutosaveRef = useRef<string>('');
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
+
+  useEffect(() => {
+    activeDocTabIdRef.current = activeDocTabId;
+  }, [activeDocTabId]);
+
+  useEffect(() => {
+    sourceContentRef.current = sourceContent;
+  }, [sourceContent]);
 
   useEffect(() => {
     if (!activeDocTabId) return;
@@ -217,6 +228,7 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     if (activeDocTabId || openDocTabs.length === 0) return;
     const nextTab = openDocTabs[0];
+    activeDocTabIdRef.current = nextTab.id;
     setActiveDocTabId(nextTab.id);
     const nextContent = docTabContents[nextTab.id] ?? '';
     setSourceContent(nextContent);
@@ -275,8 +287,63 @@ export const ContentTransformScreen = ({
     return getActiveSavePlatform();
   };
 
-  const handleSaveSourceToProject = async () => {
-    if (!sourceContent.trim()) {
+  const getLatestSourceContent = (override?: string) =>
+    override ?? sourceContentRef.current ?? sourceContent;
+
+  const resolveLatestSourceContent = async (override?: string) => {
+    if (typeof override === 'string') return override;
+    const getter = liveContentGetterRef.current;
+    if (getter) {
+      try {
+        const snapshot = await getter();
+        if (typeof snapshot === 'string') {
+          sourceContentRef.current = snapshot;
+          if (snapshot !== sourceContent) {
+            setSourceContent(snapshot);
+          }
+          return snapshot;
+        }
+      } catch {
+        // fallback to state/ref
+      }
+    }
+    return getLatestSourceContent();
+  };
+
+  const finalizeSavedSource = (
+    filePath: string | undefined,
+    savedName: string,
+    content: string,
+    options?: { markAsFile?: boolean }
+  ) => {
+    if (activeDocTabId) {
+      setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
+      setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: content }));
+      if (options?.markAsFile && filePath) {
+        setOpenDocTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === activeDocTabId
+              ? { ...tab, kind: 'file' as const, filePath, title: savedName }
+              : tab
+          )
+        );
+        setFileName(savedName);
+      }
+    }
+    setSavedFileName(savedName);
+    setSavedFilePath(filePath);
+    setShowSaveSuccess(true);
+    if (filePath) {
+      onFileSaved?.(filePath, content, savedName);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('zenpost-project-files-updated'));
+    }
+  };
+
+  const handleSaveAsSourceToProject = async (contentOverride?: string) => {
+    const contentToSave = await resolveLatestSourceContent(contentOverride);
+    if (!contentToSave.trim()) {
       alert('Kein Inhalt zum Speichern.');
       return;
     }
@@ -299,42 +366,42 @@ export const ContentTransformScreen = ({
         alert('Bitte speichere innerhalb des Projektordners.');
         return;
       }
-      await writeTextFile(filePath, sourceContent);
-      if (activeDocTabId) {
-        setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
-      }
-      // Show success modal
+      await writeTextFile(filePath, contentToSave);
       const savedName = filePath.split(/[\\/]/).pop() || suggestedName;
-      setSavedFileName(savedName);
-      setSavedFilePath(filePath);
-      setShowSaveSuccess(true);
-      // Notify parent about the saved file (for scheduled post updates)
-      onFileSaved?.(filePath, sourceContent, savedName);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new Event('zenpost-project-files-updated'));
-      }
+      finalizeSavedSource(filePath, savedName, contentToSave, { markAsFile: true });
       return;
     }
 
-    const blob = new Blob([sourceContent], { type: 'text/markdown;charset=utf-8' });
+    const blob = new Blob([contentToSave], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     const userName = window.prompt('Dateiname anpassen?', defaultName);
     const finalName = (userName && userName.trim()) ? userName.trim() : defaultName;
-    link.download = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+    link.download = finalFileName;
     link.click();
     URL.revokeObjectURL(url);
-    // Show success modal for web download
-    if (activeDocTabId) {
-      setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
+    finalizeSavedSource(undefined, finalFileName, contentToSave);
+  };
+
+  const handleSaveSourceToProject = async (contentOverride?: string) => {
+    const contentToSave = await resolveLatestSourceContent(contentOverride);
+    if (!contentToSave.trim()) {
+      alert('Kein Inhalt zum Speichern.');
+      return;
     }
-    setSavedFileName(finalName.endsWith('.md') ? finalName : `${finalName}.md`);
-    setSavedFilePath(undefined);
-    setShowSaveSuccess(true);
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new Event('zenpost-project-files-updated'));
+
+    const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
+
+    if (isTauri() && activeTab?.kind === 'file' && activeTab.filePath) {
+      await writeTextFile(activeTab.filePath, contentToSave);
+      const savedName = activeTab.filePath.split(/[\\/]/).pop() || activeTab.title || 'Dokument.md';
+      finalizeSavedSource(activeTab.filePath, savedName, contentToSave);
+      return;
     }
+
+    await handleSaveAsSourceToProject(contentToSave);
   };
 
   // Track initial content load to prevent re-loading
@@ -526,6 +593,10 @@ export const ContentTransformScreen = ({
   // Multi-platform results (for multi-select mode)
   const [transformedContents, setTransformedContents] = useState<Record<ContentPlatform, string>>({} as Record<ContentPlatform, string>);
   const [activeResultTab, setActiveResultTab] = useState<ContentPlatform | null>(null);
+  const [step4OriginalContent, setStep4OriginalContent] = useState<string>('');
+  const [step4SourceTabId, setStep4SourceTabId] = useState<string | null>(null);
+  const [resultTabBySource, setResultTabBySource] = useState<Record<string, string>>({});
+  const [step4LastChangeSource, setStep4LastChangeSource] = useState<'ai' | 'translator' | 'manual'>('manual');
 
   // Propagate content changes to parent (for Export Modal)
   useEffect(() => {
@@ -656,6 +727,57 @@ export const ContentTransformScreen = ({
     }
   };
 
+  const captureStep4Original = (contentSnapshot?: string) => {
+    setStep4OriginalContent(getLatestSourceContent(contentSnapshot));
+    setStep4SourceTabId(activeDocTabIdRef.current);
+    setStep4LastChangeSource('manual');
+  };
+
+  const openStep4FromSource = async (contentOverride?: string, mode: 'preview' | 'posting' = 'preview') => {
+    const snapshot = await resolveLatestSourceContent(contentOverride);
+    setPreviewMode(mode === 'preview');
+    setTransformedContent(snapshot);
+    captureStep4Original(snapshot);
+    setCameFromEdit(false);
+    setStep(4);
+  };
+
+  const upsertResultVersionTab = (nextContent: string, source: 'ai' | 'translator' | 'manual') => {
+    const sourceKey = step4SourceTabId ?? '__draft__';
+    const sourceTab = step4SourceTabId ? openDocTabs.find((tab) => tab.id === step4SourceTabId) : null;
+    const baseTitleRaw = sourceTab?.title || fileName || 'Entwurf';
+    const baseTitle = baseTitleRaw.replace(/\s·\s(Neu|AI|AI Überarbeitung|Übersetzt)$/i, '');
+    const suffix = source === 'translator' ? 'Übersetzt' : source === 'ai' ? 'AI Überarbeitung' : 'Neu';
+    const nextTitle = `${baseTitle} · ${suffix}`;
+
+    const mappedId = resultTabBySource[sourceKey];
+    const mappedTabExists = mappedId ? openDocTabs.some((tab) => tab.id === mappedId) : false;
+    const resultTabId = mappedTabExists ? mappedId : `derived:${sourceKey}:${Date.now()}`;
+
+    if (!mappedTabExists) {
+      setOpenDocTabs((prev) => [
+        ...prev,
+        {
+          id: resultTabId,
+          title: nextTitle,
+          kind: 'derived',
+        },
+      ]);
+      setResultTabBySource((prev) => ({ ...prev, [sourceKey]: resultTabId }));
+    } else {
+      setOpenDocTabs((prev) =>
+        prev.map((tab) => (tab.id === resultTabId ? { ...tab, title: nextTitle } : tab))
+      );
+    }
+
+    setDocTabContents((prev) => ({ ...prev, [resultTabId]: nextContent }));
+    setDirtyDocTabs((prev) => ({ ...prev, [resultTabId]: true }));
+    activeDocTabIdRef.current = resultTabId;
+    setActiveDocTabId(resultTabId);
+    setSourceContent(nextContent);
+    setFileName(nextTitle);
+  };
+
   const handleNextFromStep1 = () => {
     if (!sourceContent.trim()) {
       setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
@@ -698,6 +820,7 @@ export const ContentTransformScreen = ({
   };
 
   const handleDocTabChange = (tabId: string) => {
+    activeDocTabIdRef.current = tabId;
     setActiveDocTabId(tabId);
     const nextContent = docTabContents[tabId] ?? '';
     setSourceContent(nextContent);
@@ -804,18 +927,20 @@ export const ContentTransformScreen = ({
   };
 
   const handleSourceContentChange = (content: string) => {
+    sourceContentRef.current = content;
     setSourceContent(content);
 
     // Determine which tab to mark as dirty
     // Priority: activeDocTabId > tab matching fileName > first tab
     let targetTabId: string | null = null;
+    const activeTabIdNow = activeDocTabIdRef.current;
 
     if (openDocTabs.length > 0) {
       // First try: use activeDocTabId if it's valid
-      if (activeDocTabId) {
-        const activeTab = openDocTabs.find((tab) => tab.id === activeDocTabId);
+      if (activeTabIdNow) {
+        const activeTab = openDocTabs.find((tab) => tab.id === activeTabIdNow);
         if (activeTab) {
-          targetTabId = activeDocTabId;
+          targetTabId = activeTabIdNow;
         }
       }
 
@@ -824,6 +949,7 @@ export const ContentTransformScreen = ({
         const matchingTab = openDocTabs.find((tab) => tab.title === fileName);
         if (matchingTab) {
           targetTabId = matchingTab.id;
+          activeDocTabIdRef.current = targetTabId;
           setActiveDocTabId(targetTabId);
         }
       }
@@ -831,6 +957,7 @@ export const ContentTransformScreen = ({
       // Third try: use first tab
       if (!targetTabId) {
         targetTabId = openDocTabs[0].id;
+        activeDocTabIdRef.current = targetTabId;
         setActiveDocTabId(targetTabId);
         setFileName(openDocTabs[0].title);
       }
@@ -850,6 +977,7 @@ export const ContentTransformScreen = ({
       setOpenDocTabs([newTab]);
       setDocTabContents({ [newTabId]: content });
       setDirtyDocTabs({ [newTabId]: true });
+      activeDocTabIdRef.current = newTabId;
       setActiveDocTabId(newTabId);
       setFileName('Entwurf');
     }
@@ -932,6 +1060,8 @@ export const ContentTransformScreen = ({
           const firstPlatform = selectedPlatforms[0];
           setActiveResultTab(firstPlatform);
           setTransformedContent(results[firstPlatform] || '');
+          captureStep4Original();
+          setStep4LastChangeSource('ai');
           if (firstAutoModel) {
             setAutoSelectedModel(firstAutoModel);
           }
@@ -970,6 +1100,8 @@ export const ContentTransformScreen = ({
           }
 
           setTransformedContent(finalContent);
+          captureStep4Original();
+          setStep4LastChangeSource('ai');
           setStep(4);
         } else {
           const errorMsg = result.error || 'Transformation fehlgeschlagen';
@@ -1183,11 +1315,10 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     if (!headerAction) return;
     if (headerAction === "preview") {
-      setPreviewMode(true);
-      setTransformedContent(sourceContent);
-      setCameFromEdit(false);
-      setStep(4);
-      onHeaderActionHandled?.();
+      void (async () => {
+        await openStep4FromSource();
+        onHeaderActionHandled?.();
+      })();
       return;
     }
     if (headerAction === "next") {
@@ -1199,10 +1330,7 @@ export const ContentTransformScreen = ({
       }
     }
     if (headerAction === "back_posting" && effectiveStep === 1) {
-      setPreviewMode(false);
-      setTransformedContent(sourceContent);
-      setCameFromEdit(false);
-      setStep(4);
+      void openStep4FromSource(undefined, 'posting');
     }
     if (headerAction === "transform" && effectiveStep === 3) {
       handleTransform();
@@ -1211,7 +1339,10 @@ export const ContentTransformScreen = ({
       handlePostDirectly();
     }
     if (headerAction === "save" && effectiveStep === 1) {
-      handleSaveSourceToProject();
+      void handleSaveSourceToProject();
+    }
+    if (headerAction === "save_as" && effectiveStep === 1) {
+      void handleSaveAsSourceToProject();
     }
     onHeaderActionHandled?.();
   }, [
@@ -1245,13 +1376,15 @@ export const ContentTransformScreen = ({
               onNext={handleNextFromStep1}
               onOpenMetadata={() => setShowMetadata(true)}
               onError={setError}
-              onPreview={() => {
-                setPreviewMode(true);
-                setTransformedContent(sourceContent);
-                setCameFromEdit(false);
-                setStep(4);
+              onPreview={(latestContent) => {
+                void openStep4FromSource(latestContent, 'preview');
               }}
-              onSaveToProject={handleSaveSourceToProject}
+              onSaveToProject={(latestContent) => {
+                void handleSaveSourceToProject(latestContent);
+              }}
+              onSaveAsToProject={(latestContent) => {
+                void handleSaveAsSourceToProject(latestContent);
+              }}
               canSaveToProject={!!sourceContent.trim() && (!isTauri() || !!projectPath)}
               editTabs={editTabs}
               activeEditTab={activeEditTab}
@@ -1267,12 +1400,12 @@ export const ContentTransformScreen = ({
                 }
               }}
               cameFromEdit={cameFromEdit}
-              onBackToPosting={() => {
+              onBackToPosting={(latestContent) => {
                 // User edited content, go directly to Step 4 for posting
-                setPreviewMode(false);
-                setTransformedContent(sourceContent); // Use edited content
-                setCameFromEdit(false); // Reset flag
-                setStep(4);
+                void openStep4FromSource(latestContent, 'posting');
+              }}
+              onRegisterLiveContentGetter={(getter) => {
+                liveContentGetterRef.current = getter;
               }}
               cameFromDocStudio={cameFromDocStudio}
               onBackToDocStudio={() => onBackToDocStudio?.(sourceContent)}
@@ -1368,16 +1501,26 @@ export const ContentTransformScreen = ({
               onBack={() => {
                 // Nachbearbeiten: Zum Editor mit transformiertem Content
                 setPreviewMode(false);
+                const nextContent = multiPlatformMode
+                  ? (() => {
+                      const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
+                      setActiveEditTab(nextTab);
+                      if (nextTab && Object.prototype.hasOwnProperty.call(transformedContents, nextTab)) {
+                        return transformedContents[nextTab] || '';
+                      }
+                      return '';
+                    })()
+                  : transformedContent;
+
+                if (nextContent !== step4OriginalContent) {
+                  upsertResultVersionTab(nextContent, step4LastChangeSource);
+                } else {
+                  setSourceContent(nextContent);
+                }
+
                 if (multiPlatformMode) {
                   const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
                   setActiveEditTab(nextTab);
-                  if (nextTab && Object.prototype.hasOwnProperty.call(transformedContents, nextTab)) {
-                    setSourceContent(transformedContents[nextTab] || '');
-                  } else {
-                    setSourceContent('');
-                  }
-                } else {
-                  setSourceContent(transformedContent);
                 }
                 setCameFromEdit(true); // Mark that user came from edit
                 setStep(1);
@@ -1389,14 +1532,9 @@ export const ContentTransformScreen = ({
                 setSettingsMissingSocialLabel(undefined);
                 setShowSettings(true);
               }}
-              onContentChange={(content) => {
-                if (activeDocTabId && activeDocTabId !== 'draft') {
-                  setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: content }));
-                  setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
-                  setSourceContent(content);
-                  return;
-                }
+              onContentChange={(content, meta) => {
                 setTransformedContent(content);
+                setStep4LastChangeSource(meta?.source ?? 'manual');
                 if (multiPlatformMode && activeResultTab) {
                   setTransformedContents((prev) => ({ ...prev, [activeResultTab]: content }));
                 }
@@ -1430,6 +1568,12 @@ export const ContentTransformScreen = ({
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
               activeDocTabContent={activeDocTabId ? docTabContents[activeDocTabId] ?? '' : ''}
+              originalContent={step4OriginalContent}
+              originalLabel={
+                step4SourceTabId
+                  ? openDocTabs.find((tab) => tab.id === step4SourceTabId)?.title || 'Original'
+                  : fileName || 'Original'
+              }
             />
           </>
         );

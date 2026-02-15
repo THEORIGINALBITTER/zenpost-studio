@@ -427,68 +427,6 @@ class ZenCodeBlockTool {
     };
   }
 
-  private handleTabIndent(event: KeyboardEvent, textarea: HTMLTextAreaElement) {
-    if (event.key !== 'Tab') return;
-    event.preventDefault();
-    event.stopPropagation();
-
-    const value = textarea.value;
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const lineStart = value.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
-    const lineEndIdx = value.indexOf('\n', end);
-    const lineEnd = lineEndIdx === -1 ? value.length : lineEndIdx;
-    const selectedText = value.slice(lineStart, lineEnd);
-    const lines = selectedText.split('\n');
-
-    if (start !== end || selectedText.includes('\n')) {
-      if (event.shiftKey) {
-        const outdented = lines.map((line) => {
-          if (line.startsWith('\t')) return line.slice(1);
-          if (line.startsWith('  ')) return line.slice(2);
-          return line;
-        });
-        const replaced = outdented.join('\n');
-        textarea.value = value.slice(0, lineStart) + replaced + value.slice(lineEnd);
-        textarea.setSelectionRange(lineStart, lineStart + replaced.length);
-      } else {
-        const indented = lines.map((line) => `\t${line}`).join('\n');
-        textarea.value = value.slice(0, lineStart) + indented + value.slice(lineEnd);
-        textarea.setSelectionRange(lineStart, lineStart + indented.length);
-      }
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      return;
-    }
-
-    if (event.shiftKey) {
-      const before = value.slice(0, start);
-      if (before.endsWith('\t')) {
-        textarea.value = value.slice(0, start - 1) + value.slice(end);
-        textarea.setSelectionRange(start - 1, start - 1);
-      } else if (before.endsWith('  ')) {
-        textarea.value = value.slice(0, start - 2) + value.slice(end);
-        textarea.setSelectionRange(start - 2, start - 2);
-      }
-    } else {
-      const tab = '\t';
-      textarea.value = value.slice(0, start) + tab + value.slice(end);
-      const cursor = start + tab.length;
-      textarea.setSelectionRange(cursor, cursor);
-    }
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-
-  private handleCodeTextareaKeydown(event: KeyboardEvent, textarea: HTMLTextAreaElement) {
-    if (event.key === 'Enter') {
-      // Keep Enter inside code textarea and prevent EditorJS from splitting blocks.
-      event.stopPropagation();
-      return;
-    }
-    if (event.key === 'Tab') {
-      this.handleTabIndent(event, textarea);
-    }
-  }
-
   render() {
     const wrapper = document.createElement('div');
     wrapper.className = 'zen-code-block-tool';
@@ -503,7 +441,6 @@ class ZenCodeBlockTool {
     textarea.className = 'zen-code-block-tool__textarea';
     textarea.placeholder = 'Code eingeben...';
     textarea.value = this.data.code;
-    textarea.addEventListener('keydown', (event) => this.handleCodeTextareaKeydown(event, textarea));
 
     wrapper.appendChild(header);
     wrapper.appendChild(textarea);
@@ -539,7 +476,6 @@ class ZenCodeBlockTool {
 interface ZenBlockEditorProps {
   value: string; // Markdown input
   onChange: (value: string) => void; // Markdown output
-  onRegisterContentSnapshotGetter?: (getter: (() => Promise<string>) | null) => void;
   placeholder?: string;
   height?: string;
   fontSize?: number;
@@ -557,7 +493,6 @@ interface ZenBlockEditorProps {
 export const ZenBlockEditor = ({
   value,
   onChange,
-  onRegisterContentSnapshotGetter,
   placeholder = 'Schreibe  was du denkst...',
   height = '400px',
   fontSize,
@@ -587,27 +522,6 @@ export const ZenBlockEditor = ({
     onChangeRef.current = onChange;
   }, [onChange]);
 
-  const getCurrentMarkdownSnapshot = async (): Promise<string> => {
-    const editor = editorRef.current as any;
-    if (!editor?.save) {
-      return lastLocalMarkdownRef.current ?? value;
-    }
-    try {
-      const outputData = await editor.save();
-      const markdown = editorJSToMarkdown(outputData);
-      lastLocalMarkdownRef.current = markdown;
-      return markdown;
-    } catch {
-      return lastLocalMarkdownRef.current ?? value;
-    }
-  };
-
-  useEffect(() => {
-    if (!onRegisterContentSnapshotGetter) return;
-    onRegisterContentSnapshotGetter(getCurrentMarkdownSnapshot);
-    return () => onRegisterContentSnapshotGetter(null);
-  }, [onRegisterContentSnapshotGetter, isReady, value]);
-
   // Convert Markdown to EditorJS format
   const markdownToEditorJS = (markdown: string): OutputData => {
     if (!markdown.trim()) {
@@ -619,20 +533,6 @@ export const ZenBlockEditor = ({
     }
 
     const blocks: any[] = [];
-    const markdownInlineToHtml = (input: string) =>
-      input
-        // Links
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>')
-        // Inline code
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        // Bold (**text** / __text__)
-        .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
-        .replace(/__([^_]+)__/g, '<b>$1</b>')
-        // Italic (*text* / _text_)
-        .replace(/\*([^*]+)\*/g, '<i>$1</i>')
-        .replace(/_([^_]+)_/g, '<i>$1</i>')
-        // Strike-through
-        .replace(/~~([^~]+)~~/g, '<s>$1</s>');
     const lines = markdown.split('\n');
     let i = 0;
 
@@ -652,7 +552,7 @@ export const ZenBlockEditor = ({
         blocks.push({
           type: 'header',
           data: {
-            text: markdownInlineToHtml(text),
+            text,
             level: Math.min(level, 6),
           },
         });
@@ -684,11 +584,11 @@ export const ZenBlockEditor = ({
 
       // Quotes (>)
       if (line.startsWith('>')) {
-        const quoteLines: string[] = [markdownInlineToHtml(line.replace(/^>\s?/, ''))];
+        const quoteLines: string[] = [line.replace(/^>\s?/, '')];
         i++;
 
         while (i < lines.length && lines[i].startsWith('>')) {
-          quoteLines.push(markdownInlineToHtml(lines[i].replace(/^>\s?/, '')));
+          quoteLines.push(lines[i].replace(/^>\s?/, ''));
           i++;
         }
 
@@ -770,7 +670,7 @@ export const ZenBlockEditor = ({
         const itemRegex = isOrdered ? /^\d+\.\s/ : /^[\-\*]\s/;
 
         while (i < lines.length && lines[i].match(itemRegex)) {
-          items.push(markdownInlineToHtml(lines[i].replace(itemRegex, '')));
+          items.push(lines[i].replace(itemRegex, ''));
           i++;
         }
 
@@ -816,7 +716,7 @@ export const ZenBlockEditor = ({
       blocks.push({
         type: 'paragraph',
         data: {
-          text: markdownInlineToHtml(paragraphLines.join(' ')),
+          text: paragraphLines.join(' '),
         },
       });
     }
@@ -834,28 +734,7 @@ export const ZenBlockEditor = ({
       return '';
     }
 
-    const normalizeInlineText = (text: unknown) => {
-      const safeText = typeof text === 'string' ? text : String(text ?? '');
-      const convertInlineHtml = (input: string) =>
-        input
-          // Browser underline variants
-          .replace(/<span[^>]*text-decoration\s*:\s*underline[^>]*>([\s\S]*?)<\/span>/gi, (_m, inner) => `<u>${String(inner ?? '')}</u>`)
-          .replace(/<ins(\s+[^>]*)?>([\s\S]*?)<\/ins>/gi, (_m, _attrs, inner) => `<u>${String(inner ?? '')}</u>`)
-          // Links
-          .replace(/<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_match, href, label) => {
-            const cleanedLabel = String(label ?? '').replace(/<[^>]+>/g, '').trim() || href;
-            return `[${cleanedLabel}](${href})`;
-          })
-          // Bold
-          .replace(/<(strong|b)(\s+[^>]*)?>([\s\S]*?)<\/(strong|b)>/gi, (_m, _tag, _attrs, inner) => `**${inner}**`)
-          // Italic
-          .replace(/<(em|i)(\s+[^>]*)?>([\s\S]*?)<\/(em|i)>/gi, (_m, _tag, _attrs, inner) => `*${inner}*`)
-          // Strike-through
-          .replace(/<(s|strike|del)(\s+[^>]*)?>([\s\S]*?)<\/(s|strike|del)>/gi, (_m, _tag, _attrs, inner) => `~~${inner}~~`)
-          // Inline code
-          .replace(/<code(\s+[^>]*)?>([\s\S]*?)<\/code>/gi, (_m, _attrs, inner) => `\`${inner}\``)
-          // Underline has no native markdown syntax; keep as inline HTML
-          .replace(/<u(\s+[^>]*)?>([\s\S]*?)<\/u>/gi, (_m, _attrs, inner) => `<u>${String(inner ?? '')}</u>`);
+    const normalizeInlineText = (text: string) => {
       const convertOrderedLists = (input: string) =>
         input.replace(/<ol(\s+[^>]*)?>([\s\S]*?)<\/ol>/gi, (_match, _attrs, inner) => {
           const items: string[] = [];
@@ -879,7 +758,7 @@ export const ZenBlockEditor = ({
           return items.join('\n');
         });
 
-      return convertOrderedLists(convertInlineHtml(safeText))
+      return convertOrderedLists(text)
         .replace(/&nbsp;/gi, ' ')
         .replace(/&lt;/gi, '<')
         .replace(/&gt;/gi, '>')
@@ -894,38 +773,12 @@ export const ZenBlockEditor = ({
         .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)>/gi, '\n')
         .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)(\s+[^>]*)?>/gi, '')
         .replace(/<\/?span(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?a(\s+[^>]*)?>/gi, '')
         .replace(/<\/?strong(\s+[^>]*)?>/gi, '')
         .replace(/<\/?em(\s+[^>]*)?>/gi, '')
-        .replace(/<\/?i(\s+[^>]*)?>/gi, '')
-        .replace(/<\/?b(\s+[^>]*)?>/gi, '')
         .replace(/<br[^>]*data-empty=["']?true["']?[^>]*>/gi, '')
         .replace(/<br(\s+[^>]*)?\s*\/?>\s*<br(\s+[^>]*)?\s*\/?>/gi, '\n\n')
         .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '  \n');
-    };
-
-    const flattenListItems = (items: unknown): string[] => {
-      if (!Array.isArray(items)) return [];
-      const lines: string[] = [];
-
-      const walk = (entry: unknown) => {
-        if (typeof entry === 'string') {
-          lines.push(normalizeInlineText(entry));
-          return;
-        }
-        if (entry && typeof entry === 'object') {
-          const node = entry as { content?: unknown; text?: unknown; items?: unknown };
-          const content = node.content ?? node.text;
-          if (content !== undefined) {
-            lines.push(normalizeInlineText(content));
-          }
-          if (Array.isArray(node.items)) {
-            node.items.forEach(walk);
-          }
-        }
-      };
-
-      items.forEach(walk);
-      return lines.filter((line) => line.trim().length > 0);
     };
 
     return data.blocks
@@ -939,12 +792,14 @@ export const ZenBlockEditor = ({
             return normalizeInlineText(block.data.text || '');
 
           case 'list':
-            const listStyle = block.data.style === 'ordered' ? 'ordered' : 'unordered';
-            const listItems = flattenListItems(block.data.items);
-            return listItems
-              .map((item: string, index: number) =>
-                listStyle === 'ordered' ? `${index + 1}. ${item}` : `- ${item}`
-              )
+            const style = block.data.style === 'ordered' ? '1.' : '-';
+            return block.data.items
+              .map((item: string, index: number) => {
+                if (block.data.style === 'ordered') {
+                  return `${index + 1}. ${normalizeInlineText(item)}`;
+                }
+                return `${style} ${normalizeInlineText(item)}`;
+              })
               .join('\n');
 
           case 'code':
@@ -1663,30 +1518,12 @@ export const ZenBlockEditor = ({
     return () => el.removeEventListener('mousedown', handler, true);
   }, [showLineNumbers]);
 
-  const insertBlock = (
-    type: string,
-    data: Record<string, unknown> = {},
-    options?: { replaceCurrentIfEmpty?: boolean }
-  ) => {
+  const insertBlock = (type: string, data: Record<string, unknown> = {}) => {
     const editor = editorRef.current as any;
     if (!editor?.blocks) return;
 
-    const currentInfo = getCurrentBlockInfo();
-    let insertIndex: number | undefined;
-    const shouldReplaceCurrent =
-      !!options?.replaceCurrentIfEmpty && !!currentInfo && !currentInfo.hasContent;
-
-    if (shouldReplaceCurrent && currentInfo) {
-      insertIndex = currentInfo.index;
-      try {
-        editor.blocks.delete(currentInfo.index);
-      } catch {
-        // fallback to regular insert below
-      }
-    } else {
-      const currentIndex = editor.blocks.getCurrentBlockIndex?.();
-      insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
-    }
+    const currentIndex = editor.blocks.getCurrentBlockIndex?.();
+    const insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
 
     editor.blocks.insert(type, data, undefined, insertIndex, true);
     setMenuOpen(false);
@@ -1921,10 +1758,8 @@ export const ZenBlockEditor = ({
   };
 
   const currentBlockInfo = getCurrentBlockInfo();
-  const hasCurrentBlockContent = !!currentBlockInfo?.hasContent;
-  const showInsertSection = !hasCurrentBlockContent;
   const showArrangeSection = !!currentBlockInfo?.hasContent;
-  const showConvertSection = hasCurrentBlockContent;
+  const showConvertSection = !!currentBlockInfo;
   const canMoveUp = !!currentBlockInfo && currentBlockInfo.index > 0;
   const canMoveDown = !!currentBlockInfo && currentBlockInfo.index < currentBlockInfo.count - 1;
   const canDelete = !!currentBlockInfo && currentBlockInfo.count > 1;
@@ -1960,7 +1795,6 @@ export const ZenBlockEditor = ({
         type="button"
        
         className="zen-block-menu-dot"
-        data-open={menuOpen ? 'true' : 'false'}
         style={{ left: dotPosition.x, top: dotPosition.y }}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
@@ -1968,7 +1802,6 @@ export const ZenBlockEditor = ({
           setMenuOpen((prev) => !prev);
         }}
         
-        aria-expanded={menuOpen}
         aria-label="Open block menu"
       />
 
@@ -1985,21 +1818,17 @@ export const ZenBlockEditor = ({
             aria-label="Block tools"
             onMouseDown={keepSelection}
           >
-            {showInsertSection && (
-              <>
-                <div className="zen-overlay-block-menu__section">Absatz</div>
-                <div className="zen-overlay-block-menu__grid">
-                  <button type="button" onClick={() => insertBlock('paragraph', { text: '' }, { replaceCurrentIfEmpty: true })}>Text</button>
-                  <button type="button" onClick={() => insertBlock('header', { level: 1, text: '' }, { replaceCurrentIfEmpty: true })}>H1</button>
-                  <button type="button" onClick={() => insertBlock('header', { level: 2, text: '' }, { replaceCurrentIfEmpty: true })}>H2</button>
-                  <button type="button" onClick={() => insertBlock('header', { level: 3, text: '' }, { replaceCurrentIfEmpty: true })}>H3</button>
-                  <button type="button" onClick={() => insertBlock('quote', { text: '', caption: '', alignment: 'left' }, { replaceCurrentIfEmpty: true })}>Quote</button>
-                  <button type="button" onClick={() => insertBlock('delimiter', {}, { replaceCurrentIfEmpty: true })}>---</button>
-                  <button type="button" onClick={() => insertBlock('list', { style: 'unordered', items: [''] }, { replaceCurrentIfEmpty: true })}>UL</button>
-                  <button type="button" onClick={() => insertBlock('list', { style: 'ordered', items: [''] }, { replaceCurrentIfEmpty: true })}>OL</button>
-                </div>
-              </>
-            )}
+            <div className="zen-overlay-block-menu__section">Absatz</div>
+            <div className="zen-overlay-block-menu__grid">
+              <button type="button" onClick={() => insertBlock('paragraph', { text: '' })}>Text</button>
+              <button type="button" onClick={() => insertBlock('header', { level: 1, text: '' })}>H1</button>
+              <button type="button" onClick={() => insertBlock('header', { level: 2, text: '' })}>H2</button>
+              <button type="button" onClick={() => insertBlock('header', { level: 3, text: '' })}>H3</button>
+              <button type="button" onClick={() => insertBlock('quote', { text: '', caption: '', alignment: 'left' })}>Quote</button>
+              <button type="button" onClick={() => insertBlock('delimiter', {})}>---</button>
+              <button type="button" onClick={() => insertBlock('list', { style: 'unordered', items: [''] })}>UL</button>
+              <button type="button" onClick={() => insertBlock('list', { style: 'ordered', items: [''] })}>OL</button>
+            </div>
              <div className="zen-overlay-block-menu__section">Ausrichten</div>
             <div className="zen-overlay-block-menu__grid 
             zen-overlay-block-menu__grid--icons">
