@@ -1,4 +1,5 @@
 <img width="1200" height="630" alt="github-preview-1200x630" src="https://github.com/user-attachments/assets/9c1bf921-c3bb-4d76-b45b-5de642df08c7" />
+
 # ZenPost Studio
 
 **Local-first AI Content Architecture.**
