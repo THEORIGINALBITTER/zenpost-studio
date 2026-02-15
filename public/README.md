@@ -1,89 +1,139 @@
 # ZenPost Studio
 
-**A calm, local-first content & documentation studio powered by AI.**
+**Local-first AI Content Architecture.**
 
-Write, transform, and document content with clarity. From markdown conversion to AI-assisted publishing and structured project documentation — all in one focused, Zen-inspired workspace.
+ZenPost Studio is a structured content and documentation platform built for developers, technical educators, and teams who value clarity over noise.
+
+Write once.  
+Transform intentionally.  
+Document structurally.
 
 ---
 
-## Features
+## Why ZenPost Exists
+
+Modern content workflows are fragmented:
+
+- AI tools without structure
+- Documentation that decays over time
+- Platform publishing that breaks formatting
+- Cloud tools without ownership
+
+ZenPost Studio solves this by unifying:
+
+- Content transformation
+- Documentation generation
+- AI integration
+- Publishing workflows
+
+Into a calm, modular system.
+
+---
+
+## Studio System
+
+ZenPost Studio consists of four integrated studios:
 
 ### Converter Studio
+Normalize and structure content formats.
 
-Clean, convert, and normalize content formats.
-
-- Markdown parsing and normalization
-- Editor.js JSON to Markdown conversion
-- Smart cleaning of formatting artifacts
-- Export to Markdown, HTML, Plain Text
-
-### Content AI Studio
-
-Transform existing content for different platforms.
-
-- LinkedIn, dev.to, Twitter/X, Medium, Reddit
-- GitHub Discussions, YouTube descriptions
-- Tone, length, and audience control
-- Multi-platform transformation
-
-### Content Planner
-
-Plan and schedule your content publishing.
-
-- Visual calendar with monthly overview
-- Drag & drop scheduling
-- Status tracking (draft, scheduled, published)
-- Auto-save functionality
-
-### Doc Studio
-
-Structured documentation workspace.
-
-- README.md, CHANGELOG.md generation
-- API Documentation
-- CONTRIBUTING.md templates
-- Smart project analysis
+- Markdown cleaning & normalization
+- Editor.js JSON → Markdown
+- Export: Markdown, HTML, Plain Text
 
 ---
 
-## AI Providers
+### Content AI Studio
+Transform content across platforms with architectural consistency.
 
-Works with your preferred AI provider:
+- LinkedIn
+- dev.to
+- X / Twitter
+- Medium
+- Reddit
+- GitHub Discussions
+- YouTube descriptions
 
-- **OpenAI** (GPT-4o, GPT-4o-mini)
-- **Anthropic** (Claude 3.5 Sonnet, Opus, Haiku)
-- **Ollama** (local models like llama3, mistral)
-- **Custom APIs** (self-hosted endpoints)
+Tone control.  
+Multi-platform transformation.  
+Provider-independent AI.
+
+---
+
+### Content Planner
+Structured publishing lifecycle.
+
+- Visual monthly calendar
+- Drag & drop scheduling
+- Post state tracking
+- Integrated editing
+- Persistent auto-save
+
+---
+
+### Doc Studio
+Project-aware documentation engine.
+
+- README
+- CHANGELOG
+- API documentation
+- CONTRIBUTING
+- Data Room
+
+Includes smart project analysis and metadata-driven documentation.
+
+---
+
+## AI Provider Philosophy
+
+ZenPost Studio is provider-agnostic.
+
+Supports:
+
+- OpenAI
+- Anthropic
+- Ollama (local models)
+- Custom APIs
+
+Desktop version supports full local-first AI workflows.
+
+---
+
+## Platform
+
+- Web Application
+- Desktop (Tauri-based)
+- Offline capable
+- Native file system access
 
 ---
 
 ## System Requirements
 
-- **Windows** 10/11 (64-bit)
-- **macOS** 12+ (Intel & Apple Silicon)
-- **Linux** (Ubuntu 20.04+, Fedora 36+)
+- Windows 10/11 (64-bit)
+- macOS 12+ (Intel & Apple Silicon)
+- Linux (Ubuntu 20.04+, Fedora 36+)
 
 ---
 
 ## Getting Started
 
-1. Download the installer for your platform
-2. Install and launch ZenPost Studio
-3. Configure your AI provider in Settings
-4. Start creating content
+1. Download the installer
+2. Launch ZenPost Studio
+3. Configure your AI provider
+4. Start building structured content
 
 ---
 
-## Links
+## Philosophy
 
-- [Website](https://zenpost-studio.vercel.app)
-- [GitHub](https://github.com/theoriginalbitter/zenpost-studio)
-- [Releases](https://github.com/THEORIGINALBITTER/zenpost-studio/releases)
+Clarity scales. Noise does not.
+
+ZenPost Studio is built for long-term thinking.
 
 ---
 
 ## License
 
-MIT License - Copyright (c) 2026 Denis Bitter
-
-See [LICENSE](LICENSE) for details.
+MIT License  
+Copyright (c) 2026 Denis Bitter
