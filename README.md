@@ -1,12 +1,40 @@
+# ZenPost Studio
 
-<img width="1200" height="630" alt="github_zenpostStudioBanner" src="https://github.com/user-attachments/assets/cdcfb874-58e1-4ab1-8420-78f99df63558" />
+ZenPost Studio is a local-first AI content and documentation platform built with React, TypeScript, and Tauri for developers and engineering teams.  
+It integrates OpenAI, Anthropic, and Ollama through a provider-agnostic abstraction layer to enable structured content transformation, multi-platform publishing workflows, and project-aware documentation generation.
 
-Why ZenPost Studio?
-- Write once, publish everywhere (9+ platforms)
+ZenPost Studio is not a writing assistant. It is a modular content architecture designed for long-term clarity, maintainability, and technical ownership.
+
+---
+
+<img width="1200" height="630" alt="ZenPost Studio – Local-first AI Content Architecture" src="https://github.com/user-attachments/assets/cdcfb874-58e1-4ab1-8420-78f99df63558" />
+
+---
+
+## Why ZenPost Studio?
+
+Modern AI writing tools focus on output.  
+ZenPost focuses on structure.
+
+- Write once, publish across 9+ platforms
 - Local-first AI via Ollama (Desktop)
 - Optional cloud providers (OpenAI, Anthropic)
-- Markdown + Block editor workflow
-- Built for engineers, educators & builders
+- Structured Markdown + Block editor workflow
+- Metadata-driven documentation generation
+- Built for engineers, educators, and technical teams
+
+---
+
+## Core Principles
+
+- Local-first by design
+- Provider-agnostic AI integration
+- Modular studio architecture
+- Deterministic content transformation
+- Long-term documentation clarity
+
+---
+
 # ZenPost Studio
 
 > **Local-first AI-powered content & documentation platform**  
