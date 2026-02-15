@@ -1,3 +1,6 @@
+
+<img width="1200" height="630" alt="github_zenpostStudioBanner" src="https://github.com/user-attachments/assets/cdcfb874-58e1-4ab1-8420-78f99df63558" />
+
 # ZenPost Studio
 
 > **Local-first AI-powered content & documentation platform**  
