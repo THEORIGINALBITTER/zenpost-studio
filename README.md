@@ -10,6 +10,8 @@ ZenPost Studio is not a writing assistant. It is a modular content architecture 
 <img width="1200" height="630" alt="ZenPost Studio – Local-first AI Content Architecture" src="https://github.com/user-attachments/assets/cdcfb874-58e1-4ab1-8420-78f99df63558" />
 
 ---
+Infrastructure over influence.
+Architecture over automation.
 
 ## Why ZenPost Studio?
 
