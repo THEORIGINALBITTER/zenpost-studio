@@ -4,14 +4,14 @@ import { MODAL_CONTENT } from "../config/ZenModalConfig";
 import { ZenRoughButton } from "../components/ZenRoughButton";
 import { ZenMetadataPanel } from "../components/ZenMetadataPanel";
 import type { ProjectMetadata } from "./ZenMetadataModal";
-import { getPublishingPaths } from "../../../../services/publishingService";
 import type { ZenArticle } from "../../../../services/publishingService";
 import type { ScheduledPost } from "../../../../types/scheduling";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDownAZ, faCalendarDays } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDownAZ, faBookOpen, faCalendarDays, faExternalLinkAlt } from "@fortawesome/free-solid-svg-icons";
 import { isTauri } from "@tauri-apps/api/core";
 import { Command } from "@tauri-apps/plugin-shell";
 import { convertFile, detectFormatFromFilename } from "../../../../utils/fileConverter";
+import { useOpenExternal } from "../../../../hooks/useOpenExternal";
 
 interface ZenContentStudioModalProps {
   isOpen: boolean;
@@ -20,11 +20,13 @@ interface ZenContentStudioModalProps {
   projectPath: string | null;
   recentArticles: ZenArticle[];
   allFiles: { path: string; name: string; modifiedAt?: number }[];
+  webDocuments?: Array<{ id: string; name: string; content: string; updatedAt: number }>;
   scheduledPosts: ScheduledPost[];
-  activeTab: "project" | "recent";
+  activeTab: "project" | "all";
   onSelectProject: () => void;
   onOpenArticle: (articleId: string) => void;
   onOpenFile: (filePath: string) => void;
+  onOpenWebDocument?: (content: string, fileName: string) => void;
   onEditScheduledPost?: (post: ScheduledPost) => void;
   metadata: ProjectMetadata;
   onSaveMetadata: (metadata: ProjectMetadata) => void;
@@ -39,49 +41,34 @@ export const ZenContentStudioModal = ({
   projectPath,
   recentArticles: _recentArticles,
   allFiles,
-  scheduledPosts,
+  webDocuments = [],
+  scheduledPosts: _scheduledPosts,
   activeTab,
   onSelectProject,
   onOpenArticle: _onOpenArticle,
   onOpenFile,
-  onEditScheduledPost,
+  onOpenWebDocument,
+  onEditScheduledPost: _onEditScheduledPost,
   metadata,
   onSaveMetadata,
   onLoadWebDocument,
-  onOpenConverter,
+
 }: ZenContentStudioModalProps) => {
-  const [activePanel, setActivePanel] = useState<"project" | "all" | "metadata" | "planned" | "help">(
-    activeTab === "recent" ? "all" : "project"
+  const [activePanel, setActivePanel] = useState<"project" | "all" | "metadata" | "help">(
+    activeTab === "all" ? "all" : "project"
   );
   const [fileSort, setFileSort] = useState<"name-asc" | "name-desc" | "date-desc" | "date-asc">("name-asc");
   const projectName = projectPath
     ? projectPath.split(/[\\/]/).filter(Boolean).pop() || "Projekt"
     : "Kein Projekt gewaehlt";
-  const plannedPosts = scheduledPosts ?? [];
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [webLoadError, setWebLoadError] = useState<string | null>(null);
   const [isWebConverting, setIsWebConverting] = useState(false);
-  const [publishingPaths, setPublishingPaths] = useState<{ posts: string } | null>(null);
+  const { openExternal } = useOpenExternal();
 
   useEffect(() => {
-    if (!projectPath) {
-      setPublishingPaths(null);
-      return;
-    }
-    getPublishingPaths(projectPath).then((paths) => setPublishingPaths({ posts: paths.posts }));
-  }, [projectPath]);
-
-  const plannedFiles = publishingPaths
-    ? plannedPosts.map((post) => ({
-        post,
-        // Use savedFilePath if the post was saved to a project directory, otherwise use publishing path
-        path: post.savedFilePath || `${publishingPaths.posts}/${post.platform}-${post.id}.md`,
-      }))
-    : [];
-
-  useEffect(() => {
-    setActivePanel(activeTab === "recent" ? "all" : "project");
+    setActivePanel(activeTab === "all" ? "all" : "project");
   }, [activeTab]);
 
   const sortedAllFiles = useMemo(() => {
@@ -124,7 +111,7 @@ export const ZenContentStudioModal = ({
     setWebLoadError(null);
     const detectedFormat = detectFormatFromFilename(file.name);
 
-    if (detectedFormat === "docx" || detectedFormat === "doc" || detectedFormat === "pages") {
+    if (detectedFormat === "docx" || detectedFormat === "doc" || detectedFormat === "pages" || detectedFormat === "pdf") {
       const reader = new FileReader();
       reader.onload = async (e) => {
         const arrayBuffer = e.target?.result as ArrayBuffer;
@@ -144,6 +131,34 @@ export const ZenContentStudioModal = ({
         }
       };
       reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    if (detectedFormat === "json") {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const rawText = typeof reader.result === "string" ? reader.result : "";
+        if (!rawText) {
+          setWebLoadError("Datei konnte nicht gelesen werden.");
+          return;
+        }
+        setIsWebConverting(true);
+        try {
+          const result = await convertFile(rawText, "json", "md", file.name);
+          if (result.success && result.data) {
+            onLoadWebDocument?.(result.data, file.name);
+            return;
+          }
+          const pretty = JSON.stringify(JSON.parse(rawText), null, 2);
+          onLoadWebDocument?.(`\`\`\`json\n${pretty}\n\`\`\``, file.name);
+        } catch {
+          setWebLoadError("JSON konnte nicht verarbeitet werden.");
+        } finally {
+          setIsWebConverting(false);
+        }
+      };
+      reader.onerror = () => setWebLoadError("Datei konnte nicht gelesen werden.");
+      reader.readAsText(file);
       return;
     }
 
@@ -187,6 +202,10 @@ export const ZenContentStudioModal = ({
     }
   };
 
+  const openGuide = () => {
+    void openExternal("https://theoriginalbitter.github.io/zenpost-studio/#/");
+  };
+
   // Modal-Content und dynamischer Subtitle
   const content = MODAL_CONTENT.contentStudio;
   const dynamicSubtitle =
@@ -194,11 +213,9 @@ export const ZenContentStudioModal = ({
       ? "Projekt verwalten"
       : activePanel === "metadata"
         ? "Projekt-Metadaten"
-        : activePanel === "planned"
-          ? "Geplante Posts"
-          : activePanel === "help"
-            ? "Hilfe"
-            : "Dokumente";
+        : activePanel === "help"
+          ? "Hilfe"
+          : "Dokumente";
 
   return (
     <ZenModal
@@ -260,24 +277,6 @@ export const ZenContentStudioModal = ({
             </button>
           
             <button
-              onClick={() => setActivePanel("planned")}
-              className="font-mono text-[10px]"
-              style={{
-                border: activePanel === "planned" ? "1px solid #AC8E66" : "1px dotted #3A3A3A",
-                borderBottom: "0",
-                borderRadius: "10px 10px 0 0",
-                padding: "10px 16px",
-                color: activePanel === "planned" ? "#AC8E66" : "#555",
-                fontWeight: activePanel === "planned" ? "200" : "400",
-                background:
-                  activePanel === "planned"
-                    ? "#2a2a2a"
-                    : "transparent",
-              }}
-            >
-              Geplante Post
-            </button>
-              <button
               onClick={() => setActivePanel("metadata")}
               className="font-mono text-[10px]"
               style={{
@@ -371,80 +370,93 @@ export const ZenContentStudioModal = ({
                       Hinweis: In der Web-Version ist die Projektordner-Auswahl
                       eingeschränkt. Lade ein Dokument oder nutze den Converter.
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <ZenRoughButton
-                        label="Zum Converter Studio"
-                        onClick={onOpenConverter}
-                      />
+                    <div className="font-mono text-[10px] text-[#777]">
+                      Dokumente laden und verwalten findest du im Tab "Projekt Dokumente".
                     </div>
-
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setIsDragActive(true);
-                      }}
-                      onDragLeave={() => setIsDragActive(false)}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        setIsDragActive(false);
-                        const file = e.dataTransfer.files?.[0];
-                        if (file) void handleWebFile(file);
-                      }}
-                      style={{
-                        border: `2px dashed ${isDragActive ? "#AC8E66" : "#3A3A3A"}`,
-                        borderRadius: "14px",
-                        padding: "24px",
-                        background: isDragActive ? "rgba(172,142,102,0.08)" : "#0A0A0A",
-                        textAlign: "center",
-                        color: "#555",
-                        fontFamily: "IBM Plex Mono, monospace",
-                        fontSize: "12px",
-                      }}
-                    >
-                      {isWebConverting
-                        ? "Konvertiere Dokument…"
-                        : "Datei hier ablegen (Drag & Drop)"}
-                      <div style={{ marginTop: "8px", fontSize: "10px", color: "#777" }}>
-                        Unterstützt: .md, .txt, .docx, .doc, .pages
-                      </div>
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        style={{
-                          marginTop: "12px",
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: "1px dotted #3A3A3A",
-                          background: "transparent",
-                          color: "#555",
-                          fontFamily: "IBM Plex Mono, monospace",
-                          fontSize: "11px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Dokument laden
-                      </button>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".md,.txt,.docx,.doc,.pages"
-                        style={{ display: "none" }}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) void handleWebFile(file);
-                        }}
-                      />
-                    </div>
-                    {webLoadError && (
-                      <div className="font-mono text-[10px] text-[#FF6B6B]">
-                        {webLoadError}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
             </div>
           ) : activePanel === "all" ? (
             <div className="flex flex-col gap-4 px-[20px]">
+              {!isTauri() && (
+                <div className="flex flex-col gap-3">
+                  <div
+                    className="font-mono text-[11px]"
+                    style={{
+                      border: "1px dotted #3A3A3A",
+                      borderRadius: "10px",
+                      padding: "12px",
+                      color: "#fef3c7",
+                      background: "#0A0A0A",
+                    }}
+                  >
+                    Hinweis: In der Web-Version ist die Projektordner-Auswahl eingeschränkt. Lade ein Dokument oder nutze den Converter.
+                  </div>
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setIsDragActive(true);
+                    }}
+                    onDragLeave={() => setIsDragActive(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragActive(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file) void handleWebFile(file);
+                    }}
+                    style={{
+                      border: `2px dashed ${isDragActive ? "#AC8E66" : "#3A3A3A"}`,
+                      borderRadius: "14px",
+                      padding: "24px",
+                      background: isDragActive ? "rgba(172,142,102,0.08)" : "transparent",
+                      textAlign: "center",
+                      color: "#555",
+                      fontFamily: "IBM Plex Mono, monospace",
+                      fontSize: "12px",
+                      marginTop: "20px",
+                    }}
+                  >
+                    {isWebConverting
+                      ? "Konvertiere Dokument…"
+                      : "Datei hier ablegen (Drag & Drop)"}
+                    <div style={{ marginTop: "50px", fontSize: "10px", color: "#777" }}>
+                      Unterstützt: .md, .txt, .json, .pdf, .docx, .doc, .pages
+                    </div>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      style={{
+                        marginTop: "12px",
+                        padding: "8px 12px",
+                        borderRadius: "8px",
+                        border: "1px dotted #3A3A3A",
+                        background: "transparent",
+                        color: "#555",
+                        fontFamily: "IBM Plex Mono, monospace",
+                        fontSize: "11px",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Dokument laden
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".md,.txt,.json,.pdf,.docx,.doc,.pages"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void handleWebFile(file);
+                      }}
+                    />
+                  </div>
+                  {webLoadError && (
+                    <div className="font-mono text-[10px] text-[#FF6B6B]">
+                      {webLoadError}
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="mb-[10px] flex items-center justify-between">
                 <div
                   className="
@@ -453,8 +465,9 @@ export const ZenContentStudioModal = ({
                     text-[#555] 
                   "
                 >
-                  Dateien deines Projekt Ordner 
+                  {!isTauri() ? "Web-Dokumente" : "Dateien deines Projekt Ordner"}
                 </div>
+                {isTauri() && (
                 <button
                   type="button"
                   onClick={cycleFileSort}
@@ -484,17 +497,49 @@ export const ZenContentStudioModal = ({
                     ? "A–Z"
                     : fileSort === "name-desc"
                       ? "Z–A"
-                      : fileSort === "date-desc"
+                    : fileSort === "date-desc"
                         ? "Neueste"
                         : "Aelteste"}
                 </button>
+                )}
               </div>
-              {allFiles.length === 0 ? (
+              {!isTauri() && webDocuments.length === 0 ? (
+                <div className="font-mono text-[12px] text-[#777] py-[10px]">
+                  Noch keine Web-Dokumente geladen.
+                </div>
+              ) : isTauri() && allFiles.length === 0 ? (
                 <div className="font-mono text-[12px] text-[#777] py-[10px]">
                   {projectPath
                     ? "Keine Dateien gefunden."
                     : "Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen."}
                 </div>
+              ) : !isTauri() ? (
+                webDocuments.map((doc) => (
+                  <div
+                    key={doc.id}
+                    onClick={() => onOpenWebDocument?.(doc.content, doc.name)}
+                    className="text-left font-mono"
+                    style={{
+                      border: "0.6px solid #3A3A3A",
+                      borderRadius: "12px",
+                      padding: "12px 16px",
+                      background: "transparent",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      color: "#555",
+                      transition: "all 0.2s ease",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                      {doc.name}
+                    </span>
+                    <span style={{ fontSize: "10px", color: "#777" }}>
+                      Zuletzt geladen: {new Date(doc.updatedAt).toLocaleString("de-DE")}
+                    </span>
+                  </div>
+                ))
               ) : (
                 sortedAllFiles.map((file) => (
                   <div
@@ -558,188 +603,62 @@ export const ZenContentStudioModal = ({
                 ))
               )}
 
-              <div className="border-b pt-[10px] text-[#AC8E66]"></div>
-
-              <div className="font-mono text-[11px] text-[#555] mt-[10px]">
-                Geplante Posts
-              </div>
-              {!projectPath ? (
-                <div className="font-mono text-[12px] text-[#777] py-[10px]">
-                  Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen.
-                </div>
-              ) : plannedFiles.length === 0 ? (
-                <div className="font-mono text-[12px] text-[#777] py-[10px]">
-                  Keine geplanten Posts vorhanden.
-                </div>
-              ) : (
-                plannedFiles.map(({ post, path }) => (
-                  <div
-                    key={post.id}
-                    onClick={() => onOpenFile(path)}
-                    className="text-left font-mono"
-                    style={{
-                      border: "1px dotted #3A3A3A",
-                      borderRadius: "12px",
-                      padding: "12px 16px",
-                      background: "transparent",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                      color: "#555",
-                      transition: "all 0.2s ease",
-                      cursor: "pointer",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = "#AC8E66";
-                      e.currentTarget.style.transform = "translateY(-1px)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = "#3A3A3A";
-                      e.currentTarget.style.transform = "translateY(0)";
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
-                      <span style={{ fontSize: "12px", fontWeight: 400 }}>
-                        {post.title || post.platform}
-                      </span>
-                      {isTauri() && (
-                        <button
-                          type="button"
-                          className="font-mono text-[10px]"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleShowInFinder(path);
-                          }}
-                          style={{
-                            border: "1px dotted #3A3A3A",
-                            borderRadius: "8px",
-                            padding: "4px 8px",
-                            color: "#AC8E66",
-                            background: "transparent",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Im Finder anzeigen...
-                        </button>
-                      )}
-                    </div>
-                    <span style={{ fontSize: "10px", color: "#777" }}>
-                      {path}
-                    </span>
-                  </div>
-                ))
-              )}
             </div>
           ) : activePanel === "metadata" ? (
             <div className="px-[10px]">
               <ZenMetadataPanel metadata={metadata} onSave={onSaveMetadata} />
             </div>
-          ) : activePanel === "planned" ? (
-            <div className="flex flex-col gap-4 px-[20px]">
-              <div className="font-mono text-[11px] text-[#555] mb-[10px]">
-                Geplante Posts aus deinem Projekt
-              </div>
-              {!projectPath ? (
-                <div className="font-mono text-[12px] text-[#777]">
-                  Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen.
-                </div>
-              ) : scheduledPosts.length === 0 ? (
-                <div className="font-mono text-[12px] text-[#777]">
-                  Noch keine geplanten Posts vorhanden.
-                </div>
-              ) : (
-                scheduledPosts.map((post) => {
-                  const dateLabel = post.scheduledDate
-                    ? new Date(post.scheduledDate).toLocaleDateString("de-DE")
-                    : "Kein Datum";
-                  // Use savedFilePath if the post was saved to a project directory, otherwise use publishing path
-                  const filePath = post.savedFilePath
-                    || (publishingPaths ? `${publishingPaths.posts}/${post.platform}-${post.id}.md` : "");
-                  return (
-                    <div
-                      key={post.id}
-                      className="text-left font-mono"
-                      style={{
-                        border: "1px dotted #3A3A3A",
-                        borderRadius: "12px",
-                        padding: "12px 16px",
-                        background: "transparent",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "6px",
-                        color: "#555",
-                        cursor: projectPath ? "pointer" : "default",
-                      }}
-                      onClick={() => {
-                        if (projectPath) {
-                          onOpenFile(filePath);
-                        }
-                      }}
-                    >
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
-                        <span style={{ fontSize: "12px", fontWeight: 600 }}>
-                          {post.title || post.platform}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: "10px",
-                            color: post.status === "scheduled" ? "#AC8E66" : "#777",
-                            textTransform: "uppercase",
-                          }}
-                        >
-                          {post.status}
-                        </span>
-                      </div>
-                      <span style={{ fontSize: "10px", color: "#777" }}>
-                        {dateLabel} {post.scheduledTime ? `· ${post.scheduledTime}` : ""}
-                      </span>
-                      {post.content && (
-                        <span style={{ fontSize: "10px", color: "#aaa" }}>
-                          {post.content.slice(0, 120)}
-                        </span>
-                      )}
-                      {onEditScheduledPost && (
-                        <div
-                          className="pt-2"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <ZenRoughButton
-                            label="Weiterbearbeiten"
-                            onClick={() => onEditScheduledPost(post)}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
           ) : (
             <div className="px-[20px] py-[20px]">
               <div className="font-mono text-[11px] text-[#555] mb-4">
-                Pages-Dokument als DOCX exportieren
+                Doc Studio Guide
               </div>
               <div className="font-mono text-[11px] text-[#777] mb-4">
-                DOCX-Export behält Formatierungen, Bilder und Tabellen bei!
-              </div>  
+                Dein aktueller Ablauf im Doc Studio (Schritt 1 bis 4).
+              </div>
               <div className="border-b pt-[10px] text-[#AC8E66]"></div>
 
               <div className="flex flex-col gap-3 font-mono text-[12px] text-[#555] px-[10px] py-[15px]">
                 <div>
-                  <span className="text-[#AC8E66]">1.</span> Pages-Dokument oeffnen
+                  <span className="text-[#AC8E66]">Step 1:</span> Projekt + Dokumente
+                </div>
+                <div className="text-[11px] text-[#777] pl-[10px]">
+                  Projektordner wählen, Datei öffnen oder ein Dokument hochladen.
                 </div>
                 <div>
-                  <span className="text-[#AC8E66]">2.</span> Ablage → Exportieren → Word...
+                  <span className="text-[#AC8E66]">Step 2:</span> Datenfelder ergänzen
+                </div>
+                <div className="text-[11px] text-[#777] pl-[10px]">
+                  Produktname, Kurzbeschreibung, Setup und Usage ausfüllen.
                 </div>
                 <div>
-                  <span className="text-[#AC8E66]">3.</span> Format "Word" (.docx) waehlen
+                  <span className="text-[#AC8E66]">Step 3:</span> Templates auswählen
+                </div>
+                <div className="text-[11px] text-[#777] pl-[10px]">
+                  Passende Dokumenttypen markieren und Entwurf starten.
                 </div>
                 <div>
-                  <span className="text-[#AC8E66]">4.</span> Datei speichern
+                  <span className="text-[#AC8E66]">Step 4:</span> Editor + Preview
+                </div>
+                <div className="text-[11px] text-[#777] pl-[10px]">
+                  Inhalt bearbeiten, Preview prüfen, speichern oder exportieren.
                 </div>
                 <div>
-                  <span className="text-[#AC8E66]">5.</span> DOCX in ZenPost Studio hochladen
+                  <span className="text-[#AC8E66]">Tipp:</span> Translate/Zoom-Leiste blendet sich beim Scrollen automatisch ein/aus.
                 </div>
+              </div>
+
+              <div className="flex flex-wrap gap-3 px-[10px]">
+                <ZenRoughButton
+                  label="ZenPost Guide öffnen"
+                  icon={<FontAwesomeIcon icon={faBookOpen} />}
+                  onClick={openGuide}
+                />
+                <ZenRoughButton
+                  label="Guide im Browser"
+                  icon={<FontAwesomeIcon icon={faExternalLinkAlt} />}
+                  onClick={openGuide}
+                />
               </div>
             </div>
           )}

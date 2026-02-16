@@ -6,7 +6,7 @@
 
 import React, { ReactNode } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faLock, faCrown, faCheck, faGift, faRocket } from '@fortawesome/free-solid-svg-icons';
+import { faLock, faCrown, faFolder, faCheck, faGift, faRocket } from '@fortawesome/free-solid-svg-icons';
 import { useFeatureAccess, useLicense } from '../contexts/LicenseContext';
 import { FEATURES, PRO_FEATURES } from '../config/featureFlags';
 import { ZenCloseButton } from '../kits/DesignKit/ZenCloseButton';
@@ -179,7 +179,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
             
             }}
           >
-            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
+            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 36, color: '#1a1a1a' }} />
           </div>
 
           <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 8px 0' }}>
@@ -211,7 +211,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
                 Schalte <strong style={{ color: '#AC8E66' }}>{featureName}</strong> frei
               </p>
               <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '4px 0 0 0' }}>
-                Upgrade auf PRO für vollen Zugang
+                Upgrade für vollen Zugang
               </p>
             </div>
           </div>
@@ -316,7 +316,7 @@ const LockedScreen: React.FC<LockedScreenProps> = ({
               }}
             >
               <FontAwesomeIcon icon={faCrown} />
-              {onStartTrial ? 'Preise & Optionen ansehen' : 'Upgrade auf PRO'}
+              {onStartTrial ? 'Preise & Optionen ansehen' : 'Upgrade auf DocStudio'}
             </button>
           </div>
         </div>

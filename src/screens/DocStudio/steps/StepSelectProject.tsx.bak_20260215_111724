@@ -142,11 +142,6 @@ export function StepSelectProject({
           onSelect(path);
           setShowPicker(false);
         }}
-        onContinueWithoutFolder={() => {
-          if (runtime !== 'web') return;
-          onContinueToEditor?.();
-          setShowPicker(false);
-        }}
       />
     </div>
   );

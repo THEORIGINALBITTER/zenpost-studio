@@ -1,0 +1,139 @@
+export interface ZenOutlineItem {
+  level: number;
+  text: string;
+  line: number;
+}
+
+interface ZenOutlinePanelProps {
+  isOpen: boolean;
+  items: ZenOutlineItem[];
+  activeLine: number;
+  onToggle: () => void;
+  onInsertHeading: (level: number) => void;
+  onSelectLine: (line: number) => void;
+}
+
+export function ZenOutlinePanel({
+  isOpen,
+  items,
+  activeLine,
+  onToggle,
+  onInsertHeading,
+  onSelectLine,
+}: ZenOutlinePanelProps) {
+  return (
+    <>
+      <button
+        onClick={onToggle}
+        className=" lg:flex"
+        style={{
+          position: 'absolute',
+          left: isOpen ? '-258px' : '-32px',
+          top: isOpen ? '-30px' : '100px',
+          transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
+          transformOrigin: 'left top',
+          padding: '10px 10px',
+          backgroundColor: '#121212',
+          border: '1px solid #AC8E66',
+          borderRadius: '8px 8px 0px 0px',
+          cursor: 'pointer',
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '10px',
+          color: '#D9D4C5',
+          letterSpacing: '0.03em',
+          zIndex: 1,
+        }}
+      >
+        {isOpen ? 'Gliederung ausblenden' : 'Gliederung'}
+      </button>
+
+      {isOpen && (
+        <div
+          className="hidden lg:flex "
+          style={{
+            width: '240px',
+            alignSelf: 'flex-start',
+            position: 'absolute',
+            top: '1px',
+            left: '-265px',
+            padding: '12px',
+            borderRadius: '10px',
+            background: '#151515',
+            border: '1px solid rgba(172, 142, 102, 0.25)',
+            boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            maxHeight: 'calc(100vh - 320px)',
+            overflowY: 'auto',
+            zIndex: 2,
+          }}
+        >
+          <div className="font-mono text-[9px] tracking-wide text-[#AC8E66]">Struktur ESC Closed</div>
+          <div className="flex flex-col gap-[8px]">
+            <div className="font-mono text-[9px] text-[#999]">Schnell einfuegen</div>
+            <div className="flex flex-wrap gap-[6px]">
+              {[1, 2, 3].map((level) => (
+                <button
+                  key={level}
+                  onClick={() => onInsertHeading(level)}
+                  style={{
+                    padding: '6px 10px',
+                    background: 'transparent',
+                    border: '1px solid #3A3A3A',
+                    borderRadius: '6px',
+                    color: '#e5e5e5',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {`H${level}`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-[6px]">
+            <div className="border-t-[1px] border-[#2a2a2a] pt-[5px] font-mono text-[9px] text-[#e3d4bf]">
+              Erkannte Struktur
+            </div>
+            {items.length === 0 ? (
+              <div className="font-mono text-[10px] text-[#666]">Keine Ueberschriften erkannt.</div>
+            ) : (
+              <div className="flex flex-col gap-[4px]">
+                {items.map((item) => {
+                  const isActive = item.line === activeLine;
+                  return (
+                    <button
+                      key={`${item.line}-${item.text}`}
+                      onClick={() => onSelectLine(item.line)}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: '6px',
+                        border: isActive ? '1px solid #AC8E66' : '1px solid transparent',
+                        background: isActive ? 'rgba(172, 142, 102, 1)' : 'transparent',
+                        color: isActive ? '#151515' : '#b7b7b7',
+                        textAlign: isActive ? 'right'  : 'left',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        paddingLeft: `${8 + (item.level - 1) * 10}px`,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                      title={`${item.text} (Zeile ${item.line + 1})`}
+                    >
+                      {item.text}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

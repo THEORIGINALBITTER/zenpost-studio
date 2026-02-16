@@ -183,7 +183,7 @@ export const ZenMarkdownEditor = ({
   const [editorScrollTop, setEditorScrollTop] = useState(0);
   const handledFocusTokenRef = useRef<number | null>(null);
 
-  const [lineMetrics, setLineMetrics] = useState({ lineHeight: 21, paddingTop: 12 });
+  const [lineMetrics, setLineMetrics] = useState({ lineHeight: 19, paddingTop: 12 });
 
 
 
@@ -214,11 +214,11 @@ export const ZenMarkdownEditor = ({
     let lineHeight = parseFloat(lineHeightRaw);
     if (Number.isNaN(lineHeight)) {
       const fontSize = parseFloat(fontSizeRaw);
-      lineHeight = Number.isNaN(fontSize) ? 21 : Math.round(fontSize * 1.75);
+      lineHeight = Number.isNaN(fontSize) ? 19 : Math.round(fontSize * 1.6);
     }
     const paddingTop = parseFloat(styles.paddingTop);
     setLineMetrics({
-      lineHeight: Number.isNaN(lineHeight) ? 21 : lineHeight,
+      lineHeight: Number.isNaN(lineHeight) ? 19 : lineHeight,
       paddingTop: Number.isNaN(paddingTop) ? 12 : paddingTop,
     });
   }, []);
@@ -237,7 +237,7 @@ export const ZenMarkdownEditor = ({
       cursorPos += lines[i].length + 1;
     }
 
-    const lineHeight = lineMetrics.lineHeight || 21;
+    const lineHeight = lineMetrics.lineHeight || 19;
     const targetScrollTop = Math.max(0, targetLine * lineHeight - textarea.clientHeight * 0.35);
 
     textarea.focus();
@@ -280,7 +280,7 @@ const getCursorPosition = () => {
   const currentLineIndex = lines.length - 1;
   const currentLineText = lines[currentLineIndex];
 
-  const lineHeight = lineMetrics.lineHeight || 21;
+  const lineHeight = lineMetrics.lineHeight || 19;
   const charWidth = 8.4;
   const paddingTop = lineMetrics.paddingTop || 12;
   const paddingLeft = 12;
@@ -370,7 +370,7 @@ const scheduleCursorToolbar = () => {
     const midCharOffset = selectionLines[0].length / 2;
 
     // Estimate position (monospace font assumptions)
-    const lineHeight = lineMetrics.lineHeight || 21;
+    const lineHeight = lineMetrics.lineHeight || 19;
     const charWidth = 8.4;
     const paddingTop = lineMetrics.paddingTop || 12;
     const paddingLeft = 12;
@@ -914,7 +914,7 @@ const makeStrikethrough = () => insertText('~~', '~~');
       const textarea = textareaRef.current;
       if (!textarea) return;
       e.preventDefault();
-      const insert = e.shiftKey ? '  \n' : '\n\n';
+      const insert = e.shiftKey ? '\n' : '\n\n';
       const start = textarea.selectionStart;
       const end = textarea.selectionEnd;
       const beforeText = value.substring(0, start);
@@ -1317,8 +1317,8 @@ onKeyUp={() => {
               flex: 1,
               caretColor: '#AC8E66',
               fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
-              fontSize: '11px',
-              lineHeight: '21px',
+              fontSize: '12px',
+              lineHeight: '1.6',
               whiteSpace: 'pre',
               overflowX: 'auto',
               border: 'none',

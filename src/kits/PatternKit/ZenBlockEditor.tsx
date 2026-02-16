@@ -578,6 +578,7 @@ export const ZenBlockEditor = ({
   const [menuPosition, setMenuPosition] = useState({ x: MENU_LEFT_OFFSET, y: 96 });
   const [dotPosition, setDotPosition] = useState({ x: DOT_LEFT_OFFSET, y: 0 });
   const lastActiveHeadingRef = useRef<number | null>(null);
+  const lastActiveBlockIndexRef = useRef<number | null>(null);
   const lastHandledFocusRequestTokenRef = useRef<number | null>(null);
   const blockTypeObserverRef = useRef<MutationObserver | null>(null);
   const lastLocalMarkdownRef = useRef<string>(value);
@@ -816,7 +817,9 @@ export const ZenBlockEditor = ({
       blocks.push({
         type: 'paragraph',
         data: {
-          text: markdownInlineToHtml(paragraphLines.join(' ')),
+          // Keep single newlines as visual soft-breaks when markdown is reloaded
+          // back into EditorJS (e.g. Step4 Preview -> Step1 BlockEditor).
+          text: paragraphLines.map((line) => markdownInlineToHtml(line)).join('<br>'),
         },
       });
     }
@@ -870,7 +873,7 @@ export const ZenBlockEditor = ({
               .replace(/&amp;/gi, '&')
               .replace(/<br[^>]*data-empty=["']?true["']?[^>]*>/gi, '')
               .replace(/<br(\s+[^>]*)?\s*\/?>\s*<br(\s+[^>]*)?\s*\/?>/gi, '\n\n')
-              .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '  \n')
+              .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '\n')
               .replace(/<[^>]+>/g, '')
               .trim();
             items.push(`${idx}. ${cleaned}`);
@@ -900,7 +903,7 @@ export const ZenBlockEditor = ({
         .replace(/<\/?b(\s+[^>]*)?>/gi, '')
         .replace(/<br[^>]*data-empty=["']?true["']?[^>]*>/gi, '')
         .replace(/<br(\s+[^>]*)?\s*\/?>\s*<br(\s+[^>]*)?\s*\/?>/gi, '\n\n')
-        .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '  \n');
+        .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '\n');
     };
 
     const flattenListItems = (items: unknown): string[] => {
@@ -1145,6 +1148,11 @@ export const ZenBlockEditor = ({
     const syncOverlayContext = () => {
       const activeBlock = getActiveBlock();
       if (activeBlock) {
+        const blockNodes = holder.querySelectorAll<HTMLElement>('.ce-block');
+        const activeIndex = Array.from(blockNodes).indexOf(activeBlock);
+        if (activeIndex >= 0) {
+          lastActiveBlockIndexRef.current = activeIndex;
+        }
         const blockRect = activeBlock.getBoundingClientRect();
         setDotPosition({
           x: DOT_LEFT_OFFSET,
@@ -1178,6 +1186,19 @@ export const ZenBlockEditor = ({
       }
     };
 
+    const closeMenuOnTyping = () => {
+      const selection = window.getSelection();
+      const isCollapsedInEditor =
+        !!selection &&
+        selection.rangeCount > 0 &&
+        selection.isCollapsed &&
+        holder.contains(selection.anchorNode);
+
+      if (isCollapsedInEditor) {
+        setMenuOpen(false);
+      }
+    };
+
     const onScroll = () => syncOverlayContext();
 
     document.addEventListener('mousedown', closeOnOutsideClick, true);
@@ -1185,6 +1206,7 @@ export const ZenBlockEditor = ({
     holder.addEventListener('mouseup', syncOverlayContext, true);
     holder.addEventListener('keyup', syncOverlayContext, true);
     holder.addEventListener('focusin', syncOverlayContext, true);
+    holder.addEventListener('input', closeMenuOnTyping, true);
     container.addEventListener('scroll', onScroll, { passive: true });
 
     syncOverlayContext();
@@ -1195,7 +1217,59 @@ export const ZenBlockEditor = ({
       holder.removeEventListener('mouseup', syncOverlayContext, true);
       holder.removeEventListener('keyup', syncOverlayContext, true);
       holder.removeEventListener('focusin', syncOverlayContext, true);
+      holder.removeEventListener('input', closeMenuOnTyping, true);
       container.removeEventListener('scroll', onScroll);
+    };
+  }, [isReady]);
+
+  useEffect(() => {
+    if (!isReady || !holderRef.current) return;
+
+    const holder = holderRef.current;
+
+    const insertSoftBreakAtSelection = () => {
+      // Use native line-break command for contenteditable; this keeps caret behavior stable.
+      if (document.execCommand('insertLineBreak')) {
+        return true;
+      }
+      const selection = window.getSelection();
+      if (!selection || selection.rangeCount === 0) return false;
+      const range = selection.getRangeAt(0);
+      const br = document.createElement('br');
+      range.deleteContents();
+      range.insertNode(br);
+      const nextRange = document.createRange();
+      nextRange.setStartAfter(br);
+      nextRange.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(nextRange);
+      return true;
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' || !event.shiftKey) return;
+
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (!holder.contains(target)) return;
+      if (target.closest('textarea, input, .zen-code-block-tool__textarea')) return;
+
+      const editable = target.closest(
+        '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
+      ) as HTMLElement | null;
+      if (!editable) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (insertSoftBreakAtSelection()) {
+        editable.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    };
+
+    holder.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      holder.removeEventListener('keydown', onKeyDown, true);
     };
   }, [isReady]);
 
@@ -1663,6 +1737,37 @@ export const ZenBlockEditor = ({
     return () => el.removeEventListener('mousedown', handler, true);
   }, [showLineNumbers]);
 
+  const focusBlockByIndex = (index: number, caretPosition: 'start' | 'end' = 'end') => {
+    const editor = editorRef.current as any;
+    const holder = holderRef.current;
+    if (!editor?.blocks || !holder) return;
+
+    const applyFocus = () => {
+      const blockCount = editor.blocks.getBlocksCount?.() ?? holder.querySelectorAll('.ce-block').length;
+      const clampedIndex = Math.max(0, Math.min(index, Math.max(0, blockCount - 1)));
+      lastActiveBlockIndexRef.current = clampedIndex;
+
+      try {
+        if (editor.caret?.setToBlock) {
+          editor.caret.setToBlock(clampedIndex, caretPosition);
+        } else if (editor.blocks?.selectBlock) {
+          editor.blocks.selectBlock(clampedIndex);
+        }
+      } catch {
+        // Fallback for custom tools / older APIs
+      }
+
+      const blockEl = holder.querySelectorAll<HTMLElement>('.ce-block')[clampedIndex];
+      const editable = blockEl?.querySelector<HTMLElement>(
+        '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, .zen-link-block-tool__input, .zen-image-block-tool__input, .zen-cta-block-tool__input, .zen-code-block-tool__textarea, .zen-table-block-tool__cell, textarea, input, [contenteditable=\"true\"]'
+      );
+      editable?.focus();
+    };
+
+    applyFocus();
+    window.requestAnimationFrame(applyFocus);
+  };
+
   const insertBlock = (
     type: string,
     data: Record<string, unknown> = {},
@@ -1689,6 +1794,11 @@ export const ZenBlockEditor = ({
     }
 
     editor.blocks.insert(type, data, undefined, insertIndex, true);
+    const targetIndex =
+      typeof insertIndex === 'number'
+        ? insertIndex
+        : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
+    focusBlockByIndex(targetIndex, type === 'header' ? 'start' : 'end');
     setMenuOpen(false);
   };
 
@@ -1814,7 +1924,7 @@ export const ZenBlockEditor = ({
 
       editor.blocks.delete(info.index);
       editor.blocks.insert(type, data, undefined, info.index, true);
-      focusBlockByIndex(info.index);
+      focusBlockByIndex(info.index, target === 'header' ? 'start' : 'end');
     } catch {
       // no-op
     }
@@ -1825,10 +1935,36 @@ export const ZenBlockEditor = ({
     const editor = editorRef.current as any;
     if (!holder || !editor?.blocks) return null;
 
-    const index = editor.blocks.getCurrentBlockIndex?.();
-    if (typeof index !== 'number' || index < 0) return null;
-
     const blocks = holder.querySelectorAll<HTMLElement>('.ce-block');
+    let index = editor.blocks.getCurrentBlockIndex?.();
+
+    if (typeof index !== 'number' || index < 0) {
+      const active = document.activeElement as HTMLElement | null;
+      const activeBlock =
+        (active?.closest('.ce-block') as HTMLElement | null) ??
+        holder.querySelector<HTMLElement>('.ce-block--focused, .ce-block--selected, .ce-block');
+      if (activeBlock) {
+        const fallbackIndex = Array.from(blocks).indexOf(activeBlock);
+        if (fallbackIndex >= 0) {
+          index = fallbackIndex;
+        }
+      }
+    }
+
+    if (typeof index !== 'number' || index < 0) {
+      const rememberedIndex = lastActiveBlockIndexRef.current;
+      if (
+        typeof rememberedIndex === 'number' &&
+        rememberedIndex >= 0 &&
+        rememberedIndex < blocks.length
+      ) {
+        index = rememberedIndex;
+      } else {
+        return null;
+      }
+    }
+
+    lastActiveBlockIndexRef.current = index;
     const blockEl = blocks[index] ?? null;
 
     let hasContent = false;
@@ -1846,29 +1982,6 @@ export const ZenBlockEditor = ({
 
     const count = editor.blocks.getBlocksCount?.() ?? blocks.length;
     return { index, count, hasContent };
-  };
-
-  const focusBlockByIndex = (index: number) => {
-    const editor = editorRef.current as any;
-    const holder = holderRef.current;
-    if (!editor?.blocks || !holder) return;
-
-    const clampedIndex = Math.max(0, Math.min(index, (editor.blocks.getBlocksCount?.() ?? 1) - 1));
-    try {
-      if (editor.caret?.setToBlock) {
-        editor.caret.setToBlock(clampedIndex, 'end');
-      } else if (editor.blocks?.selectBlock) {
-        editor.blocks.selectBlock(clampedIndex);
-      }
-    } catch {
-      // Fallback for custom tools / older APIs
-    }
-
-    const blockEl = holder.querySelectorAll<HTMLElement>('.ce-block')[clampedIndex];
-    const editable = blockEl?.querySelector<HTMLElement>(
-      '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, .zen-link-block-tool__input, .zen-image-block-tool__input, .zen-cta-block-tool__input, .zen-code-block-tool__textarea, .zen-table-block-tool__cell, textarea, input, [contenteditable=\"true\"]'
-    );
-    editable?.focus();
   };
 
   const moveCurrentBlock = (direction: 'up' | 'down') => {

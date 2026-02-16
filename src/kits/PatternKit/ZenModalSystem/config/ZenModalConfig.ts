@@ -89,6 +89,14 @@ export const MODAL_CONTENT = {
     title: 'ZenPost Studio',
     subtitle: `Version ${packageJson.version}`,
   },
+    docload: {
+    title: 'Projektordner wählen',
+    subtitle: `Wähle einen Projektordner oder gib einen Pfad manuell ein.`,
+  },
+
+
+
+
 } satisfies Record<string, ModalContentConfig>;
 
 export const AI_TEMPERATURE_INFO: InfoBoxConfig = {
@@ -98,7 +106,7 @@ export const AI_TEMPERATURE_INFO: InfoBoxConfig = {
   links: [
     {
       label: 'Stil-Regler erklärt',
-      url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=temperature',
+      url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai/overview?id=temperature-stil',
     },
   ],
   type: 'info',
@@ -137,7 +145,7 @@ export const MODAL_PRESETS: Record<string, ModalPreset> = {
   },
   'about': {
     id: 'about',
-    title: 'ZenStudio Publisher',
+    title: 'ZenPost Studio',
     subtitle: `Version ${packageJson.version}`,
     titleColor: '#AC8E66',
     subtitleColor: '#dbd9d5',
@@ -306,7 +314,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
       },
       {
         label: 'Setup-Anleitung',
-        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=openai',
+        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai/cloud',
       },
     ],
     type: 'info',
@@ -321,7 +329,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
       },
       {
         label: 'Setup-Anleitung',
-        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-providers/anthropic-setup?id=%F0%9F%94%91-step-3-generate-api-key',
+        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai/cloud',
       },
     ],
     type: 'info',
@@ -332,7 +340,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
     links: [
       {
         label: 'Setup-Anleitung (Docs)',
-        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=ollama',
+        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai/ollama',
       },
     ],
     type: 'success',
@@ -343,7 +351,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
     links: [
       {
         label: 'Setup-Anleitung',
-        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai-setup?id=custom',
+        url: 'https://theoriginalbitter.github.io/zenpost-studio/#/ai/cloud',
       },
     ],
     type: 'info',

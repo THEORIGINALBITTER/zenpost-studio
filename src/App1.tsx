@@ -1,5 +1,5 @@
 // App1.tsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -20,7 +20,7 @@ import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
 import { ContentTransformScreen } from "./screens/ContentTransformScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
-import { GettingStartedScreen } from "./screens/GettingStartedScreen";
+import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
 import { ZenHomeModal } from "../src/kits/PatternKit/ZenModalSystem/modals/ZenHomeModal";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
@@ -34,7 +34,7 @@ import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgr
 import { ZenBootstrapModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBootstrapModal";
 import type { ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { ScheduledPost } from "./types/scheduling";
-import type { DocStudioState } from "./screens/DocStudio/types";
+import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
 import { initializePublishingProject, loadSchedule, saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
@@ -139,6 +139,8 @@ export default function App1() {
 
 // App content (moved from App1)
 function AppContent() {
+  const { checkFeature, requestUpgrade } = useLicense();
+  const WEB_DOCS_STORAGE_KEY = "zenpost_web_documents_v1";
   const [isMobileBlocked, setIsMobileBlocked] = useState(false);
   const isIdle = useZenIdle(2000);
   const { openExternal } = useOpenExternal();
@@ -171,11 +173,13 @@ function AppContent() {
   const [contentStudioProjectPath, setContentStudioProjectPath] = useState<string | null>(null);
   const [contentStudioRecentArticles, setContentStudioRecentArticles] = useState<ZenArticle[]>([]);
   const [contentStudioAllFiles, setContentStudioAllFiles] = useState<StudioFile[]>([]);
+  const [webDocuments, setWebDocuments] = useState<WebStoredDocument[]>([]);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
   const [docStudioRequestedFilePath, setDocStudioRequestedFilePath] = useState<string | null>(null);
+  const [docStudioRequestedWebDocument, setDocStudioRequestedWebDocument] = useState<{ fileName: string; content: string } | null>(null);
   const [showContentStudioModal, setShowContentStudioModal] = useState(false);
-  const [contentStudioModalTab, setContentStudioModalTab] = useState<"project" | "recent">("project");
+  const [contentStudioModalTab, setContentStudioModalTab] = useState<"project" | "all">("project");
   const [contentTransformHeaderAction, setContentTransformHeaderAction] = useState<
     "preview"
     | "next"
@@ -225,6 +229,7 @@ function AppContent() {
   const [exportContent, setExportContent] = useState<string>("");
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | null>(null);
+  const [docStudioPreviewMode, setDocStudioPreviewMode] = useState(false);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
 
   useEffect(() => {
@@ -358,9 +363,55 @@ function AppContent() {
     setCurrentScreen("content-transform");
   };
 
+  const persistWebDocument = (content: string, fileName: string) => {
+    const safeName = fileName?.trim() || `Web-Dokument-${new Date().toISOString()}.md`;
+    const now = Date.now();
+    setWebDocuments((prev) => {
+      const existingIndex = prev.findIndex((doc) => doc.name === safeName);
+      let next: WebStoredDocument[];
+      if (existingIndex >= 0) {
+        next = prev.map((doc, index) =>
+          index === existingIndex ? { ...doc, content, updatedAt: now } : doc
+        );
+      } else {
+        next = [
+          {
+            id: `webdoc-${now}-${Math.random().toString(36).slice(2, 8)}`,
+            name: safeName,
+            content,
+            updatedAt: now,
+          },
+          ...prev,
+        ];
+      }
+      next.sort((a, b) => b.updatedAt - a.updatedAt);
+      const capped = next.slice(0, 40);
+      if (typeof window !== "undefined") {
+        localStorage.setItem(WEB_DOCS_STORAGE_KEY, JSON.stringify(capped));
+      }
+      return capped;
+    });
+    return safeName;
+  };
+
+  const handleOpenWebDocumentInDocStudio = (content: string, fileName: string) => {
+    const safeName = fileName?.trim() || "Web-Dokument.md";
+    setDocStudioRequestedWebDocument({ fileName: safeName, content });
+    setDocStudioStep(3);
+    setCurrentScreen("doc-studio");
+    setShowContentStudioModal(false);
+  };
+
   const handleLoadWebDocument = (content: string, fileName: string) => {
+    const safeName = persistWebDocument(content, fileName);
+
+    if (currentScreen === "doc-studio") {
+      handleOpenWebDocumentInDocStudio(content, safeName);
+      return;
+    }
+
     setTransferContent(content);
-    setTransferFileName(fileName);
+    setTransferFileName(safeName);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
@@ -482,6 +533,12 @@ function AppContent() {
     }
   };
   const handleSelectDocStudio = () => {
+    // Locked Doc Studio should open upgrade modal directly (no intermediate lock screen)
+    if (!checkFeature("DOC_STUDIO")) {
+      requestUpgrade("DOC_STUDIO");
+      return;
+    }
+
     // Check if there's a saved project path in localStorage
     const savedProjectPath = localStorage.getItem('zenpost_last_project_path');
 
@@ -514,6 +571,7 @@ function AppContent() {
       length: prev?.length ?? 'medium',
       audience: prev?.audience ?? 'intermediate',
       targetLanguage: prev?.targetLanguage ?? 'deutsch',
+      inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
       metadata: prev?.metadata ?? {
         authorName: '',
         authorEmail: '',
@@ -683,6 +741,7 @@ function AppContent() {
       length: prev?.length ?? 'medium',
       audience: prev?.audience ?? 'intermediate',
       targetLanguage: prev?.targetLanguage ?? 'deutsch',
+      inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
       metadata: prev?.metadata ?? {
         authorName: '',
         authorEmail: '',
@@ -721,6 +780,77 @@ function AppContent() {
     setContentStudioAllFiles(files);
   };
 
+  const gettingStartedRecentItems = useMemo<GettingStartedRecentItem[]>(() => {
+    const articleFileNames = new Set(contentStudioRecentArticles.map((article) => article.fileName.toLowerCase()));
+
+    const articleItems: GettingStartedRecentItem[] = contentStudioRecentArticles.map((article) => ({
+      id: `article:${article.id}`,
+      title: article.title || article.fileName || "Artikel",
+      subtitle: article.fileName,
+      updatedAt: new Date(article.updatedAt || article.createdAt || Date.now()).getTime(),
+      source: "content-ai",
+      articleId: article.id,
+    }));
+
+    const fileItems: GettingStartedRecentItem[] = contentStudioAllFiles.map((file) => {
+      const normalizedPath = file.path.replace(/\\/g, "/").toLowerCase();
+      const isArticleFile =
+        normalizedPath.includes("/publishing/articles/") || articleFileNames.has(file.name.toLowerCase());
+
+      return {
+        id: `file:${file.path}`,
+        title: file.name,
+        subtitle: file.path,
+        updatedAt: file.modifiedAt ?? 0,
+        source: isArticleFile ? "content-ai" : "doc-studio",
+        filePath: file.path,
+      };
+    });
+
+    const merged = [...articleItems, ...fileItems]
+      .filter((item) => item.updatedAt > 0)
+      .sort((a, b) => b.updatedAt - a.updatedAt);
+
+    const deduped: GettingStartedRecentItem[] = [];
+    const seenKeys = new Set<string>();
+    for (const item of merged) {
+      const key = item.articleId ? `a:${item.articleId}` : `f:${item.filePath ?? item.id}`;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      deduped.push(item);
+      if (deduped.length >= 8) break;
+    }
+
+    return deduped;
+  }, [contentStudioRecentArticles, contentStudioAllFiles]);
+
+  const handleContinueRecentItem = (item: GettingStartedRecentItem) => {
+    if (item.source === "content-ai") {
+      if (item.articleId) {
+        setContentStudioRequestedArticleId(item.articleId);
+      } else if (item.filePath) {
+        setContentStudioRequestedFilePath(item.filePath);
+      }
+      setCurrentScreen("content-transform");
+      setContentTransformStep(1);
+      setCameFromDocStudio(false);
+      setCameFromDashboard(false);
+      return;
+    }
+
+    // Direct upgrade modal for locked Doc Studio also from "Weiterbearbeiten"
+    if (!checkFeature("DOC_STUDIO")) {
+      requestUpgrade("DOC_STUDIO");
+      return;
+    }
+
+    if (item.filePath) {
+      setDocStudioRequestedFilePath(item.filePath);
+    }
+    setDocStudioStep(3);
+    setCurrentScreen("doc-studio");
+  };
+
   // Listen for macOS "About" menu event
   useEffect(() => {
     const handleAboutMenu = () => {
@@ -742,9 +872,38 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(WEB_DOCS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as WebStoredDocument[];
+      if (!Array.isArray(parsed)) return;
+      setWebDocuments(
+        parsed
+          .filter((doc) =>
+            doc &&
+            typeof doc.id === "string" &&
+            typeof doc.name === "string" &&
+            typeof doc.content === "string" &&
+            typeof doc.updatedAt === "number"
+          )
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, 40)
+      );
+    } catch (error) {
+      console.warn("[App1] Could not load stored web documents:", error);
+    }
+  }, []);
+
+  useEffect(() => {
     if (currentScreen !== "content-transform") return;
     setContentStudioRequestedArticleId(null);
     setContentStudioRequestedFilePath(null);
+    refreshContentStudioData();
+  }, [currentScreen]);
+
+  useEffect(() => {
+    if (currentScreen !== "getting-started") return;
     refreshContentStudioData();
   }, [currentScreen]);
 
@@ -900,7 +1059,7 @@ function AppContent() {
               label="Projekt + Dokumente"
               icon={<FontAwesomeIcon icon={faFolderOpen} />}
               onClick={() => {
-                setContentStudioModalTab("project");
+                setContentStudioModalTab("all");
                 setShowContentStudioModal(true);
               }}
             />
@@ -953,7 +1112,7 @@ function AppContent() {
               onClick={() => setDocStudioHeaderAction("save")}
             />
             <StudioBarButton
-              label="Preview"
+              label={docStudioPreviewMode ? "Nachbearbeiten" : "Preview"}
               icon={<FontAwesomeIcon icon={faFileLines} />}
               onClick={() => setDocStudioHeaderAction("preview")}
             />
@@ -971,7 +1130,7 @@ function AppContent() {
               label="Projekt + Dokumente"
               icon={<FontAwesomeIcon icon={faFolderOpen} />}
               onClick={() => {
-                setContentStudioModalTab("project");
+                setContentStudioModalTab("all");
                 setShowContentStudioModal(true);
               }}
             />
@@ -998,10 +1157,10 @@ function AppContent() {
                 label="Projekt + Dokumente"
                 icon={<FontAwesomeIcon icon={faFolderOpen} />}
                 onClick={() => {
-                  setContentStudioModalTab("project");
+                  setContentStudioModalTab("all");
                   setShowContentStudioModal(true);
                 }}
-                active={showContentStudioModal && contentStudioModalTab === "project"}
+                active={showContentStudioModal && contentStudioModalTab === "all"}
               />
               <StudioBarButton
                 label="Planen"
@@ -1417,10 +1576,13 @@ function AppContent() {
               savedState={docStudioState}
               onStateChange={handleSaveDocStudioState}
               onGeneratedContentChange={setDocStudioGeneratedContent}
+              onPreviewModeChange={setDocStudioPreviewMode}
               headerAction={docStudioHeaderAction}
               onHeaderActionHandled={() => setDocStudioHeaderAction(null)}
               requestedFilePath={docStudioRequestedFilePath}
               onFileRequestHandled={() => setDocStudioRequestedFilePath(null)}
+              requestedWebDocument={docStudioRequestedWebDocument}
+              onWebDocumentRequestHandled={() => setDocStudioRequestedWebDocument(null)}
               scheduledPosts={scheduledPosts}
               onScheduledPostsChange={setScheduledPosts}
               onShowScheduler={() => {
@@ -1437,6 +1599,10 @@ function AppContent() {
               }}
               onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
               onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
+              onOpenProjectDocuments={() => {
+                setContentStudioModalTab("all");
+                setShowContentStudioModal(true);
+              }}
               onFileSaved={handleFileSavedWhileEditing}
             />
           </FeatureGate>
@@ -1447,6 +1613,8 @@ function AppContent() {
             onOpenDocStudio={handleSelectDocStudio}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
+            recentItems={gettingStartedRecentItems}
+            onContinueRecent={handleContinueRecentItem}
           />
         )}
       </div>
@@ -1498,6 +1666,7 @@ function AppContent() {
         projectPath={contentStudioProjectPath}
         recentArticles={contentStudioRecentArticles}
         allFiles={contentStudioAllFiles}
+        webDocuments={webDocuments}
         scheduledPosts={scheduledPosts}
         activeTab={contentStudioModalTab}
         onSelectProject={handleSelectContentStudioProject}
@@ -1515,6 +1684,7 @@ function AppContent() {
           setShowContentStudioModal(false);
         }}
         onLoadWebDocument={handleLoadWebDocument}
+        onOpenWebDocument={(content, fileName) => handleLoadWebDocument(content, fileName)}
         onOpenConverter={() => {
           setShowContentStudioModal(false);
           setCurrentScreen("converter");
@@ -1605,6 +1775,13 @@ interface StudioFile {
   path: string;
   name: string;
   modifiedAt?: number;
+}
+
+interface WebStoredDocument {
+  id: string;
+  name: string;
+  content: string;
+  updatedAt: number;
 }
 
 const saveMenuItemStyle: React.CSSProperties = {

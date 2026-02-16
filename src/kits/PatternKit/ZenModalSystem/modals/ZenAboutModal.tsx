@@ -99,7 +99,7 @@ export const ZenAboutModal = ({ isOpen, onClose, onOpenBugReport }: ZenAboutModa
             <p className="font-mono text-[12px] text-[#555] text-center"
             style={{padding: "10px"}}
             >
-              Schreibe einmal. Poste 9 mal mit KI unterstützten Vorlagen <br/>für soziale Medien und Doc Studio.
+              1mal Schreiben. 9mal Transformieren. <br/>local first. AI Content Architectur.
             </p>
 
             {/* Links */}

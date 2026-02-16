@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node scripts/check-port.mjs && TAURI_DEV_HOST=127.0.0.1 vite",
     "build": "tsc && vite build",
+    "build:clean": "rm -rf dist src-tauri/target && npm run tauri build",
     "build:all": "bash scripts/build-all.sh",
     "release": "bash scripts/release.sh",
     "preview": "vite preview",

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import type { ProjectMetadata } from '../../../kits/PatternKit/ZenModalSystem';
-import type { DocStudioRuntime, DocStudioStep, DocTemplate, ProjectInfo, DocTab } from '../types';
+import { defaultDocInputFields, type DocStudioRuntime, type DocStudioStep, type DocTemplate, type ProjectInfo, type DocTab, type DocInputFields } from '../types';
 import type { TargetLanguage } from '../../../services/aiService';
 import type { ScanSummary, ScanArtifacts } from '../../../services/projectScanService';
 
@@ -22,6 +22,7 @@ type DocStudioInitialState = Partial<{
   length: 'short' | 'medium' | 'long';
   audience: 'beginner' | 'intermediate' | 'expert';
   targetLanguage: TargetLanguage;
+  inputFields: DocInputFields;
 }>;
 
 export function useDocStudioState(initial?: DocStudioInitialState) {
@@ -53,6 +54,7 @@ export function useDocStudioState(initial?: DocStudioInitialState) {
   const [length, setLength] = useState<'short' | 'medium' | 'long'>(initial?.length ?? 'medium');
   const [audience, setAudience] = useState<'beginner' | 'intermediate' | 'expert'>(initial?.audience ?? 'intermediate');
   const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>(initial?.targetLanguage ?? 'deutsch');
+  const [inputFields, setInputFields] = useState<DocInputFields>(initial?.inputFields ?? { ...defaultDocInputFields });
 
   const runtime: DocStudioRuntime = isTauri() ? 'tauri' : 'web';
 
@@ -73,6 +75,7 @@ export function useDocStudioState(initial?: DocStudioInitialState) {
     length,
     audience,
     targetLanguage,
+    inputFields,
     runtime,
 
     setStep,
@@ -91,5 +94,6 @@ export function useDocStudioState(initial?: DocStudioInitialState) {
     setLength,
     setAudience,
     setTargetLanguage,
+    setInputFields,
   };
 }

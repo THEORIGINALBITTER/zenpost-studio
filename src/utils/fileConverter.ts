@@ -340,6 +340,58 @@ export async function pagesToMarkdown(arrayBuffer: ArrayBuffer): Promise<Convers
 }
 
 /**
+ * PDF -> Markdown (Text-Extraktion)
+ */
+export async function pdfToMarkdown(arrayBuffer: ArrayBuffer): Promise<ConversionResult> {
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    // Required in browser builds so pdf.js can spawn its worker.
+    (pdfjs as any).GlobalWorkerOptions.workerSrc = new URL(
+      'pdfjs-dist/legacy/build/pdf.worker.mjs',
+      import.meta.url
+    ).toString();
+    const loadingTask = pdfjs.getDocument({
+      data: new Uint8Array(arrayBuffer),
+    });
+    const pdf = await loadingTask.promise;
+    const pageTexts: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => ('str' in item ? item.str : ''))
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (pageText) {
+        pageTexts.push(`## Seite ${pageNumber}\n\n${pageText}`);
+      }
+    }
+
+    const merged = pageTexts.join('\n\n');
+    if (!merged) {
+      return {
+        success: false,
+        error: 'PDF enthält keinen auslesbaren Text.',
+      };
+    }
+
+    return {
+      success: true,
+      data: merged,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `PDF→Markdown Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+    };
+  }
+}
+
+/**
  * Markdown → Plain Text
  * Entfernt alle Markdown-Syntax
  */
@@ -549,6 +601,21 @@ export async function convertFile(
 
       // Sonst weiter zu anderem Format konvertieren
       return await convertFile(pagesResult.data, 'md', toFormat, fileName);
+    }
+
+    // PDF → Markdown (dann zu anderen Formaten)
+    if (fromFormat === 'pdf' && content instanceof ArrayBuffer) {
+      const pdfResult = await pdfToMarkdown(content);
+
+      if (!pdfResult.success || !pdfResult.data) {
+        return pdfResult;
+      }
+
+      if (toFormat === 'md' || toFormat === 'gfm') {
+        return pdfResult;
+      }
+
+      return await convertFile(pdfResult.data, 'md', toFormat, fileName);
     }
 
     // Stelle sicher, dass content ein String ist für alle anderen Konvertierungen

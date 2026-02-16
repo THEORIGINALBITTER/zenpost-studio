@@ -1,17 +1,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFolderOpen, faPenNib, faFolder } from '@fortawesome/free-solid-svg-icons';
-import { ZenModal, ZenModalHeader, ZenModalFooter, ZenRoughButton, createCustomPreset } from '../../kits/PatternKit/ZenModalSystem';
-
+import { faFolderOpen, faPenNib } from '@fortawesome/free-solid-svg-icons';
+import { ZenModal, ZenModalFooter, ZenRoughButton, createCustomPreset } from '../../kits/PatternKit/ZenModalSystem';
+import { MODAL_CONTENT } from '../../kits/PatternKit/ZenModalSystem/config/ZenModalConfig';
 type ProjectPickerModalProps = {
   isOpen: boolean;
   isWebRuntime: boolean;
   onClose: () => void;
   onPathSelected: (path: string) => void;
+  onContinueWithoutFolder?: () => void;
 };
 
-export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelected }: ProjectPickerModalProps) {
+export function ProjectPickerModal({
+  isOpen,
+  isWebRuntime,
+  onClose,
+  onPathSelected,
+  onContinueWithoutFolder,
+}: ProjectPickerModalProps) {
   const webFolderInputRef = useRef<HTMLInputElement | null>(null);
   const [showManualPathInput, setShowManualPathInput] = useState(false);
   const [manualProjectPath, setManualProjectPath] = useState('');
@@ -24,8 +31,8 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
     subtitleColor: '#777',
     titleSize: '20px',
     subtitleSize: '11px',
-    minHeight: '320px',
-    maxHeight: '520px',
+    minHeight: '220px',
+    maxHeight: '220px',
   });
 
   useEffect(() => {
@@ -61,15 +68,17 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
     }
   };
 
+  // Modal-Content aus zentraler Config
+  const content = MODAL_CONTENT.docload;
+
+
   return (
     <ZenModal
-      isOpen={isOpen}
-      onClose={() => {
-        setShowManualPathInput(false);
-        onClose();
-      }}
-      size="md"
-      showCloseButton={true}
+     isOpen={isOpen}
+        onClose={onClose}
+        title={content.title}
+        subtitle={content.subtitle}
+        headerAlign="center"
     >
       <div
         style={{
@@ -80,20 +89,7 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
           minHeight: modalPreset.minHeight,
         }}
       >
-        <div
-          style={{
-            padding: '28px 28px 20px',
-            borderBottom: '1px solid #AC8E66',
-          }}
-        >
-          <ZenModalHeader
-            {...modalPreset}
-            onClose={() => {
-              setShowManualPathInput(false);
-              onClose();
-            }}
-          />
-        </div>
+       
 
         <div style={{ flex: 1, padding: '22px 28px' }}>
           {isWebRuntime && (
@@ -141,6 +137,20 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
               width={260}
               height={54}
             />
+            {isWebRuntime && onContinueWithoutFolder && (
+              <ZenRoughButton
+                label="Ohne Ordner fortfahren"
+                icon="→"
+                onClick={() => {
+                  onContinueWithoutFolder();
+                  onClose();
+                }}
+                variant="default"
+                size="small"
+                width={260}
+                height={54}
+              />
+            )}
           </div>
 
           {folderPickerError && (
@@ -165,7 +175,7 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
                     padding: '10px 12px',
                     borderRadius: '8px',
                     border: '1px solid #3A3A3A',
-                    backgroundColor: '#1A1A1A',
+                    backgroundColor: '#171717',
                     color: '#e5e5e5',
                     fontFamily: 'monospace',
                     fontSize: '11px',
@@ -175,7 +185,7 @@ export function ProjectPickerModal({ isOpen, isWebRuntime, onClose, onPathSelect
                 <div style={{ display: 'flex', justifyContent: 'center' }}>
                   <ZenRoughButton
                     label="Pfad übernehmen"
-                    icon={<FontAwesomeIcon icon={faFolder} />}
+                    icon={<FontAwesomeIcon icon={faFolderOpen} />}
                     onClick={() => {
                       if (!manualProjectPath.trim()) return;
                       onPathSelected(manualProjectPath.trim());

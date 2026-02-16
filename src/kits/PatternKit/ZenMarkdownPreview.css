@@ -1,0 +1,13 @@
+.zen-markdown-preview h1,
+.zen-markdown-preview h2,
+.zen-markdown-preview h3,
+.zen-markdown-preview h4,
+.zen-markdown-preview h5,
+.zen-markdown-preview h6 {
+  text-align: left !important;
+}
+
+.zen-markdown-preview p,
+.zen-markdown-preview li {
+  white-space: pre-wrap;
+}

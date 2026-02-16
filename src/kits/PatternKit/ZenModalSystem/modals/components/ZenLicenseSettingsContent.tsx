@@ -4,9 +4,11 @@
  */
 
 import { useState } from 'react';
+import { faGithub } from '@fortawesome/free-brands-svg-icons';
+
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCrown,
+
   faUser,
   faCalendarAlt,
   faKey,
@@ -18,6 +20,7 @@ import {
   faExternalLinkAlt,
   faEye,
   faEyeSlash,
+  faFolder,
 } from '@fortawesome/free-solid-svg-icons';
 import { useLicense } from '../../../../../contexts/LicenseContext';
 import { ZenRoughButton } from '../../components/ZenRoughButton';
@@ -51,7 +54,7 @@ export const ZenLicenseSettingsContent = () => {
     setSuccessMessage(null);
 
     if (!licenseKey.trim()) {
-      setLocalError('Bitte gib einen Lizenzschlüssel ein');
+      setLocalError('Bitte gib einen Lizenzkey ein');
       return;
     }
 
@@ -153,13 +156,13 @@ export const ZenLicenseSettingsContent = () => {
               }}
             >
               <FontAwesomeIcon
-                icon={isPro ? faCrown : faUser}
+                icon={isPro ? faFolder : faUser}
                 style={{ fontSize: 20, color: isPro ? '#A18F55' : '#dbd9d5' }}
               />
             </div>
             <div>
               <h3 style={{ fontFamily: 'monospace', fontSize: 16, color: '#AC8E66', margin: 0 }}>
-                ZenStudio {tier.toUpperCase()}
+                ZenPost Studio {tier.toUpperCase()}
               </h3>
               <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#555', margin: '0px 0 0 0' }}>
                 {isPro ? (isTrial ? 'Trial Version' : 'Vollversion') : 'Kostenlose Version'}
@@ -189,7 +192,7 @@ export const ZenLicenseSettingsContent = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <FontAwesomeIcon icon={faCalendarAlt} style={{ color: '#AC8E66', fontSize: 12 }} />
               <div>
-                <p style={{ fontFamily: 'monospace', fontSize: 9, color: '#121212', margin: 0 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 9, color: '#555', margin: 0 }}>
                   Aktiviert am
                 </p>
                 <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#555', margin: 0 }}>
@@ -204,10 +207,10 @@ export const ZenLicenseSettingsContent = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <FontAwesomeIcon icon={faClock} style={{ color: isTrial ? '#AC8E66' : '#AC8E66', fontSize: 12 }} />
               <div>
-                <p style={{ fontFamily: 'monospace', fontSize: 9, color: '#121212', margin: 0 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 9, color: '#555', margin: 0 }}>
                   {isTrial ? 'Trial endet' : 'Gültig bis'}
                 </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 12, color: isTrial ? '#AC8E66' : '#e5e5e5', margin: 0 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 12, color: isTrial ? '#AC8E66' : '#121212', margin: 0 }}>
                   {formatDate(isTrial ? trial?.endsAt : license.expiresAt)}
                   {isTrial && trial && (
                     <span style={{ marginLeft: 8, color: '#AC8E66' }}>
@@ -225,9 +228,9 @@ export const ZenLicenseSettingsContent = () => {
               <FontAwesomeIcon icon={faKey} style={{ color: '#AC8E66', fontSize: 12 }} />
               <div>
                 <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#666', margin: 0 }}>
-                  Lizenzschlüssel
+                  Lizenzkey
                 </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#e5e5e5', margin: 0 }}>
+                <p style={{ fontFamily: 'monospace', fontSize: 12, color: '#121212', margin: 0 }}>
                   {maskLicenseKey(license.licenseKey)}
                 </p>
               </div>
@@ -274,12 +277,7 @@ export const ZenLicenseSettingsContent = () => {
                 />
               )}
 
-              <ZenRoughButton
-                label="PRO Version kaufen"
-                icon={<FontAwesomeIcon icon={faShoppingCart} />}
-                onClick={() => window.open('https://denisbitter.de/zenpost-studio', '_blank')}
-                variant="default"
-              />
+            
             </>
           )}
 
@@ -294,14 +292,7 @@ export const ZenLicenseSettingsContent = () => {
           )}
 
           {/* License Key Input Toggle */}
-          {!showKeyInput && (
-            <ZenRoughButton
-              label="Lizenzschlüssel eingeben"
-              icon={<FontAwesomeIcon icon={faKey} />}
-              onClick={() => setShowKeyInput(true)}
-              variant="default"
-            />
-          )}
+      
 
           {/* Deactivate License (only for PRO users) */}
           {isPro && !isTrial && (
@@ -335,7 +326,27 @@ export const ZenLicenseSettingsContent = () => {
               Lizenz deaktivieren
             </button>
           )}
+
+                  <button
+            onClick={handleGenerateDemo}
+            style={{
+            
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: '#555',
+              background: 'none',
+              border: '#AC8E66 1px dashed',
+              cursor: 'pointer',
+     
+              padding: '10px',
+      
+            }}
+          >
+            Beta-Key für ZenPost Studio Pro generieren (nur für Betatest)
+          </button>
         </div>
+
+      
 
         {/* License Key Input - Full Width Below */}
         {showKeyInput && (
@@ -349,7 +360,7 @@ export const ZenLicenseSettingsContent = () => {
             }}
           >
             <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 11, color: '#888', marginBottom: 8 }}>
-              Lizenzschlüssel:
+              Lizenzkey für ZenPost Studio Pro mit Doc Studio:
             </label>
             <div style={{ position: 'relative', marginBottom: 12 }}>
               <button
@@ -452,7 +463,7 @@ export const ZenLicenseSettingsContent = () => {
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
-            onClick={() => openExternal('https://denisbitter.de/zenpost-studio')}
+            onClick={() => openExternal('https://theoriginalbitter.github.io/zenpost-studio/#/')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -468,10 +479,10 @@ export const ZenLicenseSettingsContent = () => {
             }}
           >
             <FontAwesomeIcon icon={faExternalLinkAlt} style={{ fontSize: 10 }} />
-            Preise & Pakete ansehen
+            Lizenz Policy
           </button>
           <button
-            onClick={() => openExternal('https://denisbitter.de/contact')}
+            onClick={() => openExternal('https://github.com/THEORIGINALBITTER/zenpost-studio/issues/new')}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -486,33 +497,13 @@ export const ZenLicenseSettingsContent = () => {
               cursor: 'pointer',
             }}
           >
-            <FontAwesomeIcon icon={faExternalLinkAlt} style={{ fontSize: 10 }} />
-            Support kontaktieren
+            <FontAwesomeIcon icon={faGithub} style={{ fontSize: 10 }} />
+            Problem auf GitHub senden
           </button>
 
 
 
-        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px dotted #666' }}>
-         
        
-        </div>
-             <button
-            onClick={handleGenerateDemo}
-            style={{
-            
-              fontFamily: 'monospace',
-              fontSize: 10,
-              color: '#555',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              textDecoration: 'underline',
-              padding: '12px',
-      
-            }}
-          >
-            Demo-Schlüssel generieren (nur für Tests)
-          </button>
         </div>
 
         {/* Demo Key (for testing - remove in production) */}

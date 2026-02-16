@@ -34,11 +34,11 @@ export const WelcomeScreen = ({
         
         style={{padding: "10px"}}
         >ZenPost Studio</h4>
-        <ZenSubtitle className="text-[#999] text-center max-w-md mt-[-20px]">
-          1 mal Schreiben - 9 mal Veröffentlichen<br/> Wähle dein Studio
+        <ZenSubtitle className="text-[#999] text-center max-w-md mt-[-30px]">
+          1mal Schreiben. 9mal Transformieren.<br/> local first. AI Content Architectur.
         </ZenSubtitle>
 
-        <div className="flex flex-col gap-3 mt-6 text-[#fff] ">
+        <div className="flex flex-col gap-3 mt-[15px] text-[#fff] ">
 
               <ZenRoughButton
 

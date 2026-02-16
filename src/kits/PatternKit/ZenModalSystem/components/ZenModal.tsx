@@ -93,7 +93,7 @@ export const ZenModal = ({
 
   const headerBg =
     theme === "paper"
-      ? " #151515"
+      ? " #1a1a1a"
       : "linear-gradient(0deg, #0B0B0B 0%, #171717 100%)";
 
   const borderColor = theme === "paper" ? "#555)" : "#555";

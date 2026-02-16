@@ -6,16 +6,19 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCrown,
   faCheck,
   faRocket,
   faKey,
   faGift,
-  faInfinity,
+  faFileLines,
+  faCalendarDays,
+  faWandMagicSparkles,
+  faCodeBranch,
+  faFolder,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../index';
 import { useLicense } from '../../../../contexts/LicenseContext';
-import { FEATURES, PRICING, PRO_FEATURES } from '../../../../config/featureFlags';
+import { FEATURES } from '../../../../config/featureFlags';
 import { generateDemoKey } from '../../../../services/licenseService';
 
 interface ZenUpgradeModalProps {
@@ -70,8 +73,54 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
   };
 
   // PRO features list
-  const proFeatures = PRO_FEATURES.map((id) => FEATURES[id]).filter(Boolean).slice(0, 6);
   const highlightedFeature = highlightFeature ? FEATURES[highlightFeature] : null;
+  const docFeatureHighlights = [
+    {
+      id: 'DOC_STUDIO',
+      icon: faFolder,
+      badge: 'Core',
+      fallbackName: 'Doc Studio',
+      fallbackDescription: 'Projekt scannen, Datenfelder ergänzen und strukturierte Dokumente erstellen.',
+    },
+    {
+      id: 'BLOCK_EDITOR',
+      icon: faFileLines,
+      badge: 'Editor',
+      fallbackName: 'Block Editor',
+      fallbackDescription: 'Visuelles Bearbeiten mit sauberem Markdown-Output und schnellem Workflow.',
+    },
+    {
+      id: 'AI_TEXT_PREVIEW',
+      icon: faWandMagicSparkles,
+      badge: 'AI',
+      fallbackName: 'AI Text Preview',
+      fallbackDescription: 'Im Preview direkt verbessern, übersetzen und formatieren.',
+    },
+    {
+      id: 'EXPORT_PDF',
+      icon: faFileLines,
+      badge: 'Export',
+      fallbackName: 'PDF/HTML Export',
+      fallbackDescription: 'Dokumente professionell als PDF oder HTML ausgeben.',
+    },
+    {
+      id: 'CONTENT_CALENDAR',
+      icon: faCalendarDays,
+      badge: 'Workflow',
+      fallbackName: 'Content Kalender',
+      fallbackDescription: 'Dokumentation und Veröffentlichungsplanung in einem Ablauf verbinden.',
+    },
+    {
+      id: 'GITHUB_INTEGRATION',
+      icon: faCodeBranch,
+      badge: 'Integration',
+      fallbackName: 'GitHub Sync',
+      fallbackDescription: 'Änderungen mit Repository-Workflows verbinden.',
+    },
+  ].map((entry) => ({
+    ...entry,
+    feature: FEATURES[entry.id],
+  }));
 
   // Success State
   if (success) {
@@ -141,7 +190,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
             }}
           >
-            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
+            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 36, color: '#AC8E66' }} />
           </div>
           <h3 style={{ fontFamily: 'monospace', fontSize: 20, color: '#AC8E66', margin: '0 0 8px 0' }}>
             Du bist bereits PRO!
@@ -186,7 +235,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         {/* Header with Crown */}
         <div
           style={{
-            background: 'linear-gradient(135deg, rgba(172, 142, 102, 0.2), rgba(172, 142, 102, 0.05))',
+            background: 'transparent',
             padding: '40px 32px',
             textAlign: 'center',
             borderBottom: '1px solid #3a3a3a',
@@ -198,22 +247,22 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               height: 80,
               margin: '0 auto 20px',
               borderRadius: '50%',
-              background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
+              background: ' #AC8E66)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
             }}
           >
-            <FontAwesomeIcon icon={faCrown} style={{ fontSize: 36, color: '#1a1a1a' }} />
+            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 36, color: '#AC8E66' }} />
           </div>
 
           <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 8px 0' }}>
-            Upgrade auf PRO
+            Upgrade auf Doc Studio [ BETA ]
           </h1>
 
           <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#888', margin: 0 }}>
-            Schalte alle Premium-Features frei
+            Schalte alle DocStudio-Features frei
           </p>
         </div>
 
@@ -252,133 +301,133 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
           )}
 
           {/* Pricing Cards */}
+       
+
+          {/* Doc Features Grid */}
           <div style={{ marginBottom: 24 }}>
             <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-              Preise & Optionen
+              Doc Studio PRO Feature Pack
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-              {/* Monthly */}
-              <div
-                style={{
-                  padding: 16,
-                  backgroundColor: '#1a1a1a',
-                  borderRadius: 12,
-                  border: '1px solid #3a3a3a',
-                  textAlign: 'center',
-                }}
-              >
-                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 8px 0' }}>
-                  Monatlich
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
-                  {PRICING.pro.monthly}€
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#666', margin: '4px 0 0 0' }}>
-                  pro Monat
-                </p>
-              </div>
-
-              {/* Yearly - Recommended */}
-              <div
-                style={{
-                  padding: 16,
-                  backgroundColor: 'rgba(172, 142, 102, 0.1)',
-                  borderRadius: 12,
-                  border: '2px solid #AC8E66',
-                  textAlign: 'center',
-                  position: 'relative',
-                }}
-              >
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: -10,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    padding: '4px 12px',
-                    backgroundColor: '#AC8E66',
-                    color: '#1a1a1a',
-                    fontFamily: 'monospace',
-                    fontSize: 9,
-                    fontWeight: 600,
-                    borderRadius: 12,
-                    textTransform: 'uppercase',
-                    letterSpacing: 0.5,
-                  }}
-                >
-                  Empfohlen
-                </span>
-                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#AC8E66', margin: '0 0 8px 0' }}>
-                  Jährlich
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
-                  {PRICING.pro.yearly}€
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#22c55e', margin: '4px 0 0 0' }}>
-                  Spare {Math.round((1 - PRICING.pro.yearly / (PRICING.pro.monthly * 12)) * 100)}%
-                </p>
-              </div>
-
-              {/* Lifetime */}
-              <div
-                style={{
-                  padding: 16,
-                  backgroundColor: '#1a1a1a',
-                  borderRadius: 12,
-                  border: '1px solid #3a3a3a',
-                  textAlign: 'center',
-                }}
-              >
-                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                  Lifetime
-                  <FontAwesomeIcon icon={faInfinity} style={{ fontSize: 10, color: '#AC8E66' }} />
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: 0 }}>
-                  {PRICING.pro.lifetime}€
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 10, color: '#666', margin: '4px 0 0 0' }}>
-                  einmalig
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* PRO Features Grid */}
-          <div style={{ marginBottom: 24 }}>
-            <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
-              Alle PRO Features
-            </h4>
+            <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 12px 0', lineHeight: 1.5 }}>
+              Für technische Dokumentation, Team-Workflows und KI-gestützte Überarbeitung in einem Studio.
+            </p>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-              {proFeatures.map((f) => (
+              {docFeatureHighlights.map((entry) => {
+                const f = entry.feature;
+                const name = f?.name ?? entry.fallbackName;
+                const description = f?.description ?? entry.fallbackDescription;
+                const isHighlighted = highlightFeature === f?.id;
+                return (
                 <div
-                  key={f.id}
+                  key={entry.id}
                   style={{
                     display: 'flex',
-                    alignItems: 'center',
+                    flexDirection: 'column',
                     gap: 8,
-                    padding: '8px 12px',
-                    backgroundColor: highlightFeature === f.id ? 'rgba(172, 142, 102, 0.15)' : '#1a1a1a',
+                    padding: '10px 12px',
+                    backgroundColor: isHighlighted ? 'rgba(172, 142, 102, 0.15)' : '#1a1a1a',
                     borderRadius: 8,
-                    border: highlightFeature === f.id ? '1px solid #AC8E66' : '1px solid transparent',
+                    border: isHighlighted ? '1px solid #AC8E66' : '1px solid #2e2e2e',
                   }}
                 >
-                  <FontAwesomeIcon
-                    icon={faCheck}
-                    style={{ fontSize: 10, color: '#AC8E66' }}
-                  />
-                  <span
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: 11,
-                      color: highlightFeature === f.id ? '#AC8E66' : '#888',
-                    }}
-                  >
-                    {f.name}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <FontAwesomeIcon icon={entry.icon} style={{ fontSize: 11, color: '#AC8E66' }} />
+                      <span
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          color: isHighlighted ? '#AC8E66' : '#d0d0d0',
+                        }}
+                      >
+                        {name}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontFamily: 'monospace',
+                        fontSize: 9,
+                        color: '#c9a978',
+                        border: '1px solid rgba(172, 142, 102, 0.45)',
+                        borderRadius: 999,
+                        padding: '1px 6px',
+                      }}
+                    >
+                      {entry.badge}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 10, color: '#8e8e8e', lineHeight: 1.4 }}>
+                    {description}
+                  </p>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              padding: '12px 14px',
+              border: '1px solid rgba(172, 142, 102, 0.35)',
+              borderRadius: 10,
+              background: 'rgba(172, 142, 102, 0.06)',
+              marginBottom: 24,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#d8c2a0' }}>
+                Beta verfügbar <br/> zum testen einfach Key generieren
+              </span>
+            </div>
+           
+
+                      {/* Beta Key */}
+          <p
+            style={{
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: '#555',
+              marginTop: 20,
+              textAlign: 'center',
+            }}
+          >
+            <button
+              onClick={handleGenerateDemo}
+              style={{
+               display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    padding: '16px 24px',
+                    backgroundColor: 'transparent',
+                    color: '#AC8E66',
+                    border: '2px solid #AC8E66',
+                    borderRadius: 12,
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+               
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = '#AC8E66';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = '#555';
+              }}
+            >
+              Beta-Key generieren 
+            </button>
+          </p>
+          </div>
+
+        
+
 
           {/* License Key Input */}
           {showKeyInput && (
@@ -392,7 +441,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               }}
             >
               <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 11, color: '#888', marginBottom: 8 }}>
-                Lizenzschlüssel eingeben:
+                Lizenzkey eingeben:
               </label>
               <input
                 type="text"
@@ -445,7 +494,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                     cursor: isLoading ? 'wait' : 'pointer',
                     opacity: isLoading ? 0.7 : 1,
                     transition: 'all 0.2s',
-                    boxShadow: '0 4px 20px rgba(172, 142, 102, 0.3)',
+                    boxShadow: '0 4px 20px rgba(172, 142, 102, 0)',
                   }}
                 >
                   <FontAwesomeIcon icon={faKey} />
@@ -537,43 +586,13 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                   }}
                 >
                   <FontAwesomeIcon icon={faKey} />
-                  Lizenzschlüssel eingeben
+                  Lizenzkey eingeben
                 </button>
               </>
             )}
           </div>
 
-          {/* Footer - Demo Key */}
-          <p
-            style={{
-              fontFamily: 'monospace',
-              fontSize: 10,
-              color: '#555',
-              marginTop: 20,
-              textAlign: 'center',
-            }}
-          >
-            <button
-              onClick={handleGenerateDemo}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#555',
-                fontFamily: 'monospace',
-                fontSize: 10,
-                cursor: 'pointer',
-                textDecoration: 'underline',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.color = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.color = '#555';
-              }}
-            >
-              Demo-Schlüssel generieren (nur zum Testen)
-            </button>
-          </p>
+      
         </div>
       </div>
     </ZenModal>

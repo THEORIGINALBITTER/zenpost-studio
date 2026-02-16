@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/atom-one-dark.css';
+import './ZenMarkdownPreview.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
@@ -616,6 +617,7 @@ export const ZenMarkdownPreview = ({
         )}
 
         <div
+          className="zen-markdown-preview"
           style={{
             transform: `scale(${zoom / 100})`,
             transformOrigin: 'top left',
@@ -629,32 +631,32 @@ export const ZenMarkdownPreview = ({
             components={{
               // Custom styling for markdown elements
               h1: ({ node, ...props }) => (
-                <h1 className="text-3xl font-bold mb-4" style={{ color: palette.heading }} {...props} />
+                <h1 className="text-3xl font-bold mb-4" style={{ color: palette.heading, textAlign: 'left' }} {...props} />
               ),
               h2: ({ node, ...props }) => (
-                <h2 className="text-2xl font-bold mb-3 mt-6" style={{ color: palette.accent }} {...props} />
+                <h2 className="text-2xl font-bold mb-3 mt-6" style={{ color: palette.accent, textAlign: 'left' }} {...props} />
               ),
               h3: ({ node, ...props }) => (
-                <h3 className="text-xl font-bold mb-2 mt-4" style={{ color: palette.subtle }} {...props} />
+                <h3 className="text-xl font-bold mb-2 mt-4" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
               ),
               h4: ({ node, ...props }) => (
-                <h4 className="text-lg font-bold mb-2 mt-3" style={{ color: palette.subtle }} {...props} />
+                <h4 className="text-lg font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
               ),
               h5: ({ node, ...props }) => (
-                <h5 className="text-base font-bold mb-2 mt-3" style={{ color: palette.subtle }} {...props} />
+                <h5 className="text-base font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
               ),
               h6: ({ node, ...props }) => (
-                <h6 className="text-sm font-bold mb-2 mt-3" style={{ color: palette.subtle }} {...props} />
+                <h6 className="text-sm font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
               ),
               p: ({ node, ...props }) => (
                 <p
                   className="leading-relaxed"
-                  style={{ color: palette.text, marginTop: 0, marginBottom: '3.15em' }}
+                  style={{ color: palette.text, marginTop: 0, marginBottom: '0.8em', whiteSpace: 'pre-wrap' }}
                   {...props}
                 />
               ),
               br: ({ node, ...props }) => (
-                <br {...props} style={{ display: 'block', marginBottom: '0.45em' }} />
+                <br {...props} />
               ),
               a: ({ node, ...props }) => (
                 (() => {

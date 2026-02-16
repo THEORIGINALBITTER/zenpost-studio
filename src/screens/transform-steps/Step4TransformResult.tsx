@@ -188,7 +188,8 @@ export const Step4TransformResult = ({
   }, [transformedContent]);
 
   useEffect(() => {
-    if (isPreview) return;
+    // In Preview mode, tab switches should always show the selected tab content.
+    if (!isPreview) return;
     if (!activeDocTabId || activeDocTabId === 'draft') return;
     setCurrentContent(activeDocTabContent);
   }, [activeDocTabId, activeDocTabContent, isPreview]);

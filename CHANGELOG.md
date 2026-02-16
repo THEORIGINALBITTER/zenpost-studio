@@ -7,6 +7,23 @@ and this project adheres to a calm, intentional release philosophy.
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+#### Content AI Studio
+- Multi-Plattform-Transformation nutzt jetzt plattformbezogene Stilprofile statt nur globaler Einstellungen.
+- Step 3 bietet zwei Modi:
+  - `Pro Plattform`
+  - `Für alle gleich`
+- Für Multi-Select kann pro Plattform ein eigenes Profil (Tonalität, Länge, Zielgruppe) gepflegt werden.
+- Das aktive Plattform-Profil kann auf alle gewählten Plattformen übernommen werden.
+- Beim Transformieren wird je Plattform die effektive Konfiguration angewendet.
+
+#### Build Workflow
+- Neuer Befehl `npm run build:clean` für vollständigen Clean-Build (`dist` + `src-tauri/target` + Tauri Build).
+- `scripts/build-all.sh` startet jetzt mit Full-Clean, um alte Build-Artefakte im Release-Prozess zu vermeiden.
+
 ## [ZenPost] – Initial Public Release
 
 **Release Date:** 2026-02-01  

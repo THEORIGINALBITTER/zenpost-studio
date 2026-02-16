@@ -38,30 +38,6 @@ export type ProjectInfo = {
   hasApi: boolean;
 };
 
-export type DocInputFields = {
-  productName: string;
-  productSummary: string;
-  problemSolved: string;
-  setupSteps: string;
-  usageExamples: string;
-  apiEndpoints: string;
-  testingNotes: string;
-  faq: string;
-  links: string;
-};
-
-export const defaultDocInputFields: DocInputFields = {
-  productName: '',
-  productSummary: '',
-  problemSolved: '',
-  setupSteps: '',
-  usageExamples: '',
-  apiEndpoints: '',
-  testingNotes: '',
-  faq: '',
-  links: '',
-};
-
 export type DocStudioState = {
   projectPath: string | null;
   projectInfo: ProjectInfo | null;
@@ -76,7 +52,6 @@ export type DocStudioState = {
   length: 'short' | 'medium' | 'long';
   audience: 'beginner' | 'intermediate' | 'expert';
   targetLanguage: TargetLanguage;
-  inputFields: DocInputFields;
   metadata: ProjectMetadata;
 };
 
@@ -88,13 +63,10 @@ export type DocStudioScreenProps = {
   savedState?: DocStudioState | null;
   onStateChange?: (state: DocStudioState) => void;
   onGeneratedContentChange?: (content: string) => void;
-  onPreviewModeChange?: (isPreview: boolean) => void;
   headerAction?: "save" | "preview" | null;
   onHeaderActionHandled?: () => void;
   requestedFilePath?: string | null;
   onFileRequestHandled?: () => void;
-  requestedWebDocument?: { fileName: string; content: string } | null;
-  onWebDocumentRequestHandled?: () => void;
   scheduledPosts?: any[];
   onScheduledPostsChange?: (posts: any[]) => void;
   onShowScheduler?: () => void;
@@ -102,7 +74,6 @@ export type DocStudioScreenProps = {
   onShowChecklist?: () => void;
   onSetSchedulerPlatformPosts?: (posts: Array<{ platform: string; content: string }>) => void;
   onSetSelectedDateFromCalendar?: (date: Date | undefined) => void;
-  onOpenProjectDocuments?: () => void;
   /** Called when a file is saved successfully with the new path and content */
   onFileSaved?: (filePath: string, content: string, fileName: string) => void;
 };

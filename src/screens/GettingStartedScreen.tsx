@@ -1,29 +1,35 @@
-import { useCallback, useEffect, useState } from 'react';
-import {  ZenFooterText} from "../kits/PatternKit/ZenModalSystem";
-
+import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faBook,
-  faMagicWandSparkles,
-  faFileLines,
-  faCalendarDays,
-  faPencil,
-  faFolderOpen,
   faArrowRight,
+  faBook,
+  faCalendarDays,
+  faFileLines,
+  faFolderOpen,
+  faPencil,
+  faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
-import {
-  initializePublishingProject,
-  loadArticles,
-  type ZenArticle,
-} from '../services/publishingService';
+
 import type { ScheduledPost } from '../types/scheduling';
+
+export type GettingStartedRecentItem = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  updatedAt: number;
+  source: 'doc-studio' | 'content-ai';
+  articleId?: string;
+  filePath?: string;
+};
 
 interface GettingStartedScreenProps {
   onBack: () => void;
   onOpenDocStudio?: () => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
+  recentItems?: GettingStartedRecentItem[];
+  onContinueRecent?: (item: GettingStartedRecentItem) => void;
 }
 
 interface UseCaseCardData {
@@ -39,166 +45,153 @@ export function GettingStartedScreen({
   onOpenDocStudio,
   onOpenContentAI,
   onOpenConverter,
+  recentItems = [],
+  onContinueRecent,
 }: GettingStartedScreenProps) {
   const [projectPath] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('zenpost_last_project_path');
   });
-  const [recentArticles, setRecentArticles] = useState<ZenArticle[]>([]);
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
-
-  const loadRecentArticles = useCallback(async (path: string) => {
-    try {
-      await initializePublishingProject(path);
-      const list = await loadArticles(path);
-      setRecentArticles(list.slice(0, 3)); // Only show 3 most recent
-    } catch (error) {
-      console.error('[GettingStarted] Artikel konnten nicht geladen werden:', error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (projectPath) {
-      loadRecentArticles(projectPath);
-    }
-  }, [projectPath, loadRecentArticles]);
 
   const useCases: UseCaseCardData[] = [
     {
       id: 'document-code',
-      title: 'Ich will meinen Code dokumentieren',
-      description: 'README, API-Docs, Changelog automatisch erstellen',
+      title: 'Code dokumentieren',
+      description: 'README, API-Docs, Changelog und technische Doku erstellen',
       icon: faBook,
       action: () => onOpenDocStudio?.(),
     },
     {
       id: 'social-media',
-      title: 'Ich will Content für Social Media erstellen',
-      description: 'Text transformieren für LinkedIn, Twitter, Medium & mehr',
-      icon: faMagicWandSparkles,
+      title: 'Content transformieren',
+      description: 'Content AI Studio für LinkedIn, X, Medium und weitere Kanäle',
+      icon: faWandMagicSparkles,
       action: () => onOpenContentAI?.(),
     },
     {
       id: 'convert-markdown',
-      title: 'Ich will mein Markdown konvertieren',
-      description: 'Format-Konvertierung und Bereinigung',
+      title: 'Dateiformate konvertieren',
+      description: 'Markdown, Text und strukturierte Inhalte bereinigen/konvertieren',
       icon: faFileLines,
       action: () => onOpenConverter?.(),
     },
     {
       id: 'schedule-posts',
-      title: 'Ich will meine Posts planen',
-      description: 'Content-Kalender und Scheduling',
+      title: 'Posts planen',
+      description: 'Kalender, Scheduling und Veröffentlichungen vorbereiten',
       icon: faCalendarDays,
       action: () => setShowPlannerModal(true),
     },
     {
       id: 'write-article',
-      title: 'Ich will einen Blog-Artikel schreiben',
-      description: 'Neuen Blog-Post mit KI-Unterstützung erstellen',
+      title: 'Artikel schreiben',
+      description: 'Direkt in Content AI Studio mit KI-Unterstützung starten',
       icon: faPencil,
       action: () => onOpenContentAI?.(),
     },
     {
       id: 'manage-articles',
-      title: 'Ich will meine Artikel verwalten',
-      description: 'Gespeicherte Artikel bearbeiten und organisieren',
+      title: 'Dokumente verwalten',
+      description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
       icon: faFolderOpen,
-      action: () => onOpenContentAI?.(),
+      action: () => onOpenDocStudio?.(),
     },
   ];
+
+  const sortedRecent = [...recentItems].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
 
   return (
     <div
       style={{
         display: 'flex',
+        paddingTop: '25px',
         flexDirection: 'column',
-        height: '100%',
+        minHeight: '100%',
         backgroundColor: 'transparent',
         color: '#e5e5e5',
-        padding: '32px',
-        overflow: 'auto',
+        padding: '28px 36px 20px',
+        overflowY: 'auto',
       }}
     >
-      {/* Header */}
-      <div style={{ marginBottom: '40px', textAlign: 'center' }}>
-        <h1
+      <div style={{ maxWidth: '1120px', width: '100%', margin: '0 auto' }}>
+        <div
           style={{
-            fontFamily: 'monospace',
-            fontSize: '23px',
-            margin: '10px',
-            color: '#AC8E66',
+            border: '1px solid rgba(172, 142, 102, 0.4)',
+            borderRadius: '12px',
+            padding: '26px 24px 20px',
+            background: 'transparent',
+            boxShadow: 'inset 0 0 28px rgba(0,0,0,0.35)',
+            marginTop: '22px',
           }}
         >
-          Was möchtest du heute machen?
-        </h1>
-        <p
-          style={{
-            fontFamily: 'monospace',
-            fontSize: '14px',
-            color: '#777',
-            marginTop: '12px',
-          }}
-        >
-          Wähle eine Aufgabe, um loszulegen
-        </p>
-      </div>
-
-      {/* Use-Case Cards Grid */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '20px',
-          maxWidth: '1000px',
-          margin: '0 auto',
-          width: '100%',
-        }}
-      >
-        {useCases.map((useCase) => (
-          <UseCaseCard
-            key={useCase.id}
-            title={useCase.title}
-            description={useCase.description}
-            icon={useCase.icon}
-            onClick={useCase.action}
-          />
-        ))}
-      </div>
-
-      {/* Weitermachen Section */}
-      {recentArticles.length > 0 && (
-        <div style={{ marginTop: '48px', maxWidth: '1000px', margin: '48px auto 0', width: '100%' }}>
-          <h2
+          <h1
             style={{
-              fontFamily: 'monospace',
-              fontSize: '18px',
-              color: '#e5e5e5',
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '31px',
+              margin: '0',
+              padding: '15px',
+              color: '#AC8E66',
+              letterSpacing: '0.4px',
             }}
           >
-            <span style={{ color: '#AC8E66' }}>Weitermachen</span>
-            <span style={{ fontSize: '12px', color: '#777' }}>
-              — Zuletzt bearbeitet
-            </span>
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {recentArticles.map((article) => (
-              <RecentArticleCard
-                key={article.id}
-                article={article}
-                onClick={() => onOpenContentAI?.()}
-              />
-            ))}
-          </div>
+            Was möchtest du heute machen?
+          </h1>
+       
         </div>
-      )}
 
-      {/* Planner Modal */}
+        <div
+          style={{
+            paddingTop: '150px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+            gap: '16px',
+          }}
+        >
+          {useCases.map((useCase) => (
+            <UseCaseCard
+              key={useCase.id}
+              title={useCase.title}
+              description={useCase.description}
+              icon={useCase.icon}
+              onClick={useCase.action}
+            />
+          ))}
+        </div>
+
+        {sortedRecent.length > 0 && (
+          <div style={{ marginTop: '28px' }}>
+            <h2
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '16px',
+                color: '#e5e5e5',
+                marginBottom: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '9px',
+              }}
+            >
+              <span style={{ color: '#AC8E66' }}>Weitermachen</span>
+              <span style={{ fontSize: '11px', color: '#777' }}>— Zuletzt bearbeitet</span>
+            </h2>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {sortedRecent.map((item) => (
+                <RecentItemCard
+                  key={item.id}
+                  item={item}
+                  onClick={() => onContinueRecent?.(item)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+     
+
       <ZenPlannerModal
         isOpen={showPlannerModal}
         onClose={() => setShowPlannerModal(false)}
@@ -215,7 +208,6 @@ export function GettingStartedScreen({
   );
 }
 
-// Use-Case Card Component
 interface UseCaseCardProps {
   title: string;
   description: string;
@@ -228,23 +220,24 @@ const UseCaseCard = ({ title, description, icon, onClick }: UseCaseCardProps) =>
     onClick={onClick}
     style={{
       border: '1px solid #3A3A3A',
-      borderRadius: '16px',
-      padding: '24px',
-      background: 'linear-gradient(145deg, #1A1A1A, #0A0A0A)',
+      borderRadius: '14px',
+      padding: '18px',
+      background: 'linear-gradient(165deg, #161616 0%, #0A0A0A 100%)',
       display: 'flex',
       alignItems: 'flex-start',
-      gap: '16px',
-      fontFamily: 'monospace',
+      gap: '12px',
+      fontFamily: 'IBM Plex Mono, monospace',
       cursor: 'pointer',
-      transition: 'all 0.25s ease',
+      transition: 'all 0.22s ease',
       color: '#e5e5e5',
       textAlign: 'left',
       width: '100%',
+      minHeight: '146px',
     }}
     onMouseEnter={(e) => {
       e.currentTarget.style.borderColor = '#AC8E66';
-      e.currentTarget.style.transform = 'translateY(-4px)';
-      e.currentTarget.style.boxShadow = '0 8px 24px rgba(172, 142, 102, 0.15)';
+      e.currentTarget.style.transform = 'translateY(-2px)';
+      e.currentTarget.style.boxShadow = '0 10px 24px rgba(0,0,0,0.33)';
     }}
     onMouseLeave={(e) => {
       e.currentTarget.style.borderColor = '#3A3A3A';
@@ -254,93 +247,82 @@ const UseCaseCard = ({ title, description, icon, onClick }: UseCaseCardProps) =>
   >
     <div
       style={{
-        width: '48px',
-        height: '48px',
-        borderRadius: '12px',
-        background: 'rgba(172, 142, 102, 0.1)',
+        width: '42px',
+        height: '42px',
+        borderRadius: '10px',
+        background: 'rgba(172, 142, 102, 0.12)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
       }}
     >
-      <FontAwesomeIcon icon={icon} style={{ fontSize: '20px', color: '#AC8E66' }} />
+      <FontAwesomeIcon icon={icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
     </div>
     <div style={{ flex: 1 }}>
-      <div
-        style={{
-          fontSize: '15px',
-          fontWeight: 600,
-          color: '#e5e5e5',
-          marginBottom: '6px',
-        }}
-      >
-        {title}
-      </div>
-      <div style={{ fontSize: '12px', color: '#777', lineHeight: 1.4 }}>
-        {description}
-      </div>
+      <div style={{ fontSize: '14px', fontWeight: 600, color: '#efefef', marginBottom: '7px' }}>{title}</div>
+      <div style={{ fontSize: '11px', color: '#7d7d7d', lineHeight: 1.45 }}>{description}</div>
     </div>
-    <FontAwesomeIcon
-      icon={faArrowRight}
-      style={{ fontSize: '14px', color: '#AC8E66', marginTop: '4px' }}
-    />
+    <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '13px', color: '#AC8E66', marginTop: '5px' }} />
   </button>
 );
 
-
-
-        {/* Copyright Footer */}
-        <ZenFooterText className="mb-8 border-t border-[#AC8E66]"  />
-
-// Recent Article Card Component
-interface RecentArticleCardProps {
-  article: ZenArticle;
+interface RecentItemCardProps {
+  item: GettingStartedRecentItem;
   onClick: () => void;
 }
 
-const RecentArticleCard = ({ article, onClick }: RecentArticleCardProps) => (
-  <button
-    onClick={onClick}
-    style={{
-      border: '1px solid #2A2A2A',
-      borderRadius: '12px',
-      padding: '16px 20px',
-      background: '#0A0A0A',
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      fontFamily: 'monospace',
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-      color: '#e5e5e5',
-      textAlign: 'left',
-      width: '100%',
-    }}
-    onMouseEnter={(e) => {
-      e.currentTarget.style.borderColor = '#AC8E66';
-      e.currentTarget.style.backgroundColor = '#111';
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.borderColor = '#2A2A2A';
-      e.currentTarget.style.backgroundColor = '#0A0A0A';
-    }}
-  >
-    <div style={{ flex: 1 }}>
-      <div
-        style={{
-          fontSize: '14px',
-          fontWeight: 600,
-          color: '#e5e5e5',
-          marginBottom: '4px',
-        }}
-      >
-        {article.title}
+const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
+  const sourceLabel = item.source === 'doc-studio' ? 'Doc Studio' : 'Content AI';
+
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        border: '1px solid #2A2A2A',
+        borderRadius: '12px',
+        padding: '14px 18px',
+        background: '#0B0B0B',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        fontFamily: 'IBM Plex Mono, monospace',
+        cursor: 'pointer',
+        transition: 'all 0.2s ease',
+        color: '#e5e5e5',
+        textAlign: 'left',
+        width: '100%',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = '#AC8E66';
+        e.currentTarget.style.backgroundColor = '#111';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = '#2A2A2A';
+        e.currentTarget.style.backgroundColor = '#0B0B0B';
+      }}
+    >
+      <div style={{ flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: '#e5e5e5' }}>{item.title}</div>
+          <span
+            style={{
+              border: '1px solid #3A3328',
+              color: '#c9ab82',
+              borderRadius: '999px',
+              fontSize: '9px',
+              padding: '1px 7px',
+            }}
+          >
+            {sourceLabel}
+          </span>
+        </div>
+        <div style={{ fontSize: '10px', color: '#777' }}>
+          Zuletzt bearbeitet: {new Date(item.updatedAt).toLocaleDateString('de-DE')}
+          {item.subtitle ? ` · ${item.subtitle}` : ''}
+        </div>
       </div>
-      <div style={{ fontSize: '10px', color: '#555' }}>
-        Zuletzt bearbeitet: {new Date(article.updatedAt || article.createdAt).toLocaleDateString('de-DE')}
-      </div>
-    </div>
-    <div style={{ fontSize: '11px', color: '#AC8E66' }}>Fortsetzen</div>
-  </button>
-);
+      <div style={{ fontSize: '11px', color: '#AC8E66' }}>Fortsetzen</div>
+    </button>
+  );
+};

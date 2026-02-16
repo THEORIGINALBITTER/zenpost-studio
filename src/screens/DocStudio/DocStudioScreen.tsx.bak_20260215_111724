@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { exists, readTextFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFileLines } from '@fortawesome/free-solid-svg-icons';
 import { DocStudioShell } from './DocStudioShell';
-import { ZenSaveSuccessModal, ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenSaveSuccessModal, ZenEmptyState } from '../../kits/PatternKit/ZenModalSystem';
 import { useDocStudioState } from './hooks/useDocStudioState';
-import { DOC_STUDIO_STEPS, defaultDocInputFields, type DocStudioScreenProps, type DocStudioStep, type DocTemplate, type DocTab } from './types';
+import { DOC_STUDIO_STEPS, type DocStudioScreenProps, type DocStudioStep, type DocTemplate, type DocTab } from './types';
 import { StepSelectProject } from './steps/StepSelectProject';
 import { StepScanProject } from './steps/StepScanProject';
 import { StepChooseTemplates } from './steps/StepChooseTemplates';
@@ -26,15 +24,11 @@ export function DocStudioScreen({
   savedState,
   onStateChange,
   onGeneratedContentChange,
-  onPreviewModeChange,
   headerAction,
   onHeaderActionHandled,
   requestedFilePath,
   onFileRequestHandled,
-  requestedWebDocument,
-  onWebDocumentRequestHandled,
   scheduledPosts = [],
-  onOpenProjectDocuments,
   onFileSaved,
 }: DocStudioScreenProps) {
   const initialRef = useRef(savedState);
@@ -56,7 +50,6 @@ export function DocStudioScreen({
           length: initialRef.current.length,
           audience: initialRef.current.audience,
           targetLanguage: initialRef.current.targetLanguage,
-          inputFields: initialRef.current.inputFields ?? { ...defaultDocInputFields },
         }
       : { step: initialStepRef.current }
   );
@@ -93,7 +86,6 @@ export function DocStudioScreen({
   const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
   const [scrollToTemplates, setScrollToTemplates] = useState(false);
   const [templateHintDismissed, setTemplateHintDismissed] = useState(false);
-  const [showReturnToEditor, setShowReturnToEditor] = useState(false);
 
   const templateTabId = (template: DocTemplate) => `tpl:${template}`;
   const fileTabId = (path: string) => `file:${path}`;
@@ -225,27 +217,14 @@ export function DocStudioScreen({
   }, [headerAction, onHeaderActionHandled]);
 
   useEffect(() => {
-    onPreviewModeChange?.(previewMode);
-  }, [onPreviewModeChange, previewMode]);
-
-  useEffect(() => {
-    if (ds.step !== 'edit' && previewMode) {
-      setPreviewMode(false);
-    }
-  }, [ds.step, previewMode]);
-
-  useEffect(() => {
     const openRequestedFile = async () => {
       if (!requestedFilePath || ds.runtime !== 'tauri') return;
 
       const fileName = requestedFilePath.split(/[\\/]/).pop() ?? '';
       const lowerName = fileName.toLowerCase();
-      const textExtensions = ['.md', '.markdown', '.mdx', '.txt', '.json', '.html', '.htm'];
-      const hasSupportedExtension = textExtensions.some((ext) => lowerName.endsWith(ext));
-      const hasReadmeStyleName = lowerName === 'readme' || lowerName.startsWith('readme.');
-      const isSupportedTextFile = hasSupportedExtension || hasReadmeStyleName;
+      const isMarkdown = lowerName.endsWith('.md') || lowerName.endsWith('.markdown');
 
-      if (!isSupportedTextFile) {
+      if (!isMarkdown) {
         console.warn('[DocStudio] Unsupported document for editor tabs:', requestedFilePath);
         onFileRequestHandled?.();
         return;
@@ -351,33 +330,6 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
     void openRequestedFile();
   }, [requestedFilePath, onFileRequestHandled, ds.runtime, scheduledPosts]);
 
-  useEffect(() => {
-    if (!requestedWebDocument) return;
-    const fileName = requestedWebDocument.fileName?.trim() || 'Web-Dokument.md';
-    const tabId = `file:web:${fileName}`;
-
-    ds.setOpenFileTabs((prev) => {
-      if (prev.some((tab) => tab.id === tabId)) {
-        return prev;
-      }
-      return [
-        ...prev,
-        {
-          id: tabId,
-          title: fileName,
-          kind: 'file',
-          filePath: `web:${fileName}`,
-        },
-      ];
-    });
-    ds.setTabContents((prev) => ({ ...prev, [tabId]: requestedWebDocument.content }));
-    ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: false }));
-    ds.setActiveTabId(tabId);
-    ds.setGeneratedContent(requestedWebDocument.content);
-    ds.setStep('edit');
-    onWebDocumentRequestHandled?.();
-  }, [requestedWebDocument, onWebDocumentRequestHandled]);
-
   const emitStateChange = (override?: Partial<{
     projectPath: string | null;
     projectInfo: typeof ds.projectInfo;
@@ -389,7 +341,6 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
     tabContents: typeof ds.tabContents;
     dirtyTabs: typeof ds.dirtyTabs;
     metadata: typeof ds.metadata;
-    inputFields: typeof ds.inputFields;
   }>) => {
     if (!onStateChangeRef.current) return;
     onStateChangeRef.current({
@@ -407,7 +358,6 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
       length: ds.length,
       audience: ds.audience,
       targetLanguage: ds.targetLanguage,
-      inputFields: override?.inputFields ?? ds.inputFields,
       metadata: override?.metadata ?? ds.metadata,
     });
   };
@@ -434,7 +384,7 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             ds.setStep('scan');
           }}
           onContinueToEditor={() => {
-            if (!ds.projectPath && ds.runtime !== 'web') return;
+            if (!ds.projectPath) return;
             ds.setStep('edit');
           }}
         />
@@ -447,13 +397,6 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             ds.setScanSummary(summary);
             ds.setScanArtifacts(artifacts);
             ds.setProjectInfo(info);
-            ds.setInputFields((prev) => ({
-              ...prev,
-              productName: prev.productName || info.name || '',
-              productSummary: prev.productSummary || info.description || '',
-              testingNotes: prev.testingNotes || (info.hasTests ? 'Tests vorhanden.' : 'Noch keine Tests gefunden.'),
-              apiEndpoints: prev.apiEndpoints || (info.hasApi ? 'API vorhanden (Details aus Scan/Code uebernehmen).' : ''),
-            }));
             ds.setStep('templates');
             emitStateChange({ projectInfo: info });
           }}
@@ -465,18 +408,17 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
           projectInfo={ds.projectInfo}
           selected={ds.selectedTemplates}
           onChange={ds.setSelectedTemplates}
-          inputFields={ds.inputFields}
-          onInputFieldsChange={ds.setInputFields}
+          tone={ds.tone}
+          length={ds.length}
+          audience={ds.audience}
+          targetLanguage={ds.targetLanguage}
+          onToneChange={ds.setTone}
+          onLengthChange={ds.setLength}
+          onAudienceChange={ds.setAudience}
+          onLanguageChange={ds.setTargetLanguage}
           scrollToTemplates={scrollToTemplates}
-          showReturnToEditor={showReturnToEditor}
-          returnToEditorLabel={`Zurück zu ${activeTab?.title ?? 'Dokument'}`}
-          onReturnToEditor={() => {
-            setShowReturnToEditor(false);
-            ds.setStep('edit');
-          }}
           onGenerate={(template) => {
             setScrollToTemplates(false);
-            setShowReturnToEditor(false);
             const nextTemplates = ds.selectedTemplates.includes(template)
               ? ds.selectedTemplates
               : [...ds.selectedTemplates, template];
@@ -520,18 +462,6 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             contents={ds.tabContents}
             showPreview={previewMode}
             dirtyMap={ds.dirtyTabs}
-            activeTemplate={activeTab.kind === 'template' ? activeTab.template ?? null : null}
-            hasRelevantScanData={!!ds.projectInfo && !!ds.projectInfo.description && ds.projectInfo.dependencies.length >= 3}
-            projectInfo={ds.projectInfo}
-            inputFields={ds.inputFields}
-            tone={ds.tone}
-            length={ds.length}
-            audience={ds.audience}
-            targetLanguage={ds.targetLanguage}
-            onToneChange={ds.setTone}
-            onLengthChange={ds.setLength}
-            onAudienceChange={ds.setAudience}
-            onLanguageChange={ds.setTargetLanguage}
             templateHint={templateHint}
             onDismissHint={() => setTemplateHintDismissed(true)}
             onTabChange={(tabId) => {
@@ -571,111 +501,17 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
               ds.setGeneratedContent(value);
               ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: true }));
             }}
-            onOpenRequiredFields={() => {
-              setScrollToTemplates(false);
-              setShowReturnToEditor(true);
+          />
+        ) : (
+          <ZenEmptyState
+            title="Keine Dokumente geöffnet"
+            description="Wähle ein Dokument aus oder starte einen neuen Entwurf."
+            buttonLabel="Dokument auswählen"
+            onButtonClick={() => {
+              setScrollToTemplates(true);
               ds.setStep('templates');
             }}
           />
-        ) : (
-          <div className="flex items-center justify-center mt-[54px] mb-[24px] px-[12px]">
-            <div
-              style={{
-                width: '100%',
-                maxWidth: '960px',
-                borderRadius: '12px',
-                border: '0.5px solid #AC8E66',
-                background: '#151515',
-                boxShadow: '0 6px 20px rgba(0, 0, 0, 0.35), inset 0 0 24px rgba(0, 0, 0, 0.25)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  borderBottom: '0.5px dotted rgba(172, 142, 102, 0.45)',
-                  padding: '20px 24px',
-                  textAlign: 'center',
-                }}
-              >
-                <div
-                  style={{
-                    width: '56px',
-                    height: '56px',
-                    margin: '0 auto 14px',
-                    borderRadius: '999px',
-                    border: '1px solid rgba(172, 142, 102, 0.6)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#AC8E66',
-                    background: 'rgba(172, 142, 102, 0.06)',
-                  }}
-                >
-                  <FontAwesomeIcon icon={faFileLines} style={{ fontSize: '20px' }} />
-                </div>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '24px',
-                    fontWeight: 400,
-                    color: '#AC8E66',
-                    letterSpacing: '0.02em',
-                  }}
-                >
-                  Keine Dokumente geöffnet
-                </h3>
-                <p
-                  style={{
-                    margin: '8px 0 0 0',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '14px',
-                    color: '#8b8b8b',
-                  }}
-                >
-                  Wähle eine Vorlage oder öffne ein Projektdokument, um weiterzuarbeiten.
-                </p>
-              </div>
-
-              <div
-                style={{
-                  padding: '24px 24px 30px 24px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                  <ZenRoughButton
-                    label="Dokument-Template auswählen"
-                    icon="→"
-                    onClick={() => {
-                      setScrollToTemplates(true);
-                      ds.setStep('templates');
-                    }}
-                    variant="default"
-                  />
-                  <ZenRoughButton
-                    label="Dokumente laden (Drag & Drop)"
-                    icon="→"
-                    onClick={() => onOpenProjectDocuments?.()}
-                    variant="default"
-                  />
-                </div>
-                <p
-                  style={{
-                    margin: 0,
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '11px',
-                    color: '#666',
-                  }}
-                >
-                  Tipp: Über „Projekt + Dokumente“ kannst du bestehende Dateien direkt laden.
-                </p>
-              </div>
-            </div>
-          </div>
         )
       )}
 

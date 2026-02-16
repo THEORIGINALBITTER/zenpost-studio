@@ -13,6 +13,12 @@ interface Step3StyleOptionsProps {
   selectedPlatforms?: ContentPlatform[];
   platformLabels?: string[];
   multiPlatformMode?: boolean;
+  styleMode?: 'global' | 'platform';
+  onStyleModeChange?: (mode: 'global' | 'platform') => void;
+  activeStylePlatform?: ContentPlatform;
+  stylePlatformOptions?: Array<{ value: ContentPlatform; label: string }>;
+  onActiveStylePlatformChange?: (platform: ContentPlatform) => void;
+  onApplyCurrentStyleToAll?: () => void;
 
   tone: ContentTone;
   length: ContentLength;
@@ -71,8 +77,15 @@ function join(...c: Array<string | false | null | undefined>) {
 
 export const Step3StyleOptions = ({
   platformLabel,
+  selectedPlatforms,
   platformLabels,
   multiPlatformMode,
+  styleMode = 'global',
+  onStyleModeChange,
+  activeStylePlatform,
+  stylePlatformOptions = [],
+  onActiveStylePlatformChange,
+  onApplyCurrentStyleToAll,
 
   tone,
   length,
@@ -100,6 +113,7 @@ export const Step3StyleOptions = ({
   };
 
   const isChanged = (option: string) => changedOptions.has(option);
+  const showModeSwitch = multiPlatformMode && (selectedPlatforms?.length ?? 0) > 1;
 
   const displayPlatformLabel =
     multiPlatformMode && platformLabels && platformLabels.length > 0
@@ -182,6 +196,65 @@ export const Step3StyleOptions = ({
         <div style={{ marginBottom: 36 }}>
           <ZenSubtitle>Tonaliät und Zielegruppe der Transformation mit deinen Präferenzen</ZenSubtitle>
         </div>
+
+        {showModeSwitch && (
+          <div style={{ width: '100%', maxWidth: 740, marginBottom: 24 }}>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 14 }}>
+              <button
+                type="button"
+                onClick={() => onStyleModeChange?.('platform')}
+                style={{
+                  border: styleMode === 'platform' ? '1px solid #AC8E66' : '1px solid #4a4a4a',
+                  color: styleMode === 'platform' ? '#e5e5e5' : '#9a9a9a',
+                  background: 'transparent',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  fontSize: 11,
+                  fontFamily:
+                    'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                  cursor: 'pointer',
+                }}
+              >
+                Pro Plattform
+              </button>
+              <button
+                type="button"
+                onClick={() => onStyleModeChange?.('global')}
+                style={{
+                  border: styleMode === 'global' ? '1px solid #AC8E66' : '1px solid #4a4a4a',
+                  color: styleMode === 'global' ? '#e5e5e5' : '#9a9a9a',
+                  background: 'transparent',
+                  borderRadius: 10,
+                  padding: '8px 12px',
+                  fontSize: 11,
+                  fontFamily:
+                    'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                  cursor: 'pointer',
+                }}
+              >
+                Für alle gleich
+              </button>
+            </div>
+
+            {styleMode === 'platform' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <ZenDropdown
+                    label="Plattform-Profil bearbeiten"
+                    value={activeStylePlatform || stylePlatformOptions[0]?.value || ''}
+                    onChange={(value) => onActiveStylePlatformChange?.(value as ContentPlatform)}
+                    options={stylePlatformOptions}
+                  />
+                </div>
+                <ZenRoughButton
+                  label="Aktuelles Profil auf alle"
+                  onClick={() => onApplyCurrentStyleToAll?.()}
+                  size="small"
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Step2-like 2x2 card layout */}
         <div className="zen-step-grid">

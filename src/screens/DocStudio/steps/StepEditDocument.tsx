@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faMoon, faSun } from '@fortawesome/free-solid-svg-icons';
+import { faMoon, faSpinner, faSun } from '@fortawesome/free-solid-svg-icons';
 import { ZenMarkdownEditor } from '../../../kits/PatternKit/ZenMarkdownEditor';
+import { ZenMarkdownPreview } from '../../../kits/PatternKit/ZenMarkdownPreview';
+import { ZenOutlinePanel } from '../../../kits/PatternKit/ZenOutlinePanel';
+import { ZenDropdown } from '../../../kits/PatternKit/ZenModalSystem';
 import { TemplateHintBanner } from '../components/TemplateHintBanner';
 import { defaultEditorSettings, type EditorSettings } from '../../../services/editorSettingsService';
-import type { DocTab } from '../types';
+import { buildDocGenerationPrompt, generateDocService } from '../services/docStudioService';
+import type { TargetLanguage } from '../../../services/aiService';
+import type { DocInputFields, DocTab, DocTemplate, ProjectInfo } from '../types';
 
 
 
@@ -19,22 +24,48 @@ export function StepEditDocument({
   contents,
   showPreview,
   dirtyMap,
+  activeTemplate,
+  hasRelevantScanData,
+  projectInfo,
+  inputFields,
+  tone,
+  length,
+  audience,
+  targetLanguage,
+  onToneChange,
+  onLengthChange,
+  onAudienceChange,
+  onLanguageChange,
   templateHint,
   onTabChange,
   onCloseTab,
   onContentChange,
   onDismissHint,
+  onOpenRequiredFields,
 }: {
   tabs: DocTab[];
   activeTabId: string;
   contents: Record<string, string>;
   showPreview: boolean;
   dirtyMap: Record<string, boolean>;
+  activeTemplate: DocTemplate | null;
+  hasRelevantScanData: boolean;
+  projectInfo: ProjectInfo | null;
+  inputFields: DocInputFields;
+  tone: 'professional' | 'casual' | 'technical' | 'enthusiastic';
+  length: 'short' | 'medium' | 'long';
+  audience: 'beginner' | 'intermediate' | 'expert';
+  targetLanguage: TargetLanguage;
+  onToneChange: (value: 'professional' | 'casual' | 'technical' | 'enthusiastic') => void;
+  onLengthChange: (value: 'short' | 'medium' | 'long') => void;
+  onAudienceChange: (value: 'beginner' | 'intermediate' | 'expert') => void;
+  onLanguageChange: (value: TargetLanguage) => void;
   templateHint?: TemplateHint | null;
   onTabChange: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onContentChange: (tabId: string, value: string) => void;
   onDismissHint?: () => void;
+  onOpenRequiredFields?: () => void;
 }) {
   const activeContent = contents[activeTabId] ?? '';
   const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
@@ -74,13 +105,13 @@ export function StepEditDocument({
 
   const themeStyles = {
     dark: {
-      panelBg: '#222',
+      panelBg: '#151515',
       border: '#AC8E66',
       shadow: '0 6px 16px rgba(0,0,0,0.35), inset 0 0 24px rgba(0,0,0,0.45)',
       text: '#e5e5e5',
     },
     light: {
-      panelBg: '#222',
+      panelBg: '#151515',
       shadow: '0 6px 16px rgba(0,0,0,0.35), inset 0 0 24px rgba(0,0,0,0.25)',
       border: '#AC8E66',
       text: '#1a1a1a',
@@ -88,16 +119,377 @@ export function StepEditDocument({
   };
 
   const colors = themeStyles[editorSettings.theme];
+  const [showOutline, setShowOutline] = useState(false);
+  const [showAiOptions, setShowAiOptions] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isPreviewTranslating, setIsPreviewTranslating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
+  const [activeCursorLine, setActiveCursorLine] = useState(0);
+  const requiredAiFields: Array<keyof DocInputFields> = [
+    'productName',
+    'productSummary',
+    'setupSteps',
+    'usageExamples',
+  ];
+  const filledAiFields = requiredAiFields.filter((key) => inputFields[key].trim().length > 0).length;
+  const canRunAiGeneration = filledAiFields >= requiredAiFields.length;
+  const canToggleAiOptions = canRunAiGeneration && !isGenerating;
+  const isInitialGeneration = !dirtyMap[activeTabId];
+  const translatorTargetLabel = (() => {
+    const labels: Partial<Record<TargetLanguage, string>> = {
+      deutsch: 'Deutsch',
+      english: 'English',
+      español: 'Español',
+      français: 'Français',
+      italiano: 'Italiano',
+      português: 'Português',
+      russisch: 'Russisch',
+      中文: '中文',
+      日本語: '日本語',
+      한국어: '한국어',
+    };
+    return labels[targetLanguage] ?? targetLanguage;
+  })();
+
+  useEffect(() => {
+    if (!showPreview) setIsPreviewTranslating(false);
+  }, [showPreview]);
+
+  useEffect(() => {
+    if (showPreview && showOutline) {
+      setShowOutline(false);
+    }
+  }, [showPreview, showOutline]);
+
+  useEffect(() => {
+    if (!canToggleAiOptions && showAiOptions) {
+      setShowAiOptions(false);
+    }
+  }, [canToggleAiOptions, showAiOptions]);
+
+  const outlineItems = useMemo(() => {
+    const lines = activeContent.split('\n');
+    const items: Array<{ level: number; text: string; line: number }> = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const match = line.match(/^(#{1,6})\s+(.+)$/);
+      if (match) {
+        items.push({ level: match[1].length, text: match[2].trim(), line: index });
+      }
+    }
+    return items;
+  }, [activeContent]);
+
+  const activeOutlineLine =
+    outlineItems
+      .filter((item) => item.line <= activeCursorLine)
+      .map((item) => item.line)
+      .pop() ?? outlineItems[0]?.line ?? -1;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setShowOutline(false);
+      }
+      if (!showPreview && event.shiftKey && event.key.toLowerCase() === 'g') {
+        event.preventDefault();
+        setShowOutline((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showPreview]);
+
+  const insertHeading = (level: number) => {
+    const prefix = `${'#'.repeat(level)} `;
+    const trimmed = activeContent.replace(/\s*$/, '');
+    const next = trimmed ? `${trimmed}\n\n${prefix}` : `${prefix}`;
+    onContentChange(activeTabId, next);
+  };
+
+  const runGenerateFromFields = async () => {
+    setGenerateError(null);
+    setIsGenerating(true);
+    try {
+      const prompt = buildDocGenerationPrompt({
+        template: activeTemplate,
+        projectInfo,
+        inputFields,
+        tone,
+        length,
+        audience,
+        targetLanguage,
+        existingTemplateContent: activeContent,
+      });
+      const next = await generateDocService(prompt);
+      onContentChange(activeTabId, next);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Generierung fehlgeschlagen';
+      setGenerateError(message);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const themeSwitcher = (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        padding: '6px 8px',
+        backgroundColor: '#0A0A0A',
+        border: '1px solid #AC8E66',
+        borderRadius: '6px',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '10px',
+        color: '#e5e5e5',
+        boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <button
+        onClick={() => updateEditorTheme('dark')}
+        style={{
+          padding: '4px 10px',
+          borderRadius: '4px',
+          border: editorSettings.theme === 'dark' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+          backgroundColor: editorSettings.theme === 'dark' ? '#1a1a1a' : 'transparent',
+          color: '#e5e5e5',
+          cursor: 'pointer',
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '9px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        <FontAwesomeIcon
+          icon={faMoon}
+          style={{ color: editorSettings.theme === 'dark' ? '#AC8E66' : '#777' }}
+        />
+        Dark
+      </button>
+      <button
+        onClick={() => updateEditorTheme('light')}
+        style={{
+          padding: '3px 10px',
+          borderRadius: '4px',
+          border: editorSettings.theme === 'light' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+          backgroundColor: editorSettings.theme === 'light' ? '#D9D4C5' : 'transparent',
+          color: editorSettings.theme === 'light' ? '#1a1a1a' : '#e5e5e5',
+          cursor: 'pointer',
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '9px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        <FontAwesomeIcon
+          icon={faSun}
+          style={{ color: editorSettings.theme === 'light' ? '#AC8E66' : '#aaa' }}
+        />
+        Light
+      </button>
+    </div>
+  );
 
   return (
-    <div className="flex-1 flex flex-col items-center bg-[#121212] px-6">
-      <div className="w-3/4 max-w-5xl">
+    <div className="flex-1 flex flex-col items-center bg-[#121212] px-[24px]">
+      <div
+        className="w-[75%] max-w-[1024px]"
+        style={{
+          transform: showOutline ? 'translateX(120px)' : 'translateX(0)',
+          transition: 'transform 260ms ease',
+        }}
+      >
         {/* Document Title Header */}
-        <div className="mb-4">
-          <h2 className="font-mono text-[16px] text-[#dbd9d5] mb-1">
+        <div className="mb-[16px] ml-[10px]">
+          <h2 className=" font-mono font-normal text-[10px] text-[#dbd9d5]">
             {tabs.find((tab) => tab.id === activeTabId)?.title ?? 'Dokument'}
           </h2>
-          <p className="font-mono text-[11px] text-[#dbd9d5]">Bearbeite und Speicher jetzt deine Dokumentation</p>
+        </div>
+
+        <div
+          style={{
+            border: '1px solid rgba(172, 142, 102, 0.35)',
+            borderRadius: '8px',
+            padding: '10px 12px',
+            marginBottom: '12px',
+            background: 'transparent',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+          }}
+        >
+          <div className="font-mono text-[10px] text-[#c8b08b]">
+            {hasRelevantScanData
+              ? 'Template-Modus: Scan-Daten vorhanden. Du kannst mit KI aus Datenfeldern nachschärfen.'
+              : 'Template-Modus: Wenig Scan-Daten gefunden. KI kann aus deinen Datenfeldern ein vollständiges Dokument erzeugen.'}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              onClick={() => void runGenerateFromFields()}
+              disabled={isGenerating || !canRunAiGeneration}
+              style={{
+                padding: '8px 12px',
+                border: isGenerating || !canRunAiGeneration ? '1px solid #3A3A3A' : '1px solid #AC8E66',
+                borderRadius: '8px',
+                background: isGenerating || !canRunAiGeneration ? '#1f1f1f' : 'transparent',
+                color: isGenerating || !canRunAiGeneration ? '#8b8b8b' : '#e5e5e5',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: isGenerating || !canRunAiGeneration ? 'not-allowed' : 'pointer',
+              }}
+              title={
+                canRunAiGeneration
+                  ? undefined
+                  : `Bitte Datenfelder ausfüllen (${filledAiFields}/${requiredAiFields.length}).`
+              }
+            >
+              {isGenerating ? 'Generiere...' : isInitialGeneration ? 'KI Erstgenerierung' : 'KI Neu generieren'}
+            </button>
+            <button
+              onClick={() => setShowAiOptions((prev) => !prev)}
+              disabled={!canToggleAiOptions}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #3A3A3A',
+                borderRadius: '8px',
+                background: canToggleAiOptions ? 'transparent' : '#1f1f1f',
+                color: canToggleAiOptions ? '#bbb' : '#747474',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: canToggleAiOptions ? 'pointer' : 'not-allowed',
+              }}
+              title={
+                canToggleAiOptions
+                  ? undefined
+                  : `Erst Datenfelder ausfüllen (${filledAiFields}/${requiredAiFields.length}), dann KI-Optionen.`
+              }
+            >
+              {showAiOptions ? 'KI-Optionen ausblenden' : 'KI-Optionen anzeigen'}
+            </button>
+          </div>
+          {isPreviewTranslating ? (
+            <div
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                alignSelf: 'stretch',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 12px',
+                border: '1px solid #3A3328',
+                borderRadius: '8px',
+                background: '#AC8E66',
+              }}
+            >
+              <FontAwesomeIcon icon={faSpinner} style={{ color: '#151515', fontSize: '12px' }} spin />
+              <span className="font-mono text-[10px] text-[#151515] tracking-[0.3px]">
+                AI verarbeitet Translator-Übersetzung nach {translatorTargetLabel}...
+              </span>
+            </div>
+          ) : null}
+          {showAiOptions && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
+              <ZenDropdown
+                label="Ton"
+                value={tone}
+                onChange={(value) => onToneChange(value as 'professional' | 'casual' | 'technical' | 'enthusiastic')}
+                options={[
+                  { value: 'professional', label: 'Professional' },
+                  { value: 'casual', label: 'Casual' },
+                  { value: 'technical', label: 'Technical' },
+                  { value: 'enthusiastic', label: 'Enthusiastic' },
+                ]}
+                fullWidth
+                variant="compact"
+                labelSize="9px"
+              />
+              <ZenDropdown
+                label="Länge"
+                value={length}
+                onChange={(value) => onLengthChange(value as 'short' | 'medium' | 'long')}
+                options={[
+                  { value: 'short', label: 'Kurz' },
+                  { value: 'medium', label: 'Mittel' },
+                  { value: 'long', label: 'Lang' },
+                ]}
+                fullWidth
+                variant="compact"
+                labelSize="9px"
+              />
+              <ZenDropdown
+                label="Zielgruppe"
+                value={audience}
+                onChange={(value) => onAudienceChange(value as 'beginner' | 'intermediate' | 'expert')}
+                options={[
+                  { value: 'beginner', label: 'Anfänger' },
+                  { value: 'intermediate', label: 'Intermediate' },
+                  { value: 'expert', label: 'Experten' },
+                ]}
+                fullWidth
+                variant="compact"
+                labelSize="9px"
+              />
+              <ZenDropdown
+                label="Sprache"
+                value={targetLanguage}
+                onChange={(value) => onLanguageChange(value as TargetLanguage)}
+                options={[
+                  { value: 'deutsch', label: 'Deutsch' },
+                  { value: 'english', label: 'English' },
+                  { value: 'español', label: 'Español' },
+                  { value: 'français', label: 'Français' },
+                  { value: 'italiano', label: 'Italiano' },
+                  { value: 'português', label: 'Português' },
+                  { value: '中文', label: '中文' },
+                  { value: '日本語', label: '日本語' },
+                  { value: '한국어', label: '한국어' },
+                ]}
+                fullWidth
+                variant="compact"
+                labelSize="9px"
+              />
+            </div>
+          )}
+          {!canRunAiGeneration ? (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '10px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <div className="font-mono text-[10px] text-[#c7a46d]">
+                Für KI-Generierung fehlen wichtige Datenfelder ({filledAiFields}/{requiredAiFields.length}): Produktname, Kurzbeschreibung, Setup, Usage.
+              </div>
+              {onOpenRequiredFields ? (
+                <button
+                  onClick={onOpenRequiredFields}
+                  style={{
+                    padding: '6px 10px',
+                    border: '1px solid #AC8E66',
+                    borderRadius: '8px',
+                    background: 'rgba(172, 142, 102, 0.08)',
+                    color: '#e5e5e5',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Datenfelder ausfüllen
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          {generateError ? <div className="font-mono text-[10px] text-[#ff7b7b]">{generateError}</div> : null}
         </div>
 
         {/* Template Hint Banner */}
@@ -109,172 +501,143 @@ export function StepEditDocument({
           />
         )}
 
-        {/* Tab Bar - always show when tabs exist */}
-        {tabs.length > 0 && (
-          <div className="w-full" style={{ marginBottom: '-19px' }}>
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                padding: '4px',
-                backgroundColor: 'transparent',
-                borderRadius: '12px 12px 0 0',
-              
-                borderBottom: 'none',
-                flexWrap: 'wrap',
-              }}
-            >
+        <div>
+          {/* Tab Bar - always show when tabs exist */}
+          {tabs.length > 0 && (
+            <div className="w-full" style={{ marginBottom: '-19px' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '4px',
+                  backgroundColor: 'transparent',
+                  borderRadius: '12px 12px 0 0',
+                  borderBottom: 'none',
+                  flexWrap: 'wrap',
+                }}
+              >
 
              
-              {tabs.map((tab) => {
-                const isActive = tab.id === activeTabId;
-                const isDirty = !!dirtyMap[tab.id];
-                return (
+                {tabs.map((tab) => {
+                  const isActive = tab.id === activeTabId;
+                  const isDirty = !!dirtyMap[tab.id];
+                  return (
                  
-                  <button
-                    key={tab.id}
-                    onClick={() => onTabChange(tab.id)}
-                    style={{
-                      marginBottom: '12px',
-                      flex: '1 1 140px',
-                      padding: '10px 16px',
-                      backgroundColor: 'transparent',
-                      border: isActive ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                      borderRadius: '8px 8px 0px 0px',
-                      borderBottom: 'none',
-                      cursor: 'pointer',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: isActive ? '9px' : '10px',
-                      fontWeight: isActive ? '200' : '400',
-                      color: isActive ? '#e5e5e5' : '#999',
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                    }}
-                  >
-                    {isDirty ? <span style={{ color: isActive ? '#e5e5e5' : '#AC8E66' }}>•</span> : null}
-                    <span>{tab.title}</span>
-                    <span
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onCloseTab(tab.id);
-                      }}
+                    <button
+                      key={tab.id}
+                      onClick={() => onTabChange(tab.id)}
                       style={{
-                        marginLeft: '6px',
-                        fontSize: '12px',
-                        color: isActive ? '#e5e5e5' : '#777',
-                        opacity: 0.8,
+                        marginBottom: '12px',
+                        flex: '1 1 140px',
+                        padding: '10px 16px',
+                        backgroundColor: 'transparent',
+                        border: isActive ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                        borderRadius: '8px 8px 0px 0px',
+                        borderBottom: 'none',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: isActive ? '9px' : '10px',
+                        fontWeight: isActive ? '200' : '400',
+                        color: isActive ? '#e5e5e5' : '#999',
+                        transition: 'all 0.2s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
                       }}
                     >
-                      ×
-                    </span>
-                  </button>
-                );
-              })}
+                      {isDirty ? <span style={{ color: isActive ? '#e5e5e5' : '#AC8E66' }}>•</span> : null}
+                      <span>{tab.title}</span>
+                      <span
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCloseTab(tab.id);
+                        }}
+                        style={{
+                          marginLeft: '6px',
+                          fontSize: '12px',
+                          color: isActive ? '#e5e5e5' : '#777',
+                          opacity: 0.8,
+                        }}
+                      >
+                        ×
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Editor */}
-        <div className="w-full mb-4" style={{ position: 'relative' }}>
-          <div
-            className="p-[10px]"
-            style={{
-              borderRadius: tabs.length > 0 ? '8px 8px 12px 12px' : '12px',
-              border: `0.6px solid ${colors.border}`,
-              background: colors.panelBg,
-              boxShadow: colors.shadow,
-              borderTop: tabs.length > 0 ? '1px solid #AC8E66' : `1px solid ${colors.border}`,
-              backgroundColor: colors.panelBg,
-            }}
-          >
-            <ZenMarkdownEditor
-              value={activeContent}
-              onChange={(value) => onContentChange(activeTabId, value)}
-              placeholder="Deine Dokumentation..."
-              showPreview={showPreview}
-              showLineNumbers={true}
-              showHeader={false}
-              theme={editorSettings.theme}
-            />
-          </div>
+          {/* Editor */}
+          <div className="mb-[16px] w-full" style={{ position: 'relative', isolation: 'isolate' }}>
+            {!showPreview && (
+              <ZenOutlinePanel
+                isOpen={showOutline}
+                items={outlineItems}
+                activeLine={activeOutlineLine}
+                onToggle={() => setShowOutline((prev) => !prev)}
+                onInsertHeading={insertHeading}
+                onSelectLine={(line) => {
+                  setActiveCursorLine(line);
+                  setOutlineFocusRequest({ line, token: Date.now() });
+                }}
+              />
+            )}
 
-          {/* Docked Label + Theme Toggle */}
-         
-          <div
-            style={{
-              position: 'absolute',
-              left: '100%',
-              top: '-20px',
-              transform: 'translatex(10%) rotate(90deg)',
-              transformOrigin: 'left center',
-              zIndex: 49,
-            }}
-          >
             <div
+              className="relative z-[40] p-[10px]"
               style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 8px',
-                backgroundColor: '#0A0A0A',
-                border: '1px solid #AC8E66',
-                borderRadius: '6px',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                color: '#e5e5e5',
-                boxShadow: '0 6px 16px rgba(0,0,0,0.35)',
-                whiteSpace: 'nowrap',
+                borderRadius: tabs.length > 0 ? '8px 8px 12px 12px' : '12px',
+                border: `0.5px solid ${colors.border}`,
+                background: colors.panelBg,
+                boxShadow: colors.shadow,
+                borderTop: tabs.length > 0 ? '1px solid #AC8E66' : `1px solid ${colors.border}`,
+                backgroundColor: colors.panelBg,
+              
               }}
             >
-
-              <button
-                onClick={() => updateEditorTheme('dark')}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: '4px',
-                  border: editorSettings.theme === 'dark' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-                  backgroundColor: editorSettings.theme === 'dark' ? '#1a1a1a' : 'transparent',
-                  color: '#e5e5e5',
-                  cursor: 'pointer',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <FontAwesomeIcon
-                  icon={faMoon}
-                  style={{ color: editorSettings.theme === 'dark' ? '#AC8E66' : '#777' }}
+              {showPreview ? (
+                <ZenMarkdownPreview
+                  content={activeContent}
+                  height="580px"
+                  onContentChange={(value) => onContentChange(activeTabId, value)}
+                  collapseControlsByDefault
+                  translationStatusStyle="ai"
+                  previewToolbarMode="sticky"
+                  showInternalTranslationStatus={false}
+                  onTranslationStateChange={setIsPreviewTranslating}
                 />
-                Dark
-              </button>
-              <button
-                onClick={() => updateEditorTheme('light')}
-                style={{
-                  padding: '3px 10px',
-                  borderRadius: '4px',
-                  border: editorSettings.theme === 'light' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-                  backgroundColor: editorSettings.theme === 'light' ? '#D9D4C5' : 'transparent',
-                  color: editorSettings.theme === 'light' ? '#1a1a1a' : '#e5e5e5',
-                  cursor: 'pointer',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <FontAwesomeIcon
-                  icon={faSun}
-                  style={{ color: editorSettings.theme === 'light' ? '#AC8E66' : '#aaa' }}
+              ) : (
+                <ZenMarkdownEditor
+                  value={activeContent}
+                  onChange={(value) => onContentChange(activeTabId, value)}
+                  placeholder="Deine Dokumentation..."
+                  showPreview={false}
+                  showLineNumbers={true}
+                  showHeader={true}
+                  theme={editorSettings.theme}
+                  focusLineRequest={outlineFocusRequest}
+                  onActiveLineChange={setActiveCursorLine}
                 />
-                Light
-              </button>
+              )}
             </div>
+
+            {/* Docked Label + Theme Toggle */}
+            {!showPreview && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '100%',
+                  top: '0px',
+                  transform: 'translatex(10%) rotate(90deg)',
+                  transformOrigin: 'left center',
+                  zIndex: 1,
+                }}
+              >
+                {themeSwitcher}
+              </div>
+            )}
           </div>
         </div>
       </div>

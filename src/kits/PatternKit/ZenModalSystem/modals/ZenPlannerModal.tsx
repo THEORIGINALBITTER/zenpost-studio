@@ -242,6 +242,18 @@ const buildScheduleMap = (
   return map;
 };
 
+const toLocalDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const fromDateKey = (dateKey: string): Date => {
+  const [year, month, day] = dateKey.split('-').map((v) => Number(v));
+  return new Date(year, (month || 1) - 1, day || 1);
+};
+
 // ==================== MAIN COMPONENT ====================
 
 export function ZenPlannerModal({
@@ -510,6 +522,39 @@ export function ZenPlannerModal({
     });
   }, [preSelectedDate, planningPosts]);
 
+  const effectiveScheduledPosts = useMemo<ScheduledPost[]>(() => {
+    const merged = new Map<string, ScheduledPost>();
+
+    scheduledPosts.forEach((post) => {
+      merged.set(post.id, post);
+    });
+
+    planningPosts.forEach((post) => {
+      const schedule = schedules[post.id] ?? { date: '', time: '' };
+      const scheduledDate = schedule.date ? new Date(schedule.date) : undefined;
+      const scheduledTime = schedule.time || undefined;
+      const status: PublishingStatus = (schedule.date && schedule.time) ? 'scheduled' : 'draft';
+      const existing = merged.get(post.id);
+
+      merged.set(post.id, {
+        id: post.id,
+        platform: post.platform,
+        title: post.title || existing?.title || '',
+        subtitle: post.subtitle || existing?.subtitle,
+        content: post.content || existing?.content || '',
+        scheduledDate,
+        scheduledTime,
+        status,
+        characterCount: post.characterCount || existing?.characterCount || 0,
+        wordCount: post.wordCount || existing?.wordCount || 0,
+        createdAt: existing?.createdAt ?? new Date(),
+        savedFilePath: existing?.savedFilePath,
+      });
+    });
+
+    return Array.from(merged.values());
+  }, [planningPosts, schedules, scheduledPosts]);
+
   // ==================== KALENDER STATE ====================
   const [currentDate, setCurrentDate] = useState(new Date());
   const [calendarDetailDate, setCalendarDetailDate] = useState<Date | null>(null);
@@ -517,12 +562,37 @@ export function ZenPlannerModal({
   const [calendarStatusList, setCalendarStatusList] = useState<'scheduled' | 'draft' | null>(null);
   const [draggedPostId, setDraggedPostId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [manualMovePostId, setManualMovePostId] = useState<string | null>(null);
+  const [postMoveTimeEditor, setPostMoveTimeEditor] = useState<{ postId: string; date: string; time: string } | null>(null);
+  const draggedPostIdRef = useRef<string | null>(null);
+  const dragOverDateRef = useRef<string | null>(null);
+
+  const setDraggedPost = (postId: string | null) => {
+    draggedPostIdRef.current = postId;
+    setDraggedPostId(postId);
+  };
+
+  const setDragOverDateSafe = (dateKey: string | null) => {
+    dragOverDateRef.current = dateKey;
+    setDragOverDate(dateKey);
+  };
+
+  const resolveDraggedPostId = (e?: { dataTransfer?: DataTransfer | null }): string | null => {
+    const transferId = e?.dataTransfer?.getData?.('text/plain');
+    if (transferId && transferId.trim()) return transferId.trim();
+    return draggedPostIdRef.current;
+  };
+
+  const manualMovePost = useMemo(
+    () => effectiveScheduledPosts.find((post) => post.id === manualMovePostId) ?? null,
+    [effectiveScheduledPosts, manualMovePostId]
+  );
 
   // Initialize calendarEditMap when a detail view opens
   useEffect(() => {
     if (calendarDetailDate || calendarStatusList) {
       const newMap: Record<string, PostSchedule> = {};
-      scheduledPosts.forEach(post => {
+      effectiveScheduledPosts.forEach(post => {
         let dateStr = '';
         if (post.scheduledDate) {
           const d = post.scheduledDate;
@@ -532,7 +602,7 @@ export function ZenPlannerModal({
       });
       setCalendarEditMap(newMap);
     }
-  }, [calendarDetailDate, calendarStatusList, scheduledPosts]);
+  }, [calendarDetailDate, calendarStatusList, effectiveScheduledPosts]);
 
   useEffect(() => {
     if (!isOpen || !plannerLoaded) return;
@@ -564,19 +634,20 @@ export function ZenPlannerModal({
   useEffect(() => {
     if (!isOpen) return;
     if (!isTauri()) return;
-    if (!projectPath) return;
-    if (scheduledPosts.length === 0) return;
+    const storageProjectPath = projectPath ?? plannerProjectPath;
+    if (!storageProjectPath) return;
+    if (effectiveScheduledPosts.length === 0) return;
 
     const timeout = setTimeout(async () => {
       try {
-        await saveScheduledPostsWithFiles(projectPath, scheduledPosts);
+        await saveScheduledPostsWithFiles(storageProjectPath, effectiveScheduledPosts);
       } catch (error) {
         console.error('[Planner] Failed to autosave scheduled posts', error);
       }
     }, 500);
 
     return () => clearTimeout(timeout);
-  }, [isOpen, projectPath, scheduledPosts]);
+  }, [isOpen, plannerProjectPath, projectPath, effectiveScheduledPosts]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -753,12 +824,20 @@ export function ZenPlannerModal({
   };
 
   const handleDeleteScheduledPost = async (postId: string) => {
+    setManualPosts(prev => prev.filter(item => item.id !== postId));
+    setSchedules(prev => {
+      const next = { ...prev };
+      delete next[postId];
+      return next;
+    });
+
     const next = scheduledPosts.filter(item => item.id !== postId);
     onScheduledPostsChange?.(next);
 
-    if (isTauri() && projectPath) {
+    const deleteProjectPath = projectPath ?? plannerProjectPath;
+    if (isTauri() && deleteProjectPath) {
       try {
-        await deletePost(projectPath, postId);
+        await deletePost(deleteProjectPath, postId);
       } catch (error) {
         console.error('[Planner] Failed to delete post from schedule:', error);
       }
@@ -780,6 +859,10 @@ export function ZenPlannerModal({
   });
 
   const updateScheduledPost = (postId: string, dateStr: string, timeStr: string) => {
+    setSchedules(prev => ({
+      ...prev,
+      [postId]: { date: dateStr, time: timeStr },
+    }));
     if (!onScheduledPostsChange) return;
     const updated = scheduledPosts.map((post) => {
       if (post.id !== postId) return post;
@@ -796,7 +879,8 @@ export function ZenPlannerModal({
   };
 
   const handleSaveSchedule = async (options?: { closeAfter?: boolean }) => {
-    if (!onScheduleSave && !onScheduledPostsChange && !(isTauri() && projectPath)) return;
+    const storageProjectPath = projectPath ?? plannerProjectPath;
+    if (!onScheduleSave && !onScheduledPostsChange && !(isTauri() && storageProjectPath)) return;
     if (planningPosts.length === 0) {
       if (options?.closeAfter) {
         onClose();
@@ -865,9 +949,9 @@ export function ZenPlannerModal({
       onScheduledPostsChange(nextPosts);
     }
 
-    if (isTauri() && projectPath) {
+    if (isTauri() && storageProjectPath) {
       try {
-        await saveScheduledPostsWithFiles(projectPath, nextPosts);
+        await saveScheduledPostsWithFiles(storageProjectPath, nextPosts);
       } catch (error) {
         console.error('[Planner] Failed to persist schedule directly', error);
       }
@@ -878,7 +962,7 @@ export function ZenPlannerModal({
     }
 
     if (onScheduleSave && !onScheduledPostsChange) {
-      onScheduleSave(scheduledPostsData);
+      onScheduleSave(nextPosts);
     }
   };
 
@@ -894,18 +978,18 @@ export function ZenPlannerModal({
           filters: [{ name: 'Calendar', extensions: ['ics'] }],
         });
         if (!filePath) return;
-        const icsContent = generateICSFile(scheduledPosts);
+        const icsContent = generateICSFile(effectiveScheduledPosts);
         await writeTextFile(filePath, icsContent);
         return;
       }
-      downloadICSFile(scheduledPosts);
+      downloadICSFile(effectiveScheduledPosts);
     } catch (error) {
       console.error('Kalender-Export fehlgeschlagen:', error);
     }
   };
 
   const getScheduledPostsForDate = (date: Date): ScheduledPost[] => {
-    return scheduledPosts.filter(post => {
+    return effectiveScheduledPosts.filter(post => {
       if (!post.scheduledDate) return false;
       const postDate = new Date(post.scheduledDate);
       return (
@@ -918,8 +1002,60 @@ export function ZenPlannerModal({
 
   const calendarDetailPosts = useMemo(
     () => (calendarDetailDate ? getScheduledPostsForDate(calendarDetailDate) : []),
-    [calendarDetailDate, scheduledPosts],
+    [calendarDetailDate, effectiveScheduledPosts],
   );
+
+  const applyCalendarDate = (postId: string, date: Date, options?: { openTimeEditor?: boolean }) => {
+    const dateStr = toLocalDateKey(date);
+    const existingTime =
+      schedules[postId]?.time ||
+      effectiveScheduledPosts.find((post) => post.id === postId)?.scheduledTime ||
+      '';
+    setSchedules((prev) => ({
+      ...prev,
+      [postId]: { date: dateStr, time: existingTime },
+    }));
+
+    if (!onScheduledPostsChange) return;
+    const updated = scheduledPosts.map((post) => {
+      if (post.id !== postId) return post;
+      return {
+        ...post,
+        scheduledDate: date,
+        status: 'scheduled' as const,
+      };
+    });
+    onScheduledPostsChange(updated);
+
+    if (options?.openTimeEditor !== false) {
+      setPostMoveTimeEditor({ postId, date: dateStr, time: existingTime });
+    }
+  };
+
+  const handlePostMoveTimeEditorChange = (nextTime: string) => {
+    if (!postMoveTimeEditor) return;
+    const postId = postMoveTimeEditor.postId;
+    const dateStr = postMoveTimeEditor.date;
+    const hasDate = !!dateStr;
+
+    setPostMoveTimeEditor((prev) => (prev ? { ...prev, time: nextTime } : prev));
+    setSchedules((prev) => ({
+      ...prev,
+      [postId]: { date: dateStr, time: nextTime },
+    }));
+
+    if (!onScheduledPostsChange) return;
+    const updated = scheduledPosts.map((post) => {
+      if (post.id !== postId) return post;
+      return {
+        ...post,
+        scheduledDate: hasDate ? new Date(dateStr) : post.scheduledDate,
+        scheduledTime: nextTime || undefined,
+        status: (hasDate && !!nextTime ? 'scheduled' : 'draft') as PublishingStatus,
+      };
+    });
+    onScheduledPostsChange(updated);
+  };
 
   useEffect(() => {
     if (!calendarDetailDate) return;
@@ -1069,8 +1205,8 @@ export function ZenPlannerModal({
   const totalCount = workflowStats.total;
   const completionPercentage = workflowStats.percent;
 
-  const scheduledCount = scheduledPosts.filter(p => p.status === 'scheduled').length;
-  const draftCount = scheduledPosts.filter(p => p.status === 'draft').length;
+  const scheduledCount = effectiveScheduledPosts.filter(p => p.status === 'scheduled').length;
+  const draftCount = effectiveScheduledPosts.filter(p => p.status === 'draft').length;
 
   const days = getDaysInMonth(currentDate);
 
@@ -1274,7 +1410,7 @@ export function ZenPlannerModal({
             {planningPosts.map(post => {
               const info = getPlatformInfo(post.platform);
               const schedule = schedules[post.id] ?? { date: '', time: '' };
-              const existingScheduled = scheduledPosts.find(p => p.id === post.id);
+              const existingScheduled = effectiveScheduledPosts.find(p => p.id === post.id);
 
               return (
                 <div
@@ -1511,7 +1647,7 @@ export function ZenPlannerModal({
         )
       )}
 
-      {scheduledPosts.length > 50 && showPlanenScheduledPosts && (
+      {effectiveScheduledPosts.length > 50 && showPlanenScheduledPosts && (
         <div style={{ marginBottom: '24px' }}>
           <h4
             style={{
@@ -1531,7 +1667,7 @@ export function ZenPlannerModal({
               gap: '16px',
             }}
           >
-            {scheduledPosts
+            {effectiveScheduledPosts
               .filter((post) => post.status === 'scheduled')
               .map((post) => {
                 const info = getPlatformInfo(post.platform);
@@ -1670,7 +1806,7 @@ export function ZenPlannerModal({
         </div>
       )}
 
-      {scheduledPosts.length > 10 && showPlanenScheduledPosts && (
+      {effectiveScheduledPosts.length > 10 && showPlanenScheduledPosts && (
         <div style={{ marginBottom: '24px' }}>
           <h4
             style={{
@@ -1689,7 +1825,7 @@ export function ZenPlannerModal({
               gap: '16px',
             }}
           >
-            {scheduledPosts
+            {effectiveScheduledPosts
               .filter((post) => post.status === 'draft')
               .map((post) => {
                 const info = getPlatformInfo(post.platform);
@@ -1819,14 +1955,14 @@ export function ZenPlannerModal({
                 {calendarStatusList === 'scheduled' ? 'Geplante Posts' : 'Entwürfe'}
               </div>
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
-                {scheduledPosts.filter(p => p.status === calendarStatusList).length} <span style={{ color: '#555' }}>{calendarStatusList === 'scheduled' ? 'Posts geplant' : 'Entwürfe vorhanden'}</span>
+                {effectiveScheduledPosts.filter(p => p.status === calendarStatusList).length} <span style={{ color: '#555' }}>{calendarStatusList === 'scheduled' ? 'Posts geplant' : 'Entwürfe vorhanden'}</span>
               </div>
             </div>
             <ZenCloseButton onClick={() => setCalendarStatusList(null)} />
           </div>
 
           <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {scheduledPosts
+            {effectiveScheduledPosts
               .filter((post) => post.status === calendarStatusList)
               .map((post) => {
                 const info = getPlatformInfo(post.platform);
@@ -1878,6 +2014,11 @@ export function ZenPlannerModal({
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {postMoveTimeEditor?.postId === post.id && (
+                        <div style={{ width: '100%', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#555' }}>
+                          {`${post.title || info.name} verschoben auf ${postMoveTimeEditor.date}.`}
+                        </div>
+                      )}
                       <input
                         type="date"
                         value={edit.date}
@@ -1914,7 +2055,7 @@ export function ZenPlannerModal({
                   </div>
                 );
               })}
-            {scheduledPosts.filter((post) => post.status === calendarStatusList).length === 0 && (
+            {effectiveScheduledPosts.filter((post) => post.status === calendarStatusList).length === 0 && (
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#777' }}>
                 Keine Einträge vorhanden.
               </div>
@@ -2001,10 +2142,15 @@ export function ZenPlannerModal({
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    <input
-                      type="date"
-                      value={edit.date}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {postMoveTimeEditor?.postId === post.id && (
+                        <div style={{ width: '100%', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#555' }}>
+                          {`${post.title || info.name} verschoben auf ${postMoveTimeEditor.date}.`}
+                        </div>
+                      )}
+                      <input
+                        type="date"
+                        value={edit.date}
                       onChange={(e) => {
                         setCalendarEditMap(prev => ({ ...prev, [post.id]: { ...edit, date: e.target.value } }));
                       }}
@@ -2118,6 +2264,34 @@ export function ZenPlannerModal({
         </button>
       </div>
 
+      {isTauri() && (
+        <div
+          style={{
+            marginBottom: '12px',
+            padding: '10px 12px',
+            border: '1px dashed #3A3A3A',
+            borderRadius: '6px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '8px',
+          }}
+        >
+          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+            {manualMovePost
+              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Wähle jetzt einen Ziel-Tag im Kalender.`
+              : 'Klicke einen Post im Kalender an, dann klicke den Ziel-Tag.'}
+          </div>
+          {manualMovePost && (
+            <ZenRoughButton
+              label="Abbrechen"
+              size="small"
+              onClick={() => setManualMovePostId(null)}
+            />
+          )}
+        </div>
+      )}
+
       {/* Day Names */}
       <div
         style={{
@@ -2157,7 +2331,7 @@ export function ZenPlannerModal({
           const isCurrent = isCurrentMonth(date);
           const isTodayDate = isToday(date);
           const hasPosts = postsOnDate.length > 0;
-          const dateKey = date.toISOString().split('T')[0];
+          const dateKey = toLocalDateKey(date);
           const isDragOver = dragOverDate === dateKey && isCurrent;
 
           return (
@@ -2165,6 +2339,13 @@ export function ZenPlannerModal({
               key={index}
               onClick={() => {
                 if (!isCurrent) return;
+                if (isTauri() && manualMovePostId) {
+                  applyCalendarDate(manualMovePostId, date);
+                  setManualMovePostId(null);
+                  setCalendarStatusList(null);
+                  setCalendarDetailDate(date);
+                  return;
+                }
                 setCalendarStatusList(null);
                 setCalendarDetailDate(prev => {
                   if (prev && prev.toDateString() === date.toDateString()) return null;
@@ -2172,29 +2353,22 @@ export function ZenPlannerModal({
                 });
               }}
               onDragOver={(e) => {
-                if (!isCurrent || !draggedPostId) return;
+                if (!isCurrent || !draggedPostIdRef.current) return;
                 e.preventDefault();
-                setDragOverDate(dateKey);
+                setDragOverDateSafe(dateKey);
               }}
               onDragLeave={() => {
-                setDragOverDate(null);
+                setDragOverDateSafe(null);
               }}
               onDrop={(e) => {
                 e.preventDefault();
-                if (!isCurrent || !draggedPostId) return;
+                const draggedId = resolveDraggedPostId(e);
+                if (!isCurrent || !draggedId) return;
 
                 // Update the post's scheduled date
-                const updated = scheduledPosts.map(post => {
-                  if (post.id !== draggedPostId) return post;
-                  return {
-                    ...post,
-                    scheduledDate: date,
-                    status: 'scheduled' as const,
-                  };
-                });
-                onScheduledPostsChange?.(updated);
-                setDraggedPostId(null);
-                setDragOverDate(null);
+                applyCalendarDate(draggedId, date);
+                setDraggedPost(null);
+                setDragOverDateSafe(null);
               }}
               style={{
                 minHeight: '60px',
@@ -2203,7 +2377,7 @@ export function ZenPlannerModal({
                 border: `1px solid ${isDragOver ? '#AC8E66' : (isTodayDate ? '#AC8E66' : '#3A3A3A')}`,
                 borderRadius: '4px',
                 opacity: isCurrent ? 1 : 0.3,
-                cursor: isCurrent ? 'pointer' : 'default',
+                cursor: isCurrent ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
                 transition: 'all 0.2s ease',
                 transform: isDragOver ? 'scale(1.02)' : 'none',
               }}
@@ -2226,82 +2400,164 @@ export function ZenPlannerModal({
                 <div
                   style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
                   onDragOver={(e) => {
-                    if (!isCurrent || !draggedPostId) return;
+                    if (!isCurrent || !draggedPostIdRef.current) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    setDragOverDate(dateKey);
+                    setDragOverDateSafe(dateKey);
                   }}
                   onDrop={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (!isCurrent || !draggedPostId) return;
-                    const updated = scheduledPosts.map(p => {
-                      if (p.id !== draggedPostId) return p;
-                      return { ...p, scheduledDate: date, status: 'scheduled' as const };
-                    });
-                    onScheduledPostsChange?.(updated);
-                    setDraggedPostId(null);
-                    setDragOverDate(null);
+                    const draggedId = resolveDraggedPostId(e);
+                    if (!isCurrent || !draggedId) return;
+                    applyCalendarDate(draggedId, date);
+                    setDraggedPost(null);
+                    setDragOverDateSafe(null);
                   }}
                 >
                   {postsOnDate.slice(0, 2).map(post => {
                     const info = getPlatformInfo(post.platform);
-                    const isDragging = draggedPostId === post.id;
+                    const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
+                    const isManualMoveSelected = manualMovePostId === post.id;
+                    const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
                     return (
-                      <div
-                        key={post.id}
-                        draggable
-                        onDragStart={(e) => {
-                          setDraggedPostId(post.id);
-                          e.dataTransfer.effectAllowed = 'move';
-                          e.dataTransfer.setData('text/plain', post.id);
-                        }}
-                        onDragEnd={() => {
-                          setDraggedPostId(null);
-                          setDragOverDate(null);
-                        }}
-                        onDragOver={(e) => {
-                          if (!draggedPostId || isDragging) return;
-                          e.preventDefault();
-                          setDragOverDate(dateKey);
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (!isCurrent || !draggedPostId || isDragging) return;
-                          const updated = scheduledPosts.map(p => {
-                            if (p.id !== draggedPostId) return p;
-                            return { ...p, scheduledDate: date, status: 'scheduled' as const };
-                          });
-                          onScheduledPostsChange?.(updated);
-                          setDraggedPostId(null);
-                          setDragOverDate(null);
-                        }}
-                        style={{
-                          padding: '2px 3px',
-                          backgroundColor: isDragging ? '#fff' : '#171717',
-                          borderRadius: '5px',
-                          fontSize: '9px',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          color: '#AC8E66',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '3px',
-                          cursor: isDragging ? 'grabbing' : 'grab',
-                          opacity: isDragging ? 0.5 : 1,
-                          border: isDragging ? '1px dashed #AC8E66' : '1px solid transparent',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (draggedPostId) return;
-                          setCalendarStatusList(null);
-                          setCalendarDetailDate(date);
-                        }}
-                      >
-                        <FontAwesomeIcon icon={info.icon} style={{ fontSize: '8px', color: '#AC8E66' }} />
-                        <span style={{ fontSize: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {info.name} · {post.scheduledTime || '--:--'}
-                        </span>
+                      <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {isMoveTimeEditorOpen && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '3px',
+                              borderRadius: '5px',
+                              border: '1px dashed #AC8E66',
+                              backgroundColor: '#0F0F0F',
+                            }}
+                          >
+                            <input
+                              type="time"
+                              value={postMoveTimeEditor.time}
+                              onChange={(e) => handlePostMoveTimeEditorChange(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') setPostMoveTimeEditor(null);
+                              }}
+                              style={{
+                                width: '72px',
+                                padding: '2px 4px',
+                                backgroundColor: 'transparent',
+                                border: '1px solid #3A3A3A',
+                                borderRadius: '4px',
+                                color: '#AC8E66',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '8px',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setPostMoveTimeEditor(null)}
+                              style={{
+                                border: '1px solid #3A3A3A',
+                                borderRadius: '4px',
+                                backgroundColor: 'transparent',
+                                color: '#AC8E66',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '8px',
+                                lineHeight: 1,
+                                padding: '2px 4px',
+                                cursor: 'pointer',
+                              }}
+                              title="Uhrzeit bestätigen"
+                            >
+                              OK
+                            </button>
+                          </div>
+                        )}
+                        <div
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggedPost(post.id);
+                            setDragOverDateSafe(null);
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', post.id);
+                          }}
+                          onDragEnd={() => {
+                            const draggedId = draggedPostIdRef.current;
+                            const overDateKey = dragOverDateRef.current;
+                            if (draggedId && overDateKey) {
+                              applyCalendarDate(draggedId, fromDateKey(overDateKey));
+                            }
+                            setDraggedPost(null);
+                            setDragOverDateSafe(null);
+                          }}
+                          onDragOver={(e) => {
+                            if (!draggedPostIdRef.current || isDragging) return;
+                            e.preventDefault();
+                            setDragOverDateSafe(dateKey);
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const draggedId = resolveDraggedPostId(e);
+                            if (!isCurrent || !draggedId || isDragging) return;
+                            applyCalendarDate(draggedId, date);
+                            setDraggedPost(null);
+                            setDragOverDateSafe(null);
+                          }}
+                          style={{
+                            padding: '2px 3px',
+                            backgroundColor: isDragging ? '#fff' : '#171717',
+                            borderRadius: '5px',
+                            fontSize: '9px',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            color: '#AC8E66',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            cursor: isDragging ? 'grabbing' : 'grab',
+                            opacity: isDragging ? 0.5 : 1,
+                            border: isDragging || isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid transparent',
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (isTauri()) {
+                              setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+                              return;
+                            }
+                            if (draggedPostIdRef.current) return;
+                            setCalendarStatusList(null);
+                            setCalendarDetailDate(date);
+                          }}
+                        >
+                          <FontAwesomeIcon icon={info.icon} style={{ fontSize: '8px', color: '#AC8E66' }} />
+                          <span style={{ fontSize: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {info.name} · {post.scheduledTime || '--:--'}
+                          </span>
+                          {isTauri() && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+                              }}
+                              style={{
+                                marginLeft: 'auto',
+                                border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
+                                borderRadius: '4px',
+                                background: 'transparent',
+                                color: '#AC8E66',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '8px',
+                                lineHeight: 1,
+                                padding: '1px 4px',
+                                cursor: 'pointer',
+                              }}
+                              title="Post zum Verschieben markieren"
+                            >
+                              move
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -2700,7 +2956,7 @@ export function ZenPlannerModal({
                 </div>
                 <div style={{ flex: 1, textAlign: 'center' }}>
                   <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '16px', color: '#555', fontWeight: 'bold' }}>
-                    {scheduledPosts.length}
+                    {effectiveScheduledPosts.length}
                   </div>
                   <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>
                     Gesamt
@@ -3524,10 +3780,21 @@ export function ZenPlannerModal({
         size="md"
         showCloseButton={true}
       >
-        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ 
+          padding: '20px',
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '14px',
+          marginLeft: '20px'
+          
+          }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#999', marginBottom: '6px', display: 'block' }}>
+              <label style={{ fontFamily: 'IBM Plex Mono, monospace', 
+                fontSize: '10px', color: '#999', 
+                marginBottom: '6px', display: 'block'
+                 }}
+                 >
                 Datum
               </label>
               <input
@@ -3535,12 +3802,12 @@ export function ZenPlannerModal({
                 value={rescheduleDate}
                 onChange={(e) => setRescheduleDate(e.target.value)}
                 style={{
-                  width: '100%',
+                  width: '50%',
                   padding: '8px 10px',
                   backgroundColor: '#2a2a2a',
                   border: '1px solid #3A3A3A',
                   borderRadius: '6px',
-                  color: '#555',
+                  color: '#efefef',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '11px',
                 }}
@@ -3555,12 +3822,12 @@ export function ZenPlannerModal({
                 value={rescheduleTime}
                 onChange={(e) => setRescheduleTime(e.target.value)}
                 style={{
-                  width: '100%',
+                  width: '50%',
                   padding: '8px 10px',
-                  backgroundColor: '#0A0A0A',
+                  backgroundColor: '#2a2a2a',
                   border: '1px solid #3A3A3A',
                   borderRadius: '6px',
-                  color: '#555',
+                  color: '#efefef',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '11px',
                 }}
@@ -3579,6 +3846,13 @@ export function ZenPlannerModal({
                 if (!reschedulePost) return;
                 const updatedDate = rescheduleDate ? new Date(rescheduleDate) : undefined;
                 const updatedTime = rescheduleTime || undefined;
+                setSchedules(prev => ({
+                  ...prev,
+                  [reschedulePost.id]: {
+                    date: rescheduleDate,
+                    time: rescheduleTime,
+                  },
+                }));
                 const updated: ScheduledPost[] = scheduledPosts.map(item => {
                   if (item.id !== reschedulePost.id) return item;
                   return {

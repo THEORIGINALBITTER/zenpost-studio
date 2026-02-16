@@ -53,6 +53,12 @@ interface PlatformOption {
   description: string;
 }
 
+type PlatformStyleConfig = {
+  tone: ContentTone;
+  length: ContentLength;
+  audience: ContentAudience;
+};
+
 const platformOptions: PlatformOption[] = [
   {
     value: 'linkedin',
@@ -109,6 +115,18 @@ const platformOptions: PlatformOption[] = [
     description: 'Comprehensive blog article with SEO',
   },
 ];
+
+const defaultPlatformStyles: Record<ContentPlatform, PlatformStyleConfig> = {
+  linkedin: { tone: 'professional', length: 'medium', audience: 'intermediate' },
+  devto: { tone: 'technical', length: 'long', audience: 'intermediate' },
+  twitter: { tone: 'enthusiastic', length: 'short', audience: 'intermediate' },
+  medium: { tone: 'professional', length: 'long', audience: 'intermediate' },
+  reddit: { tone: 'casual', length: 'medium', audience: 'intermediate' },
+  'github-discussion': { tone: 'technical', length: 'medium', audience: 'expert' },
+  'github-blog': { tone: 'technical', length: 'long', audience: 'intermediate' },
+  youtube: { tone: 'enthusiastic', length: 'medium', audience: 'beginner' },
+  'blog-post': { tone: 'professional', length: 'long', audience: 'intermediate' },
+};
 
 interface ContentTransformScreenProps {
   onBack: () => void;
@@ -585,10 +603,14 @@ export const ContentTransformScreen = ({
   const [length, setLength] = useState<ContentLength>('medium');
   const [audience, setAudience] = useState<ContentAudience>('intermediate');
   const [targetLanguage, setTargetLanguage] = useState<TargetLanguage>('deutsch');
+  const [styleMode, setStyleMode] = useState<'global' | 'platform'>('platform');
+  const [stylePlatformOverrides, setStylePlatformOverrides] = useState<Partial<Record<ContentPlatform, PlatformStyleConfig>>>({});
+  const [activeStylePlatform, setActiveStylePlatform] = useState<ContentPlatform | null>(null);
 
   // Step 4: Result
   const [transformedContent, setTransformedContent] = useState<string>('');
   const [isTransforming, setIsTransforming] = useState<boolean>(false);
+  const transformInFlightRef = useRef(false);
 
   // Multi-platform results (for multi-select mode)
   const [transformedContents, setTransformedContents] = useState<Record<ContentPlatform, string>>({} as Record<ContentPlatform, string>);
@@ -707,6 +729,20 @@ export const ContentTransformScreen = ({
     return match?.label || platform;
   };
 
+  const getPlatformStyleConfig = (platform: ContentPlatform): PlatformStyleConfig => {
+    return stylePlatformOverrides[platform] ?? defaultPlatformStyles[platform];
+  };
+
+  const getEffectivePlatformStyle = (platform: ContentPlatform): PlatformStyleConfig => {
+    if (multiPlatformMode && styleMode === 'global') {
+      return { tone, length, audience };
+    }
+    if (multiPlatformMode && styleMode === 'platform') {
+      return getPlatformStyleConfig(platform);
+    }
+    return { tone, length, audience };
+  };
+
   const getSocialTabForPlatform = (platform: ContentPlatform) => {
     switch (platform) {
       case 'linkedin':
@@ -811,11 +847,28 @@ export const ContentTransformScreen = ({
     onStep2SelectionChange?.(step2SelectionCount, step2CanProceed);
   }, [effectiveStep, onStep2SelectionChange, step2SelectionCount, step2CanProceed]);
 
+  useEffect(() => {
+    if (!multiPlatformMode) {
+      setActiveStylePlatform(null);
+      return;
+    }
+    if (selectedPlatforms.length === 0) {
+      setActiveStylePlatform(null);
+      return;
+    }
+    if (!activeStylePlatform || !selectedPlatforms.includes(activeStylePlatform)) {
+      setActiveStylePlatform(selectedPlatforms[0]);
+    }
+  }, [activeStylePlatform, multiPlatformMode, selectedPlatforms]);
+
   const handleNextFromStep2 = () => {
     if (!step2CanProceed) {
       return;
     }
     setError(null);
+    if (multiPlatformMode && selectedPlatforms.length > 0 && !activeStylePlatform) {
+      setActiveStylePlatform(selectedPlatforms[0]);
+    }
     setStep(3);
   };
 
@@ -992,6 +1045,8 @@ export const ContentTransformScreen = ({
   };
 
   const handleTransform = async () => {
+    if (transformInFlightRef.current) return;
+    transformInFlightRef.current = true;
     setPreviewMode(false);
     setIsTransforming(true);
     setError(null);
@@ -1004,6 +1059,7 @@ export const ContentTransformScreen = ({
       // Multi-platform mode: transform for all selected platforms
       if (multiPlatformMode && selectedPlatforms.length > 0) {
         const results: Record<ContentPlatform, string> = {} as Record<ContentPlatform, string>;
+        const failedPlatforms: Array<{ platform: ContentPlatform; error: string }> = [];
         let firstAutoModel: string | null = null;
 
         console.log('[Multi-Platform] Starting transformation for platforms:', selectedPlatforms);
@@ -1011,6 +1067,7 @@ export const ContentTransformScreen = ({
 
         let platformIndex = 0;
         for (const platform of selectedPlatforms) {
+          const styleConfig = getEffectivePlatformStyle(platform);
           // Add small delay between API calls to avoid potential caching issues
           if (platformIndex > 0) {
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -1021,9 +1078,9 @@ export const ContentTransformScreen = ({
 
           const result = await transformContent(processedContent, {
             platform,
-            tone,
-            length,
-            audience,
+            tone: styleConfig.tone,
+            length: styleConfig.length,
+            audience: styleConfig.audience,
             targetLanguage,
           });
 
@@ -1051,6 +1108,11 @@ export const ContentTransformScreen = ({
             }
 
             results[platform] = finalContent;
+          } else {
+            failedPlatforms.push({
+              platform,
+              error: result.error || 'Unbekannter Fehler',
+            });
           }
         }
 
@@ -1067,7 +1129,11 @@ export const ContentTransformScreen = ({
           }
           setStep(4);
         } else {
-          setError('Transformation für alle Plattformen fehlgeschlagen');
+          const detail = failedPlatforms
+            .slice(0, 2)
+            .map(({ platform, error }) => `${getPlatformLabel(platform)}: ${error}`)
+            .join(' | ');
+          setError(`Transformation für alle Plattformen fehlgeschlagen${detail ? ` (${detail})` : ''}`);
         }
       } else {
         // Single platform mode (original behavior)
@@ -1135,6 +1201,7 @@ export const ContentTransformScreen = ({
       }
     } finally {
       setIsTransforming(false);
+      transformInFlightRef.current = false;
     }
   };
 
@@ -1321,6 +1388,20 @@ export const ContentTransformScreen = ({
       })();
       return;
     }
+    if (headerAction === "transform" && effectiveStep === 3) {
+      if (!isTransforming) {
+        void handleTransform();
+      }
+      onHeaderActionHandled?.();
+      return;
+    }
+    if (headerAction === "post_direct" && effectiveStep === 3) {
+      if (!isPosting) {
+        void handlePostDirectly();
+      }
+      onHeaderActionHandled?.();
+      return;
+    }
     if (headerAction === "next") {
       if (effectiveStep === 1) {
         handleNextFromStep1();
@@ -1331,12 +1412,6 @@ export const ContentTransformScreen = ({
     }
     if (headerAction === "back_posting" && effectiveStep === 1) {
       void openStep4FromSource(undefined, 'posting');
-    }
-    if (headerAction === "transform" && effectiveStep === 3) {
-      handleTransform();
-    }
-    if (headerAction === "post_direct" && effectiveStep === 3) {
-      handlePostDirectly();
     }
     if (headerAction === "save" && effectiveStep === 1) {
       void handleSaveSourceToProject();
@@ -1351,6 +1426,8 @@ export const ContentTransformScreen = ({
     handleNextFromStep1,
     handlePostDirectly,
     handleTransform,
+    isPosting,
+    isTransforming,
     onHeaderActionHandled,
     sourceContent,
     setCameFromEdit,
@@ -1445,6 +1522,12 @@ export const ContentTransformScreen = ({
         const selectedPlatformLabels = multiPlatformMode
           ? selectedPlatforms.map(p => platformOptions.find(o => o.value === p)?.label || p)
           : [];
+        const activeStyleTarget = activeStylePlatform ?? selectedPlatforms[0] ?? selectedPlatform;
+        const activeStyleConfig = getEffectivePlatformStyle(activeStyleTarget);
+        const selectedPlatformOptions = selectedPlatforms.map((platform) => ({
+          value: platform,
+          label: getPlatformLabel(platform),
+        }));
         return (
           <Step3StyleOptions
             selectedPlatform={selectedPlatform}
@@ -1452,13 +1535,62 @@ export const ContentTransformScreen = ({
             selectedPlatforms={selectedPlatforms}
             platformLabels={selectedPlatformLabels}
             multiPlatformMode={multiPlatformMode}
-            tone={tone}
-            length={length}
-            audience={audience}
+            tone={activeStyleConfig.tone}
+            length={activeStyleConfig.length}
+            audience={activeStyleConfig.audience}
             targetLanguage={targetLanguage}
-            onToneChange={setTone}
-            onLengthChange={setLength}
-            onAudienceChange={setAudience}
+            styleMode={styleMode}
+            onStyleModeChange={setStyleMode}
+            activeStylePlatform={activeStyleTarget}
+            stylePlatformOptions={selectedPlatformOptions}
+            onActiveStylePlatformChange={setActiveStylePlatform}
+            onApplyCurrentStyleToAll={
+              multiPlatformMode && styleMode === 'platform'
+                ? () => {
+                    const sourcePlatform = activeStylePlatform ?? selectedPlatforms[0];
+                    if (!sourcePlatform) return;
+                    const sourceConfig = getPlatformStyleConfig(sourcePlatform);
+                    const nextOverrides = { ...stylePlatformOverrides };
+                    selectedPlatforms.forEach((platform) => {
+                      nextOverrides[platform] = sourceConfig;
+                    });
+                    setStylePlatformOverrides(nextOverrides);
+                  }
+                : undefined
+            }
+            onToneChange={(nextTone) => {
+              if (multiPlatformMode && styleMode === 'platform' && activeStyleTarget) {
+                const base = getPlatformStyleConfig(activeStyleTarget);
+                setStylePlatformOverrides((prev) => ({
+                  ...prev,
+                  [activeStyleTarget]: { ...base, tone: nextTone },
+                }));
+                return;
+              }
+              setTone(nextTone);
+            }}
+            onLengthChange={(nextLength) => {
+              if (multiPlatformMode && styleMode === 'platform' && activeStyleTarget) {
+                const base = getPlatformStyleConfig(activeStyleTarget);
+                setStylePlatformOverrides((prev) => ({
+                  ...prev,
+                  [activeStyleTarget]: { ...base, length: nextLength },
+                }));
+                return;
+              }
+              setLength(nextLength);
+            }}
+            onAudienceChange={(nextAudience) => {
+              if (multiPlatformMode && styleMode === 'platform' && activeStyleTarget) {
+                const base = getPlatformStyleConfig(activeStyleTarget);
+                setStylePlatformOverrides((prev) => ({
+                  ...prev,
+                  [activeStyleTarget]: { ...base, audience: nextAudience },
+                }));
+                return;
+              }
+              setAudience(nextAudience);
+            }}
             onTargetLanguageChange={setTargetLanguage}
             onBack={() => setStep(2)}
             onBackToEditor={() => setStep(1)}

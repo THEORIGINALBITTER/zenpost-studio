@@ -1,6 +1,8 @@
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { scanProject } from '../../../services/projectScanService';
 import { generateFromPrompt } from '../../../services/aiService';
+import type { DocInputFields, DocTemplate, ProjectInfo } from '../types';
+import type { TargetLanguage } from '../../../services/aiService';
 
 export async function scanProjectService(path: string, includeDataRoom = true) {
   return scanProject(path, includeDataRoom);
@@ -12,6 +14,83 @@ export async function generateDocService(prompt: string) {
     throw new Error(res.error || 'Generation failed');
   }
   return res.data;
+}
+
+function templateLabel(template: DocTemplate | null): string {
+  if (!template) return 'Dokumentation';
+  if (template === 'readme') return 'README';
+  if (template === 'changelog') return 'CHANGELOG';
+  if (template === 'api-docs') return 'API Dokumentation';
+  if (template === 'contributing') return 'Contributing Guide';
+  if (template === 'data-room') return 'Data Room';
+  if (template === 'bug') return 'Bug Report';
+  if (template === 'draft') return 'Entwurf';
+  return 'Dokumentation';
+}
+
+export function buildDocGenerationPrompt(params: {
+  template: DocTemplate | null;
+  projectInfo: ProjectInfo | null;
+  inputFields: DocInputFields;
+  tone: 'professional' | 'casual' | 'technical' | 'enthusiastic';
+  length: 'short' | 'medium' | 'long';
+  audience: 'beginner' | 'intermediate' | 'expert';
+  targetLanguage: TargetLanguage;
+  existingTemplateContent: string;
+}) {
+  const {
+    template,
+    projectInfo,
+    inputFields,
+    tone,
+    length,
+    audience,
+    targetLanguage,
+    existingTemplateContent,
+  } = params;
+
+  return `
+Du bist ein präziser Dokumentations-Assistent.
+Erzeuge ein vollständiges Markdown-Dokument auf Basis der strukturierten Eingaben.
+
+WICHTIGE REGELN:
+- Antworte NUR mit Markdown-Inhalt.
+- Keine Code-Fences um das gesamte Ergebnis.
+- Wenn vorhandene Template-Struktur gegeben ist, nutze diese als Grundgerüst.
+- Fülle fehlende Abschnitte sinnvoll auf, aber erfinde keine konkreten Fakten.
+
+Ziel:
+- Dokumenttyp: ${templateLabel(template)}
+- Sprache: ${targetLanguage}
+- Stil: ${tone}
+- Länge: ${length}
+- Zielgruppe: ${audience}
+
+Projekt-Metadaten (Scan):
+- Name: ${projectInfo?.name || '-'}
+- Version: ${projectInfo?.version || '-'}
+- Beschreibung: ${projectInfo?.description || '-'}
+- Dateitypen: ${projectInfo?.fileTypes?.join(', ') || '-'}
+- Dependencies (Top): ${projectInfo?.dependencies?.join(', ') || '-'}
+- Tests vorhanden: ${projectInfo?.hasTests ? 'Ja' : 'Nein'}
+- API vorhanden: ${projectInfo?.hasApi ? 'Ja' : 'Nein'}
+
+Strukturierte Nutzereingaben:
+- Produkt/Projektname: ${inputFields.productName || '-'}
+- Kurzbeschreibung: ${inputFields.productSummary || '-'}
+- Problem/Use Case: ${inputFields.problemSolved || '-'}
+- Setup/Installation: ${inputFields.setupSteps || '-'}
+- Usage Beispiele: ${inputFields.usageExamples || '-'}
+- API Endpoints/Integrationen: ${inputFields.apiEndpoints || '-'}
+- Testing/Qualität: ${inputFields.testingNotes || '-'}
+- FAQ/Hinweise: ${inputFields.faq || '-'}
+- Links: ${inputFields.links || '-'}
+
+Vorhandene Template-Grundlage:
+${existingTemplateContent || '(leer)'}
+
+Jetzt generieren.
+  `.trim();
 }
 
 /**

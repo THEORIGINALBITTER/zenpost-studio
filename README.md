@@ -51,7 +51,7 @@ ZenPost focuses on structure.
 
 ---
 > **Aktueller stabiler Stand:**  
-> https://github.com/THEORIGINALBITTER/zenpost-studio/releases/tag/ZenPost
+> https://github.com/THEORIGINALBITTER/zenpost-studio/releases/latest
 ---
 
 ## Mission
@@ -308,6 +308,5 @@ Architecture + Education.
 ## License
 
 MIT License
-
 
 
