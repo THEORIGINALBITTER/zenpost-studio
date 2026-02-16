@@ -1,4 +1,4 @@
-# ZenPost Studio - Release Update (Draft)
+# ZenPost Studio - Release Update 
 
 **Datum:** 2026-02-16  
 **Typ:** Workflow + Content AI Improvements
@@ -28,22 +28,4 @@
   - `Für alle gleich`
 - Neue Plattform-Auswahl im Modus `Pro Plattform`, um gezielt z. B. `dev.to` und `Medium` unterschiedlich zu konfigurieren.
 
-## Build & Release Improvements
 
-- Neues Script in `package.json`:
-  - `build:clean` = vollständiger Clean-Build (`dist` + `src-tauri/target` löschen, danach Tauri-Build)
-- `scripts/build-all.sh` startet jetzt ebenfalls mit einem Full-Clean:
-  - verhindert alte Build-Artefakte im Release-Prozess
-
-## Why this matters
-
-- Höhere Content-Qualität pro Plattform durch klare Tonalitäts-Trennung.
-- Besserer Multi-Platform-Flow für "1x schreiben, mehrfach plattformgerecht transformieren".
-- Verlässlichere Release-Builds ohne alte Cache-/Artefakt-Effekte.
-
-## Betroffene Dateien
-
-- `src/screens/ContentTransformScreen.tsx`
-- `src/screens/transform-steps/Step3StyleOptions.tsx`
-- `scripts/build-all.sh`
-- `package.json`
