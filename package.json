@@ -1,7 +1,7 @@
 {
   "name": "zenpost-studio",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.0.4",
   "type": "module",
   "scripts": {
     "dev": "node scripts/check-port.mjs && TAURI_DEV_HOST=127.0.0.1 vite",
@@ -40,6 +40,7 @@
     "mammoth": "^1.11.0",
     "marked": "^17.0.0",
     "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^5.4.624",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-markdown": "^10.1.0",
