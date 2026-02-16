@@ -73,6 +73,20 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "ZenPost Studio ${{ github.ref_name }}"
-          releaseBody: "Automated build for ${{ github.ref_name }}"
+          releaseBody: |
+            Automated build for ${{ github.ref_name }}
+
+            ## macOS Hinweis
+            Diese Version ist aktuell nicht notarisiert.
+
+            Beim ersten Start auf macOS:
+            1. App nach `Programme` verschieben
+            2. Rechtsklick auf `ZenPost Studio.app` -> `Öffnen`
+            3. Im zweiten Dialog erneut `Öffnen`
+
+            Falls nötig im Terminal:
+            `xattr -dr com.apple.quarantine "/Applications/ZenPost Studio.app"`
+
+            Details: https://github.com/THEORIGINALBITTER/zenpost-studio/blob/main/docs/INSTALL_MACOS.md
           prerelease: false
           args: ${{ matrix.tauri_args }}
