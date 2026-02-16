@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/atom-one-dark.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faSliders, faBarsProgress } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
 interface ZenMarkdownPreviewProps {
   content: string;
@@ -19,6 +19,10 @@ interface ZenMarkdownPreviewProps {
   onPreviewThemeChange?: (theme: PreviewThemeId) => void;
   autoHideReadingCursor?: boolean;
   collapseControlsByDefault?: boolean;
+  translationStatusStyle?: 'compact' | 'ai';
+  previewToolbarMode?: 'overlay' | 'sticky';
+  showInternalTranslationStatus?: boolean;
+  onTranslationStateChange?: (isTranslating: boolean) => void;
 }
 
 export type PreviewThemeId = 'color-classic' | 'color-soft' | 'mono-clean' | 'mono-ink';
@@ -41,6 +45,10 @@ export const ZenMarkdownPreview = ({
   onPreviewThemeChange,
   autoHideReadingCursor = false,
   collapseControlsByDefault = false,
+  translationStatusStyle = 'compact',
+  previewToolbarMode = 'overlay',
+  showInternalTranslationStatus = true,
+  onTranslationStateChange,
 }: ZenMarkdownPreviewProps) => {
   const [zoom, setZoom] = useState(70);
   const [previewTheme, setPreviewTheme] = useState<PreviewThemeId>(externalPreviewTheme ?? 'mono-clean');
@@ -108,6 +116,10 @@ export const ZenMarkdownPreview = ({
       document.body.classList.remove('zen-cursor-force-hidden');
     };
   }, [autoHideReadingCursor, isReadingCursorHidden]);
+
+  useEffect(() => {
+    onTranslationStateChange?.(isTranslating);
+  }, [isTranslating, onTranslationStateChange]);
 
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
@@ -251,291 +263,309 @@ export const ZenMarkdownPreview = ({
       .join('')
       .trim();
 
-  return (
-    <div className="w-full relative">
+  const handlePreviewScrollInteraction = useCallback(() => {
+    if (areControlsExpanded) {
+      setAreControlsExpanded(false);
+    }
+    setShowLanguageMenu(false);
+    setShowThemeMenu(false);
+  }, [areControlsExpanded]);
 
-      
-      {/* Controls: Translate + Zoom */}
-      {/* Controls: Translate + Zoom */}
-  <div
-    className="absolute z-10 flex items-center"
-    style={{ top: 50, right: 14, transformOrigin: "top right" }}
->
-  {/* GROUP WRAP */}
-  <div
-    className="
-      flex items-center gap-1
-      px-[3px] py-[3px]
-      rounded-[6px]
-      bg-[#121212]/50 backdrop-blur
-      border border-[#121212]
-      shadow-[0_10px_30px_rgba(0,0,0,0.35)]
-    "
-  >
-    
-    <button
-      onClick={() => setAreControlsExpanded((prev) => !prev)}
-      className={`
-         px-3 py-2 text-[10px] 
-         h-[26.5px]
-          font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]
-          active:translate-x-[-5px]
-          disabled:opacity-50 disabled:cursor-not-allowed
-        transition
-        ${areControlsExpanded
-            ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
-            : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
-        }
-      `}
-      title={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
-      aria-label={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
+  const controlsPanel = (
+    <div
+      className="
+        pointer-events-auto
+        flex items-center gap-1
+        px-[3px] py-[3px]
+        rounded-[6px]
+        bg-[#121212]/50 backdrop-blur
+        border border-[#121212]
+        shadow-[0_10px_30px_rgba(0,0,0,0.35)]
+      "
     >
-      <FontAwesomeIcon icon={faBarsProgress} className="text-[10px]" />
-    </button>
-
-    {areControlsExpanded && (
-      <>
-    {/* Text-AI Toggle */}
-    {onToggleTextAI && (
       <button
-        onClick={onToggleTextAI}
-        disabled={isTextAIDisabled}
+        onClick={() => setAreControlsExpanded((prev) => !prev)}
         className={`
-          h-10 px-3
-          inline-flex items-center justify-center gap-1.5
-          rounded-lg
-          border
-          font-mono text-[10px]
-          transition
-          active:translate-y-[1px]
-          disabled:opacity-50 disabled:cursor-not-allowed
-          ${showTextAI
-            ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
-            : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
-          }
-        `}
-        title="Text-AI"
-      >
-        <FontAwesomeIcon icon={faWandMagicSparkles} className="text-[10px]" />
-        <span>Text-AI</span>
-      </button>
-    )}
-
-    {/* Translate Button with Dropdown */}
-    {onContentChange && (
-      <div className="relative">
-        <button
-          onClick={() => setShowLanguageMenu(!showLanguageMenu)}
-          disabled={isTranslating}
-          className="
-            h-10 w-10
-            inline-flex items-center justify-center
-            rounded-lg
-            bg-[#171717]
-            border border-[#2E2E2E]
-            text-[#A0A0A0]
-            text-[10px]
-            hover:text-[#AC8E66]
-            hover:border-[#3A3328]
-            hover:bg-[#1D1D1D]
-            active:translate-y-[1px]
-            transition
+           px-3 py-2 text-[10px] 
+           h-[26.5px]
+            font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]
+            active:translate-x-[-5px]
             disabled:opacity-50 disabled:cursor-not-allowed
-          "
-          title="Übersetzen"
-        >
-          <FontAwesomeIcon icon={faLanguage} className="text-[11px]" />
-        </button>
-
-        {/* Language Dropdown Menu */}
-        {showLanguageMenu && (
-          <div
-            className="
-              absolute top-11 right-0
-              min-w-[200px]
-              overflow-hidden
-              rounded-xl
-              bg-[#121212]
-              border border-[#2E2E2E]
-              shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-              z-20
-            "
-          >
-            <div className="px-3 py-2 
-            text-[10px] 
-            font-mono 
-            tracking-wide 
-            text-[#666] border-b border-[#1F1F1F]">
-              Sprache wählen
-            </div>
-
-            {languages.map((lang) => (
-              <button
-                key={lang.value}
-                onClick={() => handleTranslate(lang.value)}
-                className="
-                  w-full px-4 py-2.5 text-left
-                  text-[#dbd9d5]
-                  hover:bg-[#1A1A1A]
-                  hover:text-[#AC8E66]
-                  transition-colors
-                  text-[10px] font-mono
-                "
-              >
-                {lang.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    )}
-
-    {/* Divider */}
-    <div className="w-px h-7 bg-[#232323] mx-1" />
-
-    {/* Zoom Controls */}
-    <button
-      onClick={handleZoomOut}
-      className="
-        h-9 w-9
-        inline-flex items-center justify-center
-        rounded-lg
-        bg-[#171717]
-        border border-[#2E2E2E]
-        text-[#A0A0A0]
-        text-[10px]
-        hover:text-[#AC8E66]
-        hover:border-[#3A3328]
-        hover:bg-[#1D1D1D]
-        active:translate-y-[1px]
-        transition
-      "
-      title="Verkleinern"
-    >
-      <FontAwesomeIcon icon={faMinus} className="text-[8px]" />
-    </button>
-
-    <button
-      onClick={handleZoomReset}
-      className="
-        h-9 px-4
-        inline-flex items-center justify-center
-        rounded-lg
-        bg-[#141414]
-        border border-[#2E2E2E]
-        text-[#7A7A7A]
-        font-mono text-[10px]
-        hover:text-[#AC8E66]
-        hover:border-[#3A3328]
-        hover:bg-[#1A1A1A]
-        active:translate-y-[1px]
-        transition
-        min-w-[96px]
-      "
-      title="Zurücksetzen"
-    >
-      {zoom}%
-    </button>
-
-    <button
-      onClick={handleZoomIn}
-      className="
-        h-9 w-9
-        inline-flex items-center justify-center
-        rounded-lg
-        bg-[#171717]
-        border border-[#2E2E2E]
-        text-[#A0A0A0]
-        text-[10px]
-        hover:text-[#AC8E66]
-        hover:border-[#3A3328]
-        hover:bg-[#1D1D1D]
-        active:translate-y-[1px]
-        transition
-      "
-      title="Vergrößern"
-    >
-      <FontAwesomeIcon icon={faPlus} className="text-[9px]" />
-    </button>
-
-    {/* Divider */}
-    <div className="w-px h-7 bg-[#232323] mx-1" />
-
-    <div className="relative">
-      <button
-        onClick={() => setShowThemeMenu((prev) => !prev)}
-        className={`
-          h-9 min-w-[52px] px-2
-          inline-flex items-center justify-center gap-1
-          rounded-lg
-          border
-          font-mono text-[10px]
-          active:translate-y-[1px]
           transition
-          ${previewStyle === 'mono'
+          ${areControlsExpanded
             ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
             : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
           }
         `}
-        title={`Preview-Theme: ${previewTheme}`}
+        title={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
+        aria-label={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
       >
-        <span>{previewStyle === 'color' ? 'C' : 'M'}</span>
+        <FontAwesomeIcon icon={faBarsProgress} className="text-[10px]" />
       </button>
 
-      {showThemeMenu && (
-        <div
-          className="
-            absolute top-11 right-0
-            min-w-[170px]
-            overflow-hidden
-            rounded-xl
-            bg-[#121212]
-            border border-[#2E2E2E]
-            shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-            z-20
-          "
-        >
-          <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
-            Theme wählen
-          </div>
-          {previewThemeOptions.map((theme) => (
+      {areControlsExpanded && (
+        <>
+          {onToggleTextAI && (
             <button
-              key={theme.id}
-              onClick={() => handleSelectTheme(theme.id)}
+              onClick={onToggleTextAI}
+              disabled={isTextAIDisabled}
               className={`
-                w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors
-                ${previewTheme === theme.id
-                  ? 'bg-[#1A1A1A] text-[#AC8E66]'
-                  : 'text-[#dbd9d5] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
+                h-10 px-3
+                inline-flex items-center justify-center gap-1.5
+                rounded-lg
+                border
+                font-mono text-[10px]
+                transition
+                active:translate-y-[1px]
+                disabled:opacity-50 disabled:cursor-not-allowed
+                ${showTextAI
+                  ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
+                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
                 }
               `}
+              title="Text-AI"
             >
-              {theme.label}
+              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-[10px]" />
+              <span>Text-AI</span>
             </button>
-          ))}
-        </div>
+          )}
+
+          {onContentChange && (
+            <div className="relative">
+              <button
+                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                disabled={isTranslating}
+                className="
+                  h-10 w-10
+                  inline-flex items-center justify-center
+                  rounded-lg
+                  bg-[#171717]
+                  border border-[#2E2E2E]
+                  text-[#A0A0A0]
+                  text-[10px]
+                  hover:text-[#AC8E66]
+                  hover:border-[#3A3328]
+                  hover:bg-[#1D1D1D]
+                  active:translate-y-[1px]
+                  transition
+                  disabled:opacity-50 disabled:cursor-not-allowed
+                "
+                title="Übersetzen"
+              >
+                <FontAwesomeIcon icon={faLanguage} className="text-[11px]" />
+              </button>
+
+              {showLanguageMenu && (
+                <div
+                  className="
+                    absolute top-11 right-0
+                    min-w-[200px]
+                    overflow-hidden
+                    rounded-xl
+                    bg-[#121212]
+                    border border-[#2E2E2E]
+                    shadow-[0_16px_40px_rgba(0,0,0,0.55)]
+                    z-20
+                  "
+                >
+                  <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                    Sprache wählen
+                  </div>
+
+                  {languages.map((lang) => (
+                    <button
+                      key={lang.value}
+                      onClick={() => handleTranslate(lang.value)}
+                      className="
+                        w-full px-4 py-2.5 text-left
+                        text-[#dbd9d5]
+                        hover:bg-[#1A1A1A]
+                        hover:text-[#AC8E66]
+                        transition-colors
+                        text-[10px] font-mono
+                      "
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="w-px h-7 bg-[#232323] mx-1" />
+
+          <button
+            onClick={handleZoomOut}
+            className="
+              h-9 w-9
+              inline-flex items-center justify-center
+              rounded-lg
+              bg-[#171717]
+              border border-[#2E2E2E]
+              text-[#A0A0A0]
+              text-[10px]
+              hover:text-[#AC8E66]
+              hover:border-[#3A3328]
+              hover:bg-[#1D1D1D]
+              active:translate-y-[1px]
+              transition
+            "
+            title="Verkleinern"
+          >
+            <FontAwesomeIcon icon={faMinus} className="text-[8px]" />
+          </button>
+
+          <button
+            onClick={handleZoomReset}
+            className="
+              h-9 px-4
+              inline-flex items-center justify-center
+              rounded-lg
+              bg-[#141414]
+              border border-[#2E2E2E]
+              text-[#7A7A7A]
+              font-mono text-[10px]
+              hover:text-[#AC8E66]
+              hover:border-[#3A3328]
+              hover:bg-[#1A1A1A]
+              active:translate-y-[1px]
+              transition
+              min-w-[96px]
+            "
+            title="Zurücksetzen"
+          >
+            {zoom}%
+          </button>
+
+          <button
+            onClick={handleZoomIn}
+            className="
+              h-9 w-9
+              inline-flex items-center justify-center
+              rounded-lg
+              bg-[#171717]
+              border border-[#2E2E2E]
+              text-[#A0A0A0]
+              text-[10px]
+              hover:text-[#AC8E66]
+              hover:border-[#3A3328]
+              hover:bg-[#1D1D1D]
+              active:translate-y-[1px]
+              transition
+            "
+            title="Vergrößern"
+          >
+            <FontAwesomeIcon icon={faPlus} className="text-[9px]" />
+          </button>
+
+          <div className="w-px h-7 bg-[#232323] mx-1" />
+
+          <div className="relative">
+            <button
+              onClick={() => setShowThemeMenu((prev) => !prev)}
+              className={`
+                h-9 min-w-[52px] px-2
+                inline-flex items-center justify-center gap-1
+                rounded-lg
+                border
+                font-mono text-[10px]
+                active:translate-y-[1px]
+                transition
+                ${previewStyle === 'mono'
+                  ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
+                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
+                }
+              `}
+              title={`Preview-Theme: ${previewTheme}`}
+            >
+              <span>{previewStyle === 'color' ? 'C' : 'M'}</span>
+            </button>
+
+            {showThemeMenu && (
+              <div
+                className="
+                  absolute top-11 right-0
+                  min-w-[170px]
+                  overflow-hidden
+                  rounded-xl
+                  bg-[#121212]
+                  border border-[#2E2E2E]
+                  shadow-[0_16px_40px_rgba(0,0,0,0.55)]
+                  z-20
+                "
+              >
+                <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                  Theme wählen
+                </div>
+                {previewThemeOptions.map((theme) => (
+                  <button
+                    key={theme.id}
+                    onClick={() => handleSelectTheme(theme.id)}
+                    className={`
+                      w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors
+                      ${previewTheme === theme.id
+                        ? 'bg-[#1A1A1A] text-[#AC8E66]'
+                        : 'text-[#dbd9d5] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
+                      }
+                    `}
+                  >
+                    {theme.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
-      </>
-    )}
-  </div>
-</div>
+  );
+
+  return (
+    <div className="w-full relative">
+      {previewToolbarMode === 'overlay' && (
+        <div
+          className="absolute z-[45] flex items-center"
+          style={{ top: 50, right: 14, transformOrigin: 'top right' }}
+        >
+          {controlsPanel}
+        </div>
+      )}
 
 
       {/* Translation Status */}
-      {isTranslating && (
-        <div
-          className="absolute z-10 bg-[#1A1A1A] border border-[#AC8E66] rounded rounded-[12px] px-[12px] py-[2px]"
-          style={{ top: 16, left: 10, scale: 0.75, transformOrigin: 'top left' }}
-        >
-          <p className="text-[#AC8E66] text-[9px] font-mono">Übersetze...</p>
-        </div>
+      {showInternalTranslationStatus && isTranslating && (
+        translationStatusStyle === 'ai' ? (
+          <div
+            className="absolute z-[46] flex items-center justify-center"
+            style={{ top: 108, left: '50%', transform: 'translateX(-50%)' }}
+          >
+            <div className="flex items-center gap-1 px-[10px] py-[8px] 
+            rounded-[10px] border border-[#3A3328] 
+            bg-[#151515]/95 shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
+              <FontAwesomeIcon icon={faSpinner} 
+              className="text-[#AC8E66] text-[13px] animate-spin items-center" />
+              <p className="
+              text-[#AC8E66] 
+              text-[12px] 
+              font-mono 
+              tracking-wide">AI verarbeitet... Translator</p>
+            </div>
+          </div>
+        ) : (
+          <div
+            className="absolute z-[46] bg-[#1A1A1A] border border-[#AC8E66] rounded rounded-[12px] px-[12px] py-[2px]"
+            style={{ top: 16, left: 10, scale: 0.75, transformOrigin: 'top left' }}
+          >
+            <p className="text-[#AC8E66] text-[9px] font-mono">Übersetze...</p>
+          </div>
+        )
       )}
 
       {/* Translation Error */}
       {translateError && (
         <div
-          className="absolute z-10 bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1"
+          className="absolute z-[46] bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1"
           style={{ top: 16, right: 16 }}
         >
           <p className="text-red-400 text-xs font-mono">{translateError}</p>
@@ -543,6 +573,8 @@ export const ZenMarkdownPreview = ({
       )}
 
       {/* Preview Content Innenbox Content AI Studio Preview Step4/4 Inhalt - Paper Style */}
+     
+     
       <div
         className="
         text-[#3a3a3a]
@@ -568,10 +600,21 @@ export const ZenMarkdownPreview = ({
         }}
         onMouseMove={handleReadingActivity}
         onMouseDown={handleReadingActivity}
-        onWheel={handleReadingActivity}
+        onWheel={() => {
+          handleReadingActivity();
+          handlePreviewScrollInteraction();
+        }}
+        onScroll={handlePreviewScrollInteraction}
+        onTouchMove={handlePreviewScrollInteraction}
         onTouchStart={handleReadingActivity}
         onMouseLeave={() => setIsReadingCursorHidden(false)}
       >
+        {previewToolbarMode === 'sticky' && (
+          <div className="sticky top-[10px] z-[45] mb-[8px] flex justify-end pr-[8px]">
+            {controlsPanel}
+          </div>
+        )}
+
         <div
           style={{
             transform: `scale(${zoom / 100})`,
