@@ -54,10 +54,11 @@ export const ZenContentStudioModal = ({
   onLoadWebDocument,
 
 }: ZenContentStudioModalProps) => {
-  const [activePanel, setActivePanel] = useState<"project" | "all" | "metadata" | "help">(
-    activeTab === "all" ? "all" : "project"
+  const [activePanel, setActivePanel] = useState<"all" | "metadata" | "help">(
+    "all"
   );
   const [fileSort, setFileSort] = useState<"name-asc" | "name-desc" | "date-desc" | "date-asc">("name-asc");
+  const [fileSearch, setFileSearch] = useState("");
   const projectName = projectPath
     ? projectPath.split(/[\\/]/).filter(Boolean).pop() || "Projekt"
     : "Kein Projekt gewaehlt";
@@ -68,7 +69,7 @@ export const ZenContentStudioModal = ({
   const { openExternal } = useOpenExternal();
 
   useEffect(() => {
-    setActivePanel(activeTab === "all" ? "all" : "project");
+    setActivePanel("all");
   }, [activeTab]);
 
   const sortedAllFiles = useMemo(() => {
@@ -91,6 +92,29 @@ export const ZenContentStudioModal = ({
     }
     return files;
   }, [allFiles, fileSort]);
+
+  const matchesFileSearch = (name: string, path: string, query: string): boolean => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+
+    // Support extension search patterns like "*.md".
+    if (q.startsWith("*.")) {
+      const ext = q.slice(1);
+      return name.toLowerCase().endsWith(ext) || path.toLowerCase().endsWith(ext);
+    }
+
+    return name.toLowerCase().includes(q) || path.toLowerCase().includes(q);
+  };
+
+  const filteredAllFiles = useMemo(
+    () => sortedAllFiles.filter((file) => matchesFileSearch(file.name, file.path, fileSearch)),
+    [sortedAllFiles, fileSearch]
+  );
+
+  const filteredWebDocuments = useMemo(
+    () => webDocuments.filter((doc) => matchesFileSearch(doc.name, doc.name, fileSearch)),
+    [webDocuments, fileSearch]
+  );
 
   const cycleFileSort = () => {
     setFileSort((prev) => {
@@ -216,6 +240,7 @@ export const ZenContentStudioModal = ({
         : activePanel === "help"
           ? "Hilfe"
           : "Dokumente";
+  const canOpenDocumentsTab = !isTauri() || !!projectPath;
 
   return (
     <ZenModal
@@ -234,27 +259,7 @@ export const ZenContentStudioModal = ({
           <div className="flex flex-wrap gap-2 py-[0px]">
             <button
               onClick={() => {
-                setActivePanel("project");
-              }}
-              className="font-mono text-[10px]"
-              style={{
-                border: activePanel === "project" ? "1px solid #AC8E66" : "1px dotted #3A3A3A",
-                borderBottom: "0",
-                borderRadius: "10px 10px 0 0",
-                padding: "10px 16px",
-                color: activePanel === "project" ? "#AC8E66" : "#555",
-                fontWeight: activePanel === "project" ? "200" : "400",
-                background:
-                  activePanel === "project"
-                    ? "#2a2a2a"
-                    : "transparent",
-              }}
-            >
-              Projekt wechseln
-            </button>
-            <button
-              onClick={() => {
-                if (!projectPath) return;
+                if (!canOpenDocumentsTab) return;
                 setActivePanel("all");
               }}
               className="font-mono text-[10px]"
@@ -265,8 +270,8 @@ export const ZenContentStudioModal = ({
                 padding: "10px 16px",
                 color: activePanel === "all" ? "#AC8E66" : "#555",
                 fontWeight: activePanel === "all" ? "200" : "400",
-                cursor: projectPath ? "pointer" : "not-allowed",
-                opacity: projectPath ? 1 : 0.5,
+                cursor: canOpenDocumentsTab ? "pointer" : "not-allowed",
+                opacity: canOpenDocumentsTab ? 1 : 0.5,
                 background:
                   activePanel === "all"
                     ? "#2a2a2a"
@@ -317,70 +322,10 @@ export const ZenContentStudioModal = ({
 
         <div className="flex-1 overflow-y-auto px-20 pb-12 pt-[20px] px-[10px]">
           
-          {activePanel === "project" ? (
-            <div className="flex flex-col gap-4 px-[10px]">
-              <div className="font-mono text-[12px] text-[#555]">
-               Du bist aktuell im Verzeichnis:
-              </div>
-              <div className="font-mono text-[10px] font-bold text-[#777]">
-               <span className="text-[#777] font-cursive"
-               
-                  style={{
-                    paddingLeft: "8px",
-                    borderLeft: "1px solid #AC8E66",
-                  }}
-               ></span> {projectName}
-               <div className="font-mono text-[12px] py-[10px] text-[#555]"
-               
-               >Dein aktueller Projekt Ordner:</div>
-              </div>
-              {projectPath && (
-                <div
-                  className="font-mono text-[10px] text-[#777]"
-                  style={{
-                    paddingLeft: "8px",
-                    borderLeft: "1px solid #AC8E66",
-                  }}
-                >
-                  {projectPath}
-                </div>
-              )}
-
-              <div className="border-b pt-[10px] text-[#AC8E66]"></div>
-
-              <div className="pt-[20px]">
-                {isTauri() ? (
-                  <ZenRoughButton
-                    label={projectPath ? "Projekt wechseln" : "Projekt waehlen"}
-                    onClick={onSelectProject}
-                  />
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    <div
-                      className="font-mono text-[11px]"
-                      style={{
-                        border: "1px dotted #3A3A3A",
-                        borderRadius: "10px",
-                        padding: "12px",
-                        color: "#fef3c7",
-                       
-                        background: "#0A0A0A",
-                      }}
-                    >
-                      Hinweis: In der Web-Version ist die Projektordner-Auswahl
-                      eingeschränkt. Lade ein Dokument oder nutze den Converter.
-                    </div>
-                    <div className="font-mono text-[10px] text-[#777]">
-                      Dokumente laden und verwalten findest du im Tab "Projekt Dokumente".
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : activePanel === "all" ? (
+          {activePanel === "all" ? (
             <div className="flex flex-col gap-4 px-[20px]">
-              {!isTauri() && (
-                <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3">
+                {!isTauri() && (
                   <div
                     className="font-mono text-[11px]"
                     style={{
@@ -388,84 +333,101 @@ export const ZenContentStudioModal = ({
                       borderRadius: "10px",
                       padding: "12px",
                       color: "#fef3c7",
-                      background: "#0A0A0A",
+                      background: "#2a2a2a",
                     }}
                   >
                     Hinweis: In der Web-Version ist die Projektordner-Auswahl eingeschränkt. Lade ein Dokument oder nutze den Converter.
                   </div>
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragActive(true);
-                    }}
-                    onDragLeave={() => setIsDragActive(false)}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      setIsDragActive(false);
-                      const file = e.dataTransfer.files?.[0];
-                      if (file) void handleWebFile(file);
-                    }}
+                )}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragActive(true);
+                  }}
+                  onDragLeave={() => setIsDragActive(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragActive(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) void handleWebFile(file);
+                  }}
+                  style={{
+                    border: `2px dashed ${isDragActive ? "#AC8E66" : "#3A3A3A"}`,
+                    borderRadius: "14px",
+                    padding: "24px",
+                    background: isDragActive ? "rgba(172,142,102,0.08)" : "transparent",
+                    textAlign: "center",
+                    color: "#555",
+                    fontFamily: "IBM Plex Mono, monospace",
+                    fontSize: "12px",
+                    marginTop: "20px",
+                  }}
+                >
+                  {isWebConverting
+                    ? "Konvertiere Dokument…"
+                    : "Datei hier ablegen (Drag & Drop)"}
+                  <div style={{ marginTop: "50px", fontSize: "10px", color: "#777" }}>
+                    Unterstützt: .md, .txt, .json, .pdf, .docx, .doc, .pages
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
                     style={{
-                      border: `2px dashed ${isDragActive ? "#AC8E66" : "#3A3A3A"}`,
-                      borderRadius: "14px",
-                      padding: "24px",
-                      background: isDragActive ? "rgba(172,142,102,0.08)" : "transparent",
-                      textAlign: "center",
+                      marginTop: "12px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px dotted #3A3A3A",
+                      background: "transparent",
                       color: "#555",
                       fontFamily: "IBM Plex Mono, monospace",
-                      fontSize: "12px",
-                      marginTop: "20px",
+                      fontSize: "11px",
+                      cursor: "pointer",
                     }}
                   >
-                    {isWebConverting
-                      ? "Konvertiere Dokument…"
-                      : "Datei hier ablegen (Drag & Drop)"}
-                    <div style={{ marginTop: "50px", fontSize: "10px", color: "#777" }}>
-                      Unterstützt: .md, .txt, .json, .pdf, .docx, .doc, .pages
-                    </div>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        marginTop: "12px",
-                        padding: "8px 12px",
-                        borderRadius: "8px",
-                        border: "1px dotted #3A3A3A",
-                        background: "transparent",
-                        color: "#555",
-                        fontFamily: "IBM Plex Mono, monospace",
-                        fontSize: "11px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Dokument laden
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".md,.txt,.json,.pdf,.docx,.doc,.pages"
-                      style={{ display: "none" }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) void handleWebFile(file);
-                      }}
-                    />
-                  </div>
-                  {webLoadError && (
-                    <div className="font-mono text-[10px] text-[#FF6B6B]">
-                      {webLoadError}
-                    </div>
-                  )}
+                    Dokument laden
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".md,.txt,.json,.pdf,.docx,.doc,.pages"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void handleWebFile(file);
+                    }}
+                  />
                 </div>
-              )}
-              <div className="mb-[10px] flex items-center justify-between">
+                {webLoadError && (
+                  <div className="font-mono text-[10px] text-[#FF6B6B]">
+                    {webLoadError}
+                  </div>
+                )}
+              </div>
+              <div className="mb-[10px] flex items-center justify-between pt-[25px]">
                 <div
                   className="
                     font-mono 
                     text-[11px] 
-                    text-[#555] 
+                    text-[#1a1a1a] 
                   "
+                  style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}
                 >
                   {!isTauri() ? "Web-Dokumente" : "Dateien deines Projekt Ordner"}
+                  {isTauri() && projectPath && (
+                    <span
+                      className="font-mono text-[10px] text-[#1a1a1a]"
+                      style={{
+                        paddingLeft: "8px",
+                      
+                        maxWidth: "100%",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={projectPath}
+                    >
+                      {projectPath}
+                    </span>
+                  )}
                 </div>
                 {isTauri() && (
                 <button
@@ -503,18 +465,38 @@ export const ZenContentStudioModal = ({
                 </button>
                 )}
               </div>
-              {!isTauri() && webDocuments.length === 0 ? (
+              <div style={{ marginBottom: "12px" }}>
+                <input
+                  type="text"
+                  value={fileSearch}
+                  onChange={(e) => setFileSearch(e.target.value)}
+                  placeholder="Suche nach Name/Pfad oder *.md"
+                  className="font-mono text-[11px]"
+                  style={{
+                    width: "100%",
+                    boxSizing: "border-box",
+                    padding: "8px 10px",
+                    border: "1px solid #3A3A3A",
+                    borderRadius: "8px",
+                    background: "transparent",
+                    color: "#555",
+                  }}
+                />
+              </div>
+              {!isTauri() && filteredWebDocuments.length === 0 ? (
                 <div className="font-mono text-[12px] text-[#777] py-[10px]">
-                  Noch keine Web-Dokumente geladen.
+                  {webDocuments.length === 0 ? "Noch keine Web-Dokumente geladen." : "Keine Treffer."}
                 </div>
-              ) : isTauri() && allFiles.length === 0 ? (
+              ) : isTauri() && filteredAllFiles.length === 0 ? (
                 <div className="font-mono text-[12px] text-[#777] py-[10px]">
-                  {projectPath
+                  {allFiles.length === 0 && projectPath
                     ? "Keine Dateien gefunden."
-                    : "Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen."}
+                    : allFiles.length === 0
+                      ? "Kein Projekt ausgewaehlt. Bitte zuerst einen Projektordner waehlen."
+                      : "Keine Treffer."}
                 </div>
               ) : !isTauri() ? (
-                webDocuments.map((doc) => (
+                filteredWebDocuments.map((doc) => (
                   <div
                     key={doc.id}
                     onClick={() => onOpenWebDocument?.(doc.content, doc.name)}
@@ -541,7 +523,7 @@ export const ZenContentStudioModal = ({
                   </div>
                 ))
               ) : (
-                sortedAllFiles.map((file) => (
+                filteredAllFiles.map((file) => (
                   <div
                     key={file.path}
                     onClick={() => onOpenFile(file.path)}

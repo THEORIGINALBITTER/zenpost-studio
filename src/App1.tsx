@@ -40,7 +40,7 @@ import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir, stat } from "@tauri-apps/plugin-fs";
+import { readDir, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
 import { CornerRibbon } from "./components/CornerRibbon";
@@ -48,6 +48,8 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useOpenExternal } from "./hooks/useOpenExternal";
 import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
+import { getLastProjectPath, rememberProjectPath } from "./utils/projectHistory";
+import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings } from "./services/zenStudioSettingsService";
 
 import ZenCursor from "./components/ZenCursor";
 
@@ -149,6 +151,7 @@ function AppContent() {
   const appReadyFiredRef = useRef(false);
   const [showHomeModal, setShowHomeModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'zenstudio'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
   const [showMailSuccessModal, setShowMailSuccessModal] = useState(false);
@@ -221,14 +224,22 @@ function AppContent() {
   const [plannerDefaultTab, setPlannerDefaultTab] = useState<'planen' | 'kalender' | 'checklist'>('planen');
   const [selectedDateFromCalendar, setSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
   const [schedulerPlatformPosts, setSchedulerPlatformPosts] = useState<Array<{ platform: string; content: string }>>([]);
+  const [contentPlannerSuggestion, setContentPlannerSuggestion] = useState<{
+    key: string;
+    tabId: string;
+    title: string;
+    content: string;
+    platform?: string;
+  } | null>(null);
   // Track which scheduled post is being edited (to update on save)
   const [editingScheduledPostId, setEditingScheduledPostId] = useState<string | null>(null);
 
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportContent, setExportContent] = useState<string>("");
+  const [isEditingZenThoughts, setIsEditingZenThoughts] = useState(false);
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
-  const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | null>(null);
+  const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | "rescan" | null>(null);
   const [docStudioPreviewMode, setDocStudioPreviewMode] = useState(false);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
 
@@ -300,7 +311,7 @@ function AppContent() {
           void markBootstrapNoticeSeen();
         }
         if (nextPath) {
-          localStorage.setItem('zenpost_last_project_path', nextPath);
+          rememberProjectPath(nextPath);
           setContentStudioProjectPath(nextPath);
           await refreshContentStudioData(nextPath);
         }
@@ -339,11 +350,15 @@ function AppContent() {
   // Content AI Studio Editor Type (block = Editor.js, markdown = ZenMarkdownEditor)
   const [contentEditorType, setContentEditorType] = useState<"block" | "markdown">("block");
 
-  const handleSelectConverter = () => setCurrentScreen("converter");
+  const handleSelectConverter = () => {
+    setIsEditingZenThoughts(false);
+    setCurrentScreen("converter");
+  };
   const handleSelectContentTransform = () => {
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
+    setIsEditingZenThoughts(false);
     setContentTransformStep(1);
     setCurrentScreen("content-transform");
   };
@@ -466,7 +481,7 @@ function AppContent() {
     const projectPath =
       docStudioState?.projectPath ||
       contentStudioProjectPath ||
-      localStorage.getItem('zenpost_last_project_path');
+      getLastProjectPath();
     if (!projectPath) return;
     try {
       await saveScheduledPostsWithFiles(projectPath, posts);
@@ -522,7 +537,7 @@ function AppContent() {
     const projectPath =
       docStudioState?.projectPath ||
       contentStudioProjectPath ||
-      localStorage.getItem('zenpost_last_project_path');
+      getLastProjectPath();
     if (!projectPath) return;
     try {
       await initializePublishingProject(projectPath);
@@ -533,6 +548,7 @@ function AppContent() {
     }
   };
   const handleSelectDocStudio = () => {
+    setIsEditingZenThoughts(false);
     // Locked Doc Studio should open upgrade modal directly (no intermediate lock screen)
     if (!checkFeature("DOC_STUDIO")) {
       requestUpgrade("DOC_STUDIO");
@@ -540,23 +556,45 @@ function AppContent() {
     }
 
     // Check if there's a saved project path in localStorage
-    const savedProjectPath = localStorage.getItem('zenpost_last_project_path');
-
+    const savedProjectPath = getLastProjectPath();
     if (savedProjectPath) {
-      // Start at Context (Step 0)
-      setDocStudioStep(0);
-      setReturnToDocStudioStep(0);
-    } else {
-      // No project selected, start at Context (Step 0)
-      setDocStudioStep(0);
-      setReturnToDocStudioStep(0);
+      setDocStudioState((prev) => ({
+        projectPath: prev?.projectPath ?? savedProjectPath,
+        projectInfo: prev?.projectInfo ?? null,
+        selectedTemplate: prev?.selectedTemplate ?? null,
+        selectedTemplates: prev?.selectedTemplates ?? [],
+        generatedContent: prev?.generatedContent ?? '',
+        activeTabId: prev?.activeTabId ?? null,
+        openFileTabs: prev?.openFileTabs ?? [],
+        tabContents: prev?.tabContents ?? {},
+        dirtyTabs: prev?.dirtyTabs ?? {},
+        tone: prev?.tone ?? 'professional',
+        length: prev?.length ?? 'medium',
+        audience: prev?.audience ?? 'intermediate',
+        targetLanguage: prev?.targetLanguage ?? 'deutsch',
+        inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
+        metadata: prev?.metadata ?? {
+          authorName: '',
+          authorEmail: '',
+          companyName: '',
+          license: 'MIT',
+          year: new Date().getFullYear().toString(),
+          website: '',
+          repository: '',
+          contributingUrl: '',
+        },
+      }));
     }
+
+    // Always start at Project step when entering Doc Studio
+    setDocStudioStep(0);
+    setReturnToDocStudioStep(0);
 
     setCurrentScreen("doc-studio");
   };
 
   const handleOpenDocStudioForPosting = (content: string) => {
-    const storedProjectPath = localStorage.getItem('zenpost_last_project_path');
+    const storedProjectPath = getLastProjectPath();
     setDocStudioState((prev) => ({
       projectPath: storedProjectPath ?? prev?.projectPath ?? null,
       projectInfo: prev?.projectInfo ?? null,
@@ -625,6 +663,7 @@ function AppContent() {
   const handleOpenContentAIFromDashboard = () => {
     setCameFromDashboard(true);
     setCameFromDocStudio(false);
+    setIsEditingZenThoughts(false);
     setTransferContent(null); // No initial content
     setContentTransformStep(1);
     setCurrentScreen("content-transform");
@@ -632,13 +671,84 @@ function AppContent() {
 
   // Return to Getting Started from Content AI
   const handleBackToGettingStarted = (_generatedContent?: string) => {
+    setIsEditingZenThoughts(false);
     setCameFromDashboard(false);
     setCurrentScreen("getting-started");
     // Could save the generated content here if needed
   };
 
   const handleBackToWelcome = () => {
+    setIsEditingZenThoughts(false);
     setCurrentScreen("welcome");
+  };
+
+  const handleOpenZenThoughtsEditor = async (content: string, filePathOverride?: string) => {
+    setShowAISettingsModal(false);
+    setCameFromDashboard(true);
+    setCameFromDocStudio(false);
+    setMultiPlatformMode(false);
+    setIsEditingZenThoughts(true);
+    const projectPath = contentStudioProjectPath || getLastProjectPath();
+    const filePath = filePathOverride || (projectPath ? `${projectPath}/ZEN_GEDANKEN.md` : null);
+
+    if (isTauri() && filePath) {
+      try {
+        await writeTextFile(filePath, content);
+        setTransferContent(null);
+        setTransferFileName(null);
+        setContentStudioRequestedFilePath(filePath);
+      } catch (error) {
+        console.error("[ZenStudio] ZEN_GEDANKEN.md konnte nicht geschrieben werden:", error);
+        setTransferContent(content);
+        setTransferFileName("ZEN_GEDANKEN.md");
+      }
+    } else {
+      setTransferContent(content);
+      setTransferFileName("ZEN_GEDANKEN.md");
+    }
+
+    setContentTransformStep(1);
+    setCurrentScreen("content-transform");
+  };
+
+  const handleContentTransformChange = (
+    content: string,
+    meta?: {
+      source: 'step1' | 'step4';
+      activeTabId?: string | null;
+      activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
+      activeTabFilePath?: string;
+      activeTabTitle?: string;
+    }
+  ) => {
+    setExportContent(content);
+    if (!isEditingZenThoughts && meta?.source === 'step1' && meta.activeTabId) {
+      const trimmed = content.trim();
+      if (trimmed.length >= 20) {
+        const title = (meta.activeTabTitle || 'Entwurf').trim() || 'Entwurf';
+        const key = `${meta.activeTabId}:${trimmed.slice(0, 140)}`;
+        setContentPlannerSuggestion({
+          key,
+          tabId: meta.activeTabId,
+          title,
+          content: content,
+        });
+      } else {
+        setContentPlannerSuggestion((prev) => (prev?.tabId === meta.activeTabId ? null : prev));
+      }
+    }
+    if (!isEditingZenThoughts) return;
+    if (meta?.source !== 'step1') return;
+    if (meta?.activeTabKind !== 'file') return;
+
+    const settings = loadZenStudioSettings();
+    const fallbackProjectPath = contentStudioProjectPath || getLastProjectPath();
+    const expectedThoughtsPath =
+      settings.thoughtsFilePath || (fallbackProjectPath ? `${fallbackProjectPath}/ZEN_GEDANKEN.md` : null);
+    if (!expectedThoughtsPath || !meta.activeTabFilePath) return;
+    if (meta.activeTabFilePath !== expectedThoughtsPath) return;
+
+    patchZenStudioSettings({ thoughts: parseZenThoughtsFromEditor(content) });
   };
 
   // Handle step-wise back navigation for DocStudioScreen
@@ -652,8 +762,14 @@ function AppContent() {
     }
   };
 
-  const handleHomeClick = () => setShowHomeModal(true);
-  const handleConfirmHome = () => {
+  const handleHomeClick = () => {
+    if (currentScreen === "getting-started") {
+      setCurrentScreen("welcome");
+      return;
+    }
+    setShowHomeModal(true);
+  };
+  const resetDocStudioSession = () => {
     setShowHomeModal(false);
     setDocStudioState((prev) => {
       if (!prev) return prev;
@@ -669,11 +785,22 @@ function AppContent() {
       };
     });
     setDocStudioStep(0);
+  };
+
+  const handleConfirmHome = () => {
+    resetDocStudioSession();
     setCurrentScreen("welcome");
+  };
+  const handleConfirmGettingStarted = () => {
+    resetDocStudioSession();
+    setCurrentScreen("getting-started");
   };
   const handleCloseHomeModal = () => setShowHomeModal(false);
 
-  const handleSettingsClick = () => setShowAISettingsModal(true);
+  const handleSettingsClick = () => {
+    setSettingsDefaultTab('ai');
+    setShowAISettingsModal(true);
+  };
   const handleCloseSettingsModal = () => setShowAISettingsModal(false);
 
   const handleInfoClick = () => setShowAboutModal(true);
@@ -722,7 +849,7 @@ function AppContent() {
     setShowMailSuccessModal(true);
   };
   const handleOpenBugTemplateInDocStudio = () => {
-    const storedProjectPath = localStorage.getItem('zenpost_last_project_path');
+    const storedProjectPath = getLastProjectPath();
     const templateId = 'bug' as const;
     const tabId = `tpl:${templateId}`;
     const templateContent = getSmartDocTemplate(templateId, docStudioState?.projectInfo ?? null);
@@ -765,7 +892,7 @@ function AppContent() {
   const handleCloseContentStudioModal = () => setShowContentStudioModal(false);
 
   const refreshContentStudioData = async (projectPathOverride?: string) => {
-    const storedProjectPath = projectPathOverride ?? localStorage.getItem('zenpost_last_project_path');
+    const storedProjectPath = projectPathOverride ?? getLastProjectPath();
     setContentStudioProjectPath(storedProjectPath);
     if (!storedProjectPath) {
       setContentStudioRecentArticles([]);
@@ -923,7 +1050,7 @@ function AppContent() {
     const handleProjectPathUpdated = (event: Event) => {
       const detail = (event as CustomEvent<string>).detail;
       if (!detail) return;
-      localStorage.setItem('zenpost_last_project_path', detail);
+      rememberProjectPath(detail);
       setContentStudioProjectPath(detail);
       setDocStudioState(prev => (prev ? { ...prev, projectPath: detail } : prev));
       refreshContentStudioData(detail);
@@ -942,7 +1069,7 @@ function AppContent() {
   useEffect(() => {
     if (!isTauri()) return;
     if (!docStudioState?.projectPath) return;
-    localStorage.setItem('zenpost_last_project_path', docStudioState.projectPath);
+    rememberProjectPath(docStudioState.projectPath);
     void updateLastProjectPath(docStudioState.projectPath);
   }, [docStudioState?.projectPath]);
 
@@ -982,7 +1109,7 @@ function AppContent() {
         title: 'Projektordner waehlen',
       });
       if (typeof result === 'string') {
-        localStorage.setItem('zenpost_last_project_path', result);
+        rememberProjectPath(result);
         setContentStudioProjectPath(result);
         if (isTauri()) {
           await updateLastProjectPath(result);
@@ -1050,25 +1177,19 @@ function AppContent() {
     // DocStudio Tab-Leiste (Step 3 - Editor)
     if (currentScreen === "doc-studio" && docStudioStep === 3) {
       const isBugTemplateActive = (docStudioState?.activeTabId ?? "").startsWith("tpl:bug");
+      const lockStudioBarForPreview = docStudioPreviewMode;
       return (
         <div className="flex items-center 
         justify-between flex-wrap gap-2 
         px-[4vw] py-[3px] mt-[10px]">
           <div className="flex flex-wrap gap-2">
             <StudioBarButton
-              label="Projekt + Dokumente"
-              icon={<FontAwesomeIcon icon={faFolderOpen} />}
-              onClick={() => {
-                setContentStudioModalTab("all");
-                setShowContentStudioModal(true);
-              }}
-            />
-            <StudioBarButton
-              label="Templates"
+              label="Projektmappe"
               icon={<FontAwesomeIcon icon={faFileLines} />}
               onClick={() => {
                 setDocStudioStep(2);
               }}
+              disabled={lockStudioBarForPreview}
             />
           </div>
           <div className="flex flex-wrap gap-2 ml-auto">
@@ -1092,29 +1213,37 @@ function AppContent() {
                   };
                   docName = templateLabels[template] || template;
                 } else if (activeTabId?.startsWith("file:")) {
-                  const filePath = activeTabId.replace("file:", "");
-                  docName = filePath.split("/").pop()?.replace(/\.[^.]+$/, "") || "Export";
+                  const filePath = activeTabId.replace(/^file:/, "");
+                  const rawFileName = filePath.split(/[\\/]/).pop() || filePath;
+                  docName = rawFileName
+                    .replace(/^web:/i, "")
+                    .replace(/\.[^.]+$/, "")
+                    .trim() || "Export";
                 }
                 setExportDocumentName(docName);
                 setShowExportModal(true);
               }}
+              disabled={lockStudioBarForPreview}
             />
             {isBugTemplateActive && (
               <StudioBarButton
                 label="E-Mail senden"
                 icon={<FontAwesomeIcon icon={faPaperPlane} />}
                 onClick={handleSendBugReportMail}
+                disabled={lockStudioBarForPreview}
               />
             )}
             <StudioBarButton
               label="Speichern"
               icon={<FontAwesomeIcon icon={faSave} />}
               onClick={() => setDocStudioHeaderAction("save")}
+              disabled={lockStudioBarForPreview}
             />
             <StudioBarButton
               label={docStudioPreviewMode ? "Nachbearbeiten" : "Preview"}
               icon={<FontAwesomeIcon icon={faFileLines} />}
               onClick={() => setDocStudioHeaderAction("preview")}
+              active={docStudioPreviewMode}
             />
           </div>
         </div>
@@ -1127,18 +1256,26 @@ function AppContent() {
         <div className="flex items-center justify-between flex-wrap gap-2 px-[4vw] py-[3px] mt-[10px]">
           <div className="flex flex-wrap gap-2">
             <StudioBarButton
-              label="Projekt + Dokumente"
-              icon={<FontAwesomeIcon icon={faFolderOpen} />}
+              label="Dashboard"
+              icon={<FontAwesomeIcon icon={faTableList} />}
               onClick={() => {
-                setContentStudioModalTab("all");
-                setShowContentStudioModal(true);
+                setCurrentScreen("doc-studio");
+                setDocStudioStep(0);
               }}
+            />
+            <StudioBarButton
+              label="Projektmappe"
+              icon={<FontAwesomeIcon icon={faFileLines} />}
+              onClick={() => {
+                setDocStudioStep(2);
+              }}
+              active
             />
             <StudioBarButton
               label="Neue Analyse"
               icon={<FontAwesomeIcon icon={faRotateLeft} />}
               onClick={() => {
-                setDocStudioStep(1);
+                setDocStudioHeaderAction("rescan");
               }}
             />
           </div>
@@ -1166,6 +1303,7 @@ function AppContent() {
                 label="Planen"
                 icon={<FontAwesomeIcon icon={faClock} />}
                 onClick={() => {
+                  setSchedulerPlatformPosts([]);
                   setPlannerDefaultTab('planen');
                   setShowPlannerModal(true);
                 }}
@@ -1175,7 +1313,7 @@ function AppContent() {
           {contentTransformStep === 1 && (
             <div className="flex flex-wrap gap-2 ml-auto">
               <StudioBarButton
-                label="KI für Plattformen"
+                label="AI für Plattformen"
                 icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
                 onClick={handleNavigateToMultiPlatformTransform}
               />
@@ -1270,7 +1408,7 @@ function AppContent() {
               {contentTransformStep === 3 && (
                 <>
                   <StudioBarButton
-                    label="KI Transform"
+                    label="AI Transform"
                     icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
                     onClick={() => setContentTransformHeaderAction("transform")}
                     active
@@ -1330,6 +1468,7 @@ function AppContent() {
                   label="Planen"
                   icon={<FontAwesomeIcon icon={faClock} />}
                   onClick={() => {
+                    setSchedulerPlatformPosts([]);
                     setPlannerDefaultTab('planen');
                     setShowPlannerModal(true);
                   }}
@@ -1558,12 +1697,13 @@ function AppContent() {
             onHeaderActionHandled={() => setContentTransformHeaderAction(null)}
             onStep1BackToPostingChange={setContentTransformShowBackToPosting}
             onOpenDocStudioForPosting={handleOpenDocStudioForPosting}
-            onContentChange={setExportContent}
+            onContentChange={handleContentTransformChange}
             editorType={contentEditorType}
             onEditorTypeChange={setContentEditorType}
             multiPlatformMode={multiPlatformMode}
             onMultiPlatformModeChange={setMultiPlatformMode}
             onFileSaved={handleFileSavedWhileEditing}
+            onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
           />
         )}
         {currentScreen === "doc-studio" && (
@@ -1603,6 +1743,10 @@ function AppContent() {
                 setContentStudioModalTab("all");
                 setShowContentStudioModal(true);
               }}
+              onOpenEditorSettings={() => {
+                setSettingsDefaultTab('editor');
+                setShowAISettingsModal(true);
+              }}
               onFileSaved={handleFileSavedWhileEditing}
             />
           </FeatureGate>
@@ -1625,13 +1769,16 @@ function AppContent() {
         isOpen={showHomeModal}
         onClose={handleCloseHomeModal}
         onConfirm={handleConfirmHome}
+        onGoGettingStarted={handleConfirmGettingStarted}
+        showGettingStartedAction={currentScreen !== "getting-started"}
       />
 
       {/* Settings-Modal */}
       <ZenSettingsModal
         isOpen={showAISettingsModal}
         onClose={handleCloseSettingsModal}
-        defaultTab="ai"
+        defaultTab={settingsDefaultTab}
+        onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
       />
 
       {/* About-Modal */}
@@ -1721,6 +1868,9 @@ function AppContent() {
           characterCount: p.content.length,
           wordCount: p.content.split(/\s+/).filter(Boolean).length,
         }))}
+        suggestedEditorPost={
+          currentScreen === 'content-transform' && !isEditingZenThoughts ? contentPlannerSuggestion ?? undefined : undefined
+        }
         onScheduleSave={(newScheduledPosts) => {
           const next = [...scheduledPosts, ...newScheduledPosts];
           void persistScheduledPosts(next);
@@ -1876,7 +2026,7 @@ const StudioBarButton = ({
      
       cursor: disabled ? "not-allowed" : "pointer",
       transition: "all 0.2s ease",
-      opacity: disabled ? 0.6 : 1,
+      opacity: disabled ? 0.2 : 1,
       overflow: "hidden",
       marginBottom: "-2px",
     }}

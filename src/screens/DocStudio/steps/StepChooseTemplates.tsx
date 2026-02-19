@@ -12,6 +12,7 @@ import {
   faBug,
   faLayerGroup,
   faFile,
+  faFolderOpen,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton } from '../../../kits/PatternKit/ZenModalSystem';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
@@ -31,7 +32,7 @@ const templates: Array<{
   { id: 'bug', title: 'Bug Report', description: 'Bug-Report Vorlage', icon: faBug },
 ];
 
-type StepPanel = 'fields' | 'templates';
+type StepPanel = 'fields' | 'templates' | 'documents';
 
 export function StepChooseTemplates({
   projectInfo,
@@ -44,6 +45,8 @@ export function StepChooseTemplates({
   showReturnToEditor = false,
   onReturnToEditor,
   returnToEditorLabel,
+  projectDocuments = [],
+  onOpenDocument,
 }: {
   projectInfo: ProjectInfo | null;
   selected: DocTemplate[];
@@ -55,9 +58,12 @@ export function StepChooseTemplates({
   showReturnToEditor?: boolean;
   onReturnToEditor?: () => void;
   returnToEditorLabel?: string;
+  projectDocuments?: Array<{ path: string; name: string; modifiedAt?: number }>;
+  onOpenDocument?: (path: string) => void;
 }) {
   const templateSectionRef = useRef<HTMLDivElement>(null);
   const [activePanel, setActivePanel] = useState<StepPanel>('fields');
+  const topTabRadius = '12px 12px 0 0';
 
   useEffect(() => {
     if (!scrollToTemplates) return;
@@ -169,18 +175,20 @@ export function StepChooseTemplates({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: '24px',
+        gap: '0px',
         padding: '24px',
         maxWidth: '1152px',
         margin: '0 auto',
+        background: '#1a1a1a',
       }}
     >
       <div
         style={{
-          backgroundColor: 'transparent',
+          backgroundColor: '#1a1a1a',
           borderRadius: '8px',
           border: '0.5px solid #AC8E66',
           padding: '16px',
+          marginBottom: '24px',
         }}
       >
         <h3 style={{ fontWeight: 'normal', margin: 0, marginBottom: '12px', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
@@ -275,7 +283,7 @@ export function StepChooseTemplates({
           </div>
           <div>
             <span style={{ color: '#777' }}>Features:</span>{' '}
-            <span className="inline-flex items-center gap-2 text-[12px]">
+            <span className="inline-flex items-center gap-2 text-[9px]">
               {projectInfo?.hasTests ? (
                 <>
                   <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px', marginTop: '-2px', color: '#4ade80' }} />
@@ -283,11 +291,15 @@ export function StepChooseTemplates({
                 </>
               ) : (
                 <>
-                  <FontAwesomeIcon icon={faX} style={{ fontSize: '9px', marginTop: '-2px', color: '#AC8E66' }} />
-                  <span>Keine Tests</span>
+                  <FontAwesomeIcon icon={faX} 
+                  style={{ fontSize: '7px', 
+                    marginTop: '-2px', 
+                    marginLeft: '2px',
+                  color: '#AC8E66' }} />
+                  <span style={{paddingLeft: '10px'}}>Keine Tests</span>
                 </>
               )}
-              <span className="mx-1">•</span>
+            
               {projectInfo?.hasApi ? (
                 <>
                   <FontAwesomeIcon icon={faCheck} style={{ fontSize: '9px', marginTop: '-2px', color: '#AC8E66' }} />
@@ -295,8 +307,14 @@ export function StepChooseTemplates({
                 </>
               ) : (
                 <>
-                  <FontAwesomeIcon icon={faX} style={{ fontSize: '9px', marginTop: '-2px', color: '#AC8E66' }} />
-                  <span>Keine API</span>
+                  <FontAwesomeIcon 
+                  icon={faX} 
+                  style={{ 
+                    fontSize: '7px', 
+                    marginTop: '-2px', 
+                    marginLeft: '10px',
+                    color: '#AC8E66' }} />
+                  <span style={{paddingLeft: '10px'}} >Keine API</span>
                 </>
               )}
             </span>
@@ -323,19 +341,19 @@ export function StepChooseTemplates({
           flexWrap: 'wrap',
           justifyContent: 'space-between',
           alignItems: 'flex-end',
-          borderBottom: '0.5px solid #3A3A3A',
+          borderBottom: '0.5px solid #1a1a1a',
           paddingBottom: '0px',
         }}
       >
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '2px' }}>
           <button
             onClick={() => setActivePanel('fields')}
             style={{
               padding: '8px 12px',
-              borderRadius: '8px 8px 0 0',
+              borderRadius: topTabRadius,
               border: activePanel === 'fields' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-              background: 'transparent',
-              color: activePanel === 'fields' ? '#e5e5e5' : '#999',
+              background: activePanel === 'fields' ? '#d0cbb8' :  'transparent',
+              color: activePanel === 'fields' ? '#1a1a1a' : '#999',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
               cursor: 'pointer',
@@ -350,10 +368,10 @@ export function StepChooseTemplates({
             onClick={() => setActivePanel('templates')}
             style={{
               padding: '8px 12px',
-              borderRadius: '8px 8px 0 0',
-              border: activePanel === 'templates' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-              background: 'transparent',
-              color: activePanel === 'templates' ? '#e5e5e5' : '#999',
+              borderRadius: topTabRadius,
+               border: activePanel === 'templates' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+              background: activePanel === 'templates' ? '#d0cbb8' :  'transparent',
+              color: activePanel === 'templates' ? '#1a1a1a' : '#999',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
               cursor: 'pointer',
@@ -364,14 +382,34 @@ export function StepChooseTemplates({
           >
             <FontAwesomeIcon icon={faFile} /> Templates
           </button>
+          {projectDocuments.length > 0 && (
+            <button
+              onClick={() => setActivePanel('documents')}
+              style={{
+                padding: '8px 12px',
+                borderRadius: topTabRadius,
+                border: activePanel === 'documents' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+                background: activePanel === 'documents' ? '#d0cbb8' : 'transparent',
+                color: activePanel === 'documents' ? '#1a1a1a' : '#999',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <FontAwesomeIcon icon={faFolderOpen} /> Projektdokumente
+            </button>
+          )}
         </div>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap',  }}>
           {showReturnToEditor && onReturnToEditor && (
             <button
               onClick={onReturnToEditor}
               style={{
                 padding: '8px 12px',
-                borderRadius: '8px 8px 0 0',
+                borderRadius: topTabRadius,
                 border: '1px solid #AC8E66',
                 background: 'transparent',
                 color: '#e5e5e5',
@@ -381,6 +419,7 @@ export function StepChooseTemplates({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
+                transform: 'translateX(-10px)'
               }}
             >
               <FontAwesomeIcon icon={faEdit} /> {returnToEditorLabel ?? 'Zurück zum Dokument'}
@@ -389,9 +428,21 @@ export function StepChooseTemplates({
           {activePanel === 'templates' && (
             <button
               onClick={toggleAll}
+              onMouseEnter={(event) => {
+                event.currentTarget.style.borderColor = '#AC8E66';
+                event.currentTarget.style.color = '#1a1a1a';
+                event.currentTarget.style.background = '#d0cbb8';
+                event.currentTarget.style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={(event) => {
+                event.currentTarget.style.borderColor = '#3A3A3A';
+                event.currentTarget.style.color = '#999';
+                event.currentTarget.style.background = 'transparent';
+                event.currentTarget.style.transform = 'none';
+              }}
               style={{
                 padding: '8px 12px',
-                borderRadius: '8px 8px 0 0',
+                borderRadius: topTabRadius,
                 border: '1px solid #3A3A3A',
                 background: 'transparent',
                 color: '#999',
@@ -401,6 +452,7 @@ export function StepChooseTemplates({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
+                transition: 'all 160ms ease',
               }}
             >
               <FontAwesomeIcon icon={faCheck} /> {selected.length === templates.length ? 'Alle abwählen' : 'Alle auswählen'}
@@ -412,10 +464,10 @@ export function StepChooseTemplates({
               disabled={selected.length === 0}
               style={{
                 padding: '8px 12px',
-                borderRadius: '8px 8px 0 0',
+                borderRadius: topTabRadius,
                 border: selected.length === 0 ? '1px solid #2c2c2c' : '1px solid #AC8E66',
-                background: 'transparent',
-                color: selected.length === 0 ? '#666' : '#e5e5e5',
+                background: selected.length === 0 ? 'transparent' :   '#d0cbb8',
+                color: selected.length === 0 ? '#666' : '#1a1a1a',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '11px',
                 cursor: selected.length === 0 ? 'not-allowed' : 'pointer',
@@ -428,22 +480,35 @@ export function StepChooseTemplates({
             </button>
           )}
           {activePanel === 'templates' && selected.length === 0 && (
-            <button
-              onClick={() => onGenerate('draft' as DocTemplate)}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '8px 8px 0 0',
-                border: '1px solid #3A3A3A',
-                background: 'transparent',
-                color: '#999',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
+              <button
+                onClick={() => onGenerate('draft' as DocTemplate)}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.borderColor = '#AC8E66';
+                  event.currentTarget.style.color = '#1a1a1a';
+                  event.currentTarget.style.background = '#d0cbb8';
+                  event.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.borderColor = '#3A3A3A';
+                  event.currentTarget.style.color = '#1a1a1a';
+                  event.currentTarget.style.background = 'd0cbb8';
+                  event.currentTarget.style.transform = 'none';
+                }}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: topTabRadius,
+                  border: '1px solid #3A3A3A',
+                  background: 'transparent',
+                  color: '#999',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 160ms ease',
+                }}
+              >
               <FontAwesomeIcon icon={faEdit} /> Entwurf starten
             </button>
           )}
@@ -453,16 +518,16 @@ export function StepChooseTemplates({
       {activePanel === 'fields' && (
         <div
           style={{
-            backgroundColor: 'transparent',
-            borderRadius: '8px',
-            border: '0.5px solid #AC8E66',
+            backgroundColor: '#d0cbb8',
+            borderRadius: '0 12px 12px 12px',
+            border: '0.5px solid #1a1a1a',
             padding: '24px',
           }}
         >
-          <h3 style={{ marginBottom: '8px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
-            Step01: <span className="text-[#dbd9d5]">Relevante Daten sammeln</span>
-          </h3>
-          <p className="font-mono text-[11px] text-[#999] text-center mb-[16px]">
+          <p style={{ marginBottom: '8px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
+            Step01: <span className="text-[#1a1a1a]">Relevante Daten sammeln</span>
+          </p>
+          <p className="font-mono text-[11px] text-[#1a1a1a] text-center mb-[16px]">
             Datenfeldern: {filledRequired}/{requiredFields.length} ausgefüllt. Diese Felder nutzt Step 4 für KI-gestützte Dokumente.
           </p>
 
@@ -471,15 +536,15 @@ export function StepChooseTemplates({
               style={{
                 marginBottom: '16px',
                 borderRadius: '8px',
-                border: '1px solid rgba(172, 142, 102, 0.5)',
+                border: '1px dotted rgba(172, 142, 102, 0.9)',
                 padding: '12px',
-                background: 'rgba(172, 142, 102, 0.08)',
+                background: 'transparent',
               }}
             >
-              <p className="font-mono text-[11px] text-[#e5e5e5] mb-[6px]">
+              <p className="font-mono text-[11px] text-[#1a1a1a] mb-[6px]">
                 Hard Scan hat nur wenige relevante Daten gefunden.
               </p>
-              <p className="font-mono text-[10px] text-[#b9b9b9]">
+              <p className="font-mono text-[10px] text-[#151515]">
                 In Step 4 wird automatisch Template-Modus vorgeschlagen. Mit den Feldern hier kann Ollama dann gezielt helfen.
               </p>
             </div>
@@ -491,7 +556,8 @@ export function StepChooseTemplates({
               <input
                 value={inputFields.productName}
                 onChange={(event) => setField('productName', event.target.value)}
-                className="mt-[6px] w-3/4 rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="z. B. ZenStudio"
+                className="mt-[6px] w-3/4 rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -499,7 +565,8 @@ export function StepChooseTemplates({
               <input
                 value={inputFields.problemSolved}
                 onChange={(event) => setField('problemSolved', event.target.value)}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Welches Problem löst das Produkt?"
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
           </div>
@@ -511,7 +578,8 @@ export function StepChooseTemplates({
                 value={inputFields.productSummary}
                 onChange={(event) => setField('productSummary', event.target.value)}
                 rows={3}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Kurze Beschreibung, Zielgruppe und Hauptnutzen."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -520,7 +588,8 @@ export function StepChooseTemplates({
                 value={inputFields.setupSteps}
                 onChange={(event) => setField('setupSteps', event.target.value)}
                 rows={3}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Setup in Schritten, z. B. Installation, Konfiguration, Start."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -529,7 +598,8 @@ export function StepChooseTemplates({
                 value={inputFields.usageExamples}
                 onChange={(event) => setField('usageExamples', event.target.value)}
                 rows={3}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Praktische Beispiele oder typische Workflows."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -538,7 +608,8 @@ export function StepChooseTemplates({
                 value={inputFields.apiEndpoints}
                 onChange={(event) => setField('apiEndpoints', event.target.value)}
                 rows={2}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Wichtige Endpunkte, Integrationen oder externe Services."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -547,7 +618,8 @@ export function StepChooseTemplates({
                 value={inputFields.testingNotes}
                 onChange={(event) => setField('testingNotes', event.target.value)}
                 rows={2}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Teststrategie, Qualitätsmaßnahmen oder bekannte Limits."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -556,7 +628,8 @@ export function StepChooseTemplates({
                 value={inputFields.faq}
                 onChange={(event) => setField('faq', event.target.value)}
                 rows={2}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Häufige Fragen, Stolperfallen oder wichtige Hinweise."
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
             <label className="font-mono text-[10px] text-[#AC8E66]">
@@ -565,7 +638,8 @@ export function StepChooseTemplates({
                 value={inputFields.links}
                 onChange={(event) => setField('links', event.target.value)}
                 rows={2}
-                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[#151515] px-[10px] py-[8px] text-[11px] text-[#e5e5e5]"
+                placeholder="Repo: https://github.com/org/repo | Docs: https://docs.example.com | Website: https://example.com"
+                className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
           </div>
@@ -585,9 +659,9 @@ export function StepChooseTemplates({
         <div
           ref={templateSectionRef}
           style={{
-            backgroundColor: 'transparent',
-            borderRadius: '8px',
-            border: '0.5px solid #AC8E66',
+            backgroundColor: '#d0cbb8',
+            borderRadius: '0 0 12px 12px',
+            border: '0.5px solid #1a1a1a',
             padding: '24px',
             fontFamily: 'monospace',
             fontSize: '16px',
@@ -595,9 +669,9 @@ export function StepChooseTemplates({
             fontWeight: 'normal',
           }}
         >
-          <h3 style={{ marginBottom: '24px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
-            Step02: <span className="text-[#dbd9d5] font-mono">Dokumentationstyp wählen</span>
-          </h3>
+          <p style={{ marginBottom: '24px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
+            Step02: <span className="text-[#1a1a1a] font-mono">Dokumentationstyp wählen</span>
+          </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', justifyContent: 'center', marginTop: '24px' }}>
             {templates.map((template) => {
               const isSelected = selected.includes(template.id);
@@ -608,7 +682,7 @@ export function StepChooseTemplates({
                     position: 'relative',
                     padding: '24px',
                     borderRadius: '8px',
-                    border: `1px solid ${isSelected ? '#AC8E66' : '#3a3a3a'}`,
+                    border: isSelected ? '1px solid #AC8E66' : '0.5px solid #3a3a3a',
                     backgroundColor: 'transparent',
                     flex: '1 1 200px',
                     minWidth: '200px',
@@ -617,6 +691,8 @@ export function StepChooseTemplates({
                     transition: 'all 0.2s',
                     textAlign: 'center',
                   }}
+                    
+                  
                   onClick={(event) => toggleTemplate(template.id, event)}
                 >
                   <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'center' }}>
@@ -629,7 +705,7 @@ export function StepChooseTemplates({
                       }}
                     />
                   </div>
-                  <h4 style={{ fontFamily: 'monospace', fontSize: '12px', marginBottom: '8px', color: isSelected ? '#e5e5e5' : '#999' }}>
+                  <h4 style={{ fontFamily: 'monospace', fontSize: '12px', marginBottom: '8px', color: isSelected ? '#AC8E66' : '#999' }}>
                     {template.title}
                   </h4>
                   <p style={{ color: '#777', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.6' }}>
@@ -645,6 +721,56 @@ export function StepChooseTemplates({
             })}
           </div>
 
+        </div>
+      )}
+
+      {activePanel === 'documents' && (
+        <div
+          style={{
+            backgroundColor: '#d0cbb8',
+            borderRadius: '0 0 12px 12px',
+            border: '0.5px solid #1a1a1a',
+            padding: '24px',
+            fontFamily: 'IBM Plex Mono, monospace',
+          }}
+        >
+          <p style={{ marginBottom: '16px', fontSize: '9px', color: '#7a7060', textTransform: 'uppercase', letterSpacing: '1px' }}>
+            Projektdokumente
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {projectDocuments.map((doc) => (
+              <button
+                key={doc.path}
+                onClick={() => onOpenDocument?.(doc.path)}
+                style={{
+                  borderRadius: '8px',
+                  border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                  background: 'rgba(255,255,255,0.4)',
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {doc.name}
+                  </p>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {doc.path}
+                  </p>
+                </div>
+                {doc.modifiedAt && (
+                  <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>
+                    {new Date(doc.modifiedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

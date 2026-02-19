@@ -1,23 +1,77 @@
-import { useEffect, useRef, useState } from 'react';
-import { exists, readTextFile } from '@tauri-apps/plugin-fs';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { exists, readDir, readTextFile, stat } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileLines } from '@fortawesome/free-solid-svg-icons';
 import { DocStudioShell } from './DocStudioShell';
 import { ZenSaveSuccessModal, ZenRoughButton } from '../../kits/PatternKit/ZenModalSystem';
 import { useDocStudioState } from './hooks/useDocStudioState';
-import { DOC_STUDIO_STEPS, defaultDocInputFields, type DocStudioScreenProps, type DocStudioStep, type DocTemplate, type DocTab } from './types';
+import { DOC_STUDIO_STEPS, defaultDocInputFields, type DocStudioScreenProps, type DocStudioStep, type DocTemplate, type DocTab, type ProjectInfo } from './types';
 import { StepSelectProject } from './steps/StepSelectProject';
 import { StepScanProject } from './steps/StepScanProject';
 import { StepChooseTemplates } from './steps/StepChooseTemplates';
 import { StepEditDocument } from './steps/StepEditDocument';
-import { generateDocFilename, saveDocToPath } from './services/docStudioService';
+import { generateDocFilename, saveDocToPath, scanProjectService } from './services/docStudioService';
 import { getSmartDocTemplate, detectProjectType } from './templates';
+import { defaultEditorSettings, loadEditorSettings, loadDraftAutosave, saveDraftAutosave, type EditorSettings } from '../../services/editorSettingsService';
+import { getRecentProjectPaths, rememberProjectPath } from '../../utils/projectHistory';
+import { loadZenStudioSettings, type ZenStudioSettings } from '../../services/zenStudioSettingsService';
+import type { ScanArtifacts, ScanSummary } from '../../services/projectScanService';
 
 function stepFromIndex(index?: number): DocStudioStep {
   if (index === undefined || index === null) return 'project';
   return DOC_STUDIO_STEPS[Math.min(Math.max(index, 0), DOC_STUDIO_STEPS.length - 1)];
 }
+
+type RecentDocumentItem = {
+  path: string;
+  name: string;
+  modifiedAt?: number;
+  projectPath: string;
+};
+
+const scanRecentDocuments = async (rootPath: string, limit: number): Promise<RecentDocumentItem[]> => {
+  const results: RecentDocumentItem[] = [];
+  const allowedExtensions = new Set(['md', 'markdown', 'mdx', 'txt', 'json', 'html', 'htm']);
+  const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.zenpost', 'src-tauri', '.vite']);
+  const maxDepth = 4;
+
+  const scan = async (dirPath: string, depth: number) => {
+    if (depth > maxDepth || results.length >= limit * 3) return;
+    let entries: Awaited<ReturnType<typeof readDir>>;
+    try {
+      entries = await readDir(dirPath);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const name = entry.name || '';
+      if (entry.isDirectory) {
+        if (name.startsWith('.') || skipDirs.has(name)) continue;
+        await scan(`${dirPath}/${name}`, depth + 1);
+        if (results.length >= limit * 3) return;
+      } else if (entry.isFile) {
+        const ext = name.split('.').pop()?.toLowerCase() || '';
+        if (!allowedExtensions.has(ext)) continue;
+        const fullPath = `${dirPath}/${name}`;
+        let modifiedAt: number | undefined;
+        try {
+          const info = await stat(fullPath);
+          modifiedAt = info.mtime ? info.mtime.getTime() : undefined;
+        } catch {
+          modifiedAt = undefined;
+        }
+        results.push({ path: fullPath, name, modifiedAt, projectPath: rootPath });
+      }
+    }
+  };
+
+  await scan(rootPath, 0);
+  return results
+    .sort((a, b) => (b.modifiedAt ?? 0) - (a.modifiedAt ?? 0))
+    .slice(0, limit);
+};
 
 export function DocStudioScreen({
   onBack: _onBack,
@@ -35,8 +89,11 @@ export function DocStudioScreen({
   onWebDocumentRequestHandled,
   scheduledPosts = [],
   onOpenProjectDocuments,
+  onOpenEditorSettings,
   onFileSaved,
 }: DocStudioScreenProps) {
+  const SAVED_COMPARISON_ID = '__saved__';
+  const TAB_COMPARISON_PREFIX = 'tab:';
   const initialRef = useRef(savedState);
   const initialStepRef = useRef(stepFromIndex(initialStep));
   const ds = useDocStudioState(
@@ -90,10 +147,25 @@ export function DocStudioScreen({
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedFileName, setSavedFileName] = useState('');
   const [savedFilePath, setSavedFilePath] = useState('');
+  const [comparisonBaseByTab, setComparisonBaseByTab] = useState<Record<string, string>>(
+    () => ({ ...(initialRef.current?.tabContents ?? {}) })
+  );
+  const [comparisonSelectionByTab, setComparisonSelectionByTab] = useState<Record<string, string>>({});
   const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
   const [scrollToTemplates, setScrollToTemplates] = useState(false);
   const [templateHintDismissed, setTemplateHintDismissed] = useState(false);
   const [showReturnToEditor, setShowReturnToEditor] = useState(false);
+  const [isRescanning, setIsRescanning] = useState(false);
+  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths());
+  const [recentDocuments, setRecentDocuments] = useState<RecentDocumentItem[]>([]);
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>({ ...defaultEditorSettings });
+  const [zenStudioSettings, setZenStudioSettings] = useState<ZenStudioSettings>(() =>
+    loadZenStudioSettings()
+  );
+  const [editAutosaveStatus, setEditAutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [editAutosaveAt, setEditAutosaveAt] = useState<string | null>(null);
+  const lastAutosaveByKeyRef = useRef<Record<string, string>>({});
+  const restoredAutosaveKeysRef = useRef<Record<string, boolean>>({});
 
   const templateTabId = (template: DocTemplate) => `tpl:${template}`;
   const fileTabId = (path: string) => `file:${path}`;
@@ -107,6 +179,28 @@ export function DocStudioScreen({
     draft: 'Entwurf',
   };
 
+  useEffect(() => {
+    setRecentProjectPaths(getRecentProjectPaths());
+  }, [ds.step, ds.projectPath]);
+
+  useEffect(() => {
+    if (ds.runtime !== 'tauri' || !ds.projectPath) {
+      setRecentDocuments([]);
+      return;
+    }
+    let cancelled = false;
+    scanRecentDocuments(ds.projectPath, 8)
+      .then((documents) => {
+        if (!cancelled) setRecentDocuments(documents);
+      })
+      .catch(() => {
+        if (!cancelled) setRecentDocuments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ds.runtime, ds.projectPath, ds.step]);
+
   const templateTabs: DocTab[] = ds.selectedTemplates.map((template) => ({
     id: templateTabId(template),
     title: templateLabels[template],
@@ -115,6 +209,74 @@ export function DocStudioScreen({
   }));
   const tabs: DocTab[] = [...templateTabs, ...ds.openFileTabs];
   const activeTab = tabs.find((tab) => tab.id === ds.activeTabId) ?? tabs[0] ?? null;
+
+  useEffect(() => {
+    setComparisonBaseByTab((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tabs.forEach((tab) => {
+        if (next[tab.id] === undefined) {
+          next[tab.id] = ds.tabContents[tab.id] ?? '';
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [tabs, ds.tabContents]);
+
+  useEffect(() => {
+    setComparisonSelectionByTab((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      tabs.forEach((tab) => {
+        if (!next[tab.id]) {
+          next[tab.id] = SAVED_COMPARISON_ID;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [tabs]);
+
+  const comparisonOptions = useMemo(() => {
+    if (!activeTab) return [];
+    const options = [{ id: SAVED_COMPARISON_ID, label: 'Letzte gespeicherte Version' }];
+    tabs.forEach((tab) => {
+      if (tab.id === activeTab.id) return;
+      options.push({
+        id: `${TAB_COMPARISON_PREFIX}${tab.id}`,
+        label: `Tab: ${tab.title}`,
+      });
+    });
+    return options;
+  }, [activeTab, tabs]);
+
+  const comparisonSelection = activeTab
+    ? comparisonSelectionByTab[activeTab.id] ?? SAVED_COMPARISON_ID
+    : SAVED_COMPARISON_ID;
+  const selectedComparisonTabId = comparisonSelection.startsWith(TAB_COMPARISON_PREFIX)
+    ? comparisonSelection.slice(TAB_COMPARISON_PREFIX.length)
+    : null;
+  const selectedComparisonTab = selectedComparisonTabId
+    ? tabs.find((tab) => tab.id === selectedComparisonTabId) ?? null
+    : null;
+  const activeComparisonBaseContent = activeTab
+    ? comparisonSelection === SAVED_COMPARISON_ID
+      ? comparisonBaseByTab[activeTab.id] ?? ''
+      : ds.tabContents[selectedComparisonTabId ?? ''] ?? ''
+    : '';
+  const activeComparisonBaseLabel = comparisonSelection === SAVED_COMPARISON_ID
+    ? `${activeTab?.title ?? 'Dokument'} · gespeicherte Basis`
+    : selectedComparisonTab
+      ? `Tab: ${selectedComparisonTab.title}`
+      : 'Vergleichsbasis';
+
+  const getDocStudioAutosaveKey = () => {
+    if (!activeTab) return null;
+    if (activeTab.kind === 'file' && activeTab.filePath) return `docstudio:file:${activeTab.filePath}`;
+    if (activeTab.kind === 'template' && activeTab.template) return `docstudio:template:${activeTab.template}`;
+    return `docstudio:tab:${activeTab.id}`;
+  };
 
   // Template Hint: Zeigt Hinweis wenn README-Template aktiv und Scan keine ausreichenden Infos hatte
   const computeTemplateHint = () => {
@@ -159,16 +321,91 @@ export function DocStudioScreen({
       try {
         const available = await exists(scanPath);
         setHasExistingAnalysis(available);
-        if (available && ds.step === 'project') {
-          ds.setStep('edit');
-        }
       } catch (error) {
         console.error('[DocStudio] Failed to check analysis file', error);
       }
     };
 
     void checkAnalysis();
-  }, [ds.projectPath, ds.runtime, ds.step]);
+  }, [ds.projectPath, ds.runtime]);
+
+  useEffect(() => {
+    if (!ds.projectPath) return;
+    let mounted = true;
+    loadEditorSettings(ds.projectPath)
+      .then((loaded) => {
+        if (mounted) setEditorSettings(loaded);
+      })
+      .catch(() => {
+        if (mounted) setEditorSettings({ ...defaultEditorSettings });
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [ds.projectPath]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ZenStudioSettings>).detail;
+      if (detail) {
+        setZenStudioSettings(detail);
+      } else {
+        setZenStudioSettings(loadZenStudioSettings());
+      }
+    };
+    window.addEventListener('zen-studio-settings-updated', handler);
+    return () => window.removeEventListener('zen-studio-settings-updated', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!ds.projectPath || !editorSettings.autoSaveEnabled) return;
+    const autosaveKey = getDocStudioAutosaveKey();
+    if (!autosaveKey || restoredAutosaveKeysRef.current[autosaveKey]) return;
+    restoredAutosaveKeysRef.current[autosaveKey] = true;
+    const activeContent = activeTab ? ds.tabContents[activeTab.id] ?? '' : '';
+    loadDraftAutosave(ds.projectPath, autosaveKey)
+      .then((draft) => {
+        if (!draft?.content || !activeTab) return;
+        if (draft.content === activeContent) return;
+        const shouldRestore = window.confirm(
+          `Entwurf gefunden (${new Date(draft.meta.updatedAt).toLocaleString('de-DE')}). Wiederherstellen?`
+        );
+        if (!shouldRestore) return;
+        ds.setTabContents((prev) => ({ ...prev, [activeTab.id]: draft.content }));
+        ds.setGeneratedContent(draft.content);
+        ds.setDirtyTabs((prev) => ({ ...prev, [activeTab.id]: true }));
+      })
+      .catch((error) => {
+        console.error('[DocStudio] Restore Autosave fehlgeschlagen:', error);
+      });
+  }, [ds.projectPath, editorSettings.autoSaveEnabled, activeTab?.id]);
+
+  useEffect(() => {
+    if (!ds.projectPath || !editorSettings.autoSaveEnabled) return;
+    if (!activeTab) return;
+    const content = ds.tabContents[activeTab.id] ?? '';
+    if (!content.trim()) return;
+    const autosaveKey = getDocStudioAutosaveKey();
+    if (!autosaveKey) return;
+    const debounceMs = 1200;
+    const timeout = setTimeout(() => {
+      const trimmed = content.trim();
+      if (lastAutosaveByKeyRef.current[autosaveKey] === trimmed) return;
+      setEditAutosaveStatus('saving');
+      saveDraftAutosave(ds.projectPath!, autosaveKey, content)
+        .then(() => {
+          lastAutosaveByKeyRef.current[autosaveKey] = trimmed;
+          setEditAutosaveStatus('saved');
+          setEditAutosaveAt(new Date().toISOString());
+        })
+        .catch((error) => {
+          console.error('[DocStudio] Autosave fehlgeschlagen:', error);
+          setEditAutosaveStatus('error');
+        });
+    }, debounceMs);
+    return () => clearTimeout(timeout);
+  }, [ds.projectPath, editorSettings.autoSaveEnabled, activeTab?.id, ds.tabContents]);
 
   const handleSave = async () => {
     if (!ds.projectPath || !activeTab) return;
@@ -207,10 +444,106 @@ export function DocStudioScreen({
     setSavedFilePath(filePath);
 
     setShowSaveSuccess(true);
-    ds.setDirtyTabs((prev) => ({ ...prev, [activeTab.id]: false }));
+    if (activeTab.kind === 'file') {
+      const previousTabId = activeTab.id;
+      const nextTabId = fileTabId(filePath);
+
+      ds.setOpenFileTabs((prev) => {
+        const updatedTab: DocTab = {
+          id: nextTabId,
+          title: fileName || activeTab.title,
+          kind: 'file',
+          filePath,
+        };
+        return [...prev.filter((tab) => tab.id !== previousTabId && tab.id !== nextTabId), updatedTab];
+      });
+      ds.setTabContents((prev) => {
+        const next = { ...prev };
+        const latestContent = prev[previousTabId] ?? content;
+        if (previousTabId !== nextTabId) {
+          delete next[previousTabId];
+        }
+        next[nextTabId] = latestContent;
+        return next;
+      });
+      ds.setDirtyTabs((prev) => {
+        const next = { ...prev };
+        if (previousTabId !== nextTabId) {
+          delete next[previousTabId];
+        }
+        next[nextTabId] = false;
+        return next;
+      });
+      ds.setActiveTabId(nextTabId);
+      setComparisonBaseByTab((prev) => {
+        const next = { ...prev };
+        if (previousTabId !== nextTabId) {
+          delete next[previousTabId];
+        }
+        next[nextTabId] = content;
+        return next;
+      });
+      setComparisonSelectionByTab((prev) => {
+        const next = { ...prev };
+        const previousSelection = next[previousTabId] ?? SAVED_COMPARISON_ID;
+        if (previousTabId !== nextTabId) {
+          delete next[previousTabId];
+        }
+        next[nextTabId] = previousSelection;
+        Object.keys(next).forEach((key) => {
+          if (next[key] === `${TAB_COMPARISON_PREFIX}${previousTabId}`) {
+            next[key] = `${TAB_COMPARISON_PREFIX}${nextTabId}`;
+          }
+        });
+        return next;
+      });
+    } else {
+      ds.setDirtyTabs((prev) => ({ ...prev, [activeTab.id]: false }));
+      setComparisonBaseByTab((prev) => ({ ...prev, [activeTab.id]: content }));
+    }
 
     // Notify parent about the saved file (for scheduled post updates)
     onFileSaved?.(filePath, content, fileName);
+  };
+
+  const buildProjectInfoFromSummary = (summary: ScanSummary): ProjectInfo => ({
+    name: summary.project.name,
+    description: summary.project.description,
+    version: summary.project.version,
+    dependencies: summary.dependencies.top,
+    fileTypes: summary.fileTypes,
+    hasTests: summary.structure.hasTests,
+    hasApi: summary.projectType.includes('php-api'),
+  });
+
+  const applyScanResult = (summary: ScanSummary, artifacts: ScanArtifacts) => {
+    const info = buildProjectInfoFromSummary(summary);
+    ds.setScanSummary(summary);
+    ds.setScanArtifacts(artifacts);
+    ds.setProjectInfo(info);
+    ds.setInputFields((prev) => ({
+      ...prev,
+      productName: prev.productName || info.name || '',
+      productSummary: prev.productSummary || info.description || '',
+      testingNotes: prev.testingNotes || (info.hasTests ? 'Tests vorhanden.' : 'Noch keine Tests gefunden.'),
+      apiEndpoints: prev.apiEndpoints || (info.hasApi ? 'API vorhanden (Details aus Scan/Code uebernehmen).' : ''),
+    }));
+    setHasExistingAnalysis(true);
+    emitStateChange({ projectInfo: info });
+  };
+
+  const handleRescanInPlace = async () => {
+    if (!ds.projectPath) return;
+    setIsRescanning(true);
+    try {
+      const result = await scanProjectService(ds.projectPath, true);
+      applyScanResult(result.summary, result);
+    } catch (error) {
+      console.error('[DocStudio] Rescan failed', error);
+      alert('Neu-Scan fehlgeschlagen. Bitte prüfe den Projektordner.');
+    } finally {
+      setIsRescanning(false);
+    }
   };
 
   useEffect(() => {
@@ -220,6 +553,9 @@ export function DocStudioScreen({
     }
     if (headerAction === 'preview') {
       setPreviewMode((prev) => !prev);
+    }
+    if (headerAction === 'rescan') {
+      void handleRescanInPlace();
     }
     onHeaderActionHandled?.();
   }, [headerAction, onHeaderActionHandled]);
@@ -378,6 +714,37 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
     onWebDocumentRequestHandled?.();
   }, [requestedWebDocument, onWebDocumentRequestHandled]);
 
+  const handleOpenRecentDocument = async (targetPath: string) => {
+    if (ds.runtime !== 'tauri') return;
+    const tabId = fileTabId(targetPath);
+    const fileName = targetPath.split(/[\\/]/).pop() || 'Dokument';
+    let content = '';
+    try {
+      content = await readTextFile(targetPath);
+    } catch (error) {
+      console.warn('[DocStudio] Could not open recent document:', targetPath, error);
+      return;
+    }
+
+    ds.setOpenFileTabs((prev) => {
+      if (prev.some((tab) => tab.id === tabId)) return prev;
+      return [
+        ...prev,
+        {
+          id: tabId,
+          title: fileName,
+          kind: 'file',
+          filePath: targetPath,
+        },
+      ];
+    });
+    ds.setTabContents((prev) => ({ ...prev, [tabId]: content }));
+    ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: false }));
+    ds.setActiveTabId(tabId);
+    ds.setGeneratedContent(content);
+    ds.setStep('edit');
+  };
+
   const emitStateChange = (override?: Partial<{
     projectPath: string | null;
     projectInfo: typeof ds.projectInfo;
@@ -414,48 +781,64 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
 
   return (
     <DocStudioShell>
+      <div className="relative min-h-full">
       {ds.step === 'project' && (
         <StepSelectProject
           runtime={ds.runtime}
           projectPath={ds.projectPath}
+          recentProjectPaths={recentProjectPaths}
+          recentDocuments={recentDocuments}
           hasExistingAnalysis={hasExistingAnalysis}
           onSelect={(path) => {
-            if (typeof window !== 'undefined') {
-              localStorage.setItem('zenpost_last_project_path', path);
-            }
+            rememberProjectPath(path);
+            setRecentProjectPaths(getRecentProjectPaths());
             ds.setProjectPath(path);
             ds.setScanSummary(null);
             ds.setScanArtifacts(null);
-            ds.setStep('scan');
             emitStateChange({ projectPath: path });
           }}
-          onContinue={() => {
+          onRescan={() => {
             if (!ds.projectPath) return;
             ds.setStep('scan');
           }}
           onContinueToEditor={() => {
             if (!ds.projectPath && ds.runtime !== 'web') return;
+            const draftTabId = templateTabId('draft');
+            const draftContent = ds.tabContents[draftTabId] ?? getSmartDocTemplate('draft', ds.projectInfo);
+            ds.setSelectedTemplates((prev) => (prev.includes('draft') ? prev : [...prev, 'draft']));
+            ds.setTabContents((prev) => (
+              prev[draftTabId] !== undefined ? prev : { ...prev, [draftTabId]: draftContent }
+            ));
+            ds.setDirtyTabs((prev) => (
+              prev[draftTabId] !== undefined ? prev : { ...prev, [draftTabId]: false }
+            ));
+            ds.setActiveTabId(draftTabId);
+            ds.setGeneratedContent(draftContent);
             ds.setStep('edit');
+            emitStateChange({ selectedTemplate: 'draft', activeTabId: draftTabId });
           }}
+          onOpenDashboard={() => {
+            if (!ds.projectPath && ds.runtime !== 'web') return;
+            setScrollToTemplates(false);
+            setShowReturnToEditor(false);
+            ds.setStep('templates');
+          }}
+          onEditInputFields={() => {
+            if (!ds.projectPath && ds.runtime !== 'web') return;
+            setScrollToTemplates(true);
+            setShowReturnToEditor(false);
+            ds.setStep('templates');
+          }}
+          onOpenRecentDocument={handleOpenRecentDocument}
         />
       )}
 
       {ds.step === 'scan' && ds.projectPath && (
         <StepScanProject
           projectPath={ds.projectPath}
-          onScanComplete={(summary, artifacts, info) => {
-            ds.setScanSummary(summary);
-            ds.setScanArtifacts(artifacts);
-            ds.setProjectInfo(info);
-            ds.setInputFields((prev) => ({
-              ...prev,
-              productName: prev.productName || info.name || '',
-              productSummary: prev.productSummary || info.description || '',
-              testingNotes: prev.testingNotes || (info.hasTests ? 'Tests vorhanden.' : 'Noch keine Tests gefunden.'),
-              apiEndpoints: prev.apiEndpoints || (info.hasApi ? 'API vorhanden (Details aus Scan/Code uebernehmen).' : ''),
-            }));
+          onScanComplete={(summary, artifacts) => {
+            applyScanResult(summary, artifacts);
             ds.setStep('templates');
-            emitStateChange({ projectInfo: info });
           }}
         />
       )}
@@ -473,6 +856,12 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
           onReturnToEditor={() => {
             setShowReturnToEditor(false);
             ds.setStep('edit');
+          }}
+          projectDocuments={recentDocuments
+            .filter((doc) => ds.projectPath && doc.projectPath === ds.projectPath)
+            .map((doc) => ({ path: doc.path, name: doc.name, modifiedAt: doc.modifiedAt }))}
+          onOpenDocument={(path) => {
+            handleOpenRecentDocument(path);
           }}
           onGenerate={(template) => {
             setScrollToTemplates(false);
@@ -528,6 +917,16 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             length={ds.length}
             audience={ds.audience}
             targetLanguage={ds.targetLanguage}
+            comparisonBaseContent={activeComparisonBaseContent}
+            comparisonBaseLabel={activeComparisonBaseLabel}
+            comparisonBaseOptions={comparisonOptions}
+            comparisonBaseSelection={comparisonSelection}
+            onComparisonBaseChange={(value) => {
+              setComparisonSelectionByTab((prev) => ({
+                ...prev,
+                [activeTab.id]: value,
+              }));
+            }}
             onToneChange={ds.setTone}
             onLengthChange={ds.setLength}
             onAudienceChange={ds.setAudience}
@@ -559,8 +958,34 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
                 delete next[tabId];
                 return next;
               });
+              setComparisonBaseByTab((prev) => {
+                const next = { ...prev };
+                delete next[tabId];
+                return next;
+              });
+              setComparisonSelectionByTab((prev) => {
+                const next = { ...prev };
+                delete next[tabId];
+                Object.keys(next).forEach((key) => {
+                  if (next[key] === `${TAB_COMPARISON_PREFIX}${tabId}`) {
+                    next[key] = SAVED_COMPARISON_ID;
+                  }
+                });
+                return next;
+              });
               if (ds.activeTabId === tabId) {
                 const remainingTabs = tabs.filter((item) => item.id !== tabId);
+                if (remainingTabs.length === 0) {
+                  const draftTabId = templateTabId('draft');
+                  const draftContent = ds.tabContents[draftTabId] ?? '';
+                  ds.setSelectedTemplates((prev) => (prev.includes('draft') ? prev : [...prev, 'draft']));
+                  ds.setTabContents((prev) => ({ ...prev, [draftTabId]: prev[draftTabId] ?? '' }));
+                  ds.setDirtyTabs((prev) => ({ ...prev, [draftTabId]: prev[draftTabId] ?? false }));
+                  ds.setActiveTabId(draftTabId);
+                  ds.setGeneratedContent(draftContent);
+                  emitStateChange({ selectedTemplate: 'draft', activeTabId: draftTabId });
+                  return;
+                }
                 const nextActive = remainingTabs[0] ?? null;
                 ds.setActiveTabId(nextActive?.id ?? null);
                 ds.setGeneratedContent(nextActive ? ds.tabContents[nextActive.id] ?? '' : '');
@@ -571,11 +996,36 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
               ds.setGeneratedContent(value);
               ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: true }));
             }}
+            onAdoptCurrentAsComparisonBase={() => {
+              setComparisonBaseByTab((prev) => ({
+                ...prev,
+                [activeTab.id]: ds.tabContents[activeTab.id] ?? '',
+              }));
+              setComparisonSelectionByTab((prev) => ({
+                ...prev,
+                [activeTab.id]: SAVED_COMPARISON_ID,
+              }));
+            }}
             onOpenRequiredFields={() => {
               setScrollToTemplates(false);
               setShowReturnToEditor(true);
               ds.setStep('templates');
             }}
+            autosaveStatusText={
+              !editorSettings.autoSaveEnabled
+                ? 'Autosave · off'
+                : editAutosaveStatus === 'saving'
+                  ? 'Autosave · speichert...'
+                  : editAutosaveStatus === 'error'
+                    ? 'Autosave · fehler'
+                    : editAutosaveStatus === 'saved'
+                      ? `Autosave · ${editAutosaveAt ? new Date(editAutosaveAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'ok'}`
+                      : 'Autosave · on'
+            }
+            projectPath={ds.projectPath}
+            zenThoughts={zenStudioSettings.thoughts}
+            showZenThoughtInHeader={zenStudioSettings.showInDocStudio}
+            onOpenEditorSettings={onOpenEditorSettings}
           />
         ) : (
           <div className="flex items-center justify-center mt-[54px] mb-[24px] px-[12px]">
@@ -668,7 +1118,7 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
                     margin: 0,
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '11px',
-                    color: '#666',
+                    color: '#AC8E66',
                   }}
                 >
                   Tipp: Über „Projekt + Dokumente“ kannst du bestehende Dateien direkt laden.
@@ -685,6 +1135,36 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
         fileName={savedFileName}
         filePath={savedFilePath}
       />
+      {isRescanning && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 80,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(6px)',
+            background: 'rgba(10, 10, 10, 0.45)',
+          }}
+        >
+          <div
+            style={{
+              border: '0.5px solid #AC8E66',
+              borderRadius: '12px',
+              padding: '18px 22px',
+              background: 'rgba(20, 20, 20, 0.92)',
+              boxShadow: '0 12px 28px rgba(0, 0, 0, 0.35)',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '13px',
+              color: '#EFE7DC',
+            }}
+          >
+            Projekt wird neu gescannt...
+          </div>
+        </div>
+      )}
+      </div>
     </DocStudioShell>
   );
 }
