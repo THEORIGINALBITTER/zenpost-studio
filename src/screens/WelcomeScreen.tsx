@@ -5,7 +5,7 @@ import { ZenSubtitle } from "../kits/PatternKit/ZenSubtitle";
 import { ZenRoughButton, ZenFooterText} from "../kits/PatternKit/ZenModalSystem";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faMagicWandSparkles, faBook, faLayerGroup } from "@fortawesome/free-solid-svg-icons";
+import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 
 interface WelcomeScreenProps {
   onSelectConverter?: () => void;
@@ -39,42 +39,12 @@ export const WelcomeScreen = ({
         </ZenSubtitle>
 
         <div className="flex flex-col gap-3 mt-[15px] text-[#fff] ">
-
-              <ZenRoughButton
-
-
+          <ZenRoughButton
             label="Getting Started"
-            icon={<FontAwesomeIcon 
-              icon={faLayerGroup} 
-              className="text-[#AC8E66]" />}
+            icon={<FontAwesomeIcon icon={faLayerGroup} className="text-[#AC8E66]" />}
             onClick={onSelectGettingStarted}
             title="Was möchtest du heute machen?"
           />
-       
-          <ZenRoughButton
-            label="Content AI Studio"
-            icon={<FontAwesomeIcon icon={faMagicWandSparkles} className="text-[#AC8E66]" />}
-            onClick={onSelectContentTransform}
-            title="Content mit KI für Social Media transformieren"
-          />
-
-          <ZenRoughButton
-            label="Doc Studio"
-            icon={<FontAwesomeIcon icon={faBook} className="text-[#AC8E66]" />}
-            onClick={onSelectDocStudio}
-            title="Projekt-Dokumentation automatisch generieren "
-          />
-      
-
-          {/*
-          <ZenRoughButton
-            label="Converter Studio"
-            icon={<FontAwesomeIcon icon={faFileLines} className="text-[#AC8E66]" />}
-            onClick={onSelectConverter}
-            title="Markdown & Editor.js konvertieren und bereinigen"
-          />
-          */}
-
         </div>
 
       
