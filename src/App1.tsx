@@ -146,7 +146,7 @@ function AppContent() {
   const [isMobileBlocked, setIsMobileBlocked] = useState(false);
   const isIdle = useZenIdle(2000);
   const { openExternal } = useOpenExternal();
-  const [currentScreen, setCurrentScreen] = useState<Screen>("welcome");
+  const [currentScreen, setCurrentScreen] = useState<Screen>("getting-started");
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
   const [showHomeModal, setShowHomeModal] = useState(false);
@@ -679,7 +679,7 @@ function AppContent() {
 
   const handleBackToWelcome = () => {
     setIsEditingZenThoughts(false);
-    setCurrentScreen("welcome");
+    setCurrentScreen("getting-started");
   };
 
   const handleOpenZenThoughtsEditor = async (content: string, filePathOverride?: string) => {
@@ -764,7 +764,7 @@ function AppContent() {
 
   const handleHomeClick = () => {
     if (currentScreen === "getting-started") {
-      setCurrentScreen("welcome");
+      setCurrentScreen("getting-started");
       return;
     }
     setShowHomeModal(true);
@@ -789,7 +789,7 @@ function AppContent() {
 
   const handleConfirmHome = () => {
     resetDocStudioSession();
-    setCurrentScreen("welcome");
+    setCurrentScreen("getting-started");
   };
   const handleConfirmGettingStarted = () => {
     resetDocStudioSession();
@@ -1629,7 +1629,7 @@ function AppContent() {
         leftText={getLeftText()}
         rightText={getRightText()}
      
-        onHome={currentScreen !== "welcome" ? handleHomeClick : undefined}
+        onHome={currentScreen !== "welcome" && currentScreen !== "getting-started" ? handleHomeClick : undefined}
         onSettings={handleSettingsClick}
         onInfo={handleInfoClick}
         onHelp={handleHelpClick}
