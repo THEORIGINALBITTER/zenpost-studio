@@ -22,7 +22,6 @@ import { ContentTransformScreen } from "./screens/ContentTransformScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
-import { ZenHomeModal } from "../src/kits/PatternKit/ZenModalSystem/modals/ZenHomeModal";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
 import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutModal";
 import { ZenBugReportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBugReportModal";
@@ -149,7 +148,6 @@ function AppContent() {
   const [currentScreen, setCurrentScreen] = useState<Screen>("getting-started");
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
-  const [showHomeModal, setShowHomeModal] = useState(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'zenstudio'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
@@ -762,15 +760,17 @@ function AppContent() {
     }
   };
 
+  const [homeToast, setHomeToast] = useState(false);
   const handleHomeClick = () => {
-    if (currentScreen === "getting-started") {
-      setCurrentScreen("getting-started");
-      return;
+    const hasDirty = Object.values(docStudioState?.dirtyTabs ?? {}).some(Boolean);
+    if (hasDirty) {
+      setHomeToast(true);
+      setTimeout(() => setHomeToast(false), 3500);
     }
-    setShowHomeModal(true);
+    resetDocStudioSession();
+    setCurrentScreen("getting-started");
   };
   const resetDocStudioSession = () => {
-    setShowHomeModal(false);
     setDocStudioState((prev) => {
       if (!prev) return prev;
       return {
@@ -787,15 +787,6 @@ function AppContent() {
     setDocStudioStep(0);
   };
 
-  const handleConfirmHome = () => {
-    resetDocStudioSession();
-    setCurrentScreen("getting-started");
-  };
-  const handleConfirmGettingStarted = () => {
-    resetDocStudioSession();
-    setCurrentScreen("getting-started");
-  };
-  const handleCloseHomeModal = () => setShowHomeModal(false);
 
   const handleSettingsClick = () => {
     setSettingsDefaultTab('ai');
@@ -1764,14 +1755,29 @@ function AppContent() {
       </div>
 
 
-      {/* Home-Modal */}
-      <ZenHomeModal
-        isOpen={showHomeModal}
-        onClose={handleCloseHomeModal}
-        onConfirm={handleConfirmHome}
-        onGoGettingStarted={handleConfirmGettingStarted}
-        showGettingStartedAction={currentScreen !== "getting-started"}
-      />
+      {/* Unsaved-changes toast */}
+      {homeToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '28px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#1a1a1a',
+            border: '0.5px solid #AC8E66',
+            borderRadius: '10px',
+            padding: '10px 20px',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            color: '#E7CCAA',
+            zIndex: 9999,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+          }}
+        >
+          Nicht gespeicherte Änderungen wurden verworfen.
+        </div>
+      )}
 
       {/* Settings-Modal */}
       <ZenSettingsModal
