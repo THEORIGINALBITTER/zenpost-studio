@@ -55,7 +55,7 @@ Der File Converter wandelt Inhalte zwischen verschiedenen Formaten um, bereinigt
 
 - Konvertierter Inhalt wird angezeigt
 - **Download** — Als Datei speichern
-- **In Content Studio oeffnen** — Weiterarbeiten im Editor (Web)
+- **In Content AI Studio oeffnen** — Weiterarbeiten im Editor (Web)
 - **Neu starten** — Zurueck zum Anfang
 
 ## Code (AI) Modus

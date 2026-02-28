@@ -14,7 +14,7 @@
 - **Doc Studio**
   - [Dokumentation generieren](workflows/doc-studio.md)
 
-- **Converter**
+- **Converter Studio**
   - [Dateien konvertieren](workflows/file-converter.md)
   - [Seiten exportieren](workflows/pages-export.md)
 

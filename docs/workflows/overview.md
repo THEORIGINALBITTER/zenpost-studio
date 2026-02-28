@@ -16,7 +16,7 @@ Nimmt einen Rohtext und wandelt ihn KI-gestuetzt in plattformgerechte Formate um
 
 **Unterstuetzte Plattformen:** LinkedIn, Twitter/X, Medium, Reddit, dev.to, GitHub, YouTube, Blog
 
-→ [Content AI Studio – Detail](workflows/content-transform.md)
+→ [Content AI Studio – Detail](content-transform.md)
 
 ---
 
@@ -30,11 +30,11 @@ Scannt ein Projekt-Verzeichnis, liest vorhandene Dateien und generiert strukturi
 
 **Besonderheiten:** Projekt-Scan, Template-System, Inline-Editor mit Preview, YAML-Frontmatter, Export
 
-→ [Doc Studio – Detail](workflows/doc-studio.md)
+→ [Doc Studio – Detail](doc-studio.md)
 
 ---
 
-### Converter
+### Converter Studio
 
 **Dateien zwischen Formaten konvertieren und bereinigen.**
 
@@ -44,7 +44,7 @@ Wandelt Dateien zwischen 10+ Formaten um. Bereinigt Struktur, entfernt Formatier
 
 **Unterstuetzte Formate:** Markdown, HTML, DOCX, Pages, JSON, Code und mehr
 
-→ [Converter – Detail](workflows/file-converter.md)
+→ [Converter Studio – Detail](file-converter.md)
 
 ---
 
@@ -54,13 +54,13 @@ Wandelt Dateien zwischen 10+ Formaten um. Bereinigt Struktur, entfernt Formatier
 | --- | --- |
 | LinkedIn-Post aus Blog-Artikel erstellen | Content AI Studio |
 | README fuer ein neues Projekt schreiben | Doc Studio |
-| DOCX-Datei in Markdown umwandeln | Converter |
+| DOCX-Datei in Markdown umwandeln | Converter Studio |
 | API-Dokumentation automatisch generieren | Doc Studio |
 | Denselben Text fuer 5 Plattformen aufbereiten | Content AI Studio |
-| Code-Datei kommentieren und als README exportieren | Converter |
+| Code-Datei kommentieren und als README exportieren | Converter Studio |
 
 ## Tipps
 
 - **Content AI Studio** liefert praezisere Ergebnisse mit kuerzeren Eingabetexten
 - **Doc Studio** verbessert sich mit mehr gefuellten Datenfeldern (Produktname, Setup, Usage)
-- **Converter** erhalt die urspruengliche Struktur — kontrolliere das Ergebnis bei komplexen Formaten
+- **Converter Studio** erhalt die urspruengliche Struktur — kontrolliere das Ergebnis bei komplexen Formaten

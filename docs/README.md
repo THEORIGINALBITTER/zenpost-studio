@@ -16,11 +16,11 @@ Generiert technische Dokumentation aus Projektdaten. Scannt Projekte, befuellt T
 
 → [Doc Studio](workflows/doc-studio.md)
 
-### Converter
+### Converter Studio
 
 Konvertiert Dateien zwischen 10+ Formaten. Bereinigt Struktur, entfernt Artefakte, generiert README aus Code.
 
-→ [Converter](workflows/file-converter.md)
+→ [Converter Studio](workflows/file-converter.md)
 
 ---
 
