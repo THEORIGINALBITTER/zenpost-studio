@@ -264,10 +264,20 @@
     .markdown-section table td {
       border: 1px solid rgba(172, 142, 102, 0.15);
       padding: 0.6rem 1rem;
+      background-color: transparent !important;
     }
 
-    .markdown-section table tr:hover {
-      background-color: rgba(172, 142, 102, 0.05);
+    /* Override Docsify default zebra rows (prevents white even rows) */
+    .markdown-section table tbody tr {
+      background-color: rgba(172, 142, 102, 0.03) !important;
+    }
+
+    .markdown-section table tbody tr:nth-child(even) {
+      background-color: rgba(172, 142, 102, 0.09) !important;
+    }
+
+    .markdown-section table tbody tr:hover {
+      background-color: rgba(172, 142, 102, 0.14) !important;
     }
 
     /* Blockquotes / Tips */
