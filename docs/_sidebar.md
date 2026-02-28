@@ -7,7 +7,14 @@
 
 - **Arbeiten mit ZenPost**
   - [Überblick](workflows/overview.md)
+
+- **Content AI Studio**
   - [Inhalte transformieren](workflows/content-transform.md)
+
+- **Doc Studio**
+  - [Dokumentation generieren](workflows/doc-studio.md)
+
+- **Converter**
   - [Dateien konvertieren](workflows/file-converter.md)
   - [Seiten exportieren](workflows/pages-export.md)
 
@@ -20,6 +27,8 @@
   - [FAQ](help/faq.md)
   - [Allgemeine Probleme](help/general.md)
   - [KI-Fehlerbehebung](help/ai.md)
+  - [Vergleich Legende](help/comparison-legend.md)
+  - [Vergleich erklaert](help/comparison-explained.md)
 
 - **Entwicklung**
   - [Architektur](dev/architecture.md)

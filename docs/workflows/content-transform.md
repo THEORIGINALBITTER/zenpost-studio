@@ -25,6 +25,14 @@ Wandelt einen Ausgangstext in plattformgerechte Formate um — mit KI-gestuetzte
 - Aus dem Editor uebernehmen
 - Multi-Tab: Mehrere Dokumente gleichzeitig offen
 
+**Shortcuts (Editor in Schritt 1):**
+
+- **Cmd/Ctrl + S** — Speichern
+- **Cmd/Ctrl + Shift + S** — Speichern unter
+- **Cmd/Ctrl + W** — Aktiven Tab schliessen
+- **Cmd/Ctrl + G** — Gliederung ein-/ausblenden
+- **Esc** — Gliederung schliessen
+
 ### Schritt 2: Plattform waehlen
 
 - Eine Plattform fuer Einzeltransformation

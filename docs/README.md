@@ -1,26 +1,40 @@
 # ZenPost Studio – Guide
 
-ZenPost Studio transformiert Inhalte fuer Social Media und Publishing-Plattformen. Lokal oder in der Cloud, mit voller Kontrolle ueber KI, Formate und Workflows.
+ZenPost Studio ist ein KI-gestuetztes Desktop-Tool fuer Content-Aufbereitung, Dokumentations-Generierung und Datei-Konvertierung. Lokal oder in der Cloud, mit voller Kontrolle ueber KI, Formate und Workflows.
 
-## Features
+## Die drei Bereiche
 
-- **9 Plattformen**: LinkedIn, Twitter/X, Medium, Reddit, dev.to, GitHub, YouTube, Blog
-- **10+ Dateiformate**: Markdown, HTML, DOCX, Pages, JSON, Code und mehr
+### Content AI Studio
+
+Transformiert Rohtexte in plattformgerechte Inhalte fuer Social Media und Publishing. 9 Plattformen, individuelle Stil-Optionen fuer Ton, Laenge und Format.
+
+→ [Content AI Studio](workflows/content-transform.md)
+
+### Doc Studio
+
+Generiert technische Dokumentation aus Projektdaten. Scannt Projekte, befuellt Templates per KI (README, CHANGELOG, API-Docs u.a.) und oeffnet das Ergebnis im Inline-Editor mit Preview und Export.
+
+→ [Doc Studio](workflows/doc-studio.md)
+
+### Converter
+
+Konvertiert Dateien zwischen 10+ Formaten. Bereinigt Struktur, entfernt Artefakte, generiert README aus Code.
+
+→ [Converter](workflows/file-converter.md)
+
+---
+
+## Weitere Features
+
 - **Lokale + Cloud KI**: Ollama (offline), OpenAI, Anthropic oder Custom API
 - **Content Planner**: Kalender, Zeitplanung, Checklisten, Multi-Plattform-Publishing
-- **File Converter**: Formate konvertieren, Code zu README, Dokumente bereinigen
 - **Multi-Sprachen**: Deutsch, Englisch, Spanisch, Franzoesisch und 6 weitere
+- **Export**: Markdown, HTML, PDF, direkt posten oder terminieren
 
 ## Einstieg
 
 - [Erste Schritte](getting-started.md) — In 3 Schritten zum ersten Ergebnis
-- [Installation](installation.md) — Desktop, Web oder beides
-
-## Workflows
-
-- [Inhalte transformieren](workflows/content-transform.md) — Text fuer jede Plattform optimieren
-- [Dateien konvertieren](workflows/file-converter.md) — Formate umwandeln und bereinigen
-- [Planner & Export](workflows/pages-export.md) — Planen, terminieren, exportieren
+- [Installation](installation.md) — Desktop oder Web
 
 ## KI einrichten
 

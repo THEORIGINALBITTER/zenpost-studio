@@ -1,43 +1,66 @@
 # Arbeiten mit ZenPost – Ueberblick
 
-ZenPost Studio hat drei Kern-Workflows. Jeder folgt dem gleichen Prinzip: Input → Verarbeitung → Ergebnis → Export.
+ZenPost Studio besteht aus drei eigenstaendigen Bereichen. Jeder Bereich ist fuer einen klar abgegrenzten Workflow optimiert.
 
-## Kernbereiche
+## Die drei Bereiche
 
-### Inhalte transformieren
+---
 
-Wandelt Texte in plattformgerechte Formate um. Unterstuetzt 9 Plattformen mit individuellen Stil-Optionen.
+### Content AI Studio
 
-**Typisch fuer:** Social-Media-Posts, Blog-Artikel, Threads, Video-Beschreibungen
+**Inhalte fuer Social Media und Publishing aufbereiten.**
 
-→ [Inhalte transformieren](workflows/content-transform.md)
+Nimmt einen Rohtext und wandelt ihn KI-gestuetzt in plattformgerechte Formate um. Jede Plattform hat eigene Stil-Optionen fuer Ton, Laenge und Format.
 
-### Dateien konvertieren
+**Typisch fuer:** LinkedIn-Posts, Twitter-Threads, Blog-Artikel, Medium, Reddit, Video-Beschreibungen
 
-Konvertiert zwischen 10+ Dateiformaten. Bereinigt Struktur, entfernt Artefakte, generiert README aus Code.
+**Unterstuetzte Plattformen:** LinkedIn, Twitter/X, Medium, Reddit, dev.to, GitHub, YouTube, Blog
 
-**Typisch fuer:** Markdown ↔ HTML, DOCX → Markdown, Code → Dokumentation
+→ [Content AI Studio – Detail](workflows/content-transform.md)
 
-→ [Dateien konvertieren](workflows/file-converter.md)
+---
 
-### Planner & Export
+### Doc Studio
 
-Plant und terminiert Posts fuer mehrere Plattformen. Kalenderansicht, Checklisten, Export als Markdown/CSV/PDF.
+**Technische Dokumentation aus Projektdaten generieren.**
 
-**Typisch fuer:** Content-Kalender, Redaktionsplanung, Publishing-Workflows
+Scannt ein Projekt-Verzeichnis, liest vorhandene Dateien und generiert strukturierte Markdown-Dokumente per KI. Unterstuetzt Templates fuer README, CHANGELOG, API-Docs, Contributing Guide und mehr.
 
-→ [Planner & Export](workflows/pages-export.md)
+**Typisch fuer:** README erstellen, CHANGELOG pflegen, API-Dokumentation, Contributing-Guides, Data Room, Bug Reports
 
-## Typischer Flow
+**Besonderheiten:** Projekt-Scan, Template-System, Inline-Editor mit Preview, YAML-Frontmatter, Export
 
-1. **Input vorbereiten** — Text eingeben, Datei hochladen oder aus dem Editor uebernehmen
-2. **Workflow waehlen** — Transformieren, Konvertieren oder Planen
-3. **Optionen setzen** — Plattform, Ton, Laenge, Format
-4. **Ergebnis pruefen** — Inline bearbeiten, Vorschau nutzen
-5. **Export** — Kopieren, Download, direkt posten oder terminieren
+→ [Doc Studio – Detail](workflows/doc-studio.md)
+
+---
+
+### Converter
+
+**Dateien zwischen Formaten konvertieren und bereinigen.**
+
+Wandelt Dateien zwischen 10+ Formaten um. Bereinigt Struktur, entfernt Formatierungsartefakte, generiert README aus Code-Dateien.
+
+**Typisch fuer:** Markdown ↔ HTML, DOCX → Markdown, Code → Dokumentation, PDF-Export
+
+**Unterstuetzte Formate:** Markdown, HTML, DOCX, Pages, JSON, Code und mehr
+
+→ [Converter – Detail](workflows/file-converter.md)
+
+---
+
+## Welcher Bereich fuer welchen Zweck?
+
+| Aufgabe | Bereich |
+| --- | --- |
+| LinkedIn-Post aus Blog-Artikel erstellen | Content AI Studio |
+| README fuer ein neues Projekt schreiben | Doc Studio |
+| DOCX-Datei in Markdown umwandeln | Converter |
+| API-Dokumentation automatisch generieren | Doc Studio |
+| Denselben Text fuer 5 Plattformen aufbereiten | Content AI Studio |
+| Code-Datei kommentieren und als README exportieren | Converter |
 
 ## Tipps
 
-- Arbeite in kleinen Iterationen — kurze Texte liefern praezisere Ergebnisse
-- Nutze den Multi-Plattform-Modus um denselben Inhalt fuer mehrere Plattformen gleichzeitig zu transformieren
-- Pruefe das Ergebnis immer vor dem Posten — KI-Output ist ein Entwurf, kein fertiger Text
+- **Content AI Studio** liefert praezisere Ergebnisse mit kuerzeren Eingabetexten
+- **Doc Studio** verbessert sich mit mehr gefuellten Datenfeldern (Produktname, Setup, Usage)
+- **Converter** erhalt die urspruengliche Struktur — kontrolliere das Ergebnis bei komplexen Formaten
