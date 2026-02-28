@@ -55,6 +55,11 @@ async fn http_fetch(request: HttpRequest) -> Result<HttpResponse, String> {
     Ok(HttpResponse { status, body })
 }
 
+#[tauri::command]
+fn print_current_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| format!("Print failed: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -63,7 +68,7 @@ pub fn run() {
     .plugin(tauri_plugin_http::init())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![http_fetch])
+    .invoke_handler(tauri::generate_handler![http_fetch, print_current_window])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

@@ -14,7 +14,7 @@ import { StepEditDocument } from './steps/StepEditDocument';
 import { generateDocFilename, saveDocToPath, scanProjectService } from './services/docStudioService';
 import { getSmartDocTemplate, detectProjectType } from './templates';
 import { defaultEditorSettings, loadEditorSettings, loadDraftAutosave, saveDraftAutosave, type EditorSettings } from '../../services/editorSettingsService';
-import { getRecentProjectPaths, rememberProjectPath } from '../../utils/projectHistory';
+import { getRecentProjectPaths, rememberProjectPath, removeProjectPath } from '../../utils/projectHistory';
 import { loadZenStudioSettings, type ZenStudioSettings } from '../../services/zenStudioSettingsService';
 import type { ScanArtifacts, ScanSummary } from '../../services/projectScanService';
 
@@ -89,6 +89,8 @@ export function DocStudioScreen({
   onWebDocumentRequestHandled,
   scheduledPosts = [],
   onOpenProjectDocuments,
+  availableProjectDocuments = [],
+  availableWebDocuments = [],
   onOpenEditorSettings,
   onFileSaved,
 }: DocStudioScreenProps) {
@@ -134,6 +136,7 @@ export function DocStudioScreen({
 
   useEffect(() => {
     onStepChangeRef.current?.(DOC_STUDIO_STEPS.indexOf(ds.step));
+    setRescanError(null);
   }, [ds.step]);
 
   useEffect(() => {
@@ -153,9 +156,11 @@ export function DocStudioScreen({
   const [comparisonSelectionByTab, setComparisonSelectionByTab] = useState<Record<string, string>>({});
   const [hasExistingAnalysis, setHasExistingAnalysis] = useState(false);
   const [scrollToTemplates, setScrollToTemplates] = useState(false);
+  const [initialTemplatePanel, setInitialTemplatePanel] = useState<'fields' | 'templates' | 'documents'>('fields');
   const [templateHintDismissed, setTemplateHintDismissed] = useState(false);
   const [showReturnToEditor, setShowReturnToEditor] = useState(false);
   const [isRescanning, setIsRescanning] = useState(false);
+  const [rescanError, setRescanError] = useState<string | null>(null);
   const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths());
   const [recentDocuments, setRecentDocuments] = useState<RecentDocumentItem[]>([]);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>({ ...defaultEditorSettings });
@@ -408,24 +413,99 @@ export function DocStudioScreen({
   }, [ds.projectPath, editorSettings.autoSaveEnabled, activeTab?.id, ds.tabContents]);
 
   const handleSave = async () => {
-    if (!ds.projectPath || !activeTab) return;
+    if (!activeTab) return;
     const content = ds.tabContents[activeTab.id] ?? ds.generatedContent;
 
     // Vorgeschlagener Dateiname mit Zeitstempel generieren
     let suggestedName: string;
-    let defaultDir: string;
-
     if (activeTab.kind === 'template' && activeTab.template) {
       suggestedName = generateDocFilename(activeTab.template);
+    } else if (activeTab.kind === 'file' && activeTab.filePath && !activeTab.filePath.startsWith('web:')) {
+      // Bei bestehenden Dateien: Original-Name vorschlagen
+      suggestedName = activeTab.filePath.split(/[\\/]/).pop() ?? 'Dokument.md';
+    } else {
+      suggestedName = generateDocFilename('draft');
+    }
+
+    if (ds.runtime === 'web') {
+      const fileName = suggestedName.toLowerCase().endsWith('.md') ? suggestedName : `${suggestedName}.md`;
+      let savedLabel = 'Browser-Download';
+      let savedViaPicker = false;
+
+      try {
+        const maybePicker = (window as Window & {
+          showSaveFilePicker?: (options?: {
+            suggestedName?: string;
+            types?: Array<{
+              description?: string;
+              accept: Record<string, string[]>;
+            }>;
+            excludeAcceptAllOption?: boolean;
+          }) => Promise<{
+            name?: string;
+            createWritable: () => Promise<{
+              write: (data: string | Blob) => Promise<void>;
+              close: () => Promise<void>;
+            }>;
+          }>;
+        }).showSaveFilePicker;
+
+        if (typeof maybePicker === 'function') {
+          const fileHandle = await maybePicker({
+            suggestedName: fileName,
+            types: [
+              {
+                description: 'Markdown',
+                accept: { 'text/markdown': ['.md', '.markdown'] },
+              },
+            ],
+            excludeAcceptAllOption: false,
+          });
+          const writable = await fileHandle.createWritable();
+          await writable.write(content);
+          await writable.close();
+          savedViaPicker = true;
+          savedLabel = fileHandle.name || fileName;
+        }
+      } catch (error) {
+        console.warn('[DocStudio] showSaveFilePicker failed, fallback to download', error);
+      }
+
+      if (!savedViaPicker) {
+        try {
+          const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement('a');
+          anchor.href = url;
+          anchor.download = fileName;
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          console.error('[DocStudio] Web save failed', error);
+          return;
+        }
+      }
+
+      setSavedFileName(fileName);
+      setSavedFilePath(savedViaPicker ? savedLabel : 'Browser-Download');
+      setShowSaveSuccess(true);
+      ds.setDirtyTabs((prev) => ({ ...prev, [activeTab.id]: false }));
+      setComparisonBaseByTab((prev) => ({ ...prev, [activeTab.id]: content }));
+      onFileSaved?.(`web:${fileName}`, content, fileName);
+      return;
+    }
+
+    if (!ds.projectPath) return;
+    let defaultDir: string;
+    if (activeTab.kind === 'template' && activeTab.template) {
       defaultDir = activeTab.template === 'data-room'
         ? `${ds.projectPath}/data-room`
         : ds.projectPath;
     } else if (activeTab.kind === 'file' && activeTab.filePath) {
-      // Bei bestehenden Dateien: Original-Name vorschlagen
-      suggestedName = activeTab.filePath.split(/[\\/]/).pop() ?? 'Dokument.md';
       defaultDir = activeTab.filePath.substring(0, activeTab.filePath.lastIndexOf('/'));
     } else {
-      suggestedName = generateDocFilename('draft');
       defaultDir = ds.projectPath;
     }
 
@@ -540,7 +620,7 @@ export function DocStudioScreen({
       applyScanResult(result.summary, result);
     } catch (error) {
       console.error('[DocStudio] Rescan failed', error);
-      alert('Neu-Scan fehlgeschlagen. Bitte prüfe den Projektordner.');
+      setRescanError('Neu-Scan fehlgeschlagen. Bitte prüfe den Projektordner.');
     } finally {
       setIsRescanning(false);
     }
@@ -745,6 +825,31 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
     ds.setStep('edit');
   };
 
+  const handleImportDocument = (fileName: string, content: string) => {
+    const normalizedName = fileName?.trim() || 'Import-Dokument.md';
+    const tabId = `file:web:${normalizedName}`;
+
+    ds.setOpenFileTabs((prev) => {
+      if (prev.some((tab) => tab.id === tabId)) {
+        return prev;
+      }
+      return [
+        ...prev,
+        {
+          id: tabId,
+          title: normalizedName,
+          kind: 'file',
+          filePath: `web:${normalizedName}`,
+        },
+      ];
+    });
+    ds.setTabContents((prev) => ({ ...prev, [tabId]: content }));
+    ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: false }));
+    ds.setActiveTabId(tabId);
+    ds.setGeneratedContent(content);
+    ds.setStep('edit');
+  };
+
   const emitStateChange = (override?: Partial<{
     projectPath: string | null;
     projectInfo: typeof ds.projectInfo;
@@ -820,16 +925,22 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
           onOpenDashboard={() => {
             if (!ds.projectPath && ds.runtime !== 'web') return;
             setScrollToTemplates(false);
+            setInitialTemplatePanel('documents');
             setShowReturnToEditor(false);
             ds.setStep('templates');
           }}
           onEditInputFields={() => {
             if (!ds.projectPath && ds.runtime !== 'web') return;
-            setScrollToTemplates(true);
+            setScrollToTemplates(false);
+            setInitialTemplatePanel('fields');
             setShowReturnToEditor(false);
             ds.setStep('templates');
           }}
           onOpenRecentDocument={handleOpenRecentDocument}
+          onRemoveProject={(path) => {
+            removeProjectPath(path);
+            setRecentProjectPaths(getRecentProjectPaths());
+          }}
         />
       )}
 
@@ -845,24 +956,34 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
 
       {ds.step === 'templates' && (
         <StepChooseTemplates
+          runtime={ds.runtime}
           projectInfo={ds.projectInfo}
           selected={ds.selectedTemplates}
           onChange={ds.setSelectedTemplates}
           inputFields={ds.inputFields}
           onInputFieldsChange={ds.setInputFields}
           scrollToTemplates={scrollToTemplates}
+          initialPanel={initialTemplatePanel}
           showReturnToEditor={showReturnToEditor}
           returnToEditorLabel={`Zurück zu ${activeTab?.title ?? 'Dokument'}`}
           onReturnToEditor={() => {
             setShowReturnToEditor(false);
             ds.setStep('edit');
           }}
-          projectDocuments={recentDocuments
-            .filter((doc) => ds.projectPath && doc.projectPath === ds.projectPath)
-            .map((doc) => ({ path: doc.path, name: doc.name, modifiedAt: doc.modifiedAt }))}
+          projectDocuments={
+            ds.runtime === 'tauri'
+              ? availableProjectDocuments
+              : availableWebDocuments.map((doc) => ({
+                  path: `web:${doc.name}`,
+                  name: doc.name,
+                  modifiedAt: doc.updatedAt,
+                }))
+          }
+          webDocuments={availableWebDocuments}
           onOpenDocument={(path) => {
             handleOpenRecentDocument(path);
           }}
+          onImportDocument={handleImportDocument}
           onGenerate={(template) => {
             setScrollToTemplates(false);
             setShowReturnToEditor(false);
@@ -898,6 +1019,8 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             ds.setStep('edit');
             emitStateChange({ selectedTemplate: template, activeTabId: tabId, selectedTemplates: nextTemplates });
           }}
+          rescanError={rescanError}
+          onClearRescanError={() => setRescanError(null)}
         />
       )}
 
@@ -913,6 +1036,7 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             hasRelevantScanData={!!ds.projectInfo && !!ds.projectInfo.description && ds.projectInfo.dependencies.length >= 3}
             projectInfo={ds.projectInfo}
             inputFields={ds.inputFields}
+            metadata={ds.metadata}
             tone={ds.tone}
             length={ds.length}
             audience={ds.audience}

@@ -29,7 +29,7 @@ export const Step2ContentInput = ({
   onNext,
 }: Step2ContentInputProps) => {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-6 px-6">
+    <div className="flex-1 flex flex-col items-center justify-center gap-[24px] px-[12px] py-[12px]">
      <h2 className="font-mono text-3xl text-[#e5e5e5] font-normal">
   <span className="text-[#AC8E66]">Step 02:</span> Inhalt bereitstellen
 </h2>
@@ -65,13 +65,13 @@ export const Step2ContentInput = ({
         <textarea
           value={inputContent}
           onChange={(e) => onInputContentChange(e.target.value)}
-          className="w-full h-[128px] bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded p-4 font-mono text-sm resize-none focus:outline-none focus:border-[#D4AF78]"
+          className="w-full h-[128px] bg-[#2A2A2A] text-[#e5e5e5] border border-[#AC8E66] rounded p-[16px] font-mono text-sm resize-none focus:outline-none focus:border-[#D4AF78]"
           placeholder={`${fromFormat.toUpperCase()}-Inhalt hier eingeben...`}
         />
       </div>
 
       {error && (
-        <div className="w-full max-w-2xl p-3 bg-red-900/20 border border-red-500/50 rounded text-red-300 text-sm font-mono">
+        <div className="w-full max-w-2xl p-[12px] bg-red-900/20 border border-red-500/50 rounded text-red-300 text-sm font-mono">
           {error}
         </div>
       )}

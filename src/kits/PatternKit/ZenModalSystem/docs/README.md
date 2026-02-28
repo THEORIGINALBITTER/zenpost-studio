@@ -231,6 +231,7 @@ MIT © Denis Bitter
 ## 🔗 Links
 
 - [Documentation](./CONFIG.md)
+- [ZenDropdown](./ZENDROPDOWN.md)
 - [LinkedIn Article](./LINKEDIN.md)
 - [GitHub Repository](https://github.com/THEORIGINALBITTER/zenpost-studio)
 

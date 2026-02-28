@@ -753,7 +753,7 @@ Make it professional and investor-ready.`;
                 style={{
                   fontSize: '60px',
                   color: '#AC8E66',
-                  filter: 'drop-shadow(0 4px 6px rgba(172, 142, 102, 0.3))'
+             
                 }}
               />
             </div>

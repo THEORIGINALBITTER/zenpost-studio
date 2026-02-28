@@ -1010,7 +1010,7 @@ export async function transformContent(
   if (!content || content.trim().length < 10) {
     return {
       success: false,
-      error: 'Content ist zu kurz oder leer',
+      error: 'Content ist zu kurz oder leer, bitte mehr Text eingeben.',
     };
   }
 
@@ -1187,7 +1187,7 @@ export async function translateContent(
   if (!content || content.trim().length < 10) {
     return {
       success: false,
-      error: 'Content ist zu kurz oder leer',
+      error: 'Content ist zu kurz oder leer, bitte mehr Text eingeben.',
     };
   }
 

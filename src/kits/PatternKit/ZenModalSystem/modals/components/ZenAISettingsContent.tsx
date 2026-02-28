@@ -175,7 +175,7 @@ return (
                 gap: 14,
                 padding: "16px 20px",
                 borderRadius: 10,
-                background: "rgba(172,142,102,0.08)",
+                background: "rgba(172,142,102,1)",
                 border: "1px solid rgba(172,142,102,0.25)",
                 color: "#6b5a3e",
               }}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBook,
@@ -14,9 +14,10 @@ import {
   faFile,
   faFolderOpen,
 } from '@fortawesome/free-solid-svg-icons';
-import { ZenRoughButton } from '../../../kits/PatternKit/ZenModalSystem';
+import { ZenRoughButton, ZenDropdown } from '../../../kits/PatternKit/ZenModalSystem';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
-import type { DocInputFields, DocTemplate, ProjectInfo } from '../types';
+import type { DocInputFields, DocTemplate, ProjectInfo, DocStudioRuntime } from '../types';
+import { importDocumentToMarkdown } from '../../../services/documentImportService';
 
 const templates: Array<{
   id: DocTemplate;
@@ -35,6 +36,7 @@ const templates: Array<{
 type StepPanel = 'fields' | 'templates' | 'documents';
 
 export function StepChooseTemplates({
+  runtime,
   projectInfo,
   selected,
   onChange,
@@ -42,12 +44,18 @@ export function StepChooseTemplates({
   onInputFieldsChange,
   onGenerate,
   scrollToTemplates = false,
+  initialPanel,
   showReturnToEditor = false,
   onReturnToEditor,
   returnToEditorLabel,
   projectDocuments = [],
+  webDocuments = [],
   onOpenDocument,
+  onImportDocument,
+  rescanError,
+  onClearRescanError,
 }: {
+  runtime: DocStudioRuntime;
   projectInfo: ProjectInfo | null;
   selected: DocTemplate[];
   onChange: (templates: DocTemplate[]) => void;
@@ -55,14 +63,24 @@ export function StepChooseTemplates({
   onInputFieldsChange: (fields: DocInputFields) => void;
   onGenerate: (template: DocTemplate) => void;
   scrollToTemplates?: boolean;
+  initialPanel?: StepPanel;
   showReturnToEditor?: boolean;
   onReturnToEditor?: () => void;
   returnToEditorLabel?: string;
   projectDocuments?: Array<{ path: string; name: string; modifiedAt?: number }>;
+  webDocuments?: Array<{ id: string; name: string; content: string; updatedAt: number }>;
   onOpenDocument?: (path: string) => void;
+  onImportDocument?: (fileName: string, content: string) => void;
+  rescanError?: string | null;
+  onClearRescanError?: () => void;
 }) {
   const templateSectionRef = useRef<HTMLDivElement>(null);
-  const [activePanel, setActivePanel] = useState<StepPanel>('fields');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [activePanel, setActivePanel] = useState<StepPanel>(initialPanel ?? 'fields');
+  const [isDropActive, setIsDropActive] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [fileSearch, setFileSearch] = useState('');
+  const [fileSort, setFileSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('name-asc');
   const topTabRadius = '12px 12px 0 0';
 
   useEffect(() => {
@@ -98,6 +116,7 @@ export function StepChooseTemplates({
   const filledRequired = requiredFields.filter((key) => inputFields[key].trim().length > 0).length;
   const isFieldSetReady = filledRequired === requiredFields.length;
   const enrichedFieldCount = Object.values(inputFields).filter((value) => value.trim().length > 0).length;
+  const isDataEmpty = filledRequired === 0 && relevanceScore === 0;
 
   const headerSummary = useMemo(() => {
     const mergedName = inputFields.productName.trim() || projectInfo?.name || '-';
@@ -170,6 +189,84 @@ export function StepChooseTemplates({
     });
   };
 
+  const importFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
+    setImportError(null);
+    const failed: string[] = [];
+
+    await Promise.all(
+      list.map(async (file) => {
+        try {
+          const result = await importDocumentToMarkdown(file, {
+            convertCode: false,
+            fallbackToRawOnConvertError: false,
+            allowJsonPrettyFallback: true,
+            requireNonEmpty: true,
+          });
+          if (!result.success || !result.content.trim()) {
+            failed.push(file.name);
+            return;
+          }
+          onImportDocument?.(file.name, result.content);
+        } catch {
+          failed.push(file.name);
+        }
+      })
+    );
+
+    if (failed.length > 0) {
+      setImportError(`Nicht geladen: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? ' …' : ''}`);
+    }
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDropActive(false);
+    if (!event.dataTransfer?.files?.length) return;
+    await importFiles(event.dataTransfer.files);
+  };
+
+  const matchesFileSearch = (name: string, path: string, query: string): boolean => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    if (q.startsWith('*.')) {
+      const ext = q.slice(1);
+      return name.toLowerCase().endsWith(ext) || path.toLowerCase().endsWith(ext);
+    }
+    return name.toLowerCase().includes(q) || path.toLowerCase().includes(q);
+  };
+
+  const sortedProjectDocuments = useMemo(() => {
+    const docs = [...projectDocuments];
+    if (fileSort.startsWith('name')) {
+      docs.sort((a, b) => {
+        const compare = a.name.localeCompare(b.name, 'de', { numeric: true, sensitivity: 'base' });
+        return fileSort === 'name-asc' ? compare : -compare;
+      });
+    } else {
+      docs.sort((a, b) => {
+        const aTime = a.modifiedAt ?? 0;
+        const bTime = b.modifiedAt ?? 0;
+        const compare = aTime - bTime;
+        return fileSort === 'date-asc' ? compare : -compare;
+      });
+    }
+    return docs;
+  }, [projectDocuments, fileSort]);
+
+  const filteredProjectDocuments = useMemo(
+    () => sortedProjectDocuments.filter((doc) => matchesFileSearch(doc.name, doc.path, fileSearch)),
+    [sortedProjectDocuments, fileSearch]
+  );
+
+  const filteredWebDocuments = useMemo(
+    () => webDocuments.filter((doc) => matchesFileSearch(doc.name, doc.name, fileSearch)),
+    [webDocuments, fileSearch]
+  );
+
+  const isWebRuntime = runtime === 'web';
+
   return (
     <div
       style={{
@@ -187,13 +284,53 @@ export function StepChooseTemplates({
           backgroundColor: '#1a1a1a',
           borderRadius: '8px',
           border: '0.5px solid #AC8E66',
-          padding: '16px',
+          padding: isDataEmpty ? '10px 16px' : '16px',
           marginBottom: '24px',
         }}
       >
-        <h3 style={{ fontWeight: 'normal', margin: 0, marginBottom: '12px', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
-          Projekt-Daten
-        </h3>
+        {isDataEmpty ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66', flexShrink: 0 }}>
+              Projekt-Daten
+            </span>
+            <div style={{ flex: '0 0 100px', height: '3px', borderRadius: '2px', background: '#2a2a2a' }}>
+              <div style={{ width: '0%', height: '100%', background: '#AC8E66', borderRadius: '2px' }} />
+            </div>
+            <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#555' }}>
+              0/{requiredFields.length} Felder
+            </span>
+            <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#3a3a3a' }}>·</span>
+            {rescanError ? (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#e07070' }}>
+                  {rescanError}
+                </span>
+                <button
+                  onClick={onClearRescanError}
+                  style={{ background: 'none', border: 'none', color: '#e07070', cursor: 'pointer', fontSize: '13px', lineHeight: 1, padding: 0, flexShrink: 0 }}
+                >×</button>
+              </span>
+            ) : (
+              <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#555' }}>
+                {projectInfo ? 'Scan vorhanden' : 'Kein Scan'}
+              </span>
+            )}
+          </div>
+        ) : (
+        <>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+          <h3 style={{ fontWeight: 'normal', margin: 0, fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
+            Projekt-Daten
+          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <div style={{ width: '80px', height: '3px', borderRadius: '2px', background: '#2a2a2a' }}>
+              <div style={{ width: `${(filledRequired / requiredFields.length) * 100}%`, height: '100%', background: '#AC8E66', borderRadius: '2px', transition: 'width 0.3s' }} />
+            </div>
+            <span style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777' }}>
+              {filledRequired}/{requiredFields.length} Felder
+            </span>
+          </div>
+        </div>
         <div style={{ fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.8', color: '#e5e5e5' }}>
           <div style={{ display: 'flex', gap: '24px', marginBottom: '8px', flexWrap: 'wrap' }}>
             <div>
@@ -332,6 +469,8 @@ export function StepChooseTemplates({
             </span>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       <div
@@ -382,26 +521,24 @@ export function StepChooseTemplates({
           >
             <FontAwesomeIcon icon={faFile} /> Templates
           </button>
-          {projectDocuments.length > 0 && (
-            <button
-              onClick={() => setActivePanel('documents')}
-              style={{
-                padding: '8px 12px',
-                borderRadius: topTabRadius,
-                border: activePanel === 'documents' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-                background: activePanel === 'documents' ? '#d0cbb8' : 'transparent',
-                color: activePanel === 'documents' ? '#1a1a1a' : '#999',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-              }}
-            >
-              <FontAwesomeIcon icon={faFolderOpen} /> Projektdokumente
-            </button>
-          )}
+          <button
+            onClick={() => setActivePanel('documents')}
+            style={{
+              padding: '8px 12px',
+              borderRadius: topTabRadius,
+              border: activePanel === 'documents' ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+              background: activePanel === 'documents' ? '#d0cbb8' : 'transparent',
+              color: activePanel === 'documents' ? '#1a1a1a' : '#999',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <FontAwesomeIcon icon={faFolderOpen} /> Projektdokumente
+          </button>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap',  }}>
           {showReturnToEditor && onReturnToEditor && (
@@ -737,39 +874,197 @@ export function StepChooseTemplates({
           <p style={{ marginBottom: '16px', fontSize: '9px', color: '#7a7060', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Projektdokumente
           </p>
+          {/* Drop Zone */}
+          <div
+            style={{
+              borderRadius: '10px',
+              border: isDropActive ? '1.5px dashed #AC8E66' : '1px dashed rgba(172, 142, 102, 0.5)',
+              background: isDropActive ? 'rgba(172, 142, 102, 0.12)' : 'rgba(255, 255, 255, 0.25)',
+              padding: '28px 20px',
+              marginBottom: '10px',
+              minHeight: '110px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '10px',
+              cursor: 'pointer',
+              transition: 'border-color 0.2s, background 0.2s',
+              boxShadow: isDropActive ? 'inset 0 0 0 2px rgba(172,142,102,0.18)' : 'none',
+            }}
+            onDragOver={(event) => { event.preventDefault(); setIsDropActive(true); }}
+            onDragEnter={(event) => { event.preventDefault(); setIsDropActive(true); }}
+            onDragLeave={() => setIsDropActive(false)}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <FontAwesomeIcon
+              icon={isDropActive ? faFolderOpen : faFile}
+              style={{ fontSize: isDropActive ? '20px' : '16px', color: isDropActive ? '#AC8E66' : '#b0a898', transition: 'font-size 0.15s, color 0.2s' }}
+            />
+            <span style={{ fontSize: '11px', color: isDropActive ? '#7a5c30' : '#6b5a40', fontFamily: 'IBM Plex Mono, monospace', fontWeight: isDropActive ? '500' : '400', textAlign: 'center', transition: 'color 0.2s' }}>
+              {isDropActive ? 'Loslassen zum Importieren' : 'Dateien hier ablegen'}
+            </span>
+            {!isDropActive && (
+              <span style={{ fontSize: '9px', color: '#9a8870', fontFamily: 'IBM Plex Mono, monospace' }}>
+                oder klicken zum Auswählen
+              </span>
+            )}
+          </div>
+
+          {/* Sort */}
+          {!isWebRuntime && (
+            <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'flex-end' }}>
+              <ZenDropdown
+                value={fileSort}
+                onChange={(v) => setFileSort(v as 'name-asc' | 'name-desc' | 'date-desc' | 'date-asc')}
+                options={[
+                  { value: 'name-asc', label: 'Sort: A–Z' },
+                  { value: 'name-desc', label: 'Sort: Z–A' },
+                  { value: 'date-desc', label: 'Sort: Neueste' },
+                  { value: 'date-asc', label: 'Sort: Älteste' },
+                ]}
+                variant="compact"
+                theme="paper"
+              />
+            </div>
+          )}
+
+          {/* Search */}
+          <div style={{ marginBottom: '12px' }}>
+            <input
+              type="text"
+              value={fileSearch}
+              onChange={(event) => setFileSearch(event.target.value)}
+              placeholder="Suche nach Name/Pfad oder *.md"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '8px 10px',
+                border: '1px solid rgba(172,142,102,0.35)',
+                borderRadius: '8px',
+                background: 'rgba(255,255,255,0.3)',
+                color: '#5f5545',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                outline: 'none',
+              }}
+            />
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".md,.markdown,.mdx,.txt,.json,.html,.htm,.pdf,.docx,.doc,.pages,text/markdown,text/plain,application/json,text/html,application/pdf"
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const files = event.target.files;
+              if (files) void importFiles(files);
+              event.currentTarget.value = '';
+            }}
+          />
+          {importError && (
+            <div
+              style={{
+                borderRadius: '8px',
+                border: '0.5px solid rgba(180, 80, 80, 0.6)',
+                background: 'rgba(180, 80, 80, 0.1)',
+                padding: '8px 10px',
+                marginBottom: '10px',
+                fontSize: '10px',
+                color: '#8b3a3a',
+              }}
+            >
+              {importError}
+            </div>
+          )}
+          {((isWebRuntime && filteredWebDocuments.length === 0) || (!isWebRuntime && filteredProjectDocuments.length === 0)) && (
+            <div
+              style={{
+                borderRadius: '8px',
+                border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                background: 'rgba(255,255,255,0.35)',
+                padding: '12px',
+                marginBottom: '10px',
+                fontSize: '10px',
+                color: '#7a7060',
+              }}
+            >
+              {isWebRuntime
+                ? (webDocuments.length === 0 ? 'Noch keine Web-Dokumente geladen.' : 'Keine Treffer.')
+                : (projectDocuments.length === 0 ? 'Noch keine Projektdokumente geladen.' : 'Keine Treffer.')}
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {projectDocuments.map((doc) => (
-              <button
-                key={doc.path}
-                onClick={() => onOpenDocument?.(doc.path)}
-                style={{
-                  borderRadius: '8px',
-                  border: '0.5px solid rgba(172, 142, 102, 0.3)',
-                  background: 'rgba(255,255,255,0.4)',
-                  padding: '10px 14px',
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: '11px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {doc.name}
-                  </p>
-                  <p style={{ margin: '2px 0 0 0', fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {doc.path}
-                  </p>
-                </div>
-                {doc.modifiedAt && (
-                  <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>
-                    {new Date(doc.modifiedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                  </span>
-                )}
-              </button>
-            ))}
+            {isWebRuntime
+              ? filteredWebDocuments.map((doc) => (
+                  <button
+                    key={doc.id}
+                    onClick={() => onImportDocument?.(doc.name, doc.content)}
+                    style={{
+                      borderRadius: '8px',
+                      border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                      background: 'rgba(255,255,255,0.4)',
+                      padding: '10px 14px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: '11px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.name}
+                      </p>
+                      <p style={{ margin: '2px 0 0 0', fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Zuletzt geladen: {new Date(doc.updatedAt).toLocaleString('de-DE')}
+                      </p>
+                    </div>
+                  </button>
+                ))
+              : filteredProjectDocuments.map((doc) => (
+                  <button
+                    key={doc.path}
+                    onClick={() => onOpenDocument?.(doc.path)}
+                    onMouseEnter={(event) => {
+                      event.currentTarget.style.borderColor = '#a1a1a1';
+                      event.currentTarget.style.transform = 'translateX(8px)';
+                    }}
+                    onMouseLeave={(event) => {
+                      event.currentTarget.style.borderColor = 'rgba(172, 142, 102, 0.3)';
+                      event.currentTarget.style.transform = 'translateX(0)';
+                    }}
+                    style={{
+                      borderRadius: '8px',
+                      border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                      background: 'rgba(255,255,255,0.4)',
+                      padding: '10px 14px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: '11px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.name}
+                      </p>
+                      <p style={{ margin: '2px 0 0 0', fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.path}
+                      </p>
+                    </div>
+                    {doc.modifiedAt && (
+                      <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>
+                        {new Date(doc.modifiedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                      </span>
+                    )}
+                  </button>
+                ))}
           </div>
         </div>
       )}

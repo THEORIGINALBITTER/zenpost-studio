@@ -1,20 +1,21 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
-import { ZenRoughButton, ZenModal } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenRoughButton, ZenModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenModalHeader } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalHeader';
 import { ZenModalFooter } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalFooter';
 import { ZenBlockEditor } from '../../kits/PatternKit/ZenBlockEditor';
 import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
-import { convertFile, detectFormatFromFilename } from '../../utils/fileConverter';
+import { importDocumentToMarkdown } from '../../services/documentImportService';
 import rough from 'roughjs/bin/rough';
 import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
+import { ZenThoughtLine } from '../../components/ZenThoughtLine';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
@@ -62,6 +63,50 @@ interface Step1SourceInputProps {
   onCloseDocTab?: (tabId: string) => void;
   projectPath?: string | null;
   onRegisterLiveContentGetter?: (getter: (() => Promise<string>) | null) => void;
+  comparisonBaseContent?: string;
+  comparisonBaseLabel?: string;
+  comparisonBaseOptions?: Array<{ id: string; label: string }>;
+  comparisonBaseSelection?: string;
+  onComparisonBaseChange?: (value: string) => void;
+  onAdoptCurrentAsComparisonBase?: () => void;
+  autosaveStatusText?: string | null;
+  onOpenEditorSettings?: () => void;
+  zenThoughts?: string[];
+  showZenThoughtInHeader?: boolean;
+}
+
+type LineDiffRow = {
+  left: string;
+  right: string;
+  status: 'same' | 'added' | 'removed' | 'modified';
+};
+
+function levenshteinDistance(a: string, b: string): number {
+  const n = a.length;
+  const m = b.length;
+  if (n === 0) return m;
+  if (m === 0) return n;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+  for (let i = 0; i <= n; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= m; j += 1) dp[0][j] = j;
+  for (let i = 1; i <= n; i += 1) {
+    for (let j = 1; j <= m; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost
+      );
+    }
+  }
+  return dp[n][m];
+}
+
+function lineSimilarity(a: string, b: string): number {
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen === 0) return 1;
+  const distance = levenshteinDistance(a, b);
+  return 1 - distance / maxLen;
 }
 
 const EXTERNAL_DOCS_URL =
@@ -233,11 +278,23 @@ export const Step1SourceInput = ({
   onCloseDocTab,
   projectPath,
   onRegisterLiveContentGetter,
+  comparisonBaseContent = '',
+  comparisonBaseLabel = 'Basis',
+  comparisonBaseOptions = [],
+  comparisonBaseSelection,
+  onComparisonBaseChange,
+  onAdoptCurrentAsComparisonBase,
+  autosaveStatusText,
+  onOpenEditorSettings,
+  zenThoughts = [],
+  showZenThoughtInHeader = false,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
+  const [isDragActive, setIsDragActive] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
+  const [showComparison, setShowComparison] = useState(false);
   const latestContentRef = useRef(sourceContent);
   const editorSnapshotGetterRef = useRef<(() => Promise<string>) | null>(null);
 
@@ -284,23 +341,72 @@ export const Step1SourceInput = ({
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
   const [activeCursorLine, setActiveCursorLine] = useState<number>(0);
-  useEffect(() => {
-  const onKey = (e: KeyboardEvent) => {
-    // ESC → schließen
-    if (e.key === "Escape") {
-      setShowOutline(false);
-    }
-
-    // Shift + G → toggle
-    if (e.shiftKey && e.key.toLowerCase() === "g") {
-      e.preventDefault(); // wichtig (verhindert Browser-Selection-Zeug)
-      setShowOutline(prev => !prev);
-    }
+  const modifierKeyLabel = useMemo(() => {
+    if (typeof window === 'undefined') return 'Cmd/Ctrl';
+    return /Mac|iPhone|iPad|iPod/.test(window.navigator.platform) ? 'Cmd' : 'Ctrl';
+  }, []);
+  const canUseComparison = comparisonBaseOptions.length > 0;
+  const toggleOutlinePanel = () => {
+    setShowOutline((prev) => {
+      const next = !prev;
+      if (next) setShowComparison(false);
+      return next;
+    });
+  };
+  const toggleComparisonPanel = () => {
+    if (!canUseComparison) return;
+    setShowComparison((prev) => {
+      const next = !prev;
+      if (next) setShowOutline(false);
+      return next;
+    });
   };
 
-  window.addEventListener("keydown", onKey);
-  return () => window.removeEventListener("keydown", onKey);
-}, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowOutline(false);
+
+      const isToggleOutlineShortcut =
+        (e.metaKey || e.ctrlKey) &&
+        (e.key.toLowerCase() === "g" || e.code === "KeyG");
+      if (isToggleOutlineShortcut) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleOutlinePanel();
+        return;
+      }
+
+      const isSaveShortcut =
+        (e.metaKey || e.ctrlKey) &&
+        (e.key.toLowerCase() === "s" || e.code === "KeyS");
+      if (isSaveShortcut) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!canSaveToProject) return;
+        void (async () => {
+          const content = await resolveLiveContent();
+          if (e.shiftKey) {
+            onSaveAsToProject?.(content);
+            return;
+          }
+          onSaveToProject?.(content);
+        })();
+        return;
+      }
+
+      const isCloseTabShortcut =
+        (e.metaKey || e.ctrlKey) &&
+        (e.key.toLowerCase() === "w" || e.code === "KeyW");
+      if (isCloseTabShortcut) {
+        if (!activeDocTabId || !onCloseDocTab) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onCloseDocTab(activeDocTabId);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [activeDocTabId, canSaveToProject, onCloseDocTab, onSaveAsToProject, onSaveToProject, resolveLiveContent, toggleOutlinePanel]);
 
 
 
@@ -320,81 +426,33 @@ export const Step1SourceInput = ({
     );
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileUpload = async (file: File) => {
     if (!file) return;
 
     onFileNameChange(file.name);
+    setIsConverting(true);
+    try {
+      const result = await importDocumentToMarkdown(file, {
+        convertCode: true,
+        fallbackToRawOnConvertError: true,
+        allowJsonPrettyFallback: true,
+        requireNonEmpty: false,
+      });
 
-    // Detect file format
-    const detectedFormat = detectFormatFromFilename(file.name);
-
-    // DOCX/DOC/Pages files need to be read as ArrayBuffer
-    if (detectedFormat === 'docx' || detectedFormat === 'doc' || detectedFormat === 'pages') {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        const arrayBuffer = e.target?.result as ArrayBuffer;
-
-        setIsConverting(true);
-        try {
-          const result = await convertFile(arrayBuffer, detectedFormat, 'md', file.name);
-
-          if (result.success && result.data) {
-            emitSourceContentChange(result.data);
-            if (onError) onError(''); // Clear any previous errors
-          } else {
-            console.error('Document conversion error:', result.error);
-            if (onError) onError(result.error || 'Konvertierung fehlgeschlagen');
-          }
-        } catch (err) {
-          console.error('Document conversion failed:', err);
-          const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
-          if (onError) onError(`Konvertierung fehlgeschlagen: ${errorMsg}`);
-        } finally {
-          setIsConverting(false);
-        }
-      };
-      reader.readAsArrayBuffer(file);
-      return;
-    }
-
-    // All other formats as text
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const content = e.target?.result as string;
-
-      // If it's already markdown or text, use directly
-      if (detectedFormat === 'md' || detectedFormat === 'txt' || detectedFormat === 'gfm') {
-        emitSourceContentChange(content);
+      if (result.success) {
+        emitSourceContentChange(result.content);
+        onError?.('');
         return;
       }
 
-      // Convert to Markdown if it's another format
-      if (detectedFormat) {
-        setIsConverting(true);
-        try {
-          const result = await convertFile(content, detectedFormat, 'md', file.name);
-
-          if (result.success && result.data) {
-            emitSourceContentChange(result.data);
-          } else {
-            console.error('Conversion error:', result.error);
-            // Fall back to raw content
-            emitSourceContentChange(content);
-          }
-        } catch (err) {
-          console.error('File conversion failed:', err);
-          // Fall back to raw content
-          emitSourceContentChange(content);
-        } finally {
-          setIsConverting(false);
-        }
-      } else {
-        // Unknown format, try to use as-is
-        emitSourceContentChange(content);
-      }
-    };
-    reader.readAsText(file);
+      onError?.(result.error || 'Konvertierung fehlgeschlagen');
+    } catch (err) {
+      console.error('Document conversion failed:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
+      onError?.(`Konvertierung fehlgeschlagen: ${errorMsg}`);
+    } finally {
+      setIsConverting(false);
+    }
   };
 
   // Get active doc tab info
@@ -409,6 +467,74 @@ export const Step1SourceInput = ({
   const contentTitle = extractTitleFromContent(sourceContent);
   const displayFileName = activeDocTab?.title || contentTitle || (sourceContent ? 'Dokument' : 'Neues Dokument');
   const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
+  const comparisonRows = useMemo<LineDiffRow[]>(() => {
+    if (comparisonBaseContent === undefined) return [];
+    const leftLines = comparisonBaseContent.split('\n');
+    const rightLines = sourceContent.split('\n');
+    const n = leftLines.length;
+    const m = rightLines.length;
+    const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+
+    for (let i = n - 1; i >= 0; i -= 1) {
+      for (let j = m - 1; j >= 0; j -= 1) {
+        dp[i][j] = leftLines[i] === rightLines[j]
+          ? dp[i + 1][j + 1] + 1
+          : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+
+    const rows: LineDiffRow[] = [];
+    let i = 0;
+    let j = 0;
+    while (i < n && j < m) {
+      if (leftLines[i] === rightLines[j]) {
+        rows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
+        i += 1;
+        j += 1;
+      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+        rows.push({ left: leftLines[i], right: '', status: 'removed' });
+        i += 1;
+      } else {
+        rows.push({ left: '', right: rightLines[j], status: 'added' });
+        j += 1;
+      }
+    }
+    while (i < n) {
+      rows.push({ left: leftLines[i], right: '', status: 'removed' });
+      i += 1;
+    }
+    while (j < m) {
+      rows.push({ left: '', right: rightLines[j], status: 'added' });
+      j += 1;
+    }
+    const mergedRows: LineDiffRow[] = [];
+    let idx = 0;
+    while (idx < rows.length) {
+      const current = rows[idx];
+      const next = rows[idx + 1];
+      if (
+        current?.status === 'removed' &&
+        next?.status === 'added' &&
+        current.left.trim().length > 0 &&
+        next.right.trim().length > 0 &&
+        lineSimilarity(current.left, next.right) >= 0.7
+      ) {
+        mergedRows.push({ left: current.left, right: next.right, status: 'modified' });
+        idx += 2;
+        continue;
+      }
+      mergedRows.push(current);
+      idx += 1;
+    }
+
+    return mergedRows;
+  }, [comparisonBaseContent, sourceContent]);
+
+  useEffect(() => {
+    if (!canUseComparison && showComparison) {
+      setShowComparison(false);
+    }
+  }, [canUseComparison, showComparison]);
 
   const extractOutline = (content: string) => {
     const lines = content.split('\n');
@@ -466,21 +592,62 @@ export const Step1SourceInput = ({
         >
           {/* Document Title Header - like Doc Studio */}
           {showTitleHeader && (
-            <div className="w-full pl-[1px]">
-              <p className="font-mono fontWeight-[200] text-[10px] text-[#888] mb-1" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                 <FontAwesomeIcon
-                   icon={faFolderOpen}
-                   style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: projectPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
-                   onClick={() => projectPath && revealItemInDir(projectPath)}
-                   onMouseEnter={(e) => { if (projectPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
-                   onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                 />
-                 {projectPath ? `${projectPath}/` : ''}{displayFileName}
-              </p>
+            <div className="w-full pl-[8px] pb-[10px]" style={{ position: 'relative' }}>
+              <ZenThoughtLine
+                thoughts={zenThoughts}
+                visible={showZenThoughtInHeader}
+                containerStyle={{
+                  position: 'absolute',
+                  top: '-20px',
+                  left: '10px',
+                  marginTop: 0,
+                  paddingLeft: 0,
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
+                <p className="font-mono fontWeight-[200] text-[10px] text-[#888]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                   <FontAwesomeIcon
+                     icon={faFolderOpen}
+                     style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: projectPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
+                     onClick={() => projectPath && revealItemInDir(projectPath)}
+                     onMouseEnter={(e) => { if (projectPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
+                     onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                   />
+                   {projectPath ? `${projectPath}/` : ''}{displayFileName}
+                </p>
+                {autosaveStatusText ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '20px' }}>
+                    <button
+                      onClick={onOpenEditorSettings}
+                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.2)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                      style={{
+                        border: '1px solid #3A3A3A',
+                        borderRadius: '999px',
+                        background: 'transparent',
+                        color: '#AC8E66',
+                        width: '18px',
+                        height: '18px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        padding: 0,
+                        transition: 'transform 0.2s ease',
+                      }}
+                      title="Editor-Einstellungen öffnen"
+                    >
+                      <FontAwesomeIcon icon={faGear} style={{ fontSize: '9px' }} />
+                    </button>
+                    <span className="font-mono text-[10px] text-[#AC8E66]" style={{ whiteSpace: 'nowrap' }}>
+                      {autosaveStatusText}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
             
             </div>
           )}
-
           {/* Doc Tabs - like Doc Studio */}
           {docTabs.length > 0 && (
             <div className="w-full" style={{ marginBottom: '-19px', position: 'relative' }}>
@@ -569,12 +736,174 @@ export const Step1SourceInput = ({
             id="file-upload"
             type="file"
             accept=".md,.markdown,.txt,.html,.htm,.json,.docx,.doc"
-            onChange={handleFileUpload}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void handleFileUpload(file);
+              e.currentTarget.value = '';
+            }}
             className="hidden"
           />
 
+          {/* Drop Zone — visible when editor is empty */}
+          {!sourceContent.trim() && (
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
+              onDragEnter={(e) => { e.preventDefault(); setIsDragActive(true); }}
+              onDragLeave={() => setIsDragActive(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragActive(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) void handleFileUpload(file);
+              }}
+              onClick={() => document.getElementById('file-upload')?.click()}
+              style={{
+                borderRadius: '10px',
+                border: isDragActive
+                  ? '1.5px dashed #AC8E66'
+                  : '1px dashed rgba(172,142,102,0.4)',
+                background: isDragActive
+                  ? 'rgba(172,142,102,0.07)'
+                  : 'rgba(255,255,255,0.02)',
+                padding: '36px 20px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '10px',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                marginTop: '10px',
+                marginBottom: '16px',
+              }}
+            >
+              <FontAwesomeIcon
+                icon={isDragActive ? faFolderOpen : faFileUpload}
+                style={{ fontSize: '22px', color: isDragActive ? '#AC8E66' : '#555' }}
+              />
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: isDragActive ? '#AC8E66' : '#888' }}>
+                {isDragActive ? 'Loslassen zum Laden' : 'Datei hier ablegen'}
+              </span>
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555' }}>
+                .md · .txt · .docx · .html — oder klicken zum Auswählen
+              </span>
+            </div>
+          )}
+
           {/* Editor - Block oder Markdown */}
           <div className="w-full mb-4" style={{ paddingTop: docTabs.length > 0 ? 0 : 10, marginTop: docTabs.length > 0 ? 0 : 20 }}>
+          {showComparison && comparisonBaseContent !== undefined && (
+            <div
+              style={{
+                marginBottom: '12px',
+                padding: '10px',
+                border: '0.5px solid #3a3a3a',
+                borderRadius: '10px',
+                backgroundColor: '#101010',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                <div className="font-mono text-[10px] text-[#AC8E66]">
+                  Vorher: {comparisonBaseLabel}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  {comparisonBaseOptions.length > 1 ? (
+                    <div style={{ width: '320px' }}>
+                      <ZenDropdown
+                        value={comparisonBaseSelection ?? comparisonBaseOptions[0]?.id ?? ''}
+                        onChange={(value) => onComparisonBaseChange?.(value)}
+                        options={comparisonBaseOptions.map((option) => ({ value: option.id, label: option.label }))}
+                        variant="compact"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="font-mono text-[10px] text-[#777]">
+                    Zeichen Δ {sourceContent.length - comparisonBaseContent.length}
+                  </div>
+                  {onAdoptCurrentAsComparisonBase ? (
+                    <button
+                      onClick={onAdoptCurrentAsComparisonBase}
+                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] 
+                      hover:bg-[#d0cbb8] transition-colors 
+                      hover:text-[#1a1a1a]
+                      hover:border-[#AC8E66] focus:outline-none focus:ring-2 focus:ring-[#AC8E66]/50"
+                      title="Aktuelle Version als neue Vergleichs-Basis übernehmen"
+                    >
+                      Änderungen übernehmen
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '8px',
+                  maxHeight: '240px',
+                  overflow: 'auto',
+                }}
+              >
+                <div style={{ border: '0.5px solid #3a3a3a', borderRadius: '8px', overflow: 'hidden' }}>
+                  {comparisonRows.map((row, index) => (
+                    <div
+                      key={`left-${index}`}
+                      style={{
+                        padding: '3px 8px',
+                        minHeight: '18px',
+                        borderBottom: '0.5px solid #202020',
+                        backgroundColor:
+                          row.status === 'removed'
+                            ? 'rgba(239,68,68,0.12)'
+                            : row.status === 'modified'
+                              ? 'rgba(245, 158, 11, 0.15)'
+                              : '#171717',
+                        color:
+                          row.status === 'removed'
+                            ? '#fca5a5'
+                            : row.status === 'modified'
+                              ? '#fcd34d'
+                              : '#888',
+                        fontFamily: 'monospace',
+                        fontSize: '10px',
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {row.left || ' '}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ border: '0.5px solid #AC8E66', borderRadius: '8px', overflow: 'hidden' }}>
+                  {comparisonRows.map((row, index) => (
+                    <div
+                      key={`right-${index}`}
+                      style={{
+                        padding: '3px 8px',
+                        minHeight: '18px',
+                        borderBottom: '0.5px solid #202020',
+                        backgroundColor:
+                          row.status === 'added'
+                            ? 'rgba(34,197,94,0.12)'
+                            : row.status === 'modified'
+                              ? 'rgba(245, 158, 11, 0.15)'
+                              : '#171717',
+                        color:
+                          row.status === 'added'
+                            ? '#86efac'
+                            : row.status === 'modified'
+                              ? '#fcd34d'
+                              : '#d9d4c5',
+                        fontFamily: 'monospace',
+                        fontSize: '10px',
+                        whiteSpace: 'pre-wrap',
+                      }}
+                    >
+                      {row.right || ' '}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
           {editTabs.length > 1 && (
             <div className="mb-4 w-full max-w-4xl">
               <div
@@ -632,7 +961,7 @@ export const Step1SourceInput = ({
             }}
 >
             <button
-              onClick={() => setShowOutline((prev) => !prev)}
+              onClick={toggleOutlinePanel}
               className=" lg:flex"
               style={{
                 position: 'absolute',
@@ -653,6 +982,33 @@ export const Step1SourceInput = ({
               }}
             >
                 {showOutline ? 'Gliederung ausblenden' : 'Gliederung'}   
+            </button>
+
+            <button
+              onClick={toggleComparisonPanel}
+              disabled={!canUseComparison}
+              className=" lg:flex"
+              style={{
+                position: 'absolute',
+                left: -28,
+                top: showComparison ? 295 : 300,
+                transform: 'rotate(-90deg)',
+                transformOrigin: 'left top',
+                padding: '10px 10px',
+                backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#121212',
+                border: !canUseComparison ? '1px solid #3A3A3A' : '1px solid #AC8E66',
+                borderRadius: '8px 8px 0px 0px',
+                cursor: !canUseComparison ? 'not-allowed' : 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                color: !canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#D9D4C5',
+                letterSpacing: '0.03em',
+                whiteSpace: 'nowrap',
+                zIndex: 1,
+              }}
+              title={!canUseComparison ? 'Keine Vergleichsbasis verfügbar.' : `Vergleich ${showComparison ? 'ausblenden' : 'anzeigen'}`}
+            >
+              Vergleich {showComparison ? 'an' : 'aus'}
             </button>
 
             {/* Outline Panel */}
@@ -945,156 +1301,168 @@ export const Step1SourceInput = ({
 
           {/* Editor Tab Bar */}
           {showInlineActions && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                padding: '8px 12px',
-                backgroundColor: '#1A1A1A',
-                borderRadius: '0 0 12px 12px',
-                borderTop: '1px solid #3A3A3A',
-                marginTop: '-1px',
-              }}
-            >
-            <button
-              onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: '#e5e5e5',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3A3A3A';
-              }}
-            >
-              <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: '#AC8E66' }} />
-              {editorType === "block" ? "Markdown" : "Block Editor"}
-            </button>
-            <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onPreview?.(content);
-              }}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: '#e5e5e5',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3A3A3A';
-              }}
-            >
-              <FontAwesomeIcon icon={faFileLines} style={{ color: '#AC8E66' }} />
-              Preview
-            </button>
-            <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onSaveToProject?.(content);
-              }}
-              disabled={!canSaveToProject}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '6px',
-                cursor: canSaveToProject ? 'pointer' : 'not-allowed',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: canSaveToProject ? '#e5e5e5' : '#555',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-                opacity: canSaveToProject ? 1 : 0.5,
-              }}
-              onMouseEnter={(e) => {
-                if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3A3A3A';
-              }}
-            >
-              <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
-              Speichern
-            </button>
-            <button
-              onClick={async () => {
-                const content = await resolveLiveContent();
-                onSaveAsToProject?.(content);
-              }}
-              disabled={!canSaveToProject}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '6px',
-                cursor: canSaveToProject ? 'pointer' : 'not-allowed',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: canSaveToProject ? '#e5e5e5' : '#555',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-                opacity: canSaveToProject ? 1 : 0.5,
-              }}
-              onMouseEnter={(e) => {
-                if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3A3A3A';
-              }}
-            >
-              <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
-              Speichern unter
-            </button>
-            <div style={{ flex: 1 }} />
-            <button
-              onClick={onNext}
-              style={{
-                padding: '8px 20px',
-                backgroundColor: '#AC8E66',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                fontWeight: 'bold',
-                color: '#0A0A0A',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                transition: 'all 0.2s',
-              }}
-            >
-              Weiter
-              <FontAwesomeIcon icon={faArrowRight} />
-            </button>
+            <div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '8px',
+                  padding: '8px 12px',
+                  backgroundColor: '#1A1A1A',
+                  borderRadius: '0 0 12px 12px',
+                  borderTop: '1px solid #3A3A3A',
+                  marginTop: '-1px',
+                }}
+              >
+              <button
+                onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: '#e5e5e5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#AC8E66';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                }}
+              >
+                <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: '#AC8E66' }} />
+                {editorType === "block" ? "Markdown" : "Block Editor"}
+              </button>
+              <button
+                onClick={async () => {
+                  const content = await resolveLiveContent();
+                  onPreview?.(content);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: '#e5e5e5',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#AC8E66';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                }}
+              >
+                <FontAwesomeIcon icon={faFileLines} style={{ color: '#AC8E66' }} />
+                Preview
+              </button>
+              <button
+                onClick={async () => {
+                  const content = await resolveLiveContent();
+                  onSaveToProject?.(content);
+                }}
+                disabled={!canSaveToProject}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '6px',
+                  cursor: canSaveToProject ? 'pointer' : 'not-allowed',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: canSaveToProject ? '#e5e5e5' : '#555',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                  opacity: canSaveToProject ? 1 : 0.5,
+                }}
+                onMouseEnter={(e) => {
+                  if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                }}
+              >
+                <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
+                Speichern
+              </button>
+              <button
+                onClick={async () => {
+                  const content = await resolveLiveContent();
+                  onSaveAsToProject?.(content);
+                }}
+                disabled={!canSaveToProject}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '6px',
+                  cursor: canSaveToProject ? 'pointer' : 'not-allowed',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: canSaveToProject ? '#e5e5e5' : '#555',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                  opacity: canSaveToProject ? 1 : 0.5,
+                }}
+                onMouseEnter={(e) => {
+                  if (canSaveToProject) e.currentTarget.style.borderColor = '#AC8E66';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                }}
+              >
+                <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
+                Speichern unter
+              </button>
+              <div style={{ flex: 1 }} />
+              <button
+                onClick={onNext}
+                style={{
+                  padding: '8px 20px',
+                  backgroundColor: '#AC8E66',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  fontWeight: 'bold',
+                  color: '#0A0A0A',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                }}
+              >
+                Weiter
+                <FontAwesomeIcon icon={faArrowRight} />
+              </button>
+              </div>
+              <div
+                className="font-mono text-[9px] text-[#8a8a8a]"
+                style={{
+                  marginTop: '6px',
+                  padding: '0 12px 8px 12px',
+                  letterSpacing: '0.02em',
+                }}
+              >
+                Shortcuts: {modifierKeyLabel}+S Speichern, {modifierKeyLabel}+Shift+S Speichern unter, {modifierKeyLabel}+W Tab schliessen, {modifierKeyLabel}+G Gliederung, Esc Schliessen
+              </div>
             </div>
           )}
         </div>

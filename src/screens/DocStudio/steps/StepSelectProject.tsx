@@ -3,12 +3,12 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBookOpen,
   faChartSimple,
+  faDesktop,
   faFilePen,
   faFolderOpen,
   faMagnifyingGlass,
   faPlus,
 } from '@fortawesome/free-solid-svg-icons';
-import { ProjectPickerModal } from '../../../components/DocStudio/ProjectPickerModal';
 import type { DocStudioRuntime } from '../types';
 
 export function StepSelectProject({
@@ -23,6 +23,7 @@ export function StepSelectProject({
   onOpenDashboard,
   onEditInputFields,
   onOpenRecentDocument,
+  onRemoveProject,
 }: {
   runtime: DocStudioRuntime;
   projectPath: string | null;
@@ -35,8 +36,8 @@ export function StepSelectProject({
   onOpenDashboard?: () => void;
   onEditInputFields?: () => void;
   onOpenRecentDocument?: (path: string) => void;
+  onRemoveProject?: (path: string) => void;
 }) {
-  const [showPicker, setShowPicker] = useState(false);
   const visibleRecentProjects = recentProjectPaths.slice(0, 6);
 
   // Stable tab order: freeze on first render, only add new paths at the end
@@ -51,10 +52,27 @@ export function StepSelectProject({
 
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [cardHovered, setCardHovered] = useState(false);
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
+  const [showInlineAdd, setShowInlineAdd] = useState(false);
+  const [inlinePathInput, setInlinePathInput] = useState('');
 
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
   const desktopDisabled = runtime === 'web';
   const activeProjectName = activeProjectPath?.split(/[\\/]/).filter(Boolean).pop() || 'Projekt';
+
+  const openNativeFolderPicker = async () => {
+    try {
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({ directory: true, multiple: false, title: 'Projektordner wählen' });
+      if (selected && typeof selected === 'string') {
+        onSelect(selected);
+        setShowInlineAdd(false);
+        setInlinePathInput('');
+      }
+    } catch {
+      // picker failed — stay on inline card, user can type manually
+    }
+  };
 
   const ensureProjectSelected = () => {
     const targetPath = projectPath ?? activeProjectPath;
@@ -133,7 +151,9 @@ export function StepSelectProject({
             >
               {allProjects.map((path) => {
                 const tabName = path.split(/[\\/]/).filter(Boolean).pop() || path;
+                const tabLabel = tabName.length > 6 ? tabName.slice(0, 5) + '…' : tabName;
                 const isActive = path === activeProjectPath;
+                const isHovered = hoveredTab === path;
                 return (
                   <button
                     key={path}
@@ -142,29 +162,48 @@ export function StepSelectProject({
                       onSelect(path);
                     }}
                     title={path}
+                    onMouseEnter={() => setHoveredTab(path)}
+                    onMouseLeave={() => setHoveredTab(null)}
                     style={{
                       width: '36px',
                       height: '80px',
                       borderRadius: '10px 0 0 10px',
                       border: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
                       borderRight: 'none',
-                      background: isActive ? '#d0cbb8' : '#1a1a1a',
+                      background: isActive ? '#d0cbb8' : isHovered ? '#2a2a2a' : '#1a1a1a',
                       cursor: 'pointer',
                       display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'center',
                       padding: 0,
                       transition: 'background 0.2s',
                       position: 'relative',
                       zIndex: isActive ? 20 : 10,
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!isActive) e.currentTarget.style.background = '#2a2a2a';
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isActive) e.currentTarget.style.background = '#1a1a1a';
+                      overflow: 'hidden',
                     }}
                   >
+                    {isHovered && onRemoveProject && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveProject(path);
+                          if (selectedPath === path) setSelectedPath(null);
+                        }}
+                        title="Projekt entfernen"
+                        style={{
+                          position: 'absolute',
+                          top: '4px',
+                          fontSize: '11px',
+                          lineHeight: 1,
+                          color: isActive ? '#5a4a30' : '#AC8E66',
+                          cursor: 'pointer',
+                          zIndex: 30,
+                        }}
+                      >
+                        ×
+                      </span>
+                    )}
                     <span
                       style={{
                         writingMode: 'vertical-rl',
@@ -177,9 +216,11 @@ export function StepSelectProject({
                         overflow: 'hidden',
                         maxHeight: '70px',
                         letterSpacing: '0.3px',
+                        marginTop: isHovered ? '10px' : '0',
+                        transition: 'margin-top 0.15s',
                       }}
                     >
-                      {tabName}
+                      {tabLabel}
                     </span>
                   </button>
                 );
@@ -187,7 +228,155 @@ export function StepSelectProject({
             </div>
 
             {/* Active card (beige) with hover overlay */}
-            {(() => {
+            {showInlineAdd ? (
+              <div style={{ position: 'relative', width: '280px', minHeight: '320px', zIndex: 15 }}>
+                <div
+                  style={{
+                    width: '100%',
+                    minHeight: '320px',
+                    borderRadius: '0 12px 12px 0',
+                    padding: '18px',
+                    textAlign: 'left',
+                    border: '1px solid #b8b0a0',
+                    borderLeft: 'none',
+                    background: '#d0cbb8',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    boxShadow: '4px 4px 20px rgba(0,0,0,0.25)',
+                  }}
+                >
+                  <div>
+                    <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: '0 0 6px 0', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                      Neues Projekt
+                    </p>
+                    <p style={{ fontSize: '12px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', margin: 0, fontWeight: 500 }}>
+                      Pfad eingeben
+                    </p>
+                  </div>
+                  <div style={{ borderTop: '1px solid rgba(172,142,102,0.3)', paddingTop: '12px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {runtime !== 'web' && (
+                      <>
+                        <button
+                          onClick={openNativeFolderPicker}
+                          style={{
+                            padding: '9px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(172,142,102,0.6)',
+                            background: '#AC8E66',
+                            color: '#fff',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '11px' }} />
+                          Finder öffnen
+                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '2px 0' }}>
+                          <div style={{ flex: 1, height: '1px', background: 'rgba(172,142,102,0.2)' }} />
+                          <span style={{ fontSize: '9px', color: '#9a9080', fontFamily: 'IBM Plex Mono, monospace' }}>oder manuell</span>
+                          <div style={{ flex: 1, height: '1px', background: 'rgba(172,142,102,0.2)' }} />
+                        </div>
+                      </>
+                    )}
+                    <input
+                      type="text"
+                      placeholder="/Users/dein/projekt"
+                      value={inlinePathInput}
+                      onChange={(e) => setInlinePathInput(e.target.value)}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && inlinePathInput.trim()) {
+                          onSelect(inlinePathInput.trim());
+                          setShowInlineAdd(false);
+                          setInlinePathInput('');
+                        }
+                        if (e.key === 'Escape') {
+                          setShowInlineAdd(false);
+                          setInlinePathInput('');
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '8px 10px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(172,142,102,0.5)',
+                        background: 'rgba(255,255,255,0.55)',
+                        color: '#1a1a1a',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '11px',
+                        outline: 'none',
+                        boxSizing: 'border-box' as const,
+                      }}
+                    />
+                    <button
+                      onClick={() => {
+                        if (!inlinePathInput.trim()) return;
+                        onSelect(inlinePathInput.trim());
+                        setShowInlineAdd(false);
+                        setInlinePathInput('');
+                      }}
+                      style={{
+                        padding: '9px 12px',
+                        borderRadius: '6px',
+                        border: '1px solid rgba(172,142,102,0.6)',
+                        background: '#AC8E66',
+                        color: '#fff',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '11px',
+                        cursor: inlinePathInput.trim() ? 'pointer' : 'not-allowed',
+                        opacity: inlinePathInput.trim() ? 1 : 0.6,
+                        textAlign: 'center' as const,
+                      }}
+                    >
+                      Übernehmen →
+                    </button>
+                    {onContinueToEditor && (
+                      <button
+                        onClick={() => {
+                          onContinueToEditor?.();
+                          setShowInlineAdd(false);
+                        }}
+                        style={{
+                          padding: '9px 12px',
+                          borderRadius: '6px',
+                          border: '1px solid rgba(90,80,64,0.3)',
+                          background: 'transparent',
+                          color: '#5a5040',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                          textAlign: 'center' as const,
+                        }}
+                      >
+                        Ohne Ordner fortfahren
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { setShowInlineAdd(false); setInlinePathInput(''); }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      fontSize: '9px',
+                      color: '#AC8E66',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      cursor: 'pointer',
+                      textAlign: 'right' as const,
+                      opacity: 0.7,
+                    }}
+                  >
+                    ← abbrechen
+                  </button>
+                </div>
+              </div>
+            ) : (() => {
               const projectDocs = recentDocuments.filter(
                 (doc) => activeProjectPath && doc.projectPath === activeProjectPath,
               );
@@ -356,14 +545,21 @@ export function StepSelectProject({
 
             {/* + Tab on the right side */}
             <button
-              onClick={() => setShowPicker(true)}
+              onClick={() => {
+                if (showInlineAdd) {
+                  setShowInlineAdd(false);
+                  setInlinePathInput('');
+                } else {
+                  setShowInlineAdd(true);
+                }
+              }}
               style={{
                 width: '36px',
                 height: '40px',
                 borderRadius: '0 10px 10px 0',
-                border: '1px dashed #AC8E66',
+                border: showInlineAdd ? '1px solid #AC8E66' : '1px dashed #AC8E66',
                 borderLeft: 'none',
-                background: 'transparent',
+                background: showInlineAdd ? 'rgba(172,142,102,0.15)' : 'transparent',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -374,7 +570,10 @@ export function StepSelectProject({
                 marginTop: '12px',
               }}
             >
-              <FontAwesomeIcon icon={faPlus} style={{ color: '#AC8E66', fontSize: '12px' }} />
+              {showInlineAdd
+                ? <span style={{ color: '#AC8E66', fontSize: '16px', lineHeight: 1 }}>×</span>
+                : <FontAwesomeIcon icon={faPlus} style={{ color: '#AC8E66', fontSize: '12px' }} />
+              }
             </button>
           </div>
 
@@ -395,6 +594,7 @@ export function StepSelectProject({
                 description="Scan aktualisieren und Projektstruktur neu einlesen"
                 icon={faMagnifyingGlass}
                 disabled={desktopDisabled}
+                desktopOnly={desktopDisabled}
                 onClick={() => {
                   const targetPath = ensureProjectSelected();
                   if (!targetPath && runtime !== 'web') return;
@@ -499,20 +699,6 @@ export function StepSelectProject({
         )}
       </div>
 
-      <ProjectPickerModal
-        isOpen={showPicker}
-        isWebRuntime={runtime === 'web'}
-        onClose={() => setShowPicker(false)}
-        onPathSelected={(path) => {
-          onSelect(path);
-          setShowPicker(false);
-        }}
-        onContinueWithoutFolder={() => {
-          if (runtime !== 'web') return;
-          onContinueToEditor?.();
-          setShowPicker(false);
-        }}
-      />
     </div>
   );
 }
@@ -523,12 +709,14 @@ const ActionTile = ({
   icon,
   onClick,
   disabled,
+  desktopOnly,
 }: {
   title: string;
   description: string;
   icon: any;
   onClick?: () => void;
   disabled?: boolean;
+  desktopOnly?: boolean;
 }) => (
   <button
     onClick={() => {
@@ -536,6 +724,7 @@ const ActionTile = ({
       onClick?.();
     }}
     style={{
+      position: 'relative',
       borderRadius: '12px',
       border: disabled ? '0.5px solid #2A2A2A' : '0.5px solid #3A3A3A',
       background: 'rgba(255,255,255,0.01)',
@@ -556,5 +745,22 @@ const ActionTile = ({
         {description}
       </p>
     </div>
+    {desktopOnly && (
+      <div style={{
+        position: 'absolute',
+        top: '7px',
+        right: '8px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '3px',
+        padding: '2px 6px',
+        borderRadius: '4px',
+        background: 'rgba(172,142,102,0.08)',
+        border: '0.5px solid rgba(172,142,102,0.25)',
+      }}>
+        <FontAwesomeIcon icon={faDesktop} style={{ fontSize: '7px', color: '#AC8E66' }} />
+        <span style={{ fontSize: '7px', fontFamily: 'IBM Plex Mono, monospace', color: '#AC8E66', letterSpacing: '0.3px' }}>Desktop</span>
+      </div>
+    )}
   </button>
 );

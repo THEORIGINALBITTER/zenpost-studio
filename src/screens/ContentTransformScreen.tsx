@@ -42,9 +42,14 @@ import {
 import {
   defaultEditorSettings,
   loadEditorSettings,
-  saveEditorAutosave,
+  saveDraftAutosave,
+  loadDraftAutosave,
   type EditorSettings,
 } from '../services/editorSettingsService';
+import {
+  loadZenStudioSettings,
+  type ZenStudioSettings,
+} from '../services/zenStudioSettingsService';
 
 interface PlatformOption {
   value: ContentPlatform;
@@ -152,13 +157,23 @@ interface ContentTransformScreenProps {
   onStep1BackToPostingChange?: (visible: boolean) => void;
   onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
   onOpenDocStudioForPosting?: (content: string) => void;
-  onContentChange?: (content: string) => void;
+  onContentChange?: (
+    content: string,
+    meta?: {
+      source: 'step1' | 'step4';
+      activeTabId?: string | null;
+      activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
+      activeTabFilePath?: string;
+      activeTabTitle?: string;
+    }
+  ) => void;
   editorType?: "block" | "markdown";
   onEditorTypeChange?: (type: "block" | "markdown") => void;
   multiPlatformMode?: boolean;
   onMultiPlatformModeChange?: (enabled: boolean) => void;
   /** Called when a file is saved successfully with the new path and content */
   onFileSaved?: (filePath: string, content: string, fileName: string) => void;
+  onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
 type ContentDocTab = {
@@ -199,6 +214,7 @@ export const ContentTransformScreen = ({
   multiPlatformMode = false,
   onMultiPlatformModeChange,
   onFileSaved,
+  onOpenZenThoughtsEditor,
 }: ContentTransformScreenProps) => {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
@@ -213,6 +229,8 @@ export const ContentTransformScreen = ({
   };
 
   // Step 1: Source Input
+  const STEP1_SAVED_COMPARISON_ID = '__saved__';
+  const STEP1_TAB_COMPARISON_PREFIX = 'tab:';
   const [sourceContent, setSourceContent] = useState<string>('');
   const sourceContentRef = useRef<string>('');
   const liveContentGetterRef = useRef<(() => Promise<string>) | null>(null);
@@ -222,11 +240,32 @@ export const ContentTransformScreen = ({
   const activeDocTabIdRef = useRef<string | null>(null);
   const [docTabContents, setDocTabContents] = useState<Record<string, string>>({});
   const [dirtyDocTabs, setDirtyDocTabs] = useState<Record<string, boolean>>({});
+  const [step1ComparisonBaseByTab, setStep1ComparisonBaseByTab] = useState<Record<string, string>>({});
+  const [step1ComparisonSelectionByTab, setStep1ComparisonSelectionByTab] = useState<Record<string, string>>({});
   const [editorSettings, setEditorSettings] = useState<EditorSettings>({
     ...defaultEditorSettings,
   });
-  const lastAutosaveRef = useRef<string>('');
+  const lastAutosaveRef = useRef<Record<string, string>>({});
+  const [step1AutosaveStatus, setStep1AutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [step1AutosaveAt, setStep1AutosaveAt] = useState<string | null>(null);
+  const restoredAutosaveKeysRef = useRef<Record<string, boolean>>({});
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
+
+  const emitExternalContentChange = (
+    content: string,
+    source: 'step1' | 'step4',
+    tabId?: string | null
+  ) => {
+    const resolvedTabId = tabId ?? activeDocTabIdRef.current ?? null;
+    const resolvedTab = resolvedTabId ? openDocTabs.find((tab) => tab.id === resolvedTabId) : null;
+    onExternalContentChange?.(content, {
+      source,
+      activeTabId: resolvedTabId,
+      activeTabKind: resolvedTab?.kind,
+      activeTabFilePath: resolvedTab?.filePath,
+      activeTabTitle: resolvedTab?.title,
+    });
+  };
 
   useEffect(() => {
     activeDocTabIdRef.current = activeDocTabId;
@@ -250,9 +289,53 @@ export const ContentTransformScreen = ({
     setActiveDocTabId(nextTab.id);
     const nextContent = docTabContents[nextTab.id] ?? '';
     setSourceContent(nextContent);
-    onExternalContentChange?.(nextContent);
+    emitExternalContentChange(nextContent, 'step1', nextTab.id);
     setFileName(nextTab.title ?? '');
-  }, [openDocTabs, activeDocTabId, docTabContents, onExternalContentChange]);
+  }, [openDocTabs, activeDocTabId, docTabContents]);
+
+  useEffect(() => {
+    const hasDraftTab = openDocTabs.some((tab) => tab.kind === 'draft');
+    if (hasDraftTab) return;
+    const draftTabId = `draft-${Date.now()}`;
+    setOpenDocTabs((prev) => [...prev, { id: draftTabId, title: 'Entwurf', kind: 'draft' }]);
+    setDocTabContents((prev) => ({ ...prev, [draftTabId]: '' }));
+    setDirtyDocTabs((prev) => ({ ...prev, [draftTabId]: false }));
+    if (!activeDocTabIdRef.current) {
+      activeDocTabIdRef.current = draftTabId;
+      setActiveDocTabId(draftTabId);
+      setSourceContent('');
+      setFileName('Entwurf');
+      emitExternalContentChange('', 'step1', draftTabId);
+    }
+  }, [openDocTabs]);
+
+  useEffect(() => {
+    setStep1ComparisonBaseByTab((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      openDocTabs.forEach((tab) => {
+        if (next[tab.id] === undefined) {
+          next[tab.id] = docTabContents[tab.id] ?? '';
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [openDocTabs, docTabContents]);
+
+  useEffect(() => {
+    setStep1ComparisonSelectionByTab((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      openDocTabs.forEach((tab) => {
+        if (!next[tab.id]) {
+          next[tab.id] = STEP1_SAVED_COMPARISON_ID;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [openDocTabs]);
 
   const getActiveSavePlatform = (): ContentPlatform => {
     if (multiPlatformMode && activeEditTab) return activeEditTab;
@@ -308,6 +391,14 @@ export const ContentTransformScreen = ({
   const getLatestSourceContent = (override?: string) =>
     override ?? sourceContentRef.current ?? sourceContent;
 
+  const getStep1AutosaveKey = () => {
+    const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
+    if (!activeTab) return 'content-step1:global';
+    if (activeTab.kind === 'file' && activeTab.filePath) return `content-step1:file:${activeTab.filePath}`;
+    if (activeTab.kind === 'article' && activeTab.articleId) return `content-step1:article:${activeTab.articleId}`;
+    return `content-step1:tab:${activeTab.id}`;
+  };
+
   const resolveLatestSourceContent = async (override?: string) => {
     if (typeof override === 'string') return override;
     const getter = liveContentGetterRef.current;
@@ -337,6 +428,7 @@ export const ContentTransformScreen = ({
     if (activeDocTabId) {
       setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
       setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: content }));
+      setStep1ComparisonBaseByTab((prev) => ({ ...prev, [activeDocTabId]: content }));
       if (options?.markAsFile && filePath) {
         setOpenDocTabs((prev) =>
           prev.map((tab) =>
@@ -498,22 +590,68 @@ export const ContentTransformScreen = ({
   }, []);
 
   useEffect(() => {
-    if (!projectPath) return;
-    if (!editorSettings.autoSaveEnabled) return;
+    if (typeof window === 'undefined') return;
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<ZenStudioSettings>).detail;
+      if (detail) {
+        setZenStudioSettings(detail);
+      } else {
+        setZenStudioSettings(loadZenStudioSettings());
+      }
+    };
+    window.addEventListener('zen-studio-settings-updated', handler);
+    return () => window.removeEventListener('zen-studio-settings-updated', handler);
+  }, []);
+
+  useEffect(() => {
+    if (!projectPath || !editorSettings.autoSaveEnabled) return;
+    const autosaveKey = getStep1AutosaveKey();
+    if (!autosaveKey || restoredAutosaveKeysRef.current[autosaveKey]) return;
+    restoredAutosaveKeysRef.current[autosaveKey] = true;
+    loadDraftAutosave(projectPath, autosaveKey)
+      .then((draft) => {
+        if (!draft?.content) return;
+        if (draft.content === sourceContent) return;
+        const shouldRestore = window.confirm(
+          `Entwurf gefunden (${new Date(draft.meta.updatedAt).toLocaleString('de-DE')}). Wiederherstellen?`
+        );
+        if (!shouldRestore) return;
+        const restored = draft.content;
+        sourceContentRef.current = restored;
+        setSourceContent(restored);
+        emitExternalContentChange(restored, 'step1');
+        if (activeDocTabId) {
+          setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: restored }));
+          setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
+        }
+      })
+      .catch((error) => {
+        console.error('[ContentTransform] Restore Autosave fehlgeschlagen:', error);
+      });
+  }, [projectPath, editorSettings.autoSaveEnabled, activeDocTabId, sourceContent, openDocTabs]);
+
+  useEffect(() => {
+    if (!projectPath || !editorSettings.autoSaveEnabled) return;
     if (!sourceContent.trim()) return;
-    const intervalMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
+    const autosaveKey = getStep1AutosaveKey();
+    const debounceMs = 1200;
     const timeout = setTimeout(() => {
-      if (sourceContent.trim() === lastAutosaveRef.current) return;
-      saveEditorAutosave(projectPath, sourceContent)
+      const trimmed = sourceContent.trim();
+      if (lastAutosaveRef.current[autosaveKey] === trimmed) return;
+      setStep1AutosaveStatus('saving');
+      saveDraftAutosave(projectPath, autosaveKey, sourceContent)
         .then(() => {
-          lastAutosaveRef.current = sourceContent.trim();
+          lastAutosaveRef.current[autosaveKey] = trimmed;
+          setStep1AutosaveStatus('saved');
+          setStep1AutosaveAt(new Date().toISOString());
         })
         .catch((error) => {
           console.error('[ContentTransform] Autosave fehlgeschlagen:', error);
+          setStep1AutosaveStatus('error');
         });
-    }, intervalMs);
+    }, debounceMs);
     return () => clearTimeout(timeout);
-  }, [projectPath, editorSettings.autoSaveEnabled, editorSettings.autoSaveIntervalSec, sourceContent]);
+  }, [projectPath, editorSettings.autoSaveEnabled, sourceContent, activeDocTabId, openDocTabs]);
 
   useEffect(() => {
     if (!requestedArticleId || !projectPath) return;
@@ -549,10 +687,13 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     if (!requestedFilePath) return;
     const tabId = `file:${requestedFilePath}`;
-    const alreadyOpen = openDocTabs.some((tab) => tab.id === tabId);
-    if (requestedFilePath === lastRequestedFilePathRef.current && alreadyOpen) {
-      const content = docTabContents[tabId] ?? '';
-      setActiveDocTabId(tabId);
+    const existingFileTab =
+      openDocTabs.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
+      openDocTabs.find((tab) => tab.id === tabId);
+    const targetTabId = existingFileTab?.id ?? tabId;
+    if (requestedFilePath === lastRequestedFilePathRef.current && existingFileTab) {
+      const content = docTabContents[targetTabId] ?? '';
+      setActiveDocTabId(targetTabId);
       setSourceContent(content);
       const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
@@ -567,14 +708,29 @@ export const ContentTransformScreen = ({
         const content = await readTextFile(requestedFilePath);
         if (!isMounted) return;
         const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
-        setOpenDocTabs((prev) =>
-          prev.some((tab) => tab.id === tabId)
-            ? prev
-            : [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }]
-        );
-        setDocTabContents((prev) => ({ ...prev, [tabId]: content }));
-        setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
-        setActiveDocTabId(tabId);
+        const resolvedTabId =
+          existingFileTab?.id ||
+          openDocTabs.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
+          tabId;
+        setOpenDocTabs((prev) => {
+          const match =
+            prev.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
+            prev.find((tab) => tab.id === tabId);
+          if (!match) {
+            return [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }];
+          }
+          if (match.title === fileNameFromPath && match.kind === 'file' && match.filePath === requestedFilePath) {
+            return prev;
+          }
+          return prev.map((tab) =>
+            tab.id === match.id
+              ? { ...tab, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }
+              : tab
+          );
+        });
+        setDocTabContents((prev) => ({ ...prev, [resolvedTabId]: content }));
+        setDirtyDocTabs((prev) => ({ ...prev, [resolvedTabId]: false }));
+        setActiveDocTabId(resolvedTabId);
         setSourceContent(content);
         setFileName(fileNameFromPath);
         setError(null);
@@ -623,9 +779,9 @@ export const ContentTransformScreen = ({
   // Propagate content changes to parent (for Export Modal)
   useEffect(() => {
     if (transformedContent) {
-      onExternalContentChange?.(transformedContent);
+      emitExternalContentChange(transformedContent, 'step4');
     }
-  }, [transformedContent, onExternalContentChange]);
+  }, [transformedContent, openDocTabs]);
 
   useEffect(() => {
     if (effectiveStep !== 1) return;
@@ -651,12 +807,15 @@ export const ContentTransformScreen = ({
 
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor'>('ai');
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'zenstudio'>('ai');
   const [settingsSocialTab, setSettingsSocialTab] = useState<
     'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github' | undefined
   >(undefined);
   const [settingsMissingSocialHint, setSettingsMissingSocialHint] = useState(false);
   const [settingsMissingSocialLabel, setSettingsMissingSocialLabel] = useState<string | undefined>(undefined);
+  const [zenStudioSettings, setZenStudioSettings] = useState<ZenStudioSettings>(() =>
+    loadZenStudioSettings()
+  );
 
   // Metadata Modal
   const [showMetadata, setShowMetadata] = useState(false);
@@ -715,6 +874,12 @@ export const ContentTransformScreen = ({
       '[Repository]': metadata.repository || '[Repository]',
       '[year]': metadata.year || '[year]',
       '[Year]': metadata.year || '[Year]',
+      '[description]': metadata.description || '[description]',
+      '[Description]': metadata.description || '[Description]',
+      '[keywords]': metadata.keywords || '[keywords]',
+      '[Keywords]': metadata.keywords || '[Keywords]',
+      '[lang]': metadata.lang || '[lang]',
+      '[Lang]': metadata.lang || '[Lang]',
     };
 
     Object.entries(replacements).forEach(([placeholder, value]) => {
@@ -877,7 +1042,7 @@ export const ContentTransformScreen = ({
     setActiveDocTabId(tabId);
     const nextContent = docTabContents[tabId] ?? '';
     setSourceContent(nextContent);
-    onExternalContentChange?.(nextContent);
+    emitExternalContentChange(nextContent, 'step1', tabId);
     const nextTitle = openDocTabs.find((tab) => tab.id === tabId)?.title ?? '';
     setFileName(nextTitle);
   };
@@ -899,18 +1064,33 @@ export const ContentTransformScreen = ({
       delete next[tabId];
       return next;
     });
+    setStep1ComparisonBaseByTab((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      return next;
+    });
+    setStep1ComparisonSelectionByTab((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
+      Object.keys(next).forEach((key) => {
+        if (next[key] === `${STEP1_TAB_COMPARISON_PREFIX}${tabId}`) {
+          next[key] = STEP1_SAVED_COMPARISON_ID;
+        }
+      });
+      return next;
+    });
     if (activeDocTabId === tabId || remainingTabs.length === 0) {
       const nextTab = remainingTabs[0] ?? null;
       if (nextTab) {
         setActiveDocTabId(nextTab.id);
         const nextContent = docTabContents[nextTab.id] ?? '';
         setSourceContent(nextContent);
-        onExternalContentChange?.(nextContent);
+        emitExternalContentChange(nextContent, 'step1', nextTab.id);
         setFileName(nextTab.title ?? '');
       } else {
         setActiveDocTabId(null);
         setSourceContent('');
-        onExternalContentChange?.('');
+        emitExternalContentChange('', 'step1', null);
         setFileName('');
       }
     }
@@ -1035,7 +1215,7 @@ export const ContentTransformScreen = ({
       setFileName('Entwurf');
     }
 
-    onExternalContentChange?.(content);
+    emitExternalContentChange(content, 'step1', targetTabId);
     if (multiPlatformMode && activeEditTab) {
       setTransformedContents((prev) => ({ ...prev, [activeEditTab]: content }));
       if (activeResultTab === activeEditTab) {
@@ -1441,6 +1621,34 @@ export const ContentTransformScreen = ({
           multiPlatformMode && Object.keys(transformedContents).length > 0
             ? (Object.keys(transformedContents) as ContentPlatform[])
             : [];
+        const step1ComparisonSelection = activeDocTabId
+          ? step1ComparisonSelectionByTab[activeDocTabId] ?? STEP1_SAVED_COMPARISON_ID
+          : STEP1_SAVED_COMPARISON_ID;
+        const step1SelectedComparisonTabId = step1ComparisonSelection.startsWith(STEP1_TAB_COMPARISON_PREFIX)
+          ? step1ComparisonSelection.slice(STEP1_TAB_COMPARISON_PREFIX.length)
+          : null;
+        const step1SelectedComparisonTab = step1SelectedComparisonTabId
+          ? openDocTabs.find((tab) => tab.id === step1SelectedComparisonTabId) ?? null
+          : null;
+        const step1ComparisonBaseOptions = activeDocTabId
+          ? [
+              { id: STEP1_SAVED_COMPARISON_ID, label: 'Letzte gespeicherte Version' },
+              ...openDocTabs
+                .filter((tab) => tab.id !== activeDocTabId)
+                .map((tab) => ({ id: `${STEP1_TAB_COMPARISON_PREFIX}${tab.id}`, label: `Tab: ${tab.title}` })),
+            ]
+          : [];
+        const step1ComparisonBaseContent = activeDocTabId
+          ? step1ComparisonSelection === STEP1_SAVED_COMPARISON_ID
+            ? step1ComparisonBaseByTab[activeDocTabId] ?? ''
+            : docTabContents[step1SelectedComparisonTabId ?? ''] ?? ''
+          : '';
+        const activeStep1TabTitle = openDocTabs.find((tab) => tab.id === activeDocTabId)?.title;
+        const step1ComparisonBaseLabel = step1ComparisonSelection === STEP1_SAVED_COMPARISON_ID
+          ? `${activeStep1TabTitle ?? fileName ?? 'Dokument'} · gespeicherte Basis`
+          : step1SelectedComparisonTab
+            ? `Tab: ${step1SelectedComparisonTab.title}`
+            : 'Vergleichsbasis';
         return (
           <>
             <Step1SourceInput
@@ -1499,6 +1707,42 @@ export const ContentTransformScreen = ({
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
               projectPath={projectPath}
+              comparisonBaseContent={step1ComparisonBaseContent}
+              comparisonBaseLabel={step1ComparisonBaseLabel}
+              comparisonBaseOptions={step1ComparisonBaseOptions}
+              comparisonBaseSelection={step1ComparisonSelection}
+              onComparisonBaseChange={(value) => {
+                if (!activeDocTabId) return;
+                setStep1ComparisonSelectionByTab((prev) => ({ ...prev, [activeDocTabId]: value }));
+              }}
+              onAdoptCurrentAsComparisonBase={() => {
+                if (!activeDocTabId) return;
+                setStep1ComparisonBaseByTab((prev) => ({
+                  ...prev,
+                  [activeDocTabId]: sourceContent,
+                }));
+                setStep1ComparisonSelectionByTab((prev) => ({
+                  ...prev,
+                  [activeDocTabId]: STEP1_SAVED_COMPARISON_ID,
+                }));
+              }}
+              autosaveStatusText={
+                !editorSettings.autoSaveEnabled
+                  ? 'Autosave · off'
+                  : step1AutosaveStatus === 'saving'
+                    ? 'Autosave · speichert...'
+                    : step1AutosaveStatus === 'error'
+                      ? 'Autosave · fehler'
+                      : step1AutosaveStatus === 'saved'
+                        ? `Autosave · ${step1AutosaveAt ? new Date(step1AutosaveAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'ok'}`
+                        : 'Autosave · on'
+              }
+              onOpenEditorSettings={() => {
+                setSettingsDefaultTab('editor');
+                setShowSettings(true);
+              }}
+              zenThoughts={zenStudioSettings.thoughts}
+              showZenThoughtInHeader={zenStudioSettings.showInContentAIStudio}
             />
           </>
         );
@@ -1700,6 +1944,7 @@ export const ContentTransformScreen = ({
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
               activeDocTabContent={activeDocTabId ? docTabContents[activeDocTabId] ?? '' : ''}
+              docTabContents={docTabContents}
               originalContent={step4OriginalContent}
               originalLabel={
                 step4SourceTabId
@@ -1715,7 +1960,10 @@ export const ContentTransformScreen = ({
   };
 
   return (
-    <div className="flex flex-col h-screen bg-[transparent] text-[#e5e5e5] overflow-hidden">
+    <div
+      className="flex flex-col h-screen text-[#e5e5e5] overflow-hidden"
+      style={{ backgroundColor: effectiveStep === 2 || effectiveStep === 3 ? '#d0cbb8' : 'transparent' }}
+    >
       {/* Main Content */}
       <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
 
@@ -1737,6 +1985,7 @@ export const ContentTransformScreen = ({
         defaultSocialTab={settingsSocialTab}
         showMissingSocialHint={settingsMissingSocialHint}
         missingSocialLabel={settingsMissingSocialLabel}
+        onOpenZenThoughtsEditor={onOpenZenThoughtsEditor}
       />
 
       {/* Metadata Modal */}

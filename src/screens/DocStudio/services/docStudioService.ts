@@ -3,6 +3,7 @@ import { scanProject } from '../../../services/projectScanService';
 import { generateFromPrompt } from '../../../services/aiService';
 import type { DocInputFields, DocTemplate, ProjectInfo } from '../types';
 import type { TargetLanguage } from '../../../services/aiService';
+import type { ProjectMetadata } from '../../../kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal';
 
 export async function scanProjectService(path: string, includeDataRoom = true) {
   return scanProject(path, includeDataRoom);
@@ -28,6 +29,28 @@ function templateLabel(template: DocTemplate | null): string {
   return 'Dokumentation';
 }
 
+export function buildYamlFrontmatter(title: string, metadata: ProjectMetadata): string {
+  const today = new Date().toISOString().split('T')[0];
+  const keywordsList = metadata.keywords
+    ? metadata.keywords.split(',').map((k) => `"${k.trim()}"`).join(', ')
+    : '';
+  return [
+    '---',
+    `title: "${title}"`,
+    metadata.description ? `description: "${metadata.description}"` : null,
+    metadata.authorName  ? `author: "${metadata.authorName}"`       : null,
+    metadata.authorEmail ? `email: "${metadata.authorEmail}"`        : null,
+    metadata.companyName ? `company: "${metadata.companyName}"`      : null,
+    metadata.license     ? `license: "${metadata.license}"`          : null,
+    metadata.year        ? `year: "${metadata.year}"`                : null,
+    keywordsList         ? `keywords: [${keywordsList}]`             : null,
+    metadata.lang        ? `lang: "${metadata.lang}"`                : null,
+    `date: "${today}"`,
+    '---',
+    '',
+  ].filter((line) => line !== null).join('\n');
+}
+
 export function buildDocGenerationPrompt(params: {
   template: DocTemplate | null;
   projectInfo: ProjectInfo | null;
@@ -37,6 +60,7 @@ export function buildDocGenerationPrompt(params: {
   audience: 'beginner' | 'intermediate' | 'expert';
   targetLanguage: TargetLanguage;
   existingTemplateContent: string;
+  metadata?: ProjectMetadata;
 }) {
   const {
     template,
@@ -47,18 +71,32 @@ export function buildDocGenerationPrompt(params: {
     audience,
     targetLanguage,
     existingTemplateContent,
+    metadata,
   } = params;
+
+  const metadataBlock = metadata ? `
+AUTOR & PROJEKT-METADATEN (EXAKTE WERTE VERWENDEN – KEINE PLATZHALTER):
+- Autor: ${metadata.authorName || '-'}
+- E-Mail: ${metadata.authorEmail || '-'}
+- Unternehmen: ${metadata.companyName || '-'}
+- Lizenz: ${metadata.license || '-'}
+- Jahr: ${metadata.year || '-'}
+- Website: ${metadata.website || '-'}
+- Repository: ${metadata.repository || '-'}
+- Beschreibung: ${metadata.description || '-'}
+- Keywords: ${metadata.keywords || '-'}
+` : '';
 
   return `
 Du bist ein präziser Dokumentations-Assistent.
 Erzeuge ein vollständiges Markdown-Dokument auf Basis der strukturierten Eingaben.
 
 WICHTIGE REGELN:
-- Antworte NUR mit Markdown-Inhalt.
+- Antworte NUR mit Markdown-Inhalt (ohne YAML-Frontmatter — der wird separat ergänzt).
 - Keine Code-Fences um das gesamte Ergebnis.
 - Wenn vorhandene Template-Struktur gegeben ist, nutze diese als Grundgerüst.
 - Fülle fehlende Abschnitte sinnvoll auf, aber erfinde keine konkreten Fakten.
-
+${metadataBlock}
 Ziel:
 - Dokumenttyp: ${templateLabel(template)}
 - Sprache: ${targetLanguage}

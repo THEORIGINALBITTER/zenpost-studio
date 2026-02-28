@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheckCircle, faFolderOpen, faCalendarDays } from '@fortawesome/free-solid-svg-icons';
+import { faCheckCircle, faFolderOpen, faCalendarDays, faCopy } from '@fortawesome/free-solid-svg-icons';
+import { isTauri } from '@tauri-apps/api/core';
 import { Command } from '@tauri-apps/plugin-shell';
 
 interface ZenSaveSuccessModalProps {
@@ -34,6 +36,12 @@ export const ZenSaveSuccessModal = ({
       : [];
   const primaryPath = normalizedPaths[0];
   const hasMultipleFiles = normalizedPaths.length > 1;
+  const desktopRuntime = isTauri();
+  const webRuntime = !desktopRuntime;
+  const isBrowserDownloadPath =
+    !!primaryPath &&
+    (primaryPath.toLowerCase().includes('browser-download') || primaryPath.startsWith('web:'));
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
   // Debug: Log filePath to see if it's being passed - only when modal is open
   if (isOpen) {
@@ -71,6 +79,19 @@ export const ZenSaveSuccessModal = ({
       } catch (fallbackError) {
         console.error('Fallback also failed:', fallbackError);
       }
+    }
+  };
+
+  const handleCopyPath = async (targetPath?: string) => {
+    const value = targetPath || fileName;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyStatus('ok');
+      window.setTimeout(() => setCopyStatus('idle'), 1500);
+    } catch (error) {
+      console.error('Failed to copy path:', error);
+      setCopyStatus('error');
+      window.setTimeout(() => setCopyStatus('idle'), 1800);
     }
   };
 
@@ -125,22 +146,26 @@ export const ZenSaveSuccessModal = ({
           style={{
             fontFamily: 'monospace',
             fontSize: '11px',
-            color: '#999',
+            color: '#1a1a1a',
             textAlign: 'center',
             lineHeight: '1.6',
             maxWidth: '400px',
           }}
         >
           {hasMultipleFiles
-            ? 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
-            : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.'}
+            ? (webRuntime || isBrowserDownloadPath)
+              ? 'Die Dateien wurden als Browser-Downloads gespeichert.'
+              : 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
+            : (webRuntime || isBrowserDownloadPath)
+              ? 'Die Datei wurde als Browser-Download gespeichert.'
+              : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.'}
         </p>
 
         {normalizedPaths.length > 0 && (
           <div
             style={{
               width: '100%',
-              backgroundColor: '#111',
+              backgroundColor: '#1a1a1a',
               borderRadius: '6px',
               border: '1px dotted #3A3A3A',
               padding: '20px',
@@ -157,7 +182,7 @@ export const ZenSaveSuccessModal = ({
                 color: '#dbd9d5',
               }}
             >
-              Gespeicherte Datei-Pfade:
+              {(webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:'}
             </div>
             {normalizedPaths.map((path, index) => (
               <code
@@ -173,6 +198,17 @@ export const ZenSaveSuccessModal = ({
                 {path}
               </code>
             ))}
+            {(webRuntime || isBrowserDownloadPath) && (
+              <div
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '10px',
+                  color: '#8c8c8c',
+                }}
+              >
+                Die Datei liegt in deinem Browser-Download-Ordner.
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -187,11 +223,19 @@ export const ZenSaveSuccessModal = ({
             flexWrap: 'wrap',
           }}
         >
-          {primaryPath && (
+          {primaryPath && desktopRuntime && !isBrowserDownloadPath && (
             <ZenRoughButton
               label="Im Finder anzeigen"
               icon={<FontAwesomeIcon icon={faFolderOpen} />}
               onClick={() => handleShowInFinder(primaryPath)}
+              variant="default"
+            />
+          )}
+          {primaryPath && !webRuntime && isBrowserDownloadPath && (
+            <ZenRoughButton
+              label={copyStatus === 'ok' ? 'Pfad kopiert' : copyStatus === 'error' ? 'Kopieren fehlgeschlagen' : 'Pfad kopieren'}
+              icon={<FontAwesomeIcon icon={faCopy} />}
+              onClick={() => handleCopyPath(primaryPath)}
               variant="default"
             />
           )}

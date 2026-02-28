@@ -16,8 +16,8 @@ interface WelcomeScreenProps {
 
 export const WelcomeScreen = ({
   onSelectConverter: _onSelectConverter,
-  onSelectContentTransform,
-  onSelectDocStudio,
+  onSelectContentTransform: _onSelectContentTransform,
+  onSelectDocStudio: _onSelectDocStudio,
   onSelectGettingStarted,
 }: WelcomeScreenProps) => {
 

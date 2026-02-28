@@ -114,7 +114,7 @@ export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGenerat
                 justifyContent: 'center',
                 fontSize: '14px',
                 fontWeight: 'bold',
-                color: '#0A0A0A',
+                color: '#1a1a1a',
                 fontFamily: 'monospace',
               }}
             >

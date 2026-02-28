@@ -1,0 +1,115 @@
+import type { ProjectMetadata } from '../../kits/PatternKit/ZenModalSystem';
+import type { TargetLanguage } from '../../services/aiService';
+import type { ScanSummary, ScanArtifacts } from '../../services/projectScanService';
+
+export type DocStudioStep = 'project' | 'scan' | 'templates' | 'edit';
+
+export const DOC_STUDIO_STEPS: DocStudioStep[] = [
+  'project',
+  'scan',
+  'templates',
+  'edit',
+];
+
+export type DocTemplate =
+  | 'readme'
+  | 'changelog'
+  | 'api-docs'
+  | 'contributing'
+  | 'data-room'
+  | 'bug'
+  | 'draft';
+
+export type DocTab = {
+  id: string;
+  title: string;
+  kind: 'template' | 'file';
+  template?: DocTemplate;
+  filePath?: string;
+};
+
+export type ProjectInfo = {
+  name: string;
+  description: string;
+  version: string;
+  dependencies: string[];
+  fileTypes: string[];
+  hasTests: boolean;
+  hasApi: boolean;
+};
+
+export type DocInputFields = {
+  productName: string;
+  productSummary: string;
+  problemSolved: string;
+  setupSteps: string;
+  usageExamples: string;
+  apiEndpoints: string;
+  testingNotes: string;
+  faq: string;
+  links: string;
+};
+
+export const defaultDocInputFields: DocInputFields = {
+  productName: '',
+  productSummary: '',
+  problemSolved: '',
+  setupSteps: '',
+  usageExamples: '',
+  apiEndpoints: '',
+  testingNotes: '',
+  faq: '',
+  links: '',
+};
+
+export type DocStudioState = {
+  projectPath: string | null;
+  projectInfo: ProjectInfo | null;
+  selectedTemplate: DocTemplate | null;
+  selectedTemplates: DocTemplate[];
+  generatedContent: string;
+  activeTabId: string | null;
+  openFileTabs: DocTab[];
+  tabContents: Record<string, string>;
+  dirtyTabs: Record<string, boolean>;
+  tone: 'professional' | 'casual' | 'technical' | 'enthusiastic';
+  length: 'short' | 'medium' | 'long';
+  audience: 'beginner' | 'intermediate' | 'expert';
+  targetLanguage: TargetLanguage;
+  inputFields: DocInputFields;
+  metadata: ProjectMetadata;
+};
+
+export type DocStudioScreenProps = {
+  onBack: () => void;
+  onTransferToContentStudio?: (content: string, currentStep: number, state: DocStudioState) => void;
+  onStepChange?: (step: number) => void;
+  initialStep?: number;
+  savedState?: DocStudioState | null;
+  onStateChange?: (state: DocStudioState) => void;
+  onGeneratedContentChange?: (content: string) => void;
+  onPreviewModeChange?: (isPreview: boolean) => void;
+  headerAction?: "save" | "preview" | null;
+  onHeaderActionHandled?: () => void;
+  requestedFilePath?: string | null;
+  onFileRequestHandled?: () => void;
+  requestedWebDocument?: { fileName: string; content: string } | null;
+  onWebDocumentRequestHandled?: () => void;
+  scheduledPosts?: any[];
+  onScheduledPostsChange?: (posts: any[]) => void;
+  onShowScheduler?: () => void;
+  onShowCalendar?: () => void;
+  onShowChecklist?: () => void;
+  onSetSchedulerPlatformPosts?: (posts: Array<{ platform: string; content: string }>) => void;
+  onSetSelectedDateFromCalendar?: (date: Date | undefined) => void;
+  onOpenProjectDocuments?: () => void;
+  /** Called when a file is saved successfully with the new path and content */
+  onFileSaved?: (filePath: string, content: string, fileName: string) => void;
+};
+
+export type DocStudioRuntime = 'tauri' | 'web';
+
+export type DocStudioScan = {
+  summary: ScanSummary | null;
+  artifacts: ScanArtifacts | null;
+};

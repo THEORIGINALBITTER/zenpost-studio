@@ -20,7 +20,7 @@ import {
   faBolt,
   faPenNib,
 } from '@fortawesome/free-solid-svg-icons';
-import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { useZenIdle } from '../../hooks/useZenIdle';
 import {
@@ -40,6 +40,8 @@ import {
   PostResult,
 } from '../../services/socialMediaService';
 import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
+import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
+import { EDITOR_SETTINGS_STORAGE_KEY } from '../../constants/settingsKeys';
 
 interface Step4TransformResultProps {
   transformedContent: string;
@@ -69,6 +71,7 @@ interface Step4TransformResultProps {
   onDocTabChange?: (tabId: string) => void;
   onCloseDocTab?: (tabId: string) => void;
   activeDocTabContent?: string;
+  docTabContents?: Record<string, string>;
   originalContent?: string;
   originalLabel?: string;
 }
@@ -171,10 +174,25 @@ export const Step4TransformResult = ({
   onDocTabChange,
   onCloseDocTab,
   activeDocTabContent = '',
+  docTabContents = {},
   originalContent = '',
   originalLabel = 'Original',
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
+    if (typeof window === 'undefined') return { ...defaultEditorSettings };
+    const raw = localStorage.getItem(EDITOR_SETTINGS_STORAGE_KEY);
+    if (!raw) return { ...defaultEditorSettings };
+    try { return { ...defaultEditorSettings, ...JSON.parse(raw) }; } catch { return { ...defaultEditorSettings }; }
+  });
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<EditorSettings>).detail;
+      if (detail) setEditorSettings(detail);
+    };
+    window.addEventListener('zen-editor-settings-updated', handler);
+    return () => window.removeEventListener('zen-editor-settings-updated', handler);
+  }, []);
   const [_copied, setCopied] = useState(false);
   const [_isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
@@ -222,6 +240,7 @@ export const Step4TransformResult = ({
     default: 'mono-clean',
   });
   const [showComparison, setShowComparison] = useState(false);
+  const [comparisonSource, setComparisonSource] = useState<string>('original');
 
   const previewContextKey = useMemo(() => {
     if (activeDocTabId) return `doc:${activeDocTabId}`;
@@ -232,10 +251,42 @@ export const Step4TransformResult = ({
   const activePreviewTheme = previewThemeByKey[previewContextKey] ?? previewThemeByKey.default ?? 'mono-clean';
   const previewStyleMode: 'mono' | 'color' = activePreviewTheme.startsWith('mono') ? 'mono' : 'color';
 
-  const hasComparison = !!originalContent && originalContent !== currentContent;
+  const comparisonSourceOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [
+      { value: 'original', label: `Original: ${originalLabel}` },
+    ];
+    if (docTabs.length > 0) {
+      docTabs.forEach((tab) => {
+        if (tab.id === activeDocTabId) return;
+        options.push({ value: `tab:${tab.id}`, label: `Tab: ${tab.title}` });
+      });
+    }
+    return options;
+  }, [docTabs, activeDocTabId, originalLabel]);
+
+  useEffect(() => {
+    if (!comparisonSourceOptions.some((opt) => opt.value === comparisonSource)) {
+      setComparisonSource('original');
+    }
+  }, [comparisonSourceOptions, comparisonSource]);
+
+  const selectedComparisonTabId = comparisonSource.startsWith('tab:')
+    ? comparisonSource.slice(4)
+    : null;
+  const selectedComparisonTab = selectedComparisonTabId
+    ? docTabs.find((tab) => tab.id === selectedComparisonTabId) ?? null
+    : null;
+  const activeComparisonContent = selectedComparisonTabId
+    ? docTabContents[selectedComparisonTabId] ?? ''
+    : originalContent;
+  const activeComparisonLabel = selectedComparisonTab
+    ? `Tab: ${selectedComparisonTab.title}`
+    : originalLabel;
+
+  const hasComparison = !!activeComparisonContent && activeComparisonContent !== currentContent;
   const comparisonRows = useMemo<LineDiffRow[]>(() => {
     if (!hasComparison) return [];
-    const leftLines = originalContent.split('\n');
+    const leftLines = activeComparisonContent.split('\n');
     const rightLines = currentContent.split('\n');
     const n = leftLines.length;
     const m = rightLines.length;
@@ -274,7 +325,7 @@ export const Step4TransformResult = ({
       j += 1;
     }
     return rows;
-  }, [hasComparison, originalContent, currentContent]);
+  }, [hasComparison, activeComparisonContent, currentContent]);
 
   useEffect(() => {
     if (multiPlatformMode && activeResultTab && transformedContents[activeResultTab] !== undefined) {
@@ -829,6 +880,16 @@ const handleDownload = async () => {
                 px-1 py-1 rounded mt-[0px] ml-[5px]">
                   im Style: {previewStyleMode === 'color' ? 'Color' : 'Mono'} · {PREVIEW_THEME_LABELS[activePreviewTheme]}
                 </div>
+                {comparisonSourceOptions.length > 1 && (
+                  <div style={{ width: '320px', marginLeft: '20px' }}>
+                    <ZenDropdown
+                      value={comparisonSource}
+                      onChange={setComparisonSource}
+                      options={comparisonSourceOptions}
+                      variant="compact"
+                    />
+                  </div>
+                )}
                 {hasComparison && (
              
                   <button
@@ -1350,11 +1411,11 @@ const handleDownload = async () => {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
                   <div className="font-mono text-[10px] text-[#AC8E66]">
-                    Vorher: {originalLabel}
+                    Vorher: {activeComparisonLabel}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                     <div className="font-mono text-[10px] text-[#777]">
-                      Zeichen Δ {currentContent.length - originalContent.length}
+                      Zeichen Δ {currentContent.length - activeComparisonContent.length}
                     </div>
                     <button
                       onClick={onBack}
@@ -1432,6 +1493,10 @@ const handleDownload = async () => {
                     [previewContextKey]: theme,
                   }));
                 }}
+                marginTop={editorSettings.marginTop}
+                marginBottom={editorSettings.marginBottom}
+                marginLeft={editorSettings.marginLeft}
+                marginRight={editorSettings.marginRight}
               />
             ) : (
               <div
@@ -1441,16 +1506,16 @@ const handleDownload = async () => {
                   flexDirection: 'column',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  color: '#777',
+                  color: '#1a1a1a',
                   fontFamily: 'monospace',
                   fontSize: '12px',
                   gap: '8px',
                   fontWeight: '200',
-                  background : '#e3d4bf',
+                  background : '#d0cbb8',
                   borderRadius: '12px'
                 }}
               >
-                <span style={{ color: '#AC8E66' }}></span>
+               
                 <span>Schreibe was du denkst, nutze dafür einfach den Nachbearbeiten Tab.</span>
                
               </div>

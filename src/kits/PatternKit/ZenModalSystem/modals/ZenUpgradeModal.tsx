@@ -133,7 +133,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
             alignItems: 'center',
             justifyContent: 'center',
             padding: '60px 40px',
-            backgroundColor: '#1E1E1E',
+            backgroundColor: '#1a1a1a',
           }}
         >
           <div
@@ -153,7 +153,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
             <FontAwesomeIcon icon={faCheck} style={{ fontSize: 48, color: '#1a1a1a' }} />
           </div>
           <h2 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 12px 0' }}>
-            Willkommen bei ZenStudio PRO!
+            Willkommen bei DocStudio PRO!
           </h2>
           <p style={{ fontFamily: 'monospace', fontSize: 14, color: '#888', margin: 0 }}>
             Alle Features sind jetzt freigeschaltet
@@ -224,7 +224,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
       <div
         style={{
           position: 'relative',
-          backgroundColor: '#242424',
+        
           borderRadius: 12,
           overflow: 'hidden',
           maxHeight: '85vh',
@@ -235,7 +235,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         {/* Header with Crown */}
         <div
           style={{
-            background: 'transparent',
+            background: '#1a1a1a',
             padding: '40px 32px',
             textAlign: 'center',
             borderBottom: '1px solid #3a3a3a',
@@ -247,7 +247,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               height: 80,
               margin: '0 auto 20px',
               borderRadius: '50%',
-              background: ' #AC8E66)',
+        
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -282,7 +282,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                 alignItems: 'center',
                 gap: 12,
                 padding: 16,
-                backgroundColor: 'rgba(172, 142, 102, 0.1)',
+          
                 borderRadius: 12,
                 marginBottom: 24,
                 border: '1px solid #AC8E66',
@@ -300,8 +300,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
             </div>
           )}
 
-          {/* Pricing Cards */}
-       
+      
 
           {/* Doc Features Grid */}
           <div style={{ marginBottom: 24 }}>
@@ -325,7 +324,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                     flexDirection: 'column',
                     gap: 8,
                     padding: '10px 12px',
-                    backgroundColor: isHighlighted ? 'rgba(172, 142, 102, 0.15)' : '#1a1a1a',
+                    backgroundColor: isHighlighted ? 'transparent' : '#1a1a1a',
                     borderRadius: 8,
                     border: isHighlighted ? '1px solid #AC8E66' : '1px solid #2e2e2e',
                   }}
@@ -368,51 +367,40 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
           <div
             style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
+              flexDirection: 'column',
+              alignItems: 'stretch',
               gap: 12,
               padding: '12px 14px',
-              border: '1px solid rgba(172, 142, 102, 0.35)',
+              border: '1px solid #AC8E66',
               borderRadius: 10,
-              background: 'rgba(172, 142, 102, 0.06)',
+              background: 'transparent',
               marginBottom: 24,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            
-              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#d8c2a0' }}>
-                Beta verfügbar <br/> zum testen einfach Key generieren
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#1a1a1a' }}>
+                Beta verfügbar zum testen einfach Key generieren
               </span>
             </div>
-           
 
-                      {/* Beta Key */}
-          <p
-            style={{
-              fontFamily: 'monospace',
-              fontSize: 10,
-              color: '#555',
-              marginTop: 20,
-              textAlign: 'center',
-            }}
-          >
+            {/* Beta Key */}
             <button
               onClick={handleGenerateDemo}
               style={{
-               display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 10,
-                    padding: '16px 24px',
-                    backgroundColor: 'transparent',
-                    color: '#AC8E66',
-                    border: '2px solid #AC8E66',
-                    borderRadius: 12,
-                    fontFamily: 'monospace',
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-               
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 10,
+                width: '100%',
+                padding: '16px 24px',
+                backgroundColor: 'transparent',
+                color: '#AC8E66',
+                border: '0.5px solid #1a1a1a',
+                borderRadius: 12,
+                fontFamily: 'monospace',
+                fontSize: 14,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.color = '#AC8E66';
@@ -421,9 +409,8 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                 e.currentTarget.style.color = '#555';
               }}
             >
-              Beta-Key generieren 
+              Beta-Key generieren
             </button>
-          </p>
           </div>
 
         
@@ -440,8 +427,12 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                 border: '1px solid #3a3a3a',
               }}
             >
-              <label style={{ display: 'block', fontFamily: 'monospace', fontSize: 11, color: '#888', marginBottom: 8 }}>
-                Lizenzkey eingeben:
+              <label style={{ display: 'flex', fontFamily: 'monospace', 
+                fontSize: 11, color: '#888', 
+                 alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: 8 }}>
+                Dein Lizenzkey:
               </label>
               <input
                 type="text"
@@ -455,7 +446,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                   border: '1px solid #3a3a3a',
                   borderRadius: 8,
                   fontFamily: 'monospace',
-                  fontSize: 14,
+                  fontSize: 12,
                   color: '#e5e5e5',
                   marginBottom: (localError || error) ? 12 : 0,
                   outline: 'none',
@@ -484,13 +475,13 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                     justifyContent: 'center',
                     gap: 10,
                     padding: '16px 24px',
-                    background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
-                    color: '#1a1a1a',
+                    background: '#1a1a1a',
+                    color: '#AC8E66',
                     border: 'none',
                     borderRadius: 12,
                     fontFamily: 'monospace',
-                    fontSize: 14,
-                    fontWeight: 600,
+                    fontSize: 12,
+                    fontWeight: 200,
                     cursor: isLoading ? 'wait' : 'pointer',
                     opacity: isLoading ? 0.7 : 1,
                     transition: 'all 0.2s',
@@ -526,68 +517,9 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
             ) : (
               <>
                 {/* Trial Button */}
-                {canStartTrial && (
-                  <button
-                    onClick={handleStartTrial}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 10,
-                      padding: '16px 24px',
-                      background: 'linear-gradient(135deg, #d8b27c, #AC8E66)',
-                      color: '#1a1a1a',
-                      border: 'none',
-                      borderRadius: 12,
-                      fontFamily: 'monospace',
-                      fontSize: 14,
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      boxShadow: '0 4px 20px rgba(172, 142, 102, 0.3)',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 6px 24px rgba(172, 142, 102, 0.4)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 4px 20px rgba(172, 142, 102, 0.3)';
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faGift} />
-                    7 Tage kostenlos testen
-                  </button>
-                )}
+            
 
-                {/* License Key Button */}
-                <button
-                  onClick={() => setShowKeyInput(true)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 10,
-                    padding: '16px 24px',
-                    backgroundColor: 'transparent',
-                    color: '#AC8E66',
-                    border: '2px solid #AC8E66',
-                    borderRadius: 12,
-                    fontFamily: 'monospace',
-                    fontSize: 14,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = 'rgba(172, 142, 102, 0.1)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
-                >
-                  <FontAwesomeIcon icon={faKey} />
-                  Lizenzkey eingeben
-                </button>
+            
               </>
             )}
           </div>

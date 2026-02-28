@@ -1,7 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCheck } from '@fortawesome/free-solid-svg-icons';
-import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
+import { ZenSubtitleDark } from '../../kits/PatternKit/ZenSubtitleDark';
+import { ZenBackButton} from '../../kits/DesignKit/ZenBackButton';
 import { ContentPlatform } from '../../services/aiService';
 
 interface PlatformOption {
@@ -59,9 +59,11 @@ export const Step2PlatformSelection = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6">
-      <div style={{ position: 'absolute', top: '120px', right: '40px' }}>
-        <ZenCloseButton onClick={onBack} />
+    <div className="flex-1 flex 
+    flex-col items-center justify-center 
+    px-6 bg-[#d0cbb8]">
+      <div style={{ position: 'absolute', top: '120px', left: '150px' }}>
+        <ZenBackButton onClick={onBack} />
       </div>
       <div className="flex flex-col items-center w-full max-w-4xl">
         <div className="flex flex-col items-center space-y-1">
@@ -70,12 +72,12 @@ export const Step2PlatformSelection = ({
 
           {/* Subtitle */}
           <div>
-            <ZenSubtitle>
+            <ZenSubtitleDark>
               {multiSelectMode
                 ? 'Wähle eine oder mehrere Zielplattformen für deine Content-Transformation'
                 : 'Wähle die Zielplattform für deine Content-Transformation'
               }
-            </ZenSubtitle>
+            </ZenSubtitleDark>
           </div>
 
           {/* Selection Info for Multi-Select */}
@@ -115,9 +117,9 @@ export const Step2PlatformSelection = ({
                 key={option.value}
                 onClick={() => handlePlatformClick(option.value)}
                 className={`
-                  relative p-6 rounded-lg border-dotted transition-all
+                  relative p-6 rounded-lg border-dotted transition-all bg-transparent
                   ${selected
-                    ? 'border-[#AC8E66] bg-[transparent]'
+                    ? 'border-[#AC8E66] bg-[#ebe8df]'
                     : 'border-[#4a4a4a]  hover:border-[#AC8E66]/50 hover:border-solid'
                   }
                 `}
@@ -131,10 +133,12 @@ export const Step2PlatformSelection = ({
                 {multiSelectMode && (
                   <div className="absolute top-3 left-3">
                     <div
-                      className={`w-4 h-4 aspect-square box-border rounded-full border-2 flex items-center justify-center transition-all
+                      className={`w-4 h-4 
+                        aspect-square box-border rounded-full 
+                        border-2 flex items-center justify-center transition-all
                         ${selected
                           ? 'border-[#AC8E66] bg-[#AC8E66]'
-                          : 'border-[#555] bg-transparent'
+                          : 'border-[#1a1a1a] bg-transparent'
                         }
                       `}
                     >
@@ -154,12 +158,12 @@ export const Step2PlatformSelection = ({
                 </div>
 
                 {/* Label */}
-                <h3 className={`font-mono text-[12px] mb-2 ${selected ? 'text-[#e5e5e5]' : 'text-[#999]'}`}>
+                <h3 className={`font-mono text-[12px] mb-2 ${selected ? 'text-[#AC8E66]' : 'text-[#777]'}`}>
                   {option.label}
                 </h3>
 
                 {/* Description */}
-                <p className="text-[#777] font-mono text-[10px] leading-relaxed">
+                <p className="text-[#1a1a1a] font-mono text-[10px] leading-relaxed">
                   {option.description}
                 </p>
 

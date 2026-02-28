@@ -344,6 +344,59 @@
   opacity: 1 !important;
 }
 
+.zen-block-editor .ce-inline-toolbar .zen-marker-palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 10px;
+}
+
+.zen-block-editor .ce-inline-toolbar .zen-marker-palette__swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  padding: 0;
+}
+
+.zen-block-editor .ce-inline-toolbar .zen-marker-palette__swatch--active {
+  box-shadow: 0 0 0 2px #ac8e66;
+}
+
+.zen-block-editor mark.zen-inline-marker[data-zen-marker="hl-yellow"] {
+  background: #fff2a8;
+  color: inherit;
+  padding: 0 0.12em;
+  border-radius: 0.22em;
+}
+
+.zen-block-editor mark.zen-inline-marker[data-zen-marker="hl-green"] {
+  background: #bff6c3;
+  color: inherit;
+  padding: 0 0.12em;
+  border-radius: 0.22em;
+}
+
+.zen-block-editor mark.zen-inline-marker[data-zen-marker="hl-blue"] {
+  background: #c8e7ff;
+  color: inherit;
+  padding: 0 0.12em;
+  border-radius: 0.22em;
+}
+
+.zen-block-editor mark.zen-inline-marker[data-zen-marker="text-red"] {
+  background: transparent;
+  color: #c95c5c;
+  padding: 0;
+}
+
+.zen-block-editor mark.zen-inline-marker[data-zen-marker="text-blue"] {
+  background: transparent;
+  color: #5b7fcb;
+  padding: 0;
+}
+
 /* ================= Popover (ZenPlusMenu Design) ================= */
 .zen-block-editor .ce-popover {
   background: rgba(23, 23, 23, 0.92) !important;
@@ -859,4 +912,17 @@
 
 .zen-editor-theme-dark .ce-paragraph {
   color: #e5e5e5;
+}
+
+/* Force visible spell/grammar underlines where the WebView exposes them */
+.zen-block-editor [contenteditable="true"]::-webkit-spelling-error,
+.zen-block-editor input::-webkit-spelling-error,
+.zen-block-editor textarea::-webkit-spelling-error {
+  text-decoration: underline wavy #d63b3b;
+}
+
+.zen-block-editor [contenteditable="true"]::-webkit-grammar-error,
+.zen-block-editor input::-webkit-grammar-error,
+.zen-block-editor textarea::-webkit-grammar-error {
+  text-decoration: underline wavy #d63b3b;
 }

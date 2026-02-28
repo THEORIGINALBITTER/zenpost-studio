@@ -19,6 +19,17 @@ and this project adheres to a calm, intentional release philosophy.
 - Für Multi-Select kann pro Plattform ein eigenes Profil (Tonalität, Länge, Zielgruppe) gepflegt werden.
 - Das aktive Plattform-Profil kann auf alle gewählten Plattformen übernommen werden.
 - Beim Transformieren wird je Plattform die effektive Konfiguration angewendet.
+- Planner-Flow verbessert:
+  - Editor-Entwurf kann direkt im Planner übernommen werden (nicht-blockierend).
+  - Plattform-Auswahl beim Übernehmen aus dem Editor ergänzt (kein harter LinkedIn-Fallback).
+  - Dedupe-Logik beim Öffnen geplanter Dateien verbessert (kein doppelter Tab bei gleicher Datei).
+
+#### UI Components
+- `ZenDropdown` API erweitert:
+  - Neue Varianten: `default`, `input`, `button`.
+  - Legacy-Variante `compact` bleibt als Alias zu `input` kompatibel.
+  - `button`-Variante ist auf visuelle Alignment-Nähe zu `ZenRoughButton` optimiert.
+  - Optionales `triggerHeight` bleibt für lokale Feinanpassungen verfügbar.
 
 #### Build Workflow
 - Neuer Befehl `npm run build:clean` für vollständigen Clean-Build (`dist` + `src-tauri/target` + Tauri Build).

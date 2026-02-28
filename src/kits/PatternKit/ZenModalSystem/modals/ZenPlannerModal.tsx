@@ -78,6 +78,12 @@ interface ZenPlannerModalProps {
   preSelectedDate?: Date;
   initialSchedules?: Partial<Record<SocialPlatform, { date: string; time: string }>>;
   defaultTab?: 'planen' | 'kalender' | 'checklist';
+  suggestedEditorPost?: {
+    key: string;
+    title: string;
+    content: string;
+    platform?: string;
+  };
 }
 
 type TabType = 'planen' | 'kalender' | 'checklist';
@@ -270,6 +276,7 @@ export function ZenPlannerModal({
   preSelectedDate,
   initialSchedules,
   defaultTab = 'planen',
+  suggestedEditorPost,
 }: ZenPlannerModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [plannerLoaded, setPlannerLoaded] = useState(false);
@@ -280,6 +287,8 @@ export function ZenPlannerModal({
   const [reschedulePost, setReschedulePost] = useState<ScheduledPost | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
+  const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Record<string, true>>({});
+  const [suggestedImportPlatform, setSuggestedImportPlatform] = useState<SocialPlatform>('linkedin');
 
 
   // ==================== PLANEN STATE ====================
@@ -296,6 +305,7 @@ export function ZenPlannerModal({
     if (!isOpen) {
       setShowChecklistExportModal(false);
       setReschedulePost(null);
+      setDismissedSuggestionKeys({});
       return;
     }
     setShowPlanenScheduledPosts(posts.length === 0);
@@ -858,24 +868,36 @@ export function ZenPlannerModal({
     createdAt: new Date(),
   });
 
-  const updateScheduledPost = (postId: string, dateStr: string, timeStr: string) => {
+  const upsertPostSchedule = (postId: string, dateStr: string, timeStr: string) => {
     setSchedules(prev => ({
       ...prev,
       [postId]: { date: dateStr, time: timeStr },
     }));
+
     if (!onScheduledPostsChange) return;
-    const updated = scheduledPosts.map((post) => {
-      if (post.id !== postId) return post;
-      const updatedDate = dateStr ? new Date(dateStr) : undefined;
-      const updatedTime = timeStr || undefined;
-      return {
-        ...post,
-        scheduledDate: updatedDate,
-        scheduledTime: updatedTime,
-        status: (updatedDate && updatedTime ? 'scheduled' : 'draft') as PublishingStatus,
-      };
-    });
-    onScheduledPostsChange(updated);
+
+    const basePost =
+      effectiveScheduledPosts.find((post) => post.id === postId) ??
+      scheduledPosts.find((post) => post.id === postId);
+    if (!basePost) return;
+
+    const updatedDate = dateStr ? new Date(dateStr) : undefined;
+    const updatedTime = timeStr || undefined;
+    const updatedPost: ScheduledPost = {
+      ...basePost,
+      scheduledDate: updatedDate,
+      scheduledTime: updatedTime,
+      status: (updatedDate && updatedTime ? 'scheduled' : 'draft') as PublishingStatus,
+    };
+
+    const merged = new Map<string, ScheduledPost>();
+    effectiveScheduledPosts.forEach((post) => merged.set(post.id, post));
+    merged.set(updatedPost.id, updatedPost);
+    onScheduledPostsChange(Array.from(merged.values()));
+  };
+
+  const updateScheduledPost = (postId: string, dateStr: string, timeStr: string) => {
+    upsertPostSchedule(postId, dateStr, timeStr);
   };
 
   const handleSaveSchedule = async (options?: { closeAfter?: boolean }) => {
@@ -1207,6 +1229,60 @@ export function ZenPlannerModal({
 
   const scheduledCount = effectiveScheduledPosts.filter(p => p.status === 'scheduled').length;
   const draftCount = effectiveScheduledPosts.filter(p => p.status === 'draft').length;
+  const suggestedPostExists = useMemo(() => {
+    if (!suggestedEditorPost) return false;
+    const normalize = (value: string) => value.trim().replace(/\s+/g, ' ');
+    const targetContent = normalize(suggestedEditorPost.content);
+    const targetTitle = normalize(suggestedEditorPost.title || '');
+    return planningPosts.some((post) => {
+      const postContent = normalize(post.content);
+      const postTitle = normalize(post.title || '');
+      return postContent === targetContent && postTitle === targetTitle;
+    });
+  }, [planningPosts, suggestedEditorPost]);
+  const showEditorSuggestion =
+    activeTab === 'planen' &&
+    posts.length === 0 &&
+    !!suggestedEditorPost &&
+    suggestedEditorPost.content.trim().length > 0 &&
+    !dismissedSuggestionKeys[suggestedEditorPost.key] &&
+    !suggestedPostExists;
+
+  useEffect(() => {
+    if (!suggestedEditorPost) return;
+    const rawPlatform = suggestedEditorPost.platform as SocialPlatform | undefined;
+    if (rawPlatform && PLATFORM_INFO[rawPlatform]) {
+      setSuggestedImportPlatform(rawPlatform);
+      return;
+    }
+    setSuggestedImportPlatform('linkedin');
+  }, [suggestedEditorPost?.key]);
+
+  const importSuggestedEditorPost = () => {
+    if (!suggestedEditorPost) return;
+    const platform = suggestedImportPlatform;
+    const title = (suggestedEditorPost.title || '').trim();
+    const content = suggestedEditorPost.content;
+    const postId = buildStableContentId(platform, content, title || 'Post');
+    setManualPosts((prev) => {
+      if (prev.some((item) => item.id === postId)) return prev;
+      return [
+        ...prev,
+        {
+          id: postId,
+          platform,
+          title,
+          subtitle: '',
+          content,
+          characterCount: content.length,
+          wordCount: content.split(/\s+/).filter(Boolean).length,
+          source: 'manual',
+        },
+      ];
+    });
+    setShowPlanenScheduledPosts(true);
+    setDismissedSuggestionKeys((prev) => ({ ...prev, [suggestedEditorPost.key]: true }));
+  };
 
   const days = getDaysInMonth(currentDate);
 
@@ -1245,6 +1321,55 @@ export function ZenPlannerModal({
           Plane deine Posts im Voraus. Wähle deine Plattform. Ein Überblick alle deiner geplanten Dinge findest du im Kalender.
         </p>
       </div>
+
+      {showEditorSuggestion && suggestedEditorPost ? (
+        <div
+          style={{
+            marginBottom: '16px',
+            padding: '14px',
+            borderRadius: '8px',
+            border: '1px solid #AC8E66',
+            backgroundColor: 'rgba(172, 142, 102, 0.08)',
+          }}
+        >
+          <div
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              color: '#AC8E66',
+              marginBottom: '8px',
+            }}
+          >
+            Aktiver Entwurf erkannt: "{suggestedEditorPost.title || 'Entwurf'}"
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ minWidth: '160px' }}>
+              <ZenDropdown
+                value={suggestedImportPlatform}
+                onChange={(value) => setSuggestedImportPlatform(value as SocialPlatform)}
+                options={(Object.keys(PLATFORM_INFO) as SocialPlatform[]).map((platform) => ({
+                  value: platform,
+                  label: getPlatformInfo(platform).name,
+                }))}
+                variant="button"
+              />
+            </div>
+            <ZenRoughButton
+              label="Aus Editor übernehmen"
+              icon={<FontAwesomeIcon icon={faCheck} />}
+              onClick={importSuggestedEditorPost}
+              size="small"
+            />
+            <ZenRoughButton
+              label="Ignorieren"
+              onClick={() =>
+                setDismissedSuggestionKeys((prev) => ({ ...prev, [suggestedEditorPost.key]: true }))
+              }
+              size="small"
+            />
+          </div>
+        </div>
+      ) : null}
 
       {/* Manual Add */}
       <div
@@ -1991,8 +2116,12 @@ export function ZenPlannerModal({
                       </div>
                       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         <ZenRoughButton
-                          label="Neu planen"
+                          label={edit.date && edit.time ? "Als geplant setzen" : "Neu planen"}
                           onClick={() => {
+                            if (edit.date && edit.time) {
+                              updateScheduledPost(post.id, edit.date, edit.time);
+                              return;
+                            }
                             openRescheduleModal(post);
                           }}
                           variant="default"
@@ -2120,8 +2249,12 @@ export function ZenPlannerModal({
                     </div>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <ZenRoughButton
-                        label="Neu planen"
+                        label={edit.date && edit.time ? "Als geplant setzen" : "Neu planen"}
                         onClick={() => {
+                          if (edit.date && edit.time) {
+                            updateScheduledPost(post.id, edit.date, edit.time);
+                            return;
+                          }
                           openRescheduleModal(post);
                         }}
                         variant="default"
@@ -2280,7 +2413,7 @@ export function ZenPlannerModal({
           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
             {manualMovePost
               ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Wähle jetzt einen Ziel-Tag im Kalender.`
-              : 'Klicke einen Post im Kalender an, dann klicke den Ziel-Tag.'}
+              : '1. Klicke einen Post im Kalender an, 2. klicke den Ziel-Tag.'}
           </div>
           {manualMovePost && (
             <ZenRoughButton
@@ -3844,25 +3977,7 @@ export function ZenPlannerModal({
               label="Speichern"
               onClick={() => {
                 if (!reschedulePost) return;
-                const updatedDate = rescheduleDate ? new Date(rescheduleDate) : undefined;
-                const updatedTime = rescheduleTime || undefined;
-                setSchedules(prev => ({
-                  ...prev,
-                  [reschedulePost.id]: {
-                    date: rescheduleDate,
-                    time: rescheduleTime,
-                  },
-                }));
-                const updated: ScheduledPost[] = scheduledPosts.map(item => {
-                  if (item.id !== reschedulePost.id) return item;
-                  return {
-                    ...item,
-                    scheduledDate: updatedDate,
-                    scheduledTime: updatedTime,
-                    status: (updatedDate && updatedTime ? 'scheduled' : 'draft') as PublishingStatus,
-                  };
-                });
-                onScheduledPostsChange?.(updated);
+                upsertPostSchedule(reschedulePost.id, rescheduleDate, rescheduleTime);
                 setReschedulePost(null);
               }}
               size="small"

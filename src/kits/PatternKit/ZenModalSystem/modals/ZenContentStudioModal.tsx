@@ -44,7 +44,7 @@ export const ZenContentStudioModal = ({
   webDocuments = [],
   scheduledPosts: _scheduledPosts,
   activeTab,
-  onSelectProject,
+  onSelectProject: _onSelectProject,
   onOpenArticle: _onOpenArticle,
   onOpenFile,
   onOpenWebDocument,
@@ -59,9 +59,6 @@ export const ZenContentStudioModal = ({
   );
   const [fileSort, setFileSort] = useState<"name-asc" | "name-desc" | "date-desc" | "date-asc">("name-asc");
   const [fileSearch, setFileSearch] = useState("");
-  const projectName = projectPath
-    ? projectPath.split(/[\\/]/).filter(Boolean).pop() || "Projekt"
-    : "Kein Projekt gewaehlt";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragActive, setIsDragActive] = useState(false);
   const [webLoadError, setWebLoadError] = useState<string | null>(null);
@@ -233,13 +230,11 @@ export const ZenContentStudioModal = ({
   // Modal-Content und dynamischer Subtitle
   const content = MODAL_CONTENT.contentStudio;
   const dynamicSubtitle =
-    activePanel === "project"
-      ? "Projekt verwalten"
-      : activePanel === "metadata"
-        ? "Projekt-Metadaten"
-        : activePanel === "help"
-          ? "Hilfe"
-          : "Dokumente";
+    activePanel === "metadata"
+      ? "Projekt-Metadaten"
+      : activePanel === "help"
+        ? "Hilfe"
+        : "Dokumente";
   const canOpenDocumentsTab = !isTauri() || !!projectPath;
 
   return (

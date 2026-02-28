@@ -59,6 +59,11 @@ export interface ProjectMetadata {
   repository: string;
   contributingUrl: string;
 
+  // SEO-Felder
+  description: string;
+  keywords: string;
+  lang: string;
+
   // Dynamische Felder aus Dokument
   [key: string]: string;
 }
@@ -79,6 +84,9 @@ const defaultMetadata: ProjectMetadata = {
   website: '',
   repository: '',
   contributingUrl: '',
+  description: '',
+  keywords: '',
+  lang: 'de',
 };
 
 // Typography-Konfiguration (außerhalb der Komponente)

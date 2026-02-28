@@ -116,7 +116,7 @@ export const ZenLocalAISetupContent = () => {
           {/* Header */}
           <div className="border-b border-[#AC8E66]/35" style={{ padding: "16px 10px" }}>
             <div className="font-mono text-[12px] text-[#555] text-center tracking-wide">
-              Lokale KI
+              Lokale AI
             </div>
             <div className="font-mono text-[10px] text-[#777] text-center" style={{ marginTop: 4 }}>
               Nur in ZenPost Studio (Desktop) verfügbar
@@ -408,7 +408,7 @@ export const ZenLocalAISetupContent = () => {
                           flexShrink: 0,
                           background: isDone ? "#AC8E66" : "transparent",
                           border: `2px solid ${isDone ? "#AC8E66" : "rgba(172,142,102,0.35)"}`,
-                          color: isDone ? "#fff" : "#AC8E66",
+                          color: isDone ? "#1a1a1a" : "#AC8E66",
                         }}
                       >
                         {isDone ? (

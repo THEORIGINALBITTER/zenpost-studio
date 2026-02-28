@@ -6,7 +6,8 @@ import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/atom-one-dark.css';
 import './ZenMarkdownPreview.css';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner, faPrint } from '@fortawesome/free-solid-svg-icons';
+import { invoke } from '@tauri-apps/api/core';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
 interface ZenMarkdownPreviewProps {
   content: string;
@@ -24,6 +25,10 @@ interface ZenMarkdownPreviewProps {
   previewToolbarMode?: 'overlay' | 'sticky';
   showInternalTranslationStatus?: boolean;
   onTranslationStateChange?: (isTranslating: boolean) => void;
+  marginTop?: number;
+  marginBottom?: number;
+  marginLeft?: number;
+  marginRight?: number;
 }
 
 export type PreviewThemeId = 'color-classic' | 'color-soft' | 'mono-clean' | 'mono-ink';
@@ -50,6 +55,10 @@ export const ZenMarkdownPreview = ({
   previewToolbarMode = 'overlay',
   showInternalTranslationStatus = true,
   onTranslationStateChange,
+  marginTop = 48,
+  marginBottom = 48,
+  marginLeft = 64,
+  marginRight = 64,
 }: ZenMarkdownPreviewProps) => {
   const [zoom, setZoom] = useState(70);
   const [previewTheme, setPreviewTheme] = useState<PreviewThemeId>(externalPreviewTheme ?? 'mono-clean');
@@ -251,6 +260,24 @@ export const ZenMarkdownPreview = ({
     setShowThemeMenu(false);
   };
 
+  const handlePrint = async () => {
+    setShowLanguageMenu(false);
+    setShowThemeMenu(false);
+    try {
+      await invoke('print_current_window');
+      return;
+    } catch (error) {
+      console.warn('Tauri print command failed, fallback to window.print():', error);
+    }
+
+    try {
+      window.print();
+    } catch (error) {
+      console.error('Browser print fallback failed:', error);
+      alert('Drucken ist auf dieser Plattform aktuell nicht verfügbar.');
+    }
+  };
+
   const getChildrenText = (children: ReactNode): string =>
     Children.toArray(children)
       .map((child) => {
@@ -366,7 +393,7 @@ export const ZenMarkdownPreview = ({
                     bg-[#121212]
                     border border-[#2E2E2E]
                     shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-                    z-20
+                    z-[9999]
                   "
                 >
                   <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
@@ -462,11 +489,33 @@ export const ZenMarkdownPreview = ({
 
           <div className="w-px h-7 bg-[#232323] mx-1" />
 
+          <button
+            onClick={handlePrint}
+            className="
+              h-9 w-9
+              inline-flex items-center justify-center
+              rounded-lg
+              bg-[#171717]
+              border border-[#2E2E2E]
+              text-[#A0A0A0]
+              text-[10px]
+              hover:text-[#AC8E66]
+              hover:border-[#3A3328]
+              hover:bg-[#1D1D1D]
+              active:translate-y-[1px]
+              transition
+            "
+            title="Drucken"
+            aria-label="Drucken"
+          >
+            <FontAwesomeIcon icon={faPrint} className="text-[10px]" />
+          </button>
+
           <div className="relative">
             <button
               onClick={() => setShowThemeMenu((prev) => !prev)}
               className={`
-                h-9 min-w-[52px] px-2
+                h-9 min-w-[52px] px-10
                 inline-flex items-center justify-center gap-1
                 rounded-lg
                 border
@@ -493,10 +542,11 @@ export const ZenMarkdownPreview = ({
                   bg-[#121212]
                   border border-[#2E2E2E]
                   shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-                  z-20
+                  z-[9999]
                 "
               >
-                <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                <div className="px-3 py-2 text-[10px] font-mono 
+                tracking-wide text-[#666] border-b border-[#1F1F1F]">
                   Theme wählen
                 </div>
                 {previewThemeOptions.map((theme) => (
@@ -523,10 +573,10 @@ export const ZenMarkdownPreview = ({
   );
 
   return (
-    <div className="w-full relative">
+    <div className="w-full relative zen-preview-root">
       {previewToolbarMode === 'overlay' && (
         <div
-          className="absolute z-[45] flex items-center"
+          className="absolute z-[45] flex items-center zen-preview-print-hidden"
           style={{ top: 50, right: 14, transformOrigin: 'top right' }}
         >
           {controlsPanel}
@@ -538,7 +588,7 @@ export const ZenMarkdownPreview = ({
       {showInternalTranslationStatus && isTranslating && (
         translationStatusStyle === 'ai' ? (
           <div
-            className="absolute z-[46] flex items-center justify-center"
+            className="absolute z-[46] flex items-center justify-center zen-preview-print-hidden"
             style={{ top: 108, left: '50%', transform: 'translateX(-50%)' }}
           >
             <div className="flex items-center gap-1 px-[10px] py-[8px] 
@@ -555,7 +605,7 @@ export const ZenMarkdownPreview = ({
           </div>
         ) : (
           <div
-            className="absolute z-[46] bg-[#1A1A1A] border border-[#AC8E66] rounded rounded-[12px] px-[12px] py-[2px]"
+            className="absolute z-[46] bg-[#1A1A1A] border border-[#AC8E66] rounded rounded-[12px] px-[12px] py-[2px] zen-preview-print-hidden"
             style={{ top: 16, left: 10, scale: 0.75, transformOrigin: 'top left' }}
           >
             <p className="text-[#AC8E66] text-[9px] font-mono">Übersetze...</p>
@@ -566,7 +616,7 @@ export const ZenMarkdownPreview = ({
       {/* Translation Error */}
       {translateError && (
         <div
-          className="absolute z-[46] bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1"
+          className="absolute z-[46] bg-[#1A1A1A] border border-red-500 rounded-lg px-3 py-1 zen-preview-print-hidden"
           style={{ top: 16, right: 16 }}
         >
           <p className="text-red-400 text-xs font-mono">{translateError}</p>
@@ -577,45 +627,70 @@ export const ZenMarkdownPreview = ({
      
      
       <div
-        className="
+        className="zen-preview-paper
         text-[#3a3a3a]
         border-[2px]
         border-[#555]
-        borderTop-[none]
-        box-shadow:
-          inset 0 0 60px rgba(0,0,0,0.04),
-          0 20px 60px rgba(0,0,0,0.15);
         rounded-[8px_8px_12px_12px]
-        shadow-[-10px_-10px_-6px_-1px_rgba(5,5,5,0.9)]
-        p-[5px]
-        overflow-y-auto zen-scrollbar rose
         max-w-none"
         style={{
           height,
-          paddingTop: 0,
           borderWidth: '2.5px',
           background: 'rgb(217, 212, 197)',
           boxShadow: 'inset 0 0 30px rgba(0,0,0,0.03)',
           position: 'relative',
-          cursor: autoHideReadingCursor && isReadingCursorHidden ? 'none' : 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'visible',
         }}
-        onMouseMove={handleReadingActivity}
-        onMouseDown={handleReadingActivity}
-        onWheel={() => {
-          handleReadingActivity();
-          handlePreviewScrollInteraction();
-        }}
-        onScroll={handlePreviewScrollInteraction}
-        onTouchMove={handlePreviewScrollInteraction}
-        onTouchStart={handleReadingActivity}
-        onMouseLeave={() => setIsReadingCursorHidden(false)}
       >
+        {/* Sticky toolbar — outside the scroll container so dropdowns never get clipped */}
         {previewToolbarMode === 'sticky' && (
-          <div className="sticky top-[10px] z-[45] mb-[8px] flex justify-end pr-[8px]">
+          <div
+            className="flex justify-end pr-[8px] pt-[10px] pb-[2px] zen-preview-print-hidden"
+            style={{ flexShrink: 0, position: 'relative', zIndex: 45 }}
+          >
             {controlsPanel}
           </div>
         )}
 
+        {/* Scrollable content area */}
+        <div
+          className="zen-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            cursor: autoHideReadingCursor && isReadingCursorHidden ? 'none' : 'auto',
+          }}
+          onMouseMove={handleReadingActivity}
+          onMouseDown={handleReadingActivity}
+          onWheel={() => {
+            handleReadingActivity();
+            handlePreviewScrollInteraction();
+          }}
+          onScroll={handlePreviewScrollInteraction}
+          onTouchMove={handlePreviewScrollInteraction}
+          onTouchStart={handleReadingActivity}
+          onMouseLeave={() => setIsReadingCursorHidden(false)}
+        >
+
+        {/* Page margin wrapper */}
+        <div style={{ position: 'relative', padding: `${marginTop}px ${marginRight}px ${marginBottom}px ${marginLeft}px` }}>
+          {/* Dotted margin guides — oben, unten, links, rechts */}
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              top: marginTop,
+              right: marginRight,
+              bottom: marginBottom,
+              left: marginLeft,
+              border: '1px dashed rgba(172, 142, 102, 0.28)',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          />
         <div
           className="zen-markdown-preview"
           style={{
@@ -623,6 +698,8 @@ export const ZenMarkdownPreview = ({
             transformOrigin: 'top left',
             width: `${100 / (zoom / 100)}%`,
             fontFamily: 'IBM Plex Mono, monospace',
+            position: 'relative',
+            zIndex: 1,
           }}
         >
           <ReactMarkdown
@@ -751,6 +828,31 @@ export const ZenMarkdownPreview = ({
               ins: ({ node, ...props }) => (
                 <ins style={{ textDecorationThickness: '1.5px', textUnderlineOffset: '2px' }} {...props} />
               ),
+              mark: ({ node, ...props }: any) => {
+                const token = String(props['data-zen-marker'] ?? '').toLowerCase();
+                const baseStyle = {
+                  color: 'inherit',
+                  padding: '0 0.12em',
+                  borderRadius: '0.22em',
+                };
+                const colorByToken: Record<string, { background?: string; color?: string; padding?: string | number }> = {
+                  'hl-yellow': { background: '#fff2a8' },
+                  'hl-green': { background: '#bff6c3' },
+                  'hl-blue': { background: '#c8e7ff' },
+                  'text-red': { background: 'transparent', color: '#c95c5c', padding: 0 },
+                  'text-blue': { background: 'transparent', color: '#5b7fcb', padding: 0 },
+                };
+                return (
+                  <mark
+                    {...props}
+                    style={{
+                      ...baseStyle,
+                      ...(colorByToken[token] ?? { background: '#fff2a8' }),
+                      ...(props.style ?? {}),
+                    }}
+                  />
+                );
+              },
               pre: ({ node, ...props }) => (
                 <pre
                   className="rounded-lg p-4 mb-4 overflow-x-auto text-sm"
@@ -799,14 +901,16 @@ export const ZenMarkdownPreview = ({
                 <strong className="font-bold" style={{ color: palette.heading }} {...props} />
               ),
               em: ({ node, ...props }) => (
-                <em className="italic text-[20px]" style={{ color: palette.accent }} {...props} />
+                <em className=" text-[15px]" style={{ color: palette.accent }} {...props} />
               ),
             }}
           >
             {content || '*Keine Vorschau verfügbar. Beginne mit dem Schreiben...*'}
           </ReactMarkdown>
         </div>
-      </div>
+        </div>{/* end margin wrapper */}
+        </div>{/* end scrollable content area */}
+      </div>{/* end zen-preview-paper */}
     </div>
   );
 };

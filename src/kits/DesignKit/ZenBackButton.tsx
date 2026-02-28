@@ -51,6 +51,7 @@ export const ZenBackButton: React.FC<ZenBackButtonProps> = ({
       type="button"
       aria-label="Zurück"
       onClick={handleClick}
+
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       className={`group relative flex items-center justify-center rounded-full
@@ -75,7 +76,8 @@ export const ZenBackButton: React.FC<ZenBackButtonProps> = ({
       {/* Icon bleibt oben */}
       <FontAwesomeIcon
         icon={faArrowLeft}
-        className="text-[14px] text-[#fffbeb] z-10 pointer-events-none group-hover:text-[#dbd9d5]"
+        className="text-[14px] 
+        text-[#1a1a1a] z-10 pointer-events-none group-hover:text-[#a1a1a1] transition-colors"
       />
     </button>
   );

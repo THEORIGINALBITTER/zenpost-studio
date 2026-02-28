@@ -269,7 +269,6 @@ class ZenTableBlockTool {
     const addCol = document.createElement('button');
     addCol.type = 'button';
     addCol.className = 'zen-table-block-tool__btn';
-    addCol.textContent = '+ Spalte';
 
     const removeRow = document.createElement('button');
     removeRow.type = 'button';
@@ -536,6 +535,175 @@ class ZenCodeBlockTool {
   }
 }
 
+class ZenMarkerInlineTool {
+  private api: any;
+  private button: HTMLButtonElement | null = null;
+  private actionsRoot: HTMLDivElement | null = null;
+  private selectedColor = 'yellow';
+
+  private static readonly MARK_CLASS = 'zen-inline-marker';
+  private static readonly COLORS: Array<{ key: string; label: string; value: string }> = [
+    { key: 'yellow', label: 'Gelb', value: '#fff2a8' },
+    { key: 'green', label: 'Grun', value: '#bff6c3' },
+    { key: 'blue', label: 'Blau', value: '#c8e7ff' },
+    { key: 'rose', label: 'Rose', value: '#ffd4de' },
+  ];
+
+  static get isInline() {
+    return true;
+  }
+
+  static get title() {
+    return 'Marker';
+  }
+
+  static get sanitize() {
+    return {
+      mark: {
+        class: true,
+        style: true,
+        'data-zen-marker': true,
+      },
+    };
+  }
+
+  constructor({ api }: { api: any }) {
+    this.api = api;
+  }
+
+  private getCurrentSelectionRange(): Range | null {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return null;
+    return selection.getRangeAt(0);
+  }
+
+  private findMarkerTag() {
+    return this.api.selection.findParentTag('MARK', ZenMarkerInlineTool.MARK_CLASS) as HTMLElement | null;
+  }
+
+  private unwrap(mark: HTMLElement) {
+    const parent = mark.parentNode;
+    if (!parent) return;
+
+    while (mark.firstChild) {
+      parent.insertBefore(mark.firstChild, mark);
+    }
+    parent.removeChild(mark);
+  }
+
+  private applyMark(range: Range, colorKey: string) {
+    const color = ZenMarkerInlineTool.COLORS.find((entry) => entry.key === colorKey)?.value
+      ?? ZenMarkerInlineTool.COLORS[0].value;
+    const mark = document.createElement('mark');
+    mark.classList.add(ZenMarkerInlineTool.MARK_CLASS);
+    mark.dataset.zenMarker = colorKey;
+    mark.style.backgroundColor = color;
+    mark.style.color = 'inherit';
+    mark.style.padding = '0 0.12em';
+    mark.style.borderRadius = '0.22em';
+
+    try {
+      range.surroundContents(mark);
+    } catch {
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+    }
+
+    this.api.selection.expandToTag(mark);
+  }
+
+  private applyColorFromSelection() {
+    const range = this.getCurrentSelectionRange();
+    if (!range || range.collapsed) return;
+
+    const marker = this.findMarkerTag();
+    if (marker) {
+      marker.dataset.zenMarker = this.selectedColor;
+      marker.style.backgroundColor =
+        ZenMarkerInlineTool.COLORS.find((entry) => entry.key === this.selectedColor)?.value
+        ?? ZenMarkerInlineTool.COLORS[0].value;
+      marker.style.color = 'inherit';
+      marker.style.padding = '0 0.12em';
+      marker.style.borderRadius = '0.22em';
+      return;
+    }
+
+    this.applyMark(range, this.selectedColor);
+  }
+
+  render() {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.classList.add(this.api.styles.inlineToolButton);
+    button.classList.add('zen-marker-inline-tool');
+    button.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24"><path fill="currentColor" d="m4 17.25V21h3.75L19.06 9.69l-3.75-3.75L4 17.25Zm2.92 2.33H6v-.92l9.31-9.31.92.92-9.31 9.31ZM20.71 7.04a1 1 0 0 0 0-1.41L18.37 3.3a1 1 0 0 0-1.42 0l-1.13 1.13l3.75 3.75l1.14-1.14Z"/></svg>';
+    this.button = button;
+    return button;
+  }
+
+  renderActions() {
+    const root = document.createElement('div');
+    root.className = 'zen-marker-palette';
+
+    ZenMarkerInlineTool.COLORS.forEach((entry) => {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'zen-marker-palette__swatch';
+      swatch.dataset.color = entry.key;
+      swatch.setAttribute('aria-label', `${entry.label} Marker`);
+      swatch.style.backgroundColor = entry.value;
+      if (entry.key === this.selectedColor) {
+        swatch.classList.add('zen-marker-palette__swatch--active');
+      }
+      swatch.addEventListener('mousedown', (event) => event.preventDefault());
+      swatch.addEventListener('click', (event) => {
+        event.preventDefault();
+        this.selectedColor = entry.key;
+        this.actionsRoot
+          ?.querySelectorAll('.zen-marker-palette__swatch')
+          .forEach((el) => el.classList.remove('zen-marker-palette__swatch--active'));
+        swatch.classList.add('zen-marker-palette__swatch--active');
+        this.applyColorFromSelection();
+      });
+      root.appendChild(swatch);
+    });
+
+    this.actionsRoot = root;
+    return root;
+  }
+
+  surround(range: Range) {
+    if (!range || range.collapsed) return;
+
+    const marker = this.findMarkerTag();
+    if (marker) {
+      this.unwrap(marker);
+      return;
+    }
+
+    this.applyMark(range, this.selectedColor);
+  }
+
+  checkState() {
+    const marker = this.findMarkerTag();
+    if (!this.button) return;
+    this.button.classList.toggle(this.api.styles.inlineToolButtonActive, !!marker);
+    if (!marker) return;
+
+    const markerColor = marker.dataset.zenMarker;
+    if (markerColor && ZenMarkerInlineTool.COLORS.some((entry) => entry.key === markerColor)) {
+      this.selectedColor = markerColor;
+      this.actionsRoot
+        ?.querySelectorAll('.zen-marker-palette__swatch')
+        .forEach((el) => el.classList.remove('zen-marker-palette__swatch--active'));
+      const active = this.actionsRoot?.querySelector<HTMLElement>(`.zen-marker-palette__swatch[data-color="${markerColor}"]`);
+      active?.classList.add('zen-marker-palette__swatch--active');
+    }
+  }
+}
+
 interface ZenBlockEditorProps {
   value: string; // Markdown input
   onChange: (value: string) => void; // Markdown output
@@ -608,6 +776,102 @@ export const ZenBlockEditor = ({
     onRegisterContentSnapshotGetter(getCurrentMarkdownSnapshot);
     return () => onRegisterContentSnapshotGetter(null);
   }, [onRegisterContentSnapshotGetter, isReady, value]);
+
+  useEffect(() => {
+    if (!isReady || !holderRef.current) return;
+
+    const holder = holderRef.current;
+    const editableSelector =
+      '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, .zen-code-block-tool__textarea, .zen-table-block-tool__cell, .zen-link-block-tool__input, .zen-image-block-tool__input, .zen-cta-block-tool__input, textarea, input, [contenteditable="true"]';
+
+    const setTextAssistOn = (element: HTMLElement) => {
+      element.setAttribute('lang', 'de-DE');
+      element.setAttribute('spellcheck', 'true');
+      element.setAttribute('autocorrect', 'on');
+      element.setAttribute('autocapitalize', 'sentences');
+      if ('spellcheck' in element) {
+        (element as HTMLElement & { spellcheck: boolean }).spellcheck = true;
+      }
+    };
+
+    const setTextAssistOff = (element: HTMLElement) => {
+      element.setAttribute('lang', 'de-DE');
+      element.setAttribute('spellcheck', 'false');
+      element.setAttribute('autocorrect', 'off');
+      element.setAttribute('autocapitalize', 'off');
+      if ('spellcheck' in element) {
+        (element as HTMLElement & { spellcheck: boolean }).spellcheck = false;
+      }
+    };
+
+    const applyToElement = (element: HTMLElement) => {
+      const isCodeInput =
+        element.classList.contains('zen-code-block-tool__textarea') ||
+        !!element.closest('.zen-code-block-tool');
+
+      if (isCodeInput) {
+        setTextAssistOff(element);
+        return;
+      }
+
+      if (element instanceof HTMLInputElement && element.type === 'url') {
+        setTextAssistOff(element);
+        return;
+      }
+
+      setTextAssistOn(element);
+    };
+
+    const applyTextAssistAttributes = (root: ParentNode) => {
+      if (root instanceof HTMLElement && root.matches(editableSelector)) {
+        applyToElement(root);
+      }
+
+      const editables = root.querySelectorAll<HTMLElement>(editableSelector);
+      editables.forEach(applyToElement);
+    };
+
+    holder.setAttribute('lang', 'de-DE');
+    applyTextAssistAttributes(holder);
+
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof HTMLElement) {
+            applyTextAssistAttributes(node);
+          }
+        });
+      });
+    });
+
+    observer.observe(holder, {
+      childList: true,
+      subtree: true,
+    });
+
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        applyTextAssistAttributes(target);
+      }
+    };
+
+    const onInput = (event: Event) => {
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        applyTextAssistAttributes(target);
+      }
+    };
+
+    holder.addEventListener('focusin', onFocusIn, true);
+    holder.addEventListener('input', onInput, true);
+
+    return () => {
+      observer.disconnect();
+      holder.removeEventListener('focusin', onFocusIn, true);
+      holder.removeEventListener('input', onInput, true);
+    };
+  }, [isReady]);
 
   // Convert Markdown to EditorJS format
   const markdownToEditorJS = (markdown: string): OutputData => {
@@ -857,6 +1121,18 @@ export const ZenBlockEditor = ({
           .replace(/<(s|strike|del)(\s+[^>]*)?>([\s\S]*?)<\/(s|strike|del)>/gi, (_m, _tag, _attrs, inner) => `~~${inner}~~`)
           // Inline code
           .replace(/<code(\s+[^>]*)?>([\s\S]*?)<\/code>/gi, (_m, _attrs, inner) => `\`${inner}\``)
+          // Browser foreColor often produces <font color="...">...</font>
+          .replace(/<font[^>]*color=["']([^"']+)["'][^>]*>([\s\S]*?)<\/font>/gi, (_m, color, inner) => `<span style="color:${String(color).trim()}">${String(inner ?? '')}</span>`)
+          // Preserve highlight color from styled spans
+          .replace(
+            /<span[^>]*style=["'][^"']*background-color\s*:\s*([^;"']+)[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi,
+            (_m, bg, inner) => `<mark style="background-color:${String(bg).trim()};color:inherit">${String(inner ?? '')}</mark>`
+          )
+          // Preserve plain text color from styled spans
+          .replace(
+            /<span[^>]*style=["'][^"']*color\s*:\s*([^;"']+)[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi,
+            (_m, color, inner) => `<span style="color:${String(color).trim()}">${String(inner ?? '')}</span>`
+          )
           // Underline has no native markdown syntax; keep as inline HTML
           .replace(/<u(\s+[^>]*)?>([\s\S]*?)<\/u>/gi, (_m, _attrs, inner) => `<u>${String(inner ?? '')}</u>`);
       const convertOrderedLists = (input: string) =>
@@ -896,11 +1172,11 @@ export const ZenBlockEditor = ({
         .replace(/<ul(\s+[^>]*)?>/gi, '')
         .replace(/<\/(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)>/gi, '\n')
         .replace(/<(p|div|h[1-6]|li|ul|ol|blockquote|pre|code)(\s+[^>]*)?>/gi, '')
-        .replace(/<\/?span(\s+[^>]*)?>/gi, '')
         .replace(/<\/?strong(\s+[^>]*)?>/gi, '')
         .replace(/<\/?em(\s+[^>]*)?>/gi, '')
         .replace(/<\/?i(\s+[^>]*)?>/gi, '')
         .replace(/<\/?b(\s+[^>]*)?>/gi, '')
+        .replace(/<\/?font(\s+[^>]*)?>/gi, '')
         .replace(/<br[^>]*data-empty=["']?true["']?[^>]*>/gi, '')
         .replace(/<br(\s+[^>]*)?\s*\/?>\s*<br(\s+[^>]*)?\s*\/?>/gi, '\n\n')
         .replace(/<br(\s+[^>]*)?\s*\/?>/gi, '\n');
@@ -1008,6 +1284,9 @@ export const ZenBlockEditor = ({
         list: {
           class: List as any,
           inlineToolbar: true,
+        },
+        marker: {
+          class: ZenMarkerInlineTool as any,
         },
         code: {
           class: ZenCodeBlockTool as any,
@@ -1811,6 +2090,55 @@ export const ZenBlockEditor = ({
     setMenuOpen(false);
   };
 
+  const applyColorFormat = (mode: 'highlight' | 'text', color: string) => {
+    const holder = holderRef.current;
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+    if (!holder || !selection || !range || range.collapsed || !holder.contains(range.commonAncestorContainer)) {
+      setMenuOpen(false);
+      return;
+    }
+
+    const tokenByColor: Record<string, string> =
+      mode === 'highlight'
+        ? {
+            '#fff2a8': 'hl-yellow',
+            '#bff6c3': 'hl-green',
+            '#c8e7ff': 'hl-blue',
+          }
+        : {
+            '#c95c5c': 'text-red',
+            '#5b7fcb': 'text-blue',
+          };
+
+    const markerToken = tokenByColor[color.toLowerCase()] ?? (mode === 'highlight' ? 'hl-yellow' : 'text-red');
+    const mark = document.createElement('mark');
+    mark.className = 'zen-inline-marker';
+    mark.dataset.zenMarker = markerToken;
+
+    try {
+      range.surroundContents(mark);
+    } catch {
+      const fragment = range.extractContents();
+      mark.appendChild(fragment);
+      range.insertNode(mark);
+    }
+
+    selection.removeAllRanges();
+    const caretRange = document.createRange();
+    caretRange.selectNodeContents(mark);
+    caretRange.collapse(false);
+    selection.addRange(caretRange);
+
+    const editable = mark.closest<HTMLElement>(
+      '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
+    );
+    editable?.dispatchEvent(new Event('input', { bubbles: true }));
+
+    setMenuOpen(false);
+  };
+
   const getViewportPosition = (position: { x: number; y: number }) => {
     const container = containerRef.current;
     if (!container) return position;
@@ -2139,6 +2467,11 @@ export const ZenBlockEditor = ({
               <button type="button" onClick={() => applyInlineFormat('italic')}>I</button>
               <button type="button" onClick={() => applyInlineFormat('underline')}>U</button>
               <button type="button" onClick={() => applyInlineFormat('strikeThrough')}>S</button>
+              <button type="button" title="Marker Gelb" aria-label="Marker Gelb" onClick={() => applyColorFormat('highlight', '#fff2a8')}>M1</button>
+              <button type="button" title="Marker Grün" aria-label="Marker Grün" onClick={() => applyColorFormat('highlight', '#bff6c3')}>M2</button>
+              <button type="button" title="Marker Blau" aria-label="Marker Blau" onClick={() => applyColorFormat('highlight', '#c8e7ff')}>M3</button>
+              <button type="button" title="Text Rot" aria-label="Text Rot" onClick={() => applyColorFormat('text', '#c95c5c')}>T1</button>
+              <button type="button" title="Text Blau" aria-label="Text Blau" onClick={() => applyColorFormat('text', '#5b7fcb')}>T2</button>
             </div>
 
             <div className="zen-overlay-block-menu__section">Einfügen</div>

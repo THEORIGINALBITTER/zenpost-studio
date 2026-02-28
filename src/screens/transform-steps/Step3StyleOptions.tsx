@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowLeft, faCheck } from '@fortawesome/free-solid-svg-icons';
-import { ZenRoughButton, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
-import { ZenSubtitle } from '../../kits/PatternKit/ZenSubtitle';
-import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
+import {  faCheck } from '@fortawesome/free-solid-svg-icons';
+import { ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenSubtitleDark } from '../../kits/PatternKit/ZenSubtitleDark';
+import { ZenBackButton } from '../../kits/DesignKit/ZenBackButton';
 
 import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage } from '../../services/aiService';
 
@@ -76,6 +76,7 @@ function join(...c: Array<string | false | null | undefined>) {
 }
 
 export const Step3StyleOptions = ({
+  selectedPlatform: _selectedPlatform,
   platformLabel,
   selectedPlatforms,
   platformLabels,
@@ -85,7 +86,7 @@ export const Step3StyleOptions = ({
   activeStylePlatform,
   stylePlatformOptions = [],
   onActiveStylePlatformChange,
-  onApplyCurrentStyleToAll,
+
 
   tone,
   length,
@@ -107,6 +108,9 @@ export const Step3StyleOptions = ({
   error,
 }: Step3StyleOptionsProps) => {
   const [changedOptions, setChangedOptions] = useState<Set<string>>(new Set());
+  const cardWidth = 220;
+  const cardGap = 32;
+  const cardsRowWidth = cardWidth * 4 + cardGap * 3;
 
   const markAsChanged = (option: string) => {
     setChangedOptions((prev) => new Set([...prev, option]));
@@ -114,11 +118,30 @@ export const Step3StyleOptions = ({
 
   const isChanged = (option: string) => changedOptions.has(option);
   const showModeSwitch = multiPlatformMode && (selectedPlatforms?.length ?? 0) > 1;
+  const sharedSectionWidth = '80%';
 
   const displayPlatformLabel =
     multiPlatformMode && platformLabels && platformLabels.length > 0
       ? platformLabels.join(', ')
       : platformLabel;
+  const parsedError = (() => {
+    if (!error) return null;
+    const start = error.indexOf('(');
+    const end = error.lastIndexOf(')');
+
+    if (start === -1 || end === -1 || end <= start) {
+      return { headline: error, items: [] as string[] };
+    }
+
+    const headline = error.slice(0, start).trim();
+    const details = error.slice(start + 1, end);
+    const items = details
+      .split('|')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    return { headline, items };
+  })();
 
   const Card = ({
     optionKey,
@@ -132,20 +155,38 @@ export const Step3StyleOptions = ({
     const changed = isChanged(optionKey);
 
     return (
-      <div className={join('zen-step-card', changed && 'zen-step-card--changed')}>
-        <div className="zen-step-indicator">
-          {changed ? (
-            <div className="zen-step-check">
-              <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10, color: '#141414' }} />
-            </div>
-          ) : (
-            <div className="zen-step-dot" />
-          )}
+      <div
+        className={join(
+          'relative rounded-[12px] border border-dotted bg-transparent transition-all p-6',
+          changed
+            ? 'border-[#AC8E66] bg-[#ebe8df]'
+            : 'border-[#4a4a4a] hover:border-[#AC8E66]/50 hover:border-solid'
+        )}
+        style={{
+          width: `${cardWidth}px`,
+          boxSizing: 'border-box',
+          minHeight: '100px',
+          padding: '20px',
+        }}
+      >
+        <div className="absolute top-3 left-3">
+          <div
+            className={join(
+              'w-4 h-4 aspect-square box-border rounded-full border-2 flex items-center justify-center transition-all',
+              changed
+                ? 'border-[#AC8E66] bg-[#AC8E66]'
+                : 'border-[#1a1a1a] bg-transparent'
+            )}
+          >
+            {changed && (
+              <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
+            )}
+          </div>
         </div>
 
-        <p className="zen-step-card-title">{title}</p>
+        <p className="font-mono text-[12px] text-[#777] mb-3 text-center">{title}</p>
 
-        <div className="zen-step-card-body">
+        <div className="flex items-center justify-center w-full">
           {children}
         </div>
       </div>
@@ -153,111 +194,105 @@ export const Step3StyleOptions = ({
   };
 
   return (
-    <div
-      style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingLeft: 24,
-        paddingRight: 24,
-      }}
-    >
-      {/* Close Button */}
-      <div style={{ position: 'absolute', top: 120, right: 40 }}>
-        <ZenCloseButton onClick={onBackToEditor} />
+    <div className="flex-1 flex flex-col items-center justify-center px-[20px] bg-[#d0cbb8]">
+      <div style={{ position: 'absolute', top: '120px', left: '150px' }}>
+        <ZenBackButton onClick={onBackToEditor} />
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 1100 }}>
-        {/* Title */}
-        <div style={{ marginBottom: 14 }}>
-          <p className="zen-step-headline">
-            <span style={{ color: '#AC8E66' }}>KI Einstellungen:</span>
-            <span style={{ color: '#dbd9d5' }}> {displayPlatformLabel}</span>
-             <div style={{ textAlign: 'center', maxWidth: 720, marginTop: 18 }}>
-          <p
-            style={{
-              color: '#9a9a9a',
-              fontFamily:
-                'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-              fontSize: 11,
-              lineHeight: 1.7,
-            }}
+      <div className="flex flex-col items-center w-full" style={{ maxWidth: '1320px' }}>
+        <div className="flex flex-col items-center  mb-6">
+          <p className="font-mono text-[12px] text-center">
+            <span className="text-[#AC8E66]">AI Einstellungen:</span>
+            <span className="text-[#1a1a1a]"> {displayPlatformLabel}</span>
+          </p>
+
+
+
+
+          <div className="max-w-4xl 
+          p-[20px] 
+          border-[0.5px] border-[#AC8E66] rounded-[12px]
+          
+          "
+          style={{ width: sharedSectionWidth }}
           >
-            Transformiere den Content mit AI oder poste ihn direkt auf die gewählte Plattform.
-          </p>
-        </div>
-          </p>
-         
-        </div>
+            <ZenSubtitleDark className="text-center">
+              Passe die KI-Einstellungen an, um den Stil deines Beitrags zu beeinflussen.
+              <br />
+              Je nachdem, wie du die Optionen einstellst,
+              <br />
+              kann die KI deinen Beitrag z.B. kürzer oder länger machen.
+            </ZenSubtitleDark>
 
-        {/* Subtitle */}
-        <div style={{ marginBottom: 36 }}>
-          <ZenSubtitle>Tonaliät und Zielegruppe der Transformation mit deinen Präferenzen</ZenSubtitle>
-        </div>
-
-        {showModeSwitch && (
-          <div style={{ width: '100%', maxWidth: 740, marginBottom: 24 }}>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginBottom: 14 }}>
+              {showModeSwitch && (
+          <div className="w-full max-w-[740px] mb-[12px] gap-2">
+            <div className="flex justify-center mb-3">
               <button
                 type="button"
                 onClick={() => onStyleModeChange?.('platform')}
-                style={{
-                  border: styleMode === 'platform' ? '1px solid #AC8E66' : '1px solid #4a4a4a',
-                  color: styleMode === 'platform' ? '#e5e5e5' : '#9a9a9a',
-                  background: 'transparent',
-                  borderRadius: 10,
-                  padding: '8px 12px',
-                  fontSize: 11,
-                  fontFamily:
-                    'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                  cursor: 'pointer',
-                }}
+                className={join(
+                  'rounded-lg border px-[10px] py-[8px] text-[11px] font-mono transition',
+                  styleMode === 'platform'
+                    ? 'border-[#AC8E66] text-[#1a1a1a] bg-[transparent]'
+                    : 'border-[#4a4a4a] text-[#6a6a6a] bg-transparent hover:border-[#AC8E66]/50'
+                )}
               >
                 Pro Plattform
               </button>
               <button
                 type="button"
                 onClick={() => onStyleModeChange?.('global')}
-                style={{
-                  border: styleMode === 'global' ? '1px solid #AC8E66' : '1px solid #4a4a4a',
-                  color: styleMode === 'global' ? '#e5e5e5' : '#9a9a9a',
-                  background: 'transparent',
-                  borderRadius: 10,
-                  padding: '8px 12px',
-                  fontSize: 11,
-                  fontFamily:
-                    'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                  cursor: 'pointer',
-                }}
+                style={{ marginLeft: '16px' }}
+                className={join(
+                  'rounded-lg border px-3 py-2 text-[11px] font-mono transition',
+                  styleMode === 'global'
+                    ? 'border-[#AC8E66] text-[#1a1a1a] bg-[transparent]'
+                    : 'border-[#4a4a4a] text-[#6a6a6a] bg-transparent hover:border-[#AC8E66]/50'
+                )}
               >
                 Für alle gleich
               </button>
             </div>
+            <div className=' pt-[30px] '>
 
             {styleMode === 'platform' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1 }}>
+              <div className="flex items-center gap-2 text-[10px]">
+                <div className="flex-1">
                   <ZenDropdown
-                    label="Plattform-Profil bearbeiten"
+                    label="Plattform"
                     value={activeStylePlatform || stylePlatformOptions[0]?.value || ''}
                     onChange={(value) => onActiveStylePlatformChange?.(value as ContentPlatform)}
                     options={stylePlatformOptions}
+                    fullWidth
+                    theme="paper"
                   />
                 </div>
-                <ZenRoughButton
-                  label="Aktuelles Profil auf alle"
-                  onClick={() => onApplyCurrentStyleToAll?.()}
-                  size="small"
-                />
+
+             
               </div>
             )}
           </div>
+          </div>
         )}
+          </div>
+        </div>
 
-        {/* Step2-like 2x2 card layout */}
-        <div className="zen-step-grid">
+      
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(4, ${cardWidth}px)`,
+            columnGap: `${cardGap}px`,
+            rowGap: '28px',
+            width: `${cardsRowWidth}px`,
+            maxWidth: '100%',
+            marginTop: showModeSwitch ? '10px' : '20px',
+            marginBottom: '40px',
+            marginLeft: 'auto',
+            marginRight: 'auto',
+          }}
+        >
           <Card optionKey="tone" title="Tonalität">
             <ZenDropdown
               label="" /* Titel kommt aus Card */
@@ -267,6 +302,9 @@ export const Step3StyleOptions = ({
                 onToneChange(value as ContentTone);
               }}
               options={toneOptions}
+              fullWidth
+              theme="paper"
+             
             />
           </Card>
 
@@ -279,6 +317,8 @@ export const Step3StyleOptions = ({
                 onLengthChange(value as ContentLength);
               }}
               options={lengthOptions}
+              fullWidth
+              theme="paper"
             />
           </Card>
 
@@ -291,6 +331,8 @@ export const Step3StyleOptions = ({
                 onAudienceChange(value as ContentAudience);
               }}
               options={audienceOptions}
+              fullWidth
+              theme="paper"
             />
           </Card>
 
@@ -303,55 +345,53 @@ export const Step3StyleOptions = ({
                 onTargetLanguageChange?.(value as TargetLanguage);
               }}
               options={languageOptions}
+              fullWidth
+              theme="paper"
             />
           </Card>
         </div>
 
-        {/* Error */}
         {error && (
           <div
+            className="w-full mt-2 mb-5 px-4 py-4 text-center"
             style={{
-              width: '100%',
-              maxWidth: 740,
-              marginTop: 24,
-              marginBottom: 18,
-              padding: 18,
-              borderRadius: 18,
-              border: '1px solid rgba(239,68,68,0.6)',
-              background: 'rgba(239,68,68,0.10)',
-              textAlign: 'center',
-              boxShadow: '0 12px 28px rgba(0,0,0,0.35)',
+              width: sharedSectionWidth,
+              borderRadius: '12px',
+              borderWidth: '0.5px',
+              borderStyle: 'dotted',
+              borderColor: '#d88aa0',
+                           backgroundColor: 'rgba(248, 220, 230, 0.15)',
+
             }}
           >
-            <p
-              style={{
-                fontFamily:
-                  'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-                fontSize: 12,
-                color: '#ff6b6b',
-              }}
-            >
-              {error}
+            <p className="font-mono text-[12px]" style={{ color: '#b04366' }}>
+              {parsedError?.headline}
             </p>
+            <span className="pt-[5px]"></span>
+
+            {parsedError && parsedError.items.length > 0 && (
+              <div style={{ marginTop: '10px', paddingLeft: '20px', paddingRight: '20px' }}>
+                <ul
+                  className="font-mono text-[11px]"
+                  style={{ color: '#1a1a1a', listStyleType: 'number', textAlign: 'center', paddingLeft: '18px', margin: 0 }}
+                >
+                  {parsedError.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {(error.includes('kurz') ||
               error.includes('leer') ||
               error.includes('empty') ||
               error.includes('short')) && (
-              <div style={{ marginTop: 12 }}>
-                <ZenRoughButton
-                  label="Zurück weiter verfassen"
-                  icon={<FontAwesomeIcon icon={faArrowLeft} style={{ color: '#AC8E66' }} />}
-                  onClick={onBackToEditor}
-                  size="small"
-                />
+              <div className="mt-4 flex justify-center">
+                
               </div>
             )}
           </div>
         )}
-
-        {/* Info */}
-       
       </div>
     </div>
   );

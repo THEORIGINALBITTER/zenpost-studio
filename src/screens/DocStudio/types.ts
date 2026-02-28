@@ -89,7 +89,7 @@ export type DocStudioScreenProps = {
   onStateChange?: (state: DocStudioState) => void;
   onGeneratedContentChange?: (content: string) => void;
   onPreviewModeChange?: (isPreview: boolean) => void;
-  headerAction?: "save" | "preview" | null;
+  headerAction?: "save" | "preview" | "rescan" | null;
   onHeaderActionHandled?: () => void;
   requestedFilePath?: string | null;
   onFileRequestHandled?: () => void;
@@ -103,6 +103,9 @@ export type DocStudioScreenProps = {
   onSetSchedulerPlatformPosts?: (posts: Array<{ platform: string; content: string }>) => void;
   onSetSelectedDateFromCalendar?: (date: Date | undefined) => void;
   onOpenProjectDocuments?: () => void;
+  availableProjectDocuments?: Array<{ path: string; name: string; modifiedAt?: number }>;
+  availableWebDocuments?: Array<{ id: string; name: string; content: string; updatedAt: number }>;
+  onOpenEditorSettings?: () => void;
   /** Called when a file is saved successfully with the new path and content */
   onFileSaved?: (filePath: string, content: string, fileName: string) => void;
 };

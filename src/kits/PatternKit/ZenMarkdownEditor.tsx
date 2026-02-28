@@ -79,7 +79,6 @@ export const ZenMarkdownEditor = ({
   const previewRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
 
-  const [isFocused, setIsFocused] = useState(false);
   const [showToolbar, setShowToolbar] = useState(false);
   const [toolbarPosition, setToolbarPosition] = useState<FloatingToolbarPosition>({
     top: 0,
@@ -319,33 +318,6 @@ const getCursorPosition = () => {
   return { top, left };
 };
 
-// Timer + Scheduler 
-
-const cursorToolbarTimerRef = useRef<number | null>(null);
-
-const scheduleCursorToolbar = () => {
-  if (cursorToolbarTimerRef.current) {
-    window.clearTimeout(cursorToolbarTimerRef.current);
-  }
-
-  cursorToolbarTimerRef.current = window.setTimeout(() => {
-    const info = getSelectionInfo();
-    if (!info) return;
-
-    // nur wenn kein CommandMenu, kein Selection, Fokus da
-    if (!isFocused) return;
-    if (showCommandMenu) return;
-    if (info.selectedText.length > 0) return;
-
-    const pos = getCursorPosition();
-    setToolbarPosition(pos);
-    setShowToolbar(true);
-  }, 500);
-};
-
-
-
-
   // Helper: Calculate floating toolbar position based on textarea selection
   const calculateToolbarPosition = () => {
     const textarea = textareaRef.current;
@@ -428,7 +400,6 @@ const scheduleCursorToolbar = () => {
       setTimeout(calculateToolbarPosition, 0);
     } else if (!hasSelection) {
       setShowToolbar(false);
-      scheduleCursorToolbar();
     }
   };
 
@@ -982,7 +953,6 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
   setShowToolbar(false);
   setTimeout(updateActiveLine, 0);
-  scheduleCursorToolbar();
 
   if (showCommandMenu && slashCommandStart >= 0) {
     const cursorPos = e.target.selectionStart;
@@ -1275,20 +1245,15 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             onChange={handleInput}
             onKeyDown={handleKeyDown}
             onFocus={() => {
-  setIsFocused(true);
   setTimeout(updateActiveLine, 0);
-  scheduleCursorToolbar();
 }}
 onClick={() => {
   setTimeout(updateActiveLine, 0);
-  scheduleCursorToolbar();
 }}
 onKeyUp={() => {
   setTimeout(updateActiveLine, 0);
-  scheduleCursorToolbar();
 }}
             onBlur={() => {
-              setIsFocused(false);
               setTimeout(() => {
                 setShowToolbar(false);
                 setShowCommandMenu(false);

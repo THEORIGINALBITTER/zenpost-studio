@@ -19,6 +19,8 @@ import {
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
 import { ContentTransformScreen } from "./screens/ContentTransformScreen";
+import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStudioDashboardScreen";
+import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
@@ -47,7 +49,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { useOpenExternal } from "./hooks/useOpenExternal";
 import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
-import { getLastProjectPath, rememberProjectPath } from "./utils/projectHistory";
+import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath } from "./utils/projectHistory";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings } from "./services/zenStudioSettingsService";
 
 import ZenCursor from "./components/ZenCursor";
@@ -160,6 +162,7 @@ function AppContent() {
   // Track step information for each screen
   const [converterStep, setConverterStep] = useState(1);
   const [contentTransformStep, setContentTransformStep] = useState(1);
+  const [contentStudioDashboardView, setContentStudioDashboardView] = useState<"dashboard" | "project-map">("dashboard");
   const [docStudioStep, setDocStudioStep] = useState(0);
 
   // Content transfer between Doc Studio and Content AI Studio
@@ -172,6 +175,7 @@ function AppContent() {
   // Store Doc Studio state to preserve it when switching to Content AI Studio
   const [docStudioState, setDocStudioState] = useState<DocStudioState | null>(null);
   const [contentStudioProjectPath, setContentStudioProjectPath] = useState<string | null>(null);
+  const [contentStudioRecentProjectPaths, setContentStudioRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths());
   const [contentStudioRecentArticles, setContentStudioRecentArticles] = useState<ZenArticle[]>([]);
   const [contentStudioAllFiles, setContentStudioAllFiles] = useState<StudioFile[]>([]);
   const [webDocuments, setWebDocuments] = useState<WebStoredDocument[]>([]);
@@ -214,6 +218,9 @@ function AppContent() {
     website: "",
     repository: "",
     contributingUrl: "",
+    description: "",
+    keywords: "",
+    lang: "de",
   });
 
   // Publishing State (geteilt zwischen Doc Studio & Content AI Studio)
@@ -258,6 +265,12 @@ function AppContent() {
       setShowContentSaveMenu(false);
     }
   }, [currentScreen, contentTransformStep]);
+
+  useEffect(() => {
+    if (contentTransformStep !== 0 && contentStudioDashboardView !== "dashboard") {
+      setContentStudioDashboardView("dashboard");
+    }
+  }, [contentTransformStep, contentStudioDashboardView]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -357,7 +370,8 @@ function AppContent() {
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
     setIsEditingZenThoughts(false);
-    setContentTransformStep(1);
+    setContentStudioDashboardView("dashboard");
+    setContentTransformStep(0);
     setCurrentScreen("content-transform");
   };
 
@@ -372,6 +386,7 @@ function AppContent() {
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(true);
+    setContentStudioDashboardView("dashboard");
     setContentTransformStep(2); // Start at platform selection
     setCurrentScreen("content-transform");
   };
@@ -428,6 +443,7 @@ function AppContent() {
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
+    setContentStudioDashboardView("dashboard");
     setContentTransformStep(1);
     setCurrentScreen("content-transform");
     setShowContentStudioModal(false);
@@ -663,7 +679,8 @@ function AppContent() {
     setCameFromDocStudio(false);
     setIsEditingZenThoughts(false);
     setTransferContent(null); // No initial content
-    setContentTransformStep(1);
+    setContentStudioDashboardView("dashboard");
+    setContentTransformStep(0);
     setCurrentScreen("content-transform");
   };
 
@@ -706,6 +723,7 @@ function AppContent() {
     }
 
     setContentTransformStep(1);
+    setContentStudioDashboardView("dashboard");
     setCurrentScreen("content-transform");
   };
 
@@ -885,6 +903,7 @@ function AppContent() {
   const refreshContentStudioData = async (projectPathOverride?: string) => {
     const storedProjectPath = projectPathOverride ?? getLastProjectPath();
     setContentStudioProjectPath(storedProjectPath);
+    setContentStudioRecentProjectPaths(getRecentProjectPaths());
     if (!storedProjectPath) {
       setContentStudioRecentArticles([]);
       setContentStudioAllFiles([]);
@@ -1101,6 +1120,7 @@ function AppContent() {
       });
       if (typeof result === 'string') {
         rememberProjectPath(result);
+        setContentStudioRecentProjectPaths(getRecentProjectPaths());
         setContentStudioProjectPath(result);
         if (isTauri()) {
           await updateLastProjectPath(result);
@@ -1110,6 +1130,17 @@ function AppContent() {
     } catch (error) {
       console.error('[App1] Content Studio Projektwahl fehlgeschlagen.', error);
     }
+  };
+
+  const handleSwitchContentStudioProject = async (path: string) => {
+    if (!path) return;
+    rememberProjectPath(path);
+    setContentStudioRecentProjectPaths(getRecentProjectPaths());
+    setContentStudioProjectPath(path);
+    if (isTauri()) {
+      await updateLastProjectPath(path);
+    }
+    await refreshContentStudioData(path);
   };
 
   // Hilfefunktion für Header-Text
@@ -1138,15 +1169,17 @@ function AppContent() {
   const getRightText = () => {
     switch (currentScreen) {
       case "converter":
-        const converterText = converterStep === 1 ? 'Format wählen' :
-                             converterStep === 2 ? 'Inhalt bereitstellen' :
-                             converterStep === 3 ? 'Konvertierung' : 'Fertig!';
-        return <>Step {converterStep}/4 · <span style={{ color: "#AC8E66" }}>{converterText}</span></>;
+        const normalizedConverterStep = Math.min(Math.max(converterStep, 1), 2);
+        const converterText = normalizedConverterStep === 1 ? 'Datei laden & Ziel wählen' : 'Ergebnis';
+        return <>Step {normalizedConverterStep}/2 · <span style={{ color: "#AC8E66" }}>{converterText}</span></>;
       case "content-transform":
-        const transformText = contentTransformStep === 1 ? 'Quelle eingeben' :
+        const transformText = contentTransformStep === 0
+          ? (contentStudioDashboardView === "project-map" ? 'Projektmappe' : 'Dashboard')
+          :
+                              contentTransformStep === 1 ? 'Quelle eingeben' :
                               contentTransformStep === 2 ? 'Plattform wählen' :
                               contentTransformStep === 3 ? 'Post Stil anpassen' : 'Ergebnis';
-        return <>Step {contentTransformStep}/4 • <span style={{ color: "#AC8E66" }}>{transformText}</span></>;
+        return <>Step {contentTransformStep === 0 ? 1 : contentTransformStep}/4 • <span style={{ color: "#AC8E66" }}>{transformText}</span></>;
       case "doc-studio":
         const docText = docStudioStep === 0 ? 'Projekt' :
                        docStudioStep === 1 ? 'Analyse' :
@@ -1276,6 +1309,38 @@ function AppContent() {
 
     // Content Transform Tab-Leiste
     if (currentScreen !== "content-transform") return undefined;
+    if (contentTransformStep === 0) {
+      return (
+        <div className="px-[4vw] py-[3px] mt-[10px]">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
+              <StudioBarButton
+                label="Dashboard"
+                icon={<FontAwesomeIcon icon={faTableList} />}
+                onClick={() => setContentStudioDashboardView("dashboard")}
+                active={contentStudioDashboardView === "dashboard"}
+              />
+              <StudioBarButton
+                label="Projektmappe"
+                icon={<FontAwesomeIcon icon={faFolderOpen} />}
+                onClick={() => setContentStudioDashboardView("project-map")}
+                active={contentStudioDashboardView === "project-map"}
+              />
+            </div>
+            <div className="flex flex-wrap gap-2 ml-auto">
+              <StudioBarButton
+                label="Direkt schreiben"
+                icon={<FontAwesomeIcon icon={faPencil} />}
+                onClick={() => {
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="px-[4vw] py-[3px] mt-[10px]">
         <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1629,7 +1694,7 @@ function AppContent() {
       />
 
       {/* Scrollable Content Area */}
-      <div style={{ flex: 1, overflow: currentScreen === "content-transform" ? 'hidden' : 'auto' }}>
+      <div style={{ flex: 1, overflow: currentScreen === "content-transform" && contentTransformStep !== 0 ? 'hidden' : 'auto' }}>
         {/* Screens */}
         {currentScreen === "welcome" && (
           <WelcomeScreen
@@ -1655,47 +1720,137 @@ function AppContent() {
           />
         )}
         {currentScreen === "content-transform" && (
-          <ContentTransformScreen
-            onBack={handleBackToWelcome}
-            onStepChange={setContentTransformStep}
-            currentStep={contentTransformStep}
-            initialContent={transferContent}
-            initialFileName={transferFileName}
-            initialPlatform={cameFromDashboard ? 'blog-post' : undefined}
-            cameFromDocStudio={cameFromDocStudio}
-            cameFromDashboard={cameFromDashboard}
-            onBackToDocStudio={handleBackToDocStudio}
-            onBackToDashboard={handleBackToGettingStarted}
-            onOpenConverter={() => {
-              setCameFromDocStudio(false);
-              setCameFromDashboard(false);
-              setMultiPlatformMode(false);
-              setCurrentScreen("converter");
-              setConverterStep(1);
-            }}
-            projectPath={contentStudioProjectPath}
-            requestedArticleId={contentStudioRequestedArticleId}
-            onArticleRequestHandled={() => setContentStudioRequestedArticleId(null)}
-            requestedFilePath={contentStudioRequestedFilePath}
-            onFileRequestHandled={() => setContentStudioRequestedFilePath(null)}
-            metadata={contentStudioMetadata}
-            onMetadataChange={setContentStudioMetadata}
-            onStep2SelectionChange={(count, canProceed) => {
-              setContentTransformStep2SelectionCount(count);
-              setContentTransformStep2CanProceed(canProceed);
-            }}
-            headerAction={contentTransformHeaderAction}
-            onHeaderActionHandled={() => setContentTransformHeaderAction(null)}
-            onStep1BackToPostingChange={setContentTransformShowBackToPosting}
-            onOpenDocStudioForPosting={handleOpenDocStudioForPosting}
-            onContentChange={handleContentTransformChange}
-            editorType={contentEditorType}
-            onEditorTypeChange={setContentEditorType}
-            multiPlatformMode={multiPlatformMode}
-            onMultiPlatformModeChange={setMultiPlatformMode}
-            onFileSaved={handleFileSavedWhileEditing}
-            onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
-          />
+          contentTransformStep === 0 ? (
+            contentStudioDashboardView === "project-map" ? (
+              <ContentStudioProjectMapScreen
+                isDesktopRuntime={isTauri()}
+                projectPath={contentStudioProjectPath}
+                allFiles={contentStudioAllFiles}
+                webDocuments={webDocuments}
+                onBack={() => setContentStudioDashboardView("dashboard")}
+                onStartWriting={() => {
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onOpenFile={(filePath) => {
+                  setContentStudioRequestedFilePath(filePath);
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onLoadWebDocument={(content, fileName) => {
+                  handleLoadWebDocument(content, fileName);
+                }}
+              />
+            ) : (
+              <ContentStudioDashboardScreen
+                projectPath={contentStudioProjectPath}
+                recentProjectPaths={contentStudioRecentProjectPaths}
+                documents={[
+                  ...contentStudioAllFiles.map((file) => ({
+                    id: `file:${file.path}`,
+                    name: file.name,
+                    path: file.path,
+                    projectPath: contentStudioProjectPath ?? undefined,
+                    subtitle: file.path,
+                    updatedAt: file.modifiedAt,
+                  })),
+                  ...webDocuments.map((doc) => ({
+                    id: `web:${doc.id}`,
+                    name: doc.name,
+                    projectPath: contentStudioProjectPath ?? undefined,
+                    subtitle: 'Web-Dokument',
+                    updatedAt: doc.updatedAt,
+                  })),
+                ]}
+                onSelectProjectPath={(path) => {
+                  void handleSwitchContentStudioProject(path);
+                }}
+                onPickProject={() => {
+                  if (isTauri()) {
+                    void handleSelectContentStudioProject();
+                    return;
+                  }
+                  setContentStudioModalTab("project");
+                  setShowContentStudioModal(true);
+                }}
+                onStartWriting={() => {
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onOpenDashboardDocument={(doc) => {
+                  if (doc.id.startsWith("file:")) {
+                    const filePath = doc.id.replace(/^file:/, "");
+                    if (filePath) {
+                      setContentStudioRequestedFilePath(filePath);
+                      setContentStudioDashboardView("dashboard");
+                      setContentTransformStep(1);
+                    }
+                    return;
+                  }
+                  if (doc.id.startsWith("web:")) {
+                    const webId = doc.id.replace(/^web:/, "");
+                    const matched = webDocuments.find((item) => item.id === webId);
+                    if (matched) {
+                      handleLoadWebDocument(matched.content, matched.name);
+                    }
+                    return;
+                  }
+                }}
+                onOpenDocuments={() => setContentStudioDashboardView("project-map")}
+                onOpenPlanner={() => {
+                  setSchedulerPlatformPosts([]);
+                  setPlannerDefaultTab('planen');
+                  setShowPlannerModal(true);
+                }}
+                onOpenCalendar={() => {
+                  setPlannerDefaultTab('kalender');
+                  setShowPlannerModal(true);
+                }}
+              />
+            )
+          ) : (
+            <ContentTransformScreen
+              onBack={handleBackToWelcome}
+              onStepChange={setContentTransformStep}
+              currentStep={contentTransformStep}
+              initialContent={transferContent}
+              initialFileName={transferFileName}
+              initialPlatform={cameFromDashboard ? 'blog-post' : undefined}
+              cameFromDocStudio={cameFromDocStudio}
+              cameFromDashboard={cameFromDashboard}
+              onBackToDocStudio={handleBackToDocStudio}
+              onBackToDashboard={handleBackToGettingStarted}
+              onOpenConverter={() => {
+                setCameFromDocStudio(false);
+                setCameFromDashboard(false);
+                setMultiPlatformMode(false);
+                setCurrentScreen("converter");
+                setConverterStep(1);
+              }}
+              projectPath={contentStudioProjectPath}
+              requestedArticleId={contentStudioRequestedArticleId}
+              onArticleRequestHandled={() => setContentStudioRequestedArticleId(null)}
+              requestedFilePath={contentStudioRequestedFilePath}
+              onFileRequestHandled={() => setContentStudioRequestedFilePath(null)}
+              metadata={contentStudioMetadata}
+              onMetadataChange={setContentStudioMetadata}
+              onStep2SelectionChange={(count, canProceed) => {
+                setContentTransformStep2SelectionCount(count);
+                setContentTransformStep2CanProceed(canProceed);
+              }}
+              headerAction={contentTransformHeaderAction}
+              onHeaderActionHandled={() => setContentTransformHeaderAction(null)}
+              onStep1BackToPostingChange={setContentTransformShowBackToPosting}
+              onOpenDocStudioForPosting={handleOpenDocStudioForPosting}
+              onContentChange={handleContentTransformChange}
+              editorType={contentEditorType}
+              onEditorTypeChange={setContentEditorType}
+              multiPlatformMode={multiPlatformMode}
+              onMultiPlatformModeChange={setMultiPlatformMode}
+              onFileSaved={handleFileSavedWhileEditing}
+              onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
+            />
+          )
         )}
         {currentScreen === "doc-studio" && (
           <FeatureGate featureId="DOC_STUDIO" onClose={handleDocStudioBack}>
@@ -1734,6 +1889,8 @@ function AppContent() {
                 setContentStudioModalTab("all");
                 setShowContentStudioModal(true);
               }}
+              availableProjectDocuments={contentStudioAllFiles}
+              availableWebDocuments={webDocuments}
               onOpenEditorSettings={() => {
                 setSettingsDefaultTab('editor');
                 setShowAISettingsModal(true);

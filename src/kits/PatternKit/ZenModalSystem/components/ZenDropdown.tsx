@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 type Option = { value: string; label: string };
 type ZenTheme = "dark" | "paper";
+type ZenDropdownVariant = "default" | "input" | "button" | "compact";
 
 interface ZenDropdownProps {
   value: string;
@@ -12,7 +13,7 @@ interface ZenDropdownProps {
 
   className?: string;
   fullWidth?: boolean;
-  variant?: "default" | "compact";
+  variant?: ZenDropdownVariant;
 
   labelSize?: string; // "text-sm" oder "12px"
   labelColor?: string; // optional override
@@ -20,6 +21,7 @@ interface ZenDropdownProps {
 
   maxMenuHeight?: number;
   placeholder?: string;
+  triggerHeight?: number;
 
   theme?: ZenTheme; // ✅ NEW
 }
@@ -41,6 +43,7 @@ export const ZenDropdown = ({
   disabled = false,
   maxMenuHeight = 260,
   placeholder = "Auswählen…",
+  triggerHeight,
   theme = "dark", // ✅ default
 }: ZenDropdownProps) => {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -61,7 +64,13 @@ export const ZenDropdown = ({
     null
   );
 
-  const isCompact = variant === "compact";
+  // Keep old "compact" working as alias for the new "input" style.
+  const normalizedVariant: Exclude<ZenDropdownVariant, "compact"> =
+    variant === "compact" ? "input" : variant;
+  const isInput = normalizedVariant === "input";
+  const isButton = normalizedVariant === "button";
+  // "button" should visually match ZenRoughButton(size="small"), whose rough border is inset.
+  const resolvedTriggerHeight = triggerHeight ?? (isButton ? 40 : undefined);
   const widthClass = fullWidth ? "w-full" : "w-[320px]";
 
   const labelClass = isPx(labelSize) ? "" : (labelSize ?? "text-sm");
@@ -86,8 +95,8 @@ export const ZenDropdown = ({
         menuBorder: "rgba(172,142,102,0.55)",
         menuShadow: "0 18px 40px rgba(0,0,0,0.35)",
         itemText: "#3a3a3a",
-        itemActiveBg: "rgba(172,142,102,0.18)",
-        itemActiveText: "#AC8E66",
+        itemActiveBg: "rgb(172,142,102)",
+        itemActiveText: "#1a1a1a",
         itemSelectedBar: "#AC8E66",
         hintText: "#7a6a52",
         hintBorder: "rgba(172,142,102,0.35)",
@@ -221,7 +230,7 @@ export const ZenDropdown = ({
     relative ${widthClass} rounded-lg font-mono text-center
     focus:outline-none
     ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}
-    ${isCompact ? "py-2 text-[11px]" : "py-3 text-[12px]"}
+    ${resolvedTriggerHeight ? (isButton ? "text-[9px]" : isInput ? "text-[11px]" : "text-[12px]") : (isInput ? "py-2 text-[11px]" : "py-3 text-[12px]")}
   `;
 
   return (
@@ -245,6 +254,10 @@ export const ZenDropdown = ({
           background: tokens.triggerBg,
           color: tokens.triggerText,
           transition: "background 180ms ease, border-color 180ms ease",
+          height: resolvedTriggerHeight ? `${resolvedTriggerHeight}px` : undefined,
+          minHeight: resolvedTriggerHeight ? `${resolvedTriggerHeight}px` : undefined,
+          paddingTop: resolvedTriggerHeight ? 0 : undefined,
+          paddingBottom: resolvedTriggerHeight ? 0 : undefined,
         }}
         onMouseEnter={() => {
           if (!disabled) {

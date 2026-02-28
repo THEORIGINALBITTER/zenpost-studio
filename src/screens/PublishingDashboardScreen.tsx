@@ -16,6 +16,7 @@ import {
   loadArticles,
   type ZenArticle,
 } from '../services/publishingService';
+import { getLastProjectPath, rememberProjectPath } from '../utils/projectHistory';
 
 interface PublishingDashboardScreenProps {
   onBack: () => void;
@@ -26,15 +27,14 @@ interface PublishingDashboardScreenProps {
 
 export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, onOpenContentAI, onOpenConverter }: PublishingDashboardScreenProps) {
   const [projectPath, setProjectPath] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('zenpost_last_project_path');
+    return getLastProjectPath();
   });
   const [articles, setArticles] = useState<ZenArticle[]>([]);
   const [isLoadingArticles, setIsLoadingArticles] = useState(false);
 
   const persistProjectPath = (path: string) => {
     setProjectPath(path);
-    localStorage.setItem('zenpost_last_project_path', path);
+    rememberProjectPath(path);
   };
 
   const handleSelectProject = async () => {

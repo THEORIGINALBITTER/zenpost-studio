@@ -10,6 +10,9 @@ import {
   faCodeBranch,
   faBook,
   faSave,
+  faHashtag,
+  faLanguage,
+  faAlignLeft,
 } from "@fortawesome/free-solid-svg-icons";
 import { ZenRoughButton } from "./ZenRoughButton";
 import { ZenDropdown } from "./ZenDropdown";
@@ -179,6 +182,9 @@ export const ZenMetadataPanel = ({
     "website",
     "repository",
     "contributingUrl",
+    "description",
+    "keywords",
+    "lang",
   ];
 
   const dynamicFields = Object.keys(formData).filter(
@@ -223,6 +229,103 @@ export const ZenMetadataPanel = ({
             placeholder="max@example.com"
             type="email"
           />
+        </div>
+
+        {/* SEO & Sprache */}
+        <div style={{ marginBottom: "32px" }}>
+          <SectionHeader
+            icon={faHashtag}
+            title="SEO & Sprache"
+            titleColor="#555"
+            borderColor="#AC8E66"
+          />
+
+          {/* Description – Textarea */}
+          <FieldBlock>
+            <label
+              className="font-mono text-[#999] flex items-center"
+              style={{ fontSize: typography.label, marginBottom: "8px", gap: "6px" }}
+            >
+              <FontAwesomeIcon icon={faAlignLeft} className="text-[#AC8E66]" style={{ fontSize: typography.iconSize }} />
+              Beschreibung
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => handleChange("description", e.target.value)}
+              placeholder="Kurzbeschreibung des Projekts für SEO und Suchmaschinen…"
+              rows={3}
+              className="font-mono"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                background: "#151515",
+                border: "1px solid rgba(172,142,102,0.4)",
+                borderRadius: "6px",
+                color: "#EDE6D8",
+                fontSize: typography.input,
+                resize: "vertical",
+                outline: "none",
+                fontFamily: "IBM Plex Mono, monospace",
+                boxSizing: "border-box",
+              }}
+            />
+          </FieldBlock>
+
+          {/* Keywords */}
+          <FieldBlock>
+            <label
+              className="font-mono text-[#999] flex items-center"
+              style={{ fontSize: typography.label, marginBottom: "8px", gap: "6px" }}
+            >
+              <FontAwesomeIcon icon={faHashtag} className="text-[#AC8E66]" style={{ fontSize: typography.iconSize }} />
+              Keywords
+            </label>
+            <input
+              type="text"
+              value={formData.keywords}
+              onChange={(e) => handleChange("keywords", e.target.value)}
+              placeholder="dokumentation, readme, typescript, react"
+              className="font-mono"
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                background: "#151515",
+                border: "1px solid rgba(172,142,102,0.4)",
+                borderRadius: "6px",
+                color: "#EDE6D8",
+                fontSize: typography.input,
+                outline: "none",
+                fontFamily: "IBM Plex Mono, monospace",
+                boxSizing: "border-box",
+              }}
+            />
+          </FieldBlock>
+
+          {/* Sprache */}
+          <FieldBlock>
+            <label
+              className="font-mono text-[#999] flex items-center"
+              style={{ fontSize: typography.label, marginBottom: "8px", gap: "6px" }}
+            >
+              <FontAwesomeIcon icon={faLanguage} className="text-[#AC8E66]" style={{ fontSize: typography.iconSize }} />
+              Sprache
+            </label>
+            <div style={{ width: "100%" }}>
+              <ZenDropdown
+                value={formData.lang}
+                onChange={(value) => handleChange("lang", value)}
+                options={[
+                  { value: "de", label: "Deutsch (de)" },
+                  { value: "en", label: "English (en)" },
+                  { value: "fr", label: "Français (fr)" },
+                  { value: "es", label: "Español (es)" },
+                  { value: "it", label: "Italiano (it)" },
+                  { value: "pt", label: "Português (pt)" },
+                ]}
+                variant="compact"
+              />
+            </div>
+          </FieldBlock>
         </div>
 
         {/* Unternehmen & Lizenz */}

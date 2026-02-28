@@ -221,7 +221,7 @@ export const ZenSocialMediaSettingsContent = ({
   };
 
   return (
-    <div className="w-full flex justify-center px-8 py-8">
+    <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
     <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
     <div style={{ padding: '24px 32px',  fontSize: '11px', }}>
       <div style={{ marginBottom: '24px' }}>

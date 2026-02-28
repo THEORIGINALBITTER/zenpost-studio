@@ -9,9 +9,17 @@ interface ZenHomeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirm: () => void;
+  onGoGettingStarted: () => void;
+  showGettingStartedAction?: boolean;
 }
 
-export const ZenHomeModal = ({ isOpen, onClose, onConfirm }: ZenHomeModalProps) => {
+export const ZenHomeModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  onGoGettingStarted,
+  showGettingStartedAction = true,
+}: ZenHomeModalProps) => {
   const modalPreset = getModalPreset('home');
 
   return (
@@ -39,16 +47,17 @@ export const ZenHomeModal = ({ isOpen, onClose, onConfirm }: ZenHomeModalProps) 
           {/* Buttons */}
           <div className="flex flex-col items-center gap-2 justify-center mt-4 sm:flex-row sm:gap-4">
             <ZenRoughButton
-              label="Abbrechen"
-              onClick={onClose}
-              size="small"
-            />
-
-            <ZenRoughButton
-              label="Zur Startseite"
+              label="Home (Willkommen)"
               onClick={onConfirm}
               size="small"
             />
+            {showGettingStartedAction && (
+              <ZenRoughButton
+                label="Getting Started"
+                onClick={onGoGettingStarted}
+                size="small"
+              />
+            )}
           </div>
         </div>
 

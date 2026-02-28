@@ -1,0 +1,1097 @@
+import { useState } from 'react';
+import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { save } from '@tauri-apps/plugin-dialog';
+import { isTauri } from '@tauri-apps/api/core';
+import { marked } from 'marked';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faCode,
+  faFilePdf,
+  faFileLines,
+  faFileAlt,
+  faCheck,
+  faSpinner,
+  
+} from '@fortawesome/free-solid-svg-icons';
+import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
+
+interface ToneOption {
+  value: ContentTone;
+  label: string;
+  description: string;
+}
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import {
+  faLinkedin,
+  faMedium,
+  faWordpress,
+  faDev,
+  faHashnode,
+  faGithub,
+} from '@fortawesome/free-brands-svg-icons';
+import { ZenModal } from '../components/ZenModal';
+import { useOpenExternal } from '../../../../hooks/useOpenExternal';
+
+interface ZenExportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  content: string;
+  platform?: string;
+  documentName?: string; // Name of the document being exported (e.g., "README", "API Docs")
+  onNavigateToTransform?: () => void; // Navigate to Content AI Studio for multi-platform transform
+}
+
+const sanitizeBaseName = (value: string): string =>
+  value
+    .trim()
+    .replace(/^web:/i, '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const deriveExportBaseName = (documentName: string | undefined, content: string): string => {
+  const explicit = sanitizeBaseName(documentName ?? '');
+  if (explicit) return explicit;
+
+  const headingMatch = content.match(/^#\s+(.+)$/m);
+  const fromHeading = sanitizeBaseName(headingMatch?.[1] ?? '');
+  if (fromHeading) return fromHeading;
+
+  return 'Export';
+};
+
+const markdownToPlainText = (markdown: string): string => {
+  return markdown
+    .replace(/\r\n/g, '\n')
+    // fenced code blocks -> keep inner text
+    .replace(/```[\w-]*\n([\s\S]*?)```/g, '$1')
+    // inline code
+    .replace(/`([^`]+)`/g, '$1')
+    // images ![alt](url) -> alt (url)
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '$1 ($2)')
+    // links [text](url) -> text (url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1 ($2)')
+    // headings
+    .replace(/^#{1,6}\s+/gm, '')
+    // blockquotes
+    .replace(/^\s*>\s?/gm, '')
+    // unordered/ordered lists
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    // emphasis/bold/strike
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/~~([^~]+)~~/g, '$1')
+    // horizontal rules
+    .replace(/^\s*([-*_]){3,}\s*$/gm, '')
+    // collapse excessive blank lines
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+/**
+ * Generates a smart filename with timestamp
+ */
+function generateExportFilename(documentName: string | undefined, content: string, extension: string): string {
+  const now = new Date();
+  const date = now.toISOString().split('T')[0]; // 2026-02-02
+  const time = now.toTimeString().slice(0, 5).replace(':', ''); // 2127
+
+  const baseName = deriveExportBaseName(documentName, content);
+
+  return `${baseName}_${date}_${time}.${extension}`;
+}
+
+interface ExportOption {
+  id: string;
+  label: string;
+  icon: any;
+  format: 'html' | 'pdf' | 'markdown' | 'text';
+}
+
+interface PublishOption {
+  id: string;
+  label: string;
+  icon: any;
+  url: string;
+  color: string;
+}
+
+const EXPORT_OPTIONS: ExportOption[] = [
+  { id: 'html', label: 'HTML', icon: faCode, format: 'html' },
+  { id: 'pdf', label: 'PDF', icon: faFilePdf, format: 'pdf' },
+  { id: 'markdown', label: 'Markdown', icon: faFileLines, format: 'markdown' },
+  { id: 'text', label: 'Text', icon: faFileAlt, format: 'text' },
+];
+
+const TONE_OPTIONS: ToneOption[] = [
+  { value: 'professional', label: 'Professional', description: 'Seriös, business-orientiert' },
+  { value: 'casual', label: 'Casual', description: 'Locker, freundlich, nahbar' },
+  { value: 'technical', label: 'Technical', description: 'Fachlich, präzise, detailliert' },
+  { value: 'enthusiastic', label: 'Enthusiastic', description: 'Begeistert, motivierend, energisch' },
+];
+
+// Map PublishOption IDs to ContentPlatform
+const PLATFORM_MAP: Record<string, ContentPlatform> = {
+  'medium': 'medium',
+  'wordpress': 'blog-post',
+  'devto': 'devto',
+  'hashnode': 'blog-post',
+  'linkedin': 'linkedin',
+  'github-gist': 'github-blog',
+};
+
+const PUBLISH_OPTIONS: PublishOption[] = [
+  {
+    id: 'medium',
+    label: 'Medium',
+    icon: faMedium,
+    url: 'https://medium.com/new-story',
+    color: '#000000',
+  },
+  {
+    id: 'wordpress',
+    label: 'WordPress',
+    icon: faWordpress,
+    url: 'https://wordpress.com/post',
+    color: '#21759B',
+  },
+  {
+    id: 'devto',
+    label: 'DEV.to',
+    icon: faDev,
+    url: 'https://dev.to/new',
+    color: '#0A0A0A',
+  },
+  {
+    id: 'hashnode',
+    label: 'Hashnode',
+    icon: faHashnode,
+    url: 'https://hashnode.com/draft/new',
+    color: '#2962FF',
+  },
+  {
+    id: 'linkedin',
+    label: 'LinkedIn',
+    icon: faLinkedin,
+    url: 'https://www.linkedin.com/feed/?shareActive=true',
+    color: '#0077B5',
+  },
+  {
+    id: 'github-gist',
+    label: 'GitHub Gist',
+    icon: faGithub,
+    url: 'https://gist.github.com/',
+    color: '#AC8E66',
+  },
+];
+
+export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
+  const [exportingId, setExportingId] = useState<string | null>(null);
+  const [exportedId, setExportedId] = useState<string | null>(null);
+  const [_copied, setCopied] = useState(false);
+  const [_optimizingPlatform, setOptimizingPlatform] = useState<string | null>(null);
+  const [_optimizedPlatform, setOptimizedPlatform] = useState<string | null>(null);
+  const [showToneSelector, setShowToneSelector] = useState(false);
+  const [pendingPlatform, setPendingPlatform] = useState<PublishOption | null>(null);
+  const { openExternal } = useOpenExternal();
+
+  const createPdfBytes = async (text: string) => {
+    const normalizedText = text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+    const pdfDoc = await PDFDocument.create();
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
+    const fontBoldItalic = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
+    const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
+    const margin = 40;
+    const baseFontSize = 11;
+
+    let page = pdfDoc.addPage();
+    let { width, height } = page.getSize();
+    let y = height - margin;
+
+    const ensureSpace = (neededHeight: number) => {
+      if (y < margin + neededHeight) {
+        page = pdfDoc.addPage();
+        ({ width, height } = page.getSize());
+        y = height - margin;
+      }
+    };
+
+    type InlineSegment = {
+      text: string;
+      font: any;
+      size: number;
+      color: { r: number; g: number; b: number };
+      link?: string;
+    };
+
+    const defaultColor = { r: 0, g: 0, b: 0 };
+    const linkColor = { r: 0.1, g: 0.35, b: 0.8 };
+
+    const tokenizeInline = (line: string, size: number): InlineSegment[] => {
+      const segments: InlineSegment[] = [];
+      let i = 0;
+      let bold = false;
+      let italic = false;
+      let code = false;
+
+      const pushText = (value: string) => {
+        if (!value) return;
+        const activeFont = code
+          ? fontMono
+          : bold && italic
+            ? fontBoldItalic
+            : bold
+              ? fontBold
+              : italic
+                ? fontItalic
+                : font;
+        segments.push({
+          text: value,
+          font: activeFont,
+          size,
+          color: defaultColor,
+        });
+      };
+
+      while (i < line.length) {
+        // Links: [text](url)
+        if (line[i] === '[') {
+          const closeText = line.indexOf(']', i + 1);
+          const openUrl = closeText >= 0 ? line.indexOf('(', closeText) : -1;
+          const closeUrl = openUrl >= 0 ? line.indexOf(')', openUrl) : -1;
+          if (closeText >= 0 && openUrl === closeText + 1 && closeUrl > openUrl) {
+            const label = line.slice(i + 1, closeText);
+            const url = line.slice(openUrl + 1, closeUrl);
+            if (label) {
+              segments.push({
+                text: label,
+                font: font,
+                size,
+                color: linkColor,
+                link: url,
+              });
+            }
+            if (url) {
+              segments.push({
+                text: ` (${url})`,
+                font: font,
+                size: size - 1,
+                color: linkColor,
+              });
+            }
+            i = closeUrl + 1;
+            continue;
+          }
+        }
+
+        // Code span
+        if (line[i] === '`') {
+          code = !code;
+          i += 1;
+          continue;
+        }
+
+        // Bold/Italic toggles
+        if (line.startsWith('**', i) || line.startsWith('__', i)) {
+          bold = !bold;
+          i += 2;
+          continue;
+        }
+        if (line[i] === '*' || line[i] === '_') {
+          italic = !italic;
+          i += 1;
+          continue;
+        }
+
+        // Regular text
+        let j = i + 1;
+        while (j < line.length) {
+          if (line[j] === '`') break;
+          if (line.startsWith('**', j) || line.startsWith('__', j)) break;
+          if (line[j] === '*' || line[j] === '_') break;
+          if (line[j] === '[') break;
+          j += 1;
+        }
+        pushText(line.slice(i, j));
+        i = j;
+      }
+
+      return segments;
+    };
+
+    const splitSegmentsToWords = (segments: InlineSegment[]) => {
+      const words: InlineSegment[] = [];
+      segments.forEach((seg) => {
+        const parts = seg.text.split(/(\s+)/);
+        parts.forEach((part) => {
+          if (part === '') return;
+          words.push({ ...seg, text: part });
+        });
+      });
+      return words;
+    };
+
+    const wrapSegments = (segments: InlineSegment[], maxWidth: number) => {
+      const lines: InlineSegment[][] = [];
+      let current: InlineSegment[] = [];
+      let currentWidth = 0;
+      const words = splitSegmentsToWords(segments);
+
+      words.forEach((word) => {
+        const wordWidth = word.font.widthOfTextAtSize(word.text, word.size);
+        if (currentWidth + wordWidth <= maxWidth || current.length === 0) {
+          current.push(word);
+          currentWidth += wordWidth;
+          return;
+        }
+        lines.push(current);
+        current = [word];
+        currentWidth = wordWidth;
+      });
+
+      if (current.length > 0) lines.push(current);
+      return lines;
+    };
+
+    const drawWrappedSegments = (
+      segments: InlineSegment[],
+      size: number,
+      indent = 0
+    ) => {
+      const lineHeight = size + 4;
+      const maxWidth = width - margin * 2 - indent;
+      const lines = wrapSegments(segments, maxWidth);
+      const startY = y;
+      lines.forEach((lineSegments) => {
+        ensureSpace(lineHeight);
+        let x = margin + indent;
+        lineSegments.forEach((seg) => {
+          page.drawText(seg.text, {
+            x,
+            y,
+            size: seg.size,
+            font: seg.font,
+            color: rgb(seg.color.r, seg.color.g, seg.color.b),
+          });
+          x += seg.font.widthOfTextAtSize(seg.text, seg.size);
+        });
+        y -= lineHeight;
+      });
+      return {
+        height: lines.length * lineHeight,
+        topY: startY,
+        bottomY: y,
+      };
+    };
+
+    const stripInline = (line: string) =>
+      line
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/\*\*([^*]+)\*\*/g, '$1')
+        .replace(/\*([^*]+)\*/g, '$1')
+        .replace(/__([^_]+)__/g, '$1')
+        .replace(/_([^_]+)_/g, '$1');
+
+    const rawLines = normalizedText.replace(/\r\n/g, '\n').split('\n');
+    let inCodeBlock = false;
+
+    const isTableSeparator = (line: string) =>
+      /^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+
+    const splitTableRow = (line: string) => {
+      const trimmed = line.trim();
+      const noEdge = trimmed.replace(/^\|/, '').replace(/\|$/, '');
+      return noEdge.split('|').map((cell) => cell.trim());
+    };
+
+    const drawTable = (rows: string[][]) => {
+      if (rows.length === 0) return;
+      const header = rows[0];
+      const body = rows.slice(1);
+      const colCount = Math.max(...rows.map((r) => r.length));
+      const colWidths = new Array(colCount).fill(0).map(() => 0);
+      const tableWidth = width - margin * 2;
+      const columnWidth = tableWidth / colCount;
+      colWidths.fill(columnWidth);
+      const cellPadding = 6;
+      const headerFontSize = 11;
+      const cellFontSize = 10;
+
+      const measureRowHeight = (cells: string[], size: number) => {
+        const rowSegments = cells.map((cell) => tokenizeInline(cell, size));
+        const wrappedCells = rowSegments.map((segments, idx) =>
+          wrapSegments(segments, colWidths[idx] - cellPadding * 2)
+        );
+        const maxLines = Math.max(...wrappedCells.map((lines) => lines.length || 1));
+        return maxLines * (size + 4) + cellPadding * 2;
+      };
+
+      const drawRow = (cells: string[], isHeader = false) => {
+        const size = isHeader ? headerFontSize : cellFontSize;
+        const rowSegments = cells.map((cell) => tokenizeInline(cell, size));
+        const wrappedCells = rowSegments.map((segments, idx) =>
+          wrapSegments(segments, colWidths[idx] - cellPadding * 2)
+        );
+        const maxLines = Math.max(...wrappedCells.map((lines) => lines.length || 1));
+        const rowHeight = maxLines * (size + 4) + cellPadding * 2;
+        const rowTop = y;
+        let x = margin;
+
+        for (let c = 0; c < colCount; c += 1) {
+          const cellLines = wrappedCells[c] || [[]];
+          let textY = y - cellPadding - (size + 4);
+          cellLines.forEach((lineSegments) => {
+            let textX = x + cellPadding;
+            lineSegments.forEach((seg) => {
+              page.drawText(seg.text, {
+                x: textX,
+                y: textY,
+                size: seg.size,
+                font: isHeader ? fontBold : seg.font,
+                color: rgb(seg.color.r, seg.color.g, seg.color.b),
+              });
+              textX += seg.font.widthOfTextAtSize(seg.text, seg.size);
+            });
+            textY -= size + 4;
+          });
+
+          page.drawLine({
+            start: { x, y: rowTop },
+            end: { x, y: rowTop - rowHeight },
+            thickness: 0.5,
+            color: rgb(0.8, 0.8, 0.8),
+          });
+          x += colWidths[c];
+        }
+        page.drawLine({
+          start: { x: margin + tableWidth, y: rowTop },
+          end: { x: margin + tableWidth, y: rowTop - rowHeight },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+        page.drawLine({
+          start: { x: margin, y: rowTop },
+          end: { x: margin + tableWidth, y: rowTop },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+        page.drawLine({
+          start: { x: margin, y: rowTop - rowHeight },
+          end: { x: margin + tableWidth, y: rowTop - rowHeight },
+          thickness: 0.5,
+          color: rgb(0.8, 0.8, 0.8),
+        });
+
+        y -= rowHeight + 2;
+      };
+
+      drawRow(header, true);
+      body.forEach((row) => {
+        const headerHeight = measureRowHeight(header, headerFontSize);
+        const rowHeight = measureRowHeight(row, cellFontSize);
+        if (y < margin + rowHeight + 2) {
+          page = pdfDoc.addPage();
+          ({ width, height } = page.getSize());
+          y = height - margin;
+          if (y < margin + headerHeight + 2) {
+            // Ensure space for header on very small pages
+            y = height - margin;
+          }
+          drawRow(header, true);
+        }
+        drawRow(row, false);
+      });
+      y -= baseFontSize / 2;
+    };
+
+    for (let idx = 0; idx < rawLines.length; idx += 1) {
+      const rawLine = rawLines[idx];
+      const line = rawLine ?? '';
+      const trimmed = line.trim();
+
+      if (trimmed.startsWith('```')) {
+        inCodeBlock = !inCodeBlock;
+        y -= baseFontSize / 2;
+        continue;
+      }
+
+      if (!trimmed) {
+        y -= baseFontSize;
+        continue;
+      }
+
+      if (inCodeBlock) {
+        const segments = tokenizeInline(line, 10).map((seg) => ({
+          ...seg,
+          font: fontMono,
+          color: defaultColor,
+        }));
+        drawWrappedSegments(segments, 10, 12);
+        continue;
+      }
+
+      if (idx + 1 < rawLines.length && isTableSeparator(rawLines[idx + 1])) {
+        const rows: string[][] = [];
+        rows.push(splitTableRow(line));
+        idx += 2;
+        while (idx < rawLines.length && rawLines[idx].includes('|')) {
+          rows.push(splitTableRow(rawLines[idx]));
+          idx += 1;
+        }
+        idx -= 1;
+        drawTable(rows);
+        continue;
+      }
+
+      const headingMatch = line.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) {
+        const level = headingMatch[1].length;
+        const headingText = stripInline(headingMatch[2]);
+        const size = Math.max(12, 20 - level * 2);
+        const segments = tokenizeInline(headingText, size).map((seg) => ({
+          ...seg,
+          font: fontBold,
+        }));
+        drawWrappedSegments(segments, size, 0);
+        y -= size / 3;
+        continue;
+      }
+
+      const blockquoteMatch = line.match(/^>\s?(.*)$/);
+      if (blockquoteMatch) {
+        const quoteText = blockquoteMatch[1];
+        const segments = tokenizeInline(`“${quoteText}”`, 10);
+        const { topY, bottomY } = drawWrappedSegments(segments, 10, 16);
+        page.drawLine({
+          start: { x: margin + 8, y: topY - 2 },
+          end: { x: margin + 8, y: bottomY + 2 },
+          thickness: 1,
+          color: rgb(0.7, 0.7, 0.7),
+        });
+        continue;
+      }
+
+      const listMatch = line.match(/^(\s*[-*+]|\s*\d+\.)\s+(.*)$/);
+      if (listMatch) {
+        const bullet = listMatch[1].trim().endsWith('.') ? listMatch[1].trim() : '•';
+        const listText = listMatch[2];
+        const segments = tokenizeInline(`${bullet} ${listText}`, baseFontSize);
+        drawWrappedSegments(segments, baseFontSize, 12);
+        continue;
+      }
+
+      const segments = tokenizeInline(line, baseFontSize);
+      drawWrappedSegments(segments, baseFontSize, 0);
+    }
+
+    return pdfDoc.save();
+  };
+
+  const normalizeHtmlEntities = (text: string) =>
+    text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'");
+
+  const handleExport = async (option: ExportOption) => {
+    setExportingId(option.id);
+    try {
+      const normalizedContent = normalizeHtmlEntities(content);
+      let fileContent = normalizedContent;
+      let extension = 'md';
+
+      switch (option.format) {
+        case 'html':
+          // Render markdown to proper HTML output.
+          const renderedHtml = await marked.parse(normalizedContent, {
+            gfm: true,
+            breaks: true,
+          });
+          fileContent = `<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Export</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; line-height: 1.65; color: #171717; }
+    h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.35em; margin-bottom: 0.55em; }
+    h1 { font-size: 2rem; border-bottom: 1px solid #e6e6e6; padding-bottom: 0.25em; }
+    h2 { font-size: 1.55rem; border-bottom: 1px solid #efefef; padding-bottom: 0.2em; }
+    h3 { font-size: 1.25rem; }
+    p, ul, ol, blockquote, table, pre { margin: 0.8em 0; }
+    ul, ol { padding-left: 1.45rem; }
+    blockquote { margin-left: 0; padding: 0.2rem 0.9rem; border-left: 4px solid #d0d0d0; color: #4b4b4b; background: #fafafa; }
+    pre { background: #f4f4f4; padding: 1rem; border-radius: 6px; overflow-x: auto; }
+    code { background: #f4f4f4; padding: 0.15rem 0.35rem; border-radius: 4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace; }
+    pre code { background: transparent; padding: 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #e5e5e5; padding: 0.45rem 0.55rem; text-align: left; vertical-align: top; }
+    th { background: #f9f9f9; }
+    img { max-width: 100%; height: auto; border-radius: 4px; }
+    hr { border: none; border-top: 1px solid #e5e5e5; margin: 1.5rem 0; }
+  </style>
+</head>
+<body>
+${renderedHtml}
+</body>
+</html>`;
+          extension = 'html';
+          break;
+        case 'pdf':
+          extension = 'pdf';
+          break;
+        case 'text':
+          fileContent = markdownToPlainText(normalizedContent);
+          extension = 'txt';
+          break;
+        case 'markdown':
+        default:
+          extension = 'md';
+          break;
+      }
+
+      const inTauri = isTauri();
+      const suggestedFilename = generateExportFilename(documentName, normalizedContent, extension);
+      const filePath = inTauri
+        ? await save({
+            defaultPath: suggestedFilename,
+            filters: [{ name: option.label, extensions: [extension] }],
+          })
+        : null;
+
+      if (option.format === 'pdf') {
+        const pdfBytes = await createPdfBytes(normalizedContent);
+        if (filePath) {
+          const ensureExt = (path: string, ext: string) =>
+            path.toLowerCase().endsWith(`.${ext}`) ? path : `${path}.${ext}`;
+          const normalizedPath = ensureExt(filePath, extension);
+          await writeFile(normalizedPath, pdfBytes);
+        } else if (typeof window !== 'undefined') {
+          const pdfArray = new Uint8Array(pdfBytes);
+          const blob = new Blob([pdfArray.buffer], { type: 'application/pdf' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = suggestedFilename;
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+        setExportedId(option.id);
+        setTimeout(() => setExportedId(null), 2000);
+        return;
+      }
+
+      if (filePath) {
+        const ensureExt = (path: string, ext: string) =>
+          path.toLowerCase().endsWith(`.${ext}`) ? path : `${path}.${ext}`;
+        const normalizedPath = ensureExt(filePath, extension);
+
+        await writeTextFile(normalizedPath, fileContent);
+
+        setExportedId(option.id);
+        setTimeout(() => setExportedId(null), 2000);
+      } else if (!inTauri && typeof window !== 'undefined') {
+        const mimeType =
+          option.format === 'html'
+            ? 'text/html;charset=utf-8'
+            : option.format === 'markdown'
+              ? 'text/markdown;charset=utf-8'
+              : 'text/plain;charset=utf-8';
+        const blob = new Blob([fileContent], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = suggestedFilename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+    } finally {
+      setExportingId(null);
+    }
+  };
+
+  const handlePublish = async (option: PublishOption) => {
+    // Copy content to clipboard first
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+
+    // Open the platform's posting page
+    try {
+      console.log('[ZenExportModal] Opening URL:', option.url);
+      await openExternal(option.url);
+      console.log('[ZenExportModal] URL opened successfully');
+    } catch (err) {
+      console.error('[ZenExportModal] Failed to open URL:', err);
+      // Fallback: try window.open directly
+      window.open(option.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  // Handle tone selection and start optimization
+  const handleToneSelected = async (tone: ContentTone) => {
+    if (!pendingPlatform) return;
+
+    setShowToneSelector(false);
+    const option = pendingPlatform;
+    setPendingPlatform(null);
+    setOptimizingPlatform(option.id);
+
+    try {
+      // Get platform mapping
+      const platform = PLATFORM_MAP[option.id] || 'blog-post';
+
+      // Transform content with AI using selected tone
+      const result = await transformContent(content, {
+        platform,
+        tone,
+        length: 'medium',
+        audience: 'intermediate',
+      });
+
+      if (result.success && result.data) {
+        // Copy optimized content to clipboard
+        await navigator.clipboard.writeText(result.data);
+        setOptimizedPlatform(option.id);
+        setTimeout(() => setOptimizedPlatform(null), 2000);
+
+        // Open the platform's posting page
+        try {
+          await openExternal(option.url);
+        } catch (err) {
+          window.open(option.url, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        console.error('AI optimization failed:', result.error);
+        // Fallback: copy original content and open platform
+        await navigator.clipboard.writeText(content);
+        try {
+          await openExternal(option.url);
+        } catch (err) {
+          window.open(option.url, '_blank', 'noopener,noreferrer');
+        }
+      }
+    } catch (err) {
+      console.error('Optimization failed:', err);
+    } finally {
+      setOptimizingPlatform(null);
+    }
+  };
+
+  // Cancel tone selection
+  const handleCancelToneSelector = () => {
+    setShowToneSelector(false);
+    setPendingPlatform(null);
+  };
+
+  return (
+    <ZenModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Export & Veröffentlichen"
+      subtitle="Exportiere deinen Content oder teile ihn direkt auf Plattformen"
+      size="large"
+      showCloseButton={true}
+    >
+      <div style={{ padding: '24px', maxHeight: '80vh', overflowY: 'auto', position: 'relative' }}>
+
+        {/* Mit KI Transformieren - Prominent CTA */}
+      
+
+        {/* Datei-Export Section */}
+        <div style={{ marginBottom: '32px' }}>
+          <h3 style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '16px',
+            color: '#555',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: 'normal'
+          }}>
+            <FontAwesomeIcon icon={faFileLines} style={{ color: '#AC8E66' }} />
+            Datei-Export
+          </h3>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: '12px',
+          }}>
+            {EXPORT_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handleExport(option)}
+                disabled={exportingId !== null}
+                style={{
+                   display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '12px',
+                  padding: '24px 16px',
+                  backgroundColor: 'transparent',
+                  border: '0.5px solid #3A3A3A',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#555';
+                    e.currentTarget.style.backgroundColor = '#555555' + '20';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A' + '20';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <FontAwesomeIcon
+                  icon={exportingId === option.id ? faSpinner : (exportedId === option.id ? faCheck : option.icon)}
+                  style={{
+                    fontSize: '32px',
+                    color: exportedId === option.id ? '#4CAF50' : '#555',
+                  }}
+                  spin={exportingId === option.id}
+                />
+                <span style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: '#555',
+                  fontWeight: 'normal'
+                }}>
+                  {option.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Direkt Veröffentlichen Section */}
+        <div>
+          <h3 style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '16px',
+            color: '#555',
+            marginBottom: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontWeight: 'normal'
+          }}>
+            <FontAwesomeIcon icon={faMedium} style={{ color: '#AC8E66' }} />
+            Direkt Veröffentlichen
+          </h3>
+          <p style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '12px',
+            color: '#777',
+            marginBottom: '16px',
+          }}>
+            Klicke auf eine Plattform, um den Content zu kopieren und die Posting-Seite zu öffnen
+          </p>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: '12px',
+          }}>
+            {PUBLISH_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => handlePublish(option)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '12px',
+                  padding: '24px 16px',
+                  backgroundColor: 'transparent',
+                  border: '0.5px solid #3A3A3A',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#555555';
+                  e.currentTarget.style.backgroundColor = '#555555' + '20';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <FontAwesomeIcon
+                  icon={option.icon}
+                  style={{
+                    fontSize: '32px',
+                    color: '#555',
+                  }}
+                />
+                <span style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: '#555',
+                  fontWeight: 'normal'
+                }}>
+                  {option.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+      
+
+     
+
+        {/* Tone Selector Overlay */}
+        {showToneSelector && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(26, 26, 26, 0.95)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 100,
+              borderRadius: '12px',
+            }}
+          >
+            <h3 style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '20px',
+              color: '#AC8E66',
+              marginBottom: '8px',
+              textDecoration: 'underline',
+              textUnderlineOffset: '4px',
+            }}>
+              Schreibstil wählen
+            </h3>
+            <p style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '12px',
+              color: '#777',
+              marginBottom: '24px',
+            }}>
+              {pendingPlatform?.label} • Wie soll der Content optimiert werden?
+            </p>
+
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, 1fr)',
+              gap: '12px',
+              maxWidth: '400px',
+              width: '100%',
+              padding: '0 24px',
+            }}>
+              {TONE_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => handleToneSelected(option.value)}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '4px',
+                    padding: '16px 12px',
+                    backgroundColor: '#1A1A1A',
+                    border: '2px solid #AC8E66',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#AC8E6630';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#1A1A1A';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#555',
+                  }}>
+                    {option.label}
+                  </span>
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    color: '#777',
+                    textAlign: 'center',
+                  }}>
+                    {option.description}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleCancelToneSelector}
+              style={{
+                marginTop: '24px',
+                padding: '10px 24px',
+                backgroundColor: 'transparent',
+                border: '1px solid #555',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '12px',
+                color: '#777',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = '#AC8E66';
+                e.currentTarget.style.color = '#555';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = '#555';
+                e.currentTarget.style.color = '#777';
+              }}
+            >
+              Abbrechen
+            </button>
+          </div>
+        )}
+      </div>
+    </ZenModal>
+  );
+}
