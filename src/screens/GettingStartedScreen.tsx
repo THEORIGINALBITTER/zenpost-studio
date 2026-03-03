@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { loadMobileDrafts, saveMobileInboxPath, getSavedMobileInboxPath, type MobileDraft } from '../services/mobileInboxService';
 import { open } from '@tauri-apps/plugin-dialog';
+import { isTauri } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
@@ -260,6 +261,27 @@ export function GettingStartedScreen({
                   >
                     {studio.shortLabel}
                   </span>
+                  {studio.id === 'mobile' && (
+                    <span
+                      style={{
+                        position: 'absolute',
+                        top: '6px',
+                        right: '3px',
+                        fontSize: '6px',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        color: isActive ? '#7a5a30' : '#AC8E66',
+                        background: isActive ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.15)',
+                        borderRadius: '3px',
+                        padding: '1px 3px',
+                        border: '0.5px solid rgba(172,142,102,0.5)',
+                        writingMode: 'horizontal-tb',
+                        letterSpacing: '0.5px',
+                        lineHeight: 1,
+                      }}
+                    >
+                      NEW
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -320,6 +342,59 @@ export function GettingStartedScreen({
 
             {/* Use case cards — oder Mobile Drafts */}
             {activeStudio === 'mobile' ? (
+              !isTauri() ? (
+                /* Web-Teaser: App noch nicht im Browser verfügbar */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '14px',
+                    padding: '16px', borderRadius: '12px',
+                    background: 'rgba(172,142,102,0.1)',
+                    border: '1px solid rgba(172,142,102,0.35)',
+                  }}>
+                    <FontAwesomeIcon icon={faMobileScreen} style={{ fontSize: '28px', color: '#AC8E66', flexShrink: 0, marginTop: '2px' }} />
+                    <div style={{ flex: 1 }}>
+                      <p style={{
+                        margin: '0 0 4px 0', fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '13px', fontWeight: '500', color: '#1a1a1a',
+                      }}>
+                        ZenPost Mobile
+                      </p>
+                      <p style={{
+                        margin: '0 0 12px 0', fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px', color: '#5a5040', lineHeight: 1.6,
+                      }}>
+                        Ideen unterwegs festhalten — Texte, Fotos und Plattform-Tags direkt auf dem iPhone erfassen und per AirDrop in den Desktop bringen.
+                      </p>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                        {[
+                          'Entwürfe auf dem iPhone erfassen',
+                          'Fotos direkt mit Ideen verbinden',
+                          'Per AirDrop in den Desktop übertragen',
+                          'Plattform-Tags: LinkedIn, X, Newsletter',
+                        ].map((feat) => (
+                          <div key={feat} style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                            <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#AC8E66', flexShrink: 0 }} />
+                            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#5a5040' }}>
+                              {feat}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{
+                    padding: '10px 14px', borderRadius: '8px',
+                    background: 'rgba(255,255,255,0.3)',
+                    border: '0.5px dashed rgba(172,142,102,0.4)',
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                    color: '#7a7060', lineHeight: 1.6, textAlign: 'center',
+                  }}>
+                    Die Mobile Inbox ist im Desktop-App verfügbar.
+                    <br />
+                    <span style={{ color: '#AC8E66' }}>zenpost.studio</span> → Download → Mobile-Tab
+                  </div>
+                </div>
+              ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
 
                 {/* Ordner-Konfiguration */}
@@ -423,6 +498,7 @@ export function GettingStartedScreen({
                   </>
                 )}
               </div>
+              )
             ) : (
               <div
                 style={{
