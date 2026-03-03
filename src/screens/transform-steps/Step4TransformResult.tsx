@@ -74,6 +74,7 @@ interface Step4TransformResultProps {
   docTabContents?: Record<string, string>;
   originalContent?: string;
   originalLabel?: string;
+  projectPath?: string | null;
 }
 
 type ImproveOption = {
@@ -177,6 +178,7 @@ export const Step4TransformResult = ({
   docTabContents = {},
   originalContent = '',
   originalLabel = 'Original',
+  projectPath,
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
@@ -1480,6 +1482,7 @@ const handleDownload = async () => {
               <ZenMarkdownPreview
                 content={currentContent}
                 height="500px"
+                projectPath={projectPath}
                 onContentChange={handleContentUpdate}
                 showTextAI={showTextAI}
                 onToggleTextAI={() => setShowTextAI((prev) => !prev)}

@@ -26,7 +26,23 @@ const turndownService = new TurndownService({
 /**
  * Typ-Definitionen
  */
-export type SupportedFormat = 'json' | 'md' | 'gfm' | 'html' | 'txt' | 'pdf' | 'code' | 'editorjs' | 'docx' | 'doc' | 'pages';
+export type SupportedFormat =
+  | 'json'
+  | 'md'
+  | 'gfm'
+  | 'html'
+  | 'txt'
+  | 'pdf'
+  | 'code'
+  | 'editorjs'
+  | 'docx'
+  | 'doc'
+  | 'pages'
+  | 'png'
+  | 'jpg'
+  | 'jpeg'
+  | 'webp'
+  | 'svg';
 
 export interface ConversionResult {
   success: boolean;
@@ -34,10 +50,212 @@ export interface ConversionResult {
   error?: string;
 }
 
+export interface ConversionOptions {
+  imageQuality?: number; // 0..1
+  imageRasterSize?: number; // max edge for tracing
+  imageSmoothEdges?: boolean;
+}
+
 export interface JSONContent {
   title?: string;
   content: string;
   metadata?: Record<string, any>;
+}
+
+const RASTER_IMAGE_FORMATS: SupportedFormat[] = ['png', 'jpg', 'jpeg', 'webp'];
+const IMAGE_FORMATS: SupportedFormat[] = [...RASTER_IMAGE_FORMATS, 'svg'];
+type RasterImageFormat = 'png' | 'jpg' | 'jpeg' | 'webp';
+type ImageFormat = RasterImageFormat | 'svg';
+
+function isRasterImageFormat(format: SupportedFormat): format is RasterImageFormat {
+  return RASTER_IMAGE_FORMATS.includes(format);
+}
+
+export function isImageFormat(format: SupportedFormat): format is ImageFormat {
+  return IMAGE_FORMATS.includes(format);
+}
+
+function getImageMimeType(format: ImageFormat): string {
+  const mimeMap = {
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    webp: 'image/webp',
+    svg: 'image/svg+xml',
+  } as const;
+
+  return mimeMap[format];
+}
+
+function arrayBufferToDataUrl(buffer: ArrayBuffer, mimeType: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([buffer], { type: mimeType });
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Datei konnte nicht als Data URL gelesen werden'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Bild konnte nicht geladen werden'));
+    image.src = dataUrl;
+  });
+}
+
+async function rasterToRasterDataUrl(
+  sourceBuffer: ArrayBuffer,
+  sourceFormat: RasterImageFormat,
+  targetFormat: RasterImageFormat,
+  quality = 0.92
+): Promise<string> {
+  const sourceDataUrl = await arrayBufferToDataUrl(sourceBuffer, getImageMimeType(sourceFormat));
+  const image = await loadImageFromDataUrl(sourceDataUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Canvas-Kontext konnte nicht erstellt werden');
+  }
+
+  ctx.drawImage(image, 0, 0);
+  const mimeType = getImageMimeType(targetFormat);
+  const normalizedQuality = Math.max(0.1, Math.min(1, quality));
+  return canvas.toDataURL(mimeType, targetFormat === 'png' ? undefined : normalizedQuality);
+}
+
+function rasterPixelsToSvg(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  sourceWidth: number,
+  sourceHeight: number,
+  quality = 0.8,
+  smoothEdges = true
+): string {
+  const normalizedQuality = Math.max(0.1, Math.min(1, quality));
+  const baseStep = smoothEdges ? 20 : 48;
+  const range = smoothEdges ? 14 : 36;
+  const quantStep = Math.max(6, Math.round(baseStep - normalizedQuality * range));
+  const scaleX = sourceWidth / width;
+  const scaleY = sourceHeight / height;
+  const rects: string[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    let runColor = '';
+    let runStart = 0;
+
+    const flushRun = (runEnd: number) => {
+      if (!runColor) return;
+      const x = runStart * scaleX;
+      const yPos = y * scaleY;
+      const w = (runEnd - runStart) * scaleX;
+      const h = scaleY;
+      rects.push(`<rect x="${x.toFixed(2)}" y="${yPos.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" fill="${runColor}" />`);
+    };
+
+    for (let x = 0; x < width; x += 1) {
+      const idx = (y * width + x) * 4;
+      const r = pixels[idx];
+      const g = pixels[idx + 1];
+      const b = pixels[idx + 2];
+      const a = pixels[idx + 3];
+
+      if (a < 16) {
+        flushRun(x);
+        runColor = '';
+        runStart = x + 1;
+        continue;
+      }
+
+      const quant = (value: number) => Math.round(value / quantStep) * quantStep;
+      const color = `rgb(${quant(r)},${quant(g)},${quant(b)})`;
+
+      if (!runColor) {
+        runColor = color;
+        runStart = x;
+      } else if (runColor !== color) {
+        flushRun(x);
+        runColor = color;
+        runStart = x;
+      }
+    }
+
+    flushRun(width);
+  }
+
+  const shapeRendering = smoothEdges ? 'geometricPrecision' : 'crispEdges';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sourceWidth} ${sourceHeight}" width="${sourceWidth}" height="${sourceHeight}" shape-rendering="${shapeRendering}">
+${rects.join('\n')}
+</svg>`;
+}
+
+async function rasterToSvg(
+  sourceBuffer: ArrayBuffer,
+  sourceFormat: RasterImageFormat,
+  options: ConversionOptions = {}
+): Promise<string> {
+  const quality = Math.max(0.1, Math.min(1, options.imageQuality ?? 0.8));
+  const smoothEdges = options.imageSmoothEdges ?? true;
+  const sourceDataUrl = await arrayBufferToDataUrl(sourceBuffer, getImageMimeType(sourceFormat));
+  const image = await loadImageFromDataUrl(sourceDataUrl);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const requestedEdge = Math.max(32, Math.min(512, Math.round(options.imageRasterSize ?? 140)));
+  const maxEdge = smoothEdges ? Math.max(requestedEdge, 320) : requestedEdge;
+  const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
+  const traceWidth = Math.max(8, Math.round(sourceWidth * scale));
+  const traceHeight = Math.max(8, Math.round(sourceHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = traceWidth;
+  canvas.height = traceHeight;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Canvas-Kontext konnte nicht erstellt werden');
+  }
+
+  ctx.drawImage(image, 0, 0, traceWidth, traceHeight);
+  const imageData = ctx.getImageData(0, 0, traceWidth, traceHeight);
+  return rasterPixelsToSvg(imageData.data, traceWidth, traceHeight, sourceWidth, sourceHeight, quality, smoothEdges);
+}
+
+async function svgToRasterDataUrl(
+  svgContent: string,
+  targetFormat: RasterImageFormat,
+  quality = 0.92
+): Promise<string> {
+  const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+  const svgDataUrl = await arrayBufferToDataUrl(await svgBlob.arrayBuffer(), 'image/svg+xml');
+  const image = await loadImageFromDataUrl(svgDataUrl);
+
+  const width = image.naturalWidth || image.width || 1024;
+  const height = image.naturalHeight || image.height || 1024;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Canvas-Kontext konnte nicht erstellt werden');
+  }
+
+  if (targetFormat === 'jpg' || targetFormat === 'jpeg') {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  ctx.drawImage(image, 0, 0, width, height);
+  const mimeType = getImageMimeType(targetFormat);
+  const normalizedQuality = Math.max(0.1, Math.min(1, quality));
+  return canvas.toDataURL(mimeType, targetFormat === 'png' ? undefined : normalizedQuality);
 }
 
 /**
@@ -558,13 +776,28 @@ export async function convertFile(
   content: string | ArrayBuffer,
   fromFormat: SupportedFormat,
   toFormat: SupportedFormat,
-  fileName?: string
+  fileName?: string,
+  options: ConversionOptions = {}
 ): Promise<ConversionResult> {
   // Wenn gleiche Formate, gib Original zurück
   if (fromFormat === toFormat) {
+    if (typeof content === 'string') {
+      return {
+        success: true,
+        data: content,
+      };
+    }
+
+    if (isRasterImageFormat(fromFormat)) {
+      return {
+        success: true,
+        data: await arrayBufferToDataUrl(content, getImageMimeType(fromFormat)),
+      };
+    }
+
     return {
       success: true,
-      data: typeof content === 'string' ? content : '',
+      data: '',
     };
   }
 
@@ -583,7 +816,7 @@ export async function convertFile(
       }
 
       // Sonst weiter zu anderem Format konvertieren
-      return await convertFile(docxResult.data, 'md', toFormat, fileName);
+      return await convertFile(docxResult.data, 'md', toFormat, fileName, options);
     }
 
     // Pages → Markdown (dann zu anderen Formaten)
@@ -600,7 +833,7 @@ export async function convertFile(
       }
 
       // Sonst weiter zu anderem Format konvertieren
-      return await convertFile(pagesResult.data, 'md', toFormat, fileName);
+      return await convertFile(pagesResult.data, 'md', toFormat, fileName, options);
     }
 
     // PDF → Markdown (dann zu anderen Formaten)
@@ -615,7 +848,52 @@ export async function convertFile(
         return pdfResult;
       }
 
-      return await convertFile(pdfResult.data, 'md', toFormat, fileName);
+      return await convertFile(pdfResult.data, 'md', toFormat, fileName, options);
+    }
+
+    // Bild-Konvertierungen
+    if (isImageFormat(fromFormat) && isImageFormat(toFormat)) {
+      if (isRasterImageFormat(fromFormat) && content instanceof ArrayBuffer) {
+        if (isRasterImageFormat(toFormat)) {
+          const rasterDataUrl = await rasterToRasterDataUrl(
+            content,
+            fromFormat,
+            toFormat,
+            options.imageQuality ?? 0.92
+          );
+          return { success: true, data: rasterDataUrl };
+        }
+
+        if (toFormat === 'svg') {
+          const svg = await rasterToSvg(content, fromFormat, options);
+          return { success: true, data: svg };
+        }
+      }
+
+      if (fromFormat === 'svg') {
+        const svgSource =
+          typeof content === 'string'
+            ? content
+            : new TextDecoder('utf-8').decode(new Uint8Array(content));
+
+        if (toFormat === 'svg') {
+          return { success: true, data: svgSource };
+        }
+
+        if (isRasterImageFormat(toFormat)) {
+          const rasterDataUrl = await svgToRasterDataUrl(
+            svgSource,
+            toFormat,
+            options.imageQuality ?? 0.92
+          );
+          return { success: true, data: rasterDataUrl };
+        }
+      }
+
+      return {
+        success: false,
+        error: `Konvertierung von ${fromFormat} nach ${toFormat} wird nicht unterstützt`,
+      };
     }
 
     // Stelle sicher, dass content ein String ist für alle anderen Konvertierungen
@@ -652,7 +930,7 @@ export async function convertFile(
     if (fromFormat === 'code' && toFormat !== 'md' && toFormat !== 'gfm') {
       const mdResult = await codeToReadme(content, fileName);
       if (mdResult.success && mdResult.readme) {
-        return await convertFile(mdResult.readme, 'md', toFormat);
+        return await convertFile(mdResult.readme, 'md', toFormat, fileName, options);
       }
       return {
         success: false,
@@ -686,7 +964,7 @@ export async function convertFile(
     // Von GitHub Markdown zu anderen Formaten
     if (fromFormat === 'gfm') {
       // GFM wird wie Standard MD behandelt
-      return await convertFile(content, 'md', toFormat);
+      return await convertFile(content, 'md', toFormat, fileName, options);
     }
 
     // ====================================
@@ -729,7 +1007,7 @@ export async function convertFile(
     if (fromFormat === 'editorjs' && toFormat !== 'md') {
       try {
         const markdown = editorJSToMarkdown(content);
-        return await convertFile(markdown, 'md', toFormat);
+        return await convertFile(markdown, 'md', toFormat, fileName, options);
       } catch (error) {
         return {
           success: false,
@@ -741,7 +1019,7 @@ export async function convertFile(
     // Andere Formate → Editor.js (via Markdown)
     if (toFormat === 'editorjs') {
       // Erst zu Markdown konvertieren, dann zu Editor.js
-      const mdResult = await convertFile(content, fromFormat, 'md');
+      const mdResult = await convertFile(content, fromFormat, 'md', fileName, options);
       if (mdResult.success && mdResult.data) {
         try {
           const editorData = markdownToEditorJS(mdResult.data);
@@ -789,7 +1067,7 @@ export async function convertFile(
     if (fromFormat === 'json' && toFormat !== 'md') {
       const mdResult = jsonToMarkdown(content);
       if (mdResult.success && mdResult.data) {
-        return await convertFile(mdResult.data, 'md', toFormat);
+        return await convertFile(mdResult.data, 'md', toFormat, fileName, options);
       }
       return mdResult;
     }
@@ -797,14 +1075,14 @@ export async function convertFile(
     if (fromFormat === 'html' && toFormat !== 'md') {
       const mdResult = htmlToMarkdown(content);
       if (mdResult.success && mdResult.data) {
-        return await convertFile(mdResult.data, 'md', toFormat);
+        return await convertFile(mdResult.data, 'md', toFormat, fileName, options);
       }
       return mdResult;
     }
 
     if (fromFormat === 'txt') {
       // Text kann als Markdown behandelt werden
-      return await convertFile(content, 'md', toFormat);
+      return await convertFile(content, 'md', toFormat, fileName, options);
     }
 
     return {
@@ -835,6 +1113,11 @@ export function getFileExtension(format: SupportedFormat): string {
     docx: '.docx',
     doc: '.doc',
     pages: '.pages',
+    png: '.png',
+    jpg: '.jpg',
+    jpeg: '.jpeg',
+    webp: '.webp',
+    svg: '.svg',
   };
   return extensions[format];
 }
@@ -867,6 +1150,16 @@ export function detectFormatFromFilename(filename: string): SupportedFormat | nu
       return 'doc';
     case 'pages':
       return 'pages';
+    case 'png':
+      return 'png';
+    case 'jpg':
+      return 'jpg';
+    case 'jpeg':
+      return 'jpeg';
+    case 'webp':
+      return 'webp';
+    case 'svg':
+      return 'svg';
     // Code-Dateien
     case 'js':
     case 'jsx':

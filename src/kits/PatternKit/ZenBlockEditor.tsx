@@ -71,8 +71,29 @@ class ZenLinkBlockTool {
   }
 }
 
+/** Globaler Blob-URL Cache: data:image URL → blob: URL (einmal dekodiert, im RAM gecacht) */
+const _imageBlobCache = new Map<string, string>();
+
+function toBlobUrl(dataUrl: string): string {
+  if (!dataUrl.startsWith('data:image/')) return dataUrl;
+  const cached = _imageBlobCache.get(dataUrl);
+  if (cached) return cached;
+
+  // base64 → Uint8Array → Blob → blob: URL
+  const [header, b64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  const blobUrl = URL.createObjectURL(blob);
+  _imageBlobCache.set(dataUrl, blobUrl);
+  return blobUrl;
+}
+
 class ZenImageBlockTool {
-  private data: { url: string; alt: string };
+  private data: { url: string; alt: string; width: number };
+  private _wrapper: HTMLDivElement | null = null;
 
   static get toolbox() {
     return {
@@ -81,36 +102,131 @@ class ZenImageBlockTool {
     };
   }
 
-  constructor({ data }: { data: { url?: string; alt?: string } }) {
-    this.data = { url: data?.url ?? '', alt: data?.alt ?? '' };
+  constructor({ data }: { data: { url?: string; alt?: string; width?: number } }) {
+    this.data = { url: data?.url ?? '', alt: data?.alt ?? '', width: data?.width ?? 100 };
   }
 
   render() {
+    const outer = document.createElement('div');
+    outer.className = 'zen-image-block-tool';
+
+    if (!this.data.url) {
+      // Leeres Block — URL-Input anzeigen
+      const urlInput = document.createElement('input');
+      urlInput.className = 'cdx-input zen-image-block-tool__input';
+      urlInput.placeholder = 'Image URL (https://...)';
+      urlInput.value = '';
+      urlInput.type = 'url';
+      urlInput.addEventListener('change', () => {
+        this.data.url = urlInput.value.trim();
+        if (this.data.url) {
+          outer.innerHTML = '';
+          outer.appendChild(this._buildPreview(outer));
+        }
+      });
+      outer.appendChild(urlInput);
+      return outer;
+    }
+
+    outer.appendChild(this._buildPreview(outer));
+    return outer;
+  }
+
+  private _buildPreview(_outer: HTMLDivElement): HTMLDivElement {
+    const container = document.createElement('div');
+    container.className = 'zen-image-block-preview-container';
+
+    // Bild-Wrapper
     const wrapper = document.createElement('div');
-    wrapper.className = 'zen-image-block-tool';
+    wrapper.className = 'zen-image-block-preview';
+    wrapper.style.width = `${this.data.width}%`;
+    wrapper.dataset.width = String(this.data.width);
+    this._wrapper = wrapper;
 
-    const urlInput = document.createElement('input');
-    urlInput.className = 'cdx-input zen-image-block-tool__input';
-    urlInput.placeholder = 'Image URL (https://...)';
-    urlInput.value = this.data.url;
-    urlInput.type = 'url';
+    // Canvas statt <img> — Bitmap wird einmal gezeichnet, Resize = reiner CSS/GPU-Scale
+    // → kein WebKit-Pixel-Repaint bei Größenänderung → kein Cursor-Reset
+    const canvas = document.createElement('canvas');
+    canvas.className = 'zen-image-block-img';
+    canvas.draggable = false;
+    canvas.style.width = '100%';
+    canvas.style.height = 'auto';
+    canvas.style.display = 'block';
+    canvas.setAttribute('aria-label', this.data.alt);
 
+    const tempImg = new Image();
+    tempImg.onload = () => {
+      canvas.width = tempImg.naturalWidth;
+      canvas.height = tempImg.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.drawImage(tempImg, 0, 0);
+    };
+    tempImg.src = toBlobUrl(this.data.url);
+
+    wrapper.appendChild(canvas);
+
+    // Größen-Badge auf dem Bild (nur Anzeige, kein Klick)
+    const badge = document.createElement('span');
+    badge.className = 'zen-image-block-size-badge';
+    badge.textContent = `${this.data.width}%`;
+    wrapper.appendChild(badge);
+
+    container.appendChild(wrapper);
+
+    // Alt-Text (kein Cursor-Konflikt — nur Text-Input)
     const altInput = document.createElement('input');
-    altInput.className = 'cdx-input zen-image-block-tool__input';
-    altInput.placeholder = 'Alt text';
+    altInput.className = 'zen-image-block-alt';
+    altInput.placeholder = 'Bildbeschreibung (optional)';
     altInput.value = this.data.alt;
-    altInput.type = 'text';
+    altInput.addEventListener('input', () => { this.data.alt = altInput.value; });
+    container.appendChild(altInput);
 
-    wrapper.appendChild(urlInput);
-    wrapper.appendChild(altInput);
+    return container;
+  }
+
+  /** EditorJS Settings-Toolbar — erscheint im ⚙️ Menü, außerhalb des Block-Contents */
+  renderSettings() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'zen-image-block-settings';
+
+    const label = document.createElement('span');
+    label.className = 'zen-image-block-settings-label';
+    label.textContent = 'Bildgröße';
+    wrapper.appendChild(label);
+
+    const btnGroup = document.createElement('div');
+    btnGroup.className = 'zen-image-block-btn-group';
+
+    const presets = [25, 50, 75, 100];
+    for (const pct of presets) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = `${pct}%`;
+      btn.className = `zen-image-block-size-btn${this.data.width === pct ? ' active' : ''}`;
+      btn.addEventListener('click', () => {
+        this.data.width = pct;
+        if (this._wrapper) {
+          this._wrapper.style.width = `${pct}%`;
+          const badge = this._wrapper.querySelector<HTMLSpanElement>('.zen-image-block-size-badge');
+          if (badge) badge.textContent = `${pct}%`;
+        }
+        btnGroup.querySelectorAll('.zen-image-block-size-btn').forEach((b) =>
+          b.classList.toggle('active', b === btn)
+        );
+      });
+      btnGroup.appendChild(btn);
+    }
+
+    wrapper.appendChild(btnGroup);
     return wrapper;
   }
 
   save(block: HTMLDivElement) {
-    const inputs = block.querySelectorAll<HTMLInputElement>('input');
+    const preview = block.querySelector<HTMLElement>('.zen-image-block-preview');
+    const altEl = block.querySelector<HTMLInputElement>('.zen-image-block-alt');
     return {
-      url: inputs[0]?.value?.trim() ?? '',
-      alt: inputs[1]?.value?.trim() ?? '',
+      url: this.data.url,
+      alt: altEl?.value ?? this.data.alt,
+      width: preview?.dataset.width ? Number(preview.dataset.width) : this.data.width,
     };
   }
 }
@@ -745,6 +861,8 @@ export const ZenBlockEditor = ({
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: MENU_LEFT_OFFSET, y: 96 });
   const [dotPosition, setDotPosition] = useState({ x: DOT_LEFT_OFFSET, y: 0 });
+  const [overlayMenuHeight, setOverlayMenuHeight] = useState(420);
+  const overlayMenuRef = useRef<HTMLDivElement | null>(null);
   const lastActiveHeadingRef = useRef<number | null>(null);
   const lastActiveBlockIndexRef = useRef<number | null>(null);
   const lastHandledFocusRequestTokenRef = useRef<number | null>(null);
@@ -898,6 +1016,34 @@ export const ZenBlockEditor = ({
         .replace(/_([^_]+)_/g, '<i>$1</i>')
         // Strike-through
         .replace(/~~([^~]+)~~/g, '<s>$1</s>');
+    const parseMarkdownImageLine = (input: string): { alt: string; url: string } | null => {
+      const trimmed = input.trim();
+      if (!trimmed.startsWith('![')) return null;
+      const altCloseIdx = trimmed.indexOf('](');
+      if (altCloseIdx < 2 || !trimmed.endsWith(')')) return null;
+
+      const alt = trimmed.slice(2, altCloseIdx);
+      let urlPart = trimmed.slice(altCloseIdx + 2, -1).trim();
+      if (!urlPart) return null;
+
+      // Optional markdown image title: ![alt](url "title")
+      urlPart = urlPart.replace(/\s+(?:"[^"]*"|'[^']*')\s*$/, '').trim();
+      if (urlPart.startsWith('<') && urlPart.endsWith('>')) {
+        urlPart = urlPart.slice(1, -1).trim();
+      }
+      if (!urlPart) return null;
+
+      return { alt, url: urlPart };
+    };
+    const parseHtmlImageLine = (input: string): { alt: string; url: string } | null => {
+      const trimmed = input.trim();
+      const srcQuoted = trimmed.match(/^<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*\/?>$/i);
+      const srcUnquoted = trimmed.match(/^<img\b[^>]*\bsrc=([^\s>]+)[^>]*\/?>$/i);
+      const src = (srcQuoted?.[1] ?? srcUnquoted?.[1] ?? '').trim();
+      if (!src) return null;
+      const altMatch = trimmed.match(/\balt=["']([^"']*)["']/i);
+      return { alt: altMatch?.[1] ?? '', url: src };
+    };
     const lines = markdown.split('\n');
     let i = 0;
 
@@ -969,13 +1115,27 @@ export const ZenBlockEditor = ({
       }
 
       // Markdown image ![alt](url)
-      const imageMatch = line.match(/^!\[(.*?)\]\((.+?)\)\s*$/);
-      if (imageMatch) {
+      const markdownImage = parseMarkdownImageLine(line);
+      if (markdownImage) {
         blocks.push({
           type: 'imageBlock',
           data: {
-            alt: imageMatch[1] ?? '',
-            url: imageMatch[2] ?? '',
+            alt: markdownImage.alt,
+            url: markdownImage.url,
+          },
+        });
+        i++;
+        continue;
+      }
+
+      // HTML image <img src="...">
+      const htmlImage = parseHtmlImageLine(line);
+      if (htmlImage) {
+        blocks.push({
+          type: 'imageBlock',
+          data: {
+            alt: htmlImage.alt,
+            url: htmlImage.url,
           },
         });
         i++;
@@ -1072,7 +1232,12 @@ export const ZenBlockEditor = ({
         !lines[i].startsWith('>') &&
         !lines[i].match(/^[\-\*]\s/) &&
         !lines[i].match(/^\d+\.\s/) &&
-        !lines[i].match(/^---+$/)
+        !lines[i].match(/^(-{3,}|\*{3,}|_{3,})$/) &&
+        !parseMarkdownImageLine(lines[i]) &&
+        !parseHtmlImageLine(lines[i]) &&
+        !lines[i].match(/^\[(.+?)\]\((.+?)\)\s*$/) &&
+        !lines[i].match(/^\[CTA:\s*(.+?)\]\((.+?)\)\s*$/i) &&
+        !lines[i].trim().startsWith('|')
       ) {
         paragraphLines.push(lines[i]);
         i++;
@@ -1105,6 +1270,15 @@ export const ZenBlockEditor = ({
       const safeText = typeof text === 'string' ? text : String(text ?? '');
       const convertInlineHtml = (input: string) =>
         input
+          // Inline HTML images -> Markdown images
+          .replace(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*\/?>/gi, (tag, src) => {
+            const alt = String(tag).match(/\balt=["']([^"']*)["']/i)?.[1] ?? '';
+            return `![${alt}](${String(src).trim()})`;
+          })
+          .replace(/<img\b[^>]*\bsrc=([^\s>]+)[^>]*\/?>/gi, (tag, src) => {
+            const alt = String(tag).match(/\balt=["']([^"']*)["']/i)?.[1] ?? '';
+            return `![${alt}](${String(src).trim()})`;
+          })
           // Browser underline variants
           .replace(/<span[^>]*text-decoration\s*:\s*underline[^>]*>([\s\S]*?)<\/span>/gi, (_m, inner) => `<u>${String(inner ?? '')}</u>`)
           .replace(/<ins(\s+[^>]*)?>([\s\S]*?)<\/ins>/gi, (_m, _attrs, inner) => `<u>${String(inner ?? '')}</u>`)
@@ -1236,7 +1410,13 @@ export const ZenBlockEditor = ({
 
           case 'imageBlock':
             if (!block.data?.url) return '';
+            if (block.data.width && block.data.width < 100) {
+              return `<img src="${block.data.url}" alt="${block.data.alt || ''}" style="width:${block.data.width}%">`;
+            }
             return `![${normalizeInlineText(block.data.alt || '')}](${normalizeInlineText(block.data.url)})`;
+          case 'image':
+            if (!block.data?.url && !block.data?.file?.url) return '';
+            return `![${normalizeInlineText(block.data?.caption || '')}](${normalizeInlineText(block.data?.file?.url || block.data?.url || '')})`;
 
           case 'ctaBlock':
             if (!block.data?.url) return '';
@@ -2149,6 +2329,21 @@ export const ZenBlockEditor = ({
     };
   };
 
+  const getClampedMenuViewportPosition = (position: { x: number; y: number }) => {
+    const viewportPos = getViewportPosition(position);
+    if (typeof window === 'undefined') return viewportPos;
+
+    const margin = 12;
+    const maxHeight = Math.max(220, window.innerHeight - margin * 2);
+    const effectiveHeight = Math.min(overlayMenuHeight || 420, maxHeight);
+    const maxTop = Math.max(margin, window.innerHeight - effectiveHeight - margin);
+
+    return {
+      x: viewportPos.x,
+      y: Math.min(Math.max(margin, viewportPos.y), maxTop),
+    };
+  };
+
   const withActiveEditable = (fn: (editable: HTMLElement) => void) => {
     const holder = holderRef.current;
     if (!holder) return;
@@ -2174,6 +2369,67 @@ export const ZenBlockEditor = ({
       editable.style.textAlign = align;
     });
     setMenuOpen(false);
+  };
+
+  const getActiveBlockForToolbar = (): HTMLElement | null => {
+    const holder = holderRef.current;
+    if (!holder) return null;
+
+    const selection = window.getSelection();
+    const anchorNode = selection?.anchorNode ?? null;
+    const anchorElement =
+      anchorNode?.nodeType === Node.TEXT_NODE
+        ? (anchorNode.parentElement as HTMLElement | null)
+        : (anchorNode as HTMLElement | null);
+
+    if (anchorElement && holder.contains(anchorElement)) {
+      const block = anchorElement.closest('.ce-block') as HTMLElement | null;
+      if (block) return block;
+    }
+
+    const focusedElement = document.activeElement as HTMLElement | null;
+    if (focusedElement && holder.contains(focusedElement)) {
+      const block = focusedElement.closest('.ce-block') as HTMLElement | null;
+      if (block) return block;
+    }
+
+    return holder.querySelector<HTMLElement>('.ce-block--focused, .ce-block--selected, .ce-block');
+  };
+
+  const ensureToolbarScrollRoom = () => {
+    const container = containerRef.current;
+    const activeBlock = getActiveBlockForToolbar();
+    if (!container || !activeBlock) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const blockRect = activeBlock.getBoundingClientRect();
+    const blockTopInContainer = container.scrollTop + (blockRect.top - containerRect.top);
+    const blockBottomInContainer = container.scrollTop + (blockRect.bottom - containerRect.top);
+    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+
+    // Keep active block close under the navbar while menu is open.
+    const targetTopOffset = 104;
+    const targetBottomOffset = Math.floor(container.clientHeight * 0.62);
+
+    const desiredTop = Math.max(0, blockTopInContainer - targetTopOffset);
+    const desiredBottom = Math.max(0, blockBottomInContainer - targetBottomOffset);
+
+    const shouldMoveDown = blockRect.bottom > containerRect.top + targetBottomOffset;
+    const shouldMoveUp = blockRect.top < containerRect.top + targetTopOffset;
+    if (!shouldMoveDown && !shouldMoveUp) return;
+
+    const nextTop = shouldMoveDown ? desiredBottom : desiredTop;
+    const clampedTop = Math.min(maxScrollTop, Math.max(0, nextTop));
+    container.scrollTo({ top: clampedTop, behavior: 'smooth' });
+  };
+
+  const forwardOverlayWheelToEditor = (event: React.WheelEvent) => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (event.deltaY === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    container.scrollBy({ top: event.deltaY, left: 0, behavior: 'auto' });
   };
 
   const adjustIndent = (direction: 'in' | 'out') => {
@@ -2308,8 +2564,9 @@ export const ZenBlockEditor = ({
       hasContent = value.trim().length > 0 || !!blockEl.querySelector('.zen-image-block-tool, .zen-code-block-tool, .zen-table-block-tool');
     }
 
+    const isImageBlock = !!blockEl?.querySelector('.zen-image-block-preview-container');
     const count = editor.blocks.getBlocksCount?.() ?? blocks.length;
-    return { index, count, hasContent };
+    return { index, count, hasContent, isImageBlock };
   };
 
   const moveCurrentBlock = (direction: 'up' | 'down') => {
@@ -2363,12 +2620,42 @@ export const ZenBlockEditor = ({
 
   const currentBlockInfo = getCurrentBlockInfo();
   const hasCurrentBlockContent = !!currentBlockInfo?.hasContent;
+  const isCurrentBlockImage = !!currentBlockInfo?.isImageBlock;
   const showInsertSection = !hasCurrentBlockContent;
   const showArrangeSection = !!currentBlockInfo?.hasContent;
-  const showConvertSection = hasCurrentBlockContent;
+  const showConvertSection = hasCurrentBlockContent && !isCurrentBlockImage;
+  const showImageSection = isCurrentBlockImage;
   const canMoveUp = !!currentBlockInfo && currentBlockInfo.index > 0;
   const canMoveDown = !!currentBlockInfo && currentBlockInfo.index < currentBlockInfo.count - 1;
   const canDelete = !!currentBlockInfo && currentBlockInfo.count > 1;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const raf = window.requestAnimationFrame(() => {
+      ensureToolbarScrollRoom();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const node = overlayMenuRef.current;
+    if (!node) return;
+
+    const updateHeight = () => {
+      setOverlayMenuHeight(node.offsetHeight || 420);
+    };
+
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    window.addEventListener('resize', updateHeight);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, [menuOpen, showInsertSection, showConvertSection, showArrangeSection]);
 
   return (
     <div
@@ -2406,7 +2693,15 @@ export const ZenBlockEditor = ({
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
           setMenuPosition({ x: MENU_LEFT_OFFSET, y: dotPosition.y + 20 });
-          setMenuOpen((prev) => !prev);
+          setMenuOpen((prev) => {
+            const next = !prev;
+            if (next) {
+              window.requestAnimationFrame(() => {
+                ensureToolbarScrollRoom();
+              });
+            }
+            return next;
+          });
         }}
         
         aria-expanded={menuOpen}
@@ -2416,15 +2711,17 @@ export const ZenBlockEditor = ({
       {menuOpen && typeof document !== 'undefined' &&
         createPortal(
           <div
+            ref={overlayMenuRef}
             className="zen-overlay-block-menu"
             style={{
               position: 'fixed',
-              left: getViewportPosition(menuPosition).x,
-              top: getViewportPosition(menuPosition).y,
+              left: getClampedMenuViewportPosition(menuPosition).x,
+              top: getClampedMenuViewportPosition(menuPosition).y,
             }}
             role="toolbar"
             aria-label="Block tools"
             onMouseDown={keepSelection}
+            onWheel={forwardOverlayWheelToEditor}
           >
             {showInsertSection && (
               <>
@@ -2496,6 +2793,32 @@ export const ZenBlockEditor = ({
                   <button type="button" onClick={() => void convertCurrentBlock('list', { listStyle: 'unordered' })}>UL</button>
                   <button type="button" onClick={() => void convertCurrentBlock('list', { listStyle: 'ordered' })}>OL</button>
                   <button type="button" onClick={() => void convertCurrentBlock('quote')}>Quote</button>
+                </div>
+              </>
+            )}
+
+            {showImageSection && (
+              <>
+                <div className="zen-overlay-block-menu__section">Bildgröße</div>
+                <div className="zen-overlay-block-menu__grid">
+                  {[25, 50, 75, 100].map((pct) => (
+                    <button
+                      key={pct}
+                      type="button"
+                      onClick={() => {
+                        const blocks = document.querySelectorAll<HTMLElement>('.ce-block');
+                        const blockEl = blocks[currentBlockInfo!.index];
+                        const preview = blockEl?.querySelector<HTMLElement>('.zen-image-block-preview');
+                        if (!preview) return;
+                        const badge = preview.querySelector<HTMLElement>('.zen-image-block-size-badge');
+                        preview.style.width = `${pct}%`;
+                        preview.dataset.width = String(pct);
+                        if (badge) badge.textContent = `${pct}%`;
+                      }}
+                    >
+                      {pct}%
+                    </button>
+                  ))}
                 </div>
               </>
             )}

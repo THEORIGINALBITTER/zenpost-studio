@@ -16,6 +16,17 @@ export default defineConfig(async () => ({
   // ✅ Chunking / Splitting (fix for 4MB index chunk)
   build: {
     rollupOptions: {
+      onwarn(warning, warn) {
+        // Ignore known eval warning from third-party lottie-web bundle.
+        if (
+          warning.code === "EVAL" &&
+          typeof warning.id === "string" &&
+          warning.id.includes("node_modules/lottie-web/build/player/lottie.js")
+        ) {
+          return;
+        }
+        warn(warning);
+      },
       output: {
         manualChunks(id: string) {
           if (!id.includes("node_modules")) return undefined;
@@ -35,7 +46,7 @@ export default defineConfig(async () => ({
     },
 
     // optional: only adjusts warning threshold, doesn't reduce size by itself
-    chunkSizeWarningLimit: 900,
+    chunkSizeWarningLimit: 5000,
   },
 
   // 2. tauri expects a fixed port, fail if that port is not available

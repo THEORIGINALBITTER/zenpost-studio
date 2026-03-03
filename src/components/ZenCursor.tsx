@@ -1,34 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import "./zenCursor.css";
 
-type CursorPos = {
-  x: number;
-  y: number;
-};
-
 export default function ZenCursor() {
-  const [pos, setPos] = useState<CursorPos>({ x: 0, y: 0 });
-  const [visible, setVisible] = useState(false);
+  const cursorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    document.body.classList.add("zen-cursor-active");
+    const el = cursorRef.current;
+    if (!el) return;
+
+    let visible = false;
+
     const move = (e: MouseEvent) => {
-      setPos({ x: e.clientX, y: e.clientY });
-      if (!visible) setVisible(true);
+      // Direkt DOM-Update — kein React setState, kein Re-Render
+      el.style.transform = `translate(${e.clientX - 6}px, ${e.clientY - 6}px)`;
+      if (!visible) {
+        visible = true;
+        el.classList.add("visible");
+      }
     };
 
-    window.addEventListener("mousemove", move);
-    return () => window.removeEventListener("mousemove", move);
-  }, [visible]);
+    window.addEventListener("mousemove", move, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", move);
+      document.body.classList.remove("zen-cursor-active");
+    };
+  }, []);
 
   const cursor = (
-    <div
-      className={`zen-cursor ${visible ? "visible" : ""}`}
-      style={{ left: pos.x, top: pos.y }}
-      aria-hidden="true"
-    >
-      <div className="zen-core"></div>
-      <div className="zen-ripple"></div>
+    <div ref={cursorRef} className="zen-cursor" aria-hidden="true">
+      <div className="zen-core" />
+      <div className="zen-ripple" />
     </div>
   );
 

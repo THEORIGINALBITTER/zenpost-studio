@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
 import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
+import { isTauri } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import { ZenRoughButton, ZenModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
@@ -292,6 +293,7 @@ export const Step1SourceInput = ({
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [isImageDragActive, setIsImageDragActive] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
@@ -453,6 +455,168 @@ export const Step1SourceInput = ({
     } finally {
       setIsConverting(false);
     }
+  };
+
+  const MAX_IMAGE_FILE_SIZE_MB = 15;
+  const MAX_IMAGE_DROP_FILES = 8;
+
+  const isImageFile = (file: File) =>
+    file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(file.name);
+  const sanitizeFileStem = (name: string) =>
+    name
+      .replace(/\.[^/.]+$/, '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'image';
+
+  const isImagePath = (inputPath: string) => /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(inputPath);
+
+  const normalizeDroppedPath = (rawPath: string): string => {
+    const trimmed = rawPath.trim();
+    if (!trimmed) return '';
+    const withoutBrackets = trimmed.replace(/^<|>$/g, '');
+    if (withoutBrackets.startsWith('file://')) {
+      const fileUrlPath = withoutBrackets.replace(/^file:\/\//, '');
+      return decodeURIComponent(fileUrlPath);
+    }
+    return withoutBrackets;
+  };
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(reader.error ?? new Error('Datei konnte nicht gelesen werden.'));
+      reader.readAsDataURL(file);
+    });
+
+  const handleImageDrop = async (files: FileList | File[]): Promise<boolean> => {
+    const imageFiles = Array.from(files).filter(isImageFile);
+    if (imageFiles.length === 0) return false;
+
+    const limitedFiles = imageFiles.slice(0, MAX_IMAGE_DROP_FILES);
+    const oversized = limitedFiles.find((file) => file.size > MAX_IMAGE_FILE_SIZE_MB * 1024 * 1024);
+    if (oversized) {
+      onError?.(
+        `Bild zu groß: ${oversized.name} ist größer als ${MAX_IMAGE_FILE_SIZE_MB}MB.`
+      );
+      return true;
+    }
+
+    setIsConverting(true);
+    try {
+      const markdownImageLines: string[] = [];
+
+      for (const imageFile of limitedFiles) {
+        const safeStem = sanitizeFileStem(imageFile.name);
+        const dataUrl = await fileToDataUrl(imageFile);
+        markdownImageLines.push(`![${safeStem}](${dataUrl})`);
+      }
+
+      const current = await resolveLiveContent();
+      const trimmedCurrent = current.trimEnd();
+      const imageMarkdown = markdownImageLines.join('\n\n');
+      const nextContent = trimmedCurrent
+        ? `${trimmedCurrent}\n\n${imageMarkdown}\n`
+        : `${imageMarkdown}\n`;
+
+      emitSourceContentChange(nextContent);
+    } catch (error) {
+      console.error('Image drop handling failed:', error);
+      onError?.('Bilder konnten nicht verarbeitet werden.');
+    } finally {
+      setIsConverting(false);
+    }
+
+    return true;
+  };
+
+  const handleImagePathDrop = useCallback(async (paths: string[]): Promise<boolean> => {
+    const normalized = paths
+      .map(normalizeDroppedPath)
+      .filter((path) => path.length > 0)
+      .filter(isImagePath)
+      .slice(0, MAX_IMAGE_DROP_FILES);
+    if (normalized.length === 0) return false;
+
+    setIsConverting(true);
+    try {
+      const markdownImageLines: string[] = [];
+
+      if (isTauri()) {
+        const { readFile } = await import('@tauri-apps/plugin-fs');
+        for (const sourcePath of normalized) {
+          const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
+          const safeStem = sanitizeFileStem(sourceName);
+          const ext = sourceName.split('.').pop()?.toLowerCase() || 'png';
+          try {
+            const bytes = await readFile(sourcePath);
+            const b64 = btoa(String.fromCharCode(...bytes));
+            const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+            markdownImageLines.push(`![${safeStem}](data:${mime};base64,${b64})`);
+          } catch {
+            markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+          }
+        }
+      } else {
+        for (const sourcePath of normalized) {
+          const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
+          const safeStem = sanitizeFileStem(sourceName);
+          markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+        }
+      }
+
+      const current = await resolveLiveContent();
+      const trimmedCurrent = current.trimEnd();
+      const imageMarkdown = markdownImageLines.join('\n\n');
+      const nextContent = trimmedCurrent
+        ? `${trimmedCurrent}\n\n${imageMarkdown}\n`
+        : `${imageMarkdown}\n`;
+      emitSourceContentChange(nextContent);
+      onError?.('');
+    } catch (error) {
+      console.error('Image path drop handling failed:', error);
+      onError?.('Bildpfad konnte nicht verarbeitet werden.');
+    } finally {
+      setIsConverting(false);
+    }
+
+    return true;
+  }, [onError, projectPath, resolveLiveContent]);
+
+  const dragContainsImages = (event: DragEvent<HTMLElement>) => {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return false;
+    if (Array.from(dataTransfer.types || []).includes('Files')) {
+      if (!dataTransfer.files || dataTransfer.files.length === 0) return false;
+    }
+    if (dataTransfer.files && dataTransfer.files.length > 0) {
+      return Array.from(dataTransfer.files).some(isImageFile);
+    }
+    if (dataTransfer.items && dataTransfer.items.length > 0) {
+      return Array.from(dataTransfer.items).some((item) => {
+        if (item.type.startsWith('image/')) return true;
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file && isImageFile(file)) return true;
+        }
+        return false;
+      });
+    }
+    return false;
+  };
+
+  const extractImagePathsFromDataTransfer = (event: DragEvent<HTMLElement>): string[] => {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return [];
+    const uriListRaw = dataTransfer.getData('text/uri-list');
+    const textRaw = dataTransfer.getData('text/plain');
+    const candidates = `${uriListRaw}\n${textRaw}`
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+    return candidates.map(normalizeDroppedPath).filter(isImagePath);
   };
 
   // Get active doc tab info
@@ -1157,7 +1321,64 @@ export const Step1SourceInput = ({
                 flex: 1,
                 minWidth: 0,
               }}
+              onDragEnterCapture={(event) => {
+                if (!dragContainsImages(event)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setIsImageDragActive(true);
+              }}
+              onDragOverCapture={(event) => {
+                if (!dragContainsImages(event)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setIsImageDragActive(true);
+              }}
+              onDragLeave={(event) => {
+                const nextTarget = event.relatedTarget as Node | null;
+                if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+                setIsImageDragActive(false);
+              }}
+              onDropCapture={(event) => {
+                const hasImageFiles = dragContainsImages(event);
+                const imagePaths = extractImagePathsFromDataTransfer(event);
+                const hasImagePaths = imagePaths.length > 0;
+                if (!hasImageFiles && !hasImagePaths) {
+                  setIsImageDragActive(false);
+                  return;
+                }
+                event.preventDefault();
+                event.stopPropagation();
+                setIsImageDragActive(false);
+                if (hasImageFiles && event.dataTransfer.files?.length) {
+                  void handleImageDrop(event.dataTransfer.files);
+                  return;
+                }
+                if (hasImagePaths) {
+                  void handleImagePathDrop(imagePaths);
+                }
+              }}
             >
+              {isImageDragActive ? (
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    border: '1.5px dashed #AC8E66',
+                    borderRadius: '10px',
+                    background: 'rgba(172,142,102,0.08)',
+                    zIndex: 5,
+                    pointerEvents: 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '11px',
+                    color: '#AC8E66',
+                  }}
+                >
+                  Bilder ablegen zum Einfügen
+                </div>
+              ) : null}
               {editorType === "block" ? (
                 <ZenBlockEditor
                   key={`block-${activeDocTabId ?? 'no-tab'}`}
@@ -1180,6 +1401,7 @@ export const Step1SourceInput = ({
                   key={`markdown-${activeDocTabId ?? 'no-tab'}`}
                   value={sourceContent}
                   onChange={emitSourceContentChange}
+                  projectPath={projectPath}
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
                   placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"

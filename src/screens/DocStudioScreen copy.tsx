@@ -3,7 +3,7 @@ import { readDir, readTextFile, writeTextFile, exists } from '@tauri-apps/plugin
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFolder, faBook, faPencil, faFileLines, faRotateLeft, faLightbulb, faSave, faUser, faPlug, faHandshake, faDatabase, faCalendarDays, faChevronDown, faChevronUp, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { faLinkedin, faReddit, faGithub, faDev, faMedium, faHashnode, faTwitter } from '@fortawesome/free-brands-svg-icons';
-import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ProjectMetadata, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenSaveSuccessModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent, ZenModal, ZenModalHeader, ZenModalFooter, getModalPreset } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenFooterText, ZenMetadataModal, ZenGeneratingModal, ZenRoughButton, ZenSaveConfirmationModal, ZenSaveSuccessModal, ZenPublishScheduler, ZenContentCalendar, ZenTodoChecklist, ZenDropdown, extractMetadataFromContent, ZenModal, ZenModalHeader, ZenModalFooter, getModalPreset, createDefaultProjectMetadata, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenMarkdownEditor } from '../kits/PatternKit/ZenMarkdownEditor';
 import { ZenMarkdownPreview } from '../kits/PatternKit/ZenMarkdownPreview';
 import { generateFromPrompt, translateContent, type TargetLanguage } from '../services/aiService';
@@ -234,16 +234,9 @@ export function DocStudioScreen({
 
   // Metadata
   const [showMetadata, setShowMetadata] = useState(false);
-  const [metadata, setMetadata] = useState<ProjectMetadata>(savedState?.metadata || {
-    authorName: '',
-    authorEmail: '',
-    companyName: '',
-    license: 'MIT',
-    year: new Date().getFullYear().toString(),
-    website: '',
-    repository: '',
-    contributingUrl: '',
-  });
+  const [metadata, setMetadata] = useState<ProjectMetadata>(
+    savedState?.metadata || createDefaultProjectMetadata()
+  );
 
   // Save Confirmation
   const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);

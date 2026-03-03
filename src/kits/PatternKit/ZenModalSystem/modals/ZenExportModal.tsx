@@ -214,6 +214,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
 export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [_copied, setCopied] = useState(false);
   const [_optimizingPlatform, setOptimizingPlatform] = useState<string | null>(null);
   const [_optimizedPlatform, setOptimizedPlatform] = useState<string | null>(null);
@@ -223,6 +224,20 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const { openExternal } = useOpenExternal();
 
   const createPdfBytes = async (text: string) => {
+    const toWinAnsiSafe = (input: string) =>
+      input
+        .replace(/→/g, '->')
+        .replace(/←/g, '<-')
+        .replace(/↔/g, '<->')
+        .replace(/⇒/g, '=>')
+        .replace(/⇐/g, '<=')
+        .replace(/•/g, '*')
+        .replace(/…/g, '...')
+        .replace(/[“”]/g, '"')
+        .replace(/[‘’]/g, "'")
+        .replace(/[–—]/g, '-')
+        .replace(/\u00A0/g, ' ');
+
     const normalizedText = text
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
@@ -237,7 +252,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
     const fontBoldItalic = await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique);
     const fontMono = await pdfDoc.embedFont(StandardFonts.Courier);
     const margin = 40;
-    const baseFontSize = 11;
+    const baseFontSize = 10;
 
     let page = pdfDoc.addPage();
     let { width, height } = page.getSize();
@@ -393,7 +408,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       size: number,
       indent = 0
     ) => {
-      const lineHeight = size + 4;
+      const lineHeight = size + 3;
       const maxWidth = width - margin * 2 - indent;
       const lines = wrapSegments(segments, maxWidth);
       const startY = y;
@@ -427,8 +442,33 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
         .replace(/__([^_]+)__/g, '$1')
         .replace(/_([^_]+)_/g, '$1');
 
-    const rawLines = normalizedText.replace(/\r\n/g, '\n').split('\n');
+    const pdfSafeText = toWinAnsiSafe(normalizedText)
+      // Markdown data URL images can be extremely large and freeze PDF layout; reduce to short markers.
+      .replace(/!\[([^\]]*)\]\(data:image\/[^)]+\)/gi, (_m, alt) => `[Bild: ${String(alt ?? '').trim() || 'eingebettet'}]`)
+      // HTML inline data URL images.
+      .replace(/<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*\/?>/gi, '[Bild: eingebettet]');
+
+    const rawLines = pdfSafeText.replace(/\r\n/g, '\n').split('\n');
     let inCodeBlock = false;
+    const parseMarkdownImage = (input: string): { alt: string; url: string } | null => {
+      const trimmed = input.trim();
+      if (!trimmed.startsWith('![')) return null;
+      const altEnd = trimmed.indexOf('](');
+      if (altEnd < 2 || !trimmed.endsWith(')')) return null;
+      const alt = trimmed.slice(2, altEnd).trim();
+      const url = trimmed.slice(altEnd + 2, -1).trim();
+      if (!url) return null;
+      return { alt, url };
+    };
+    const parseHtmlImage = (input: string): { alt: string; url: string } | null => {
+      const trimmed = input.trim();
+      const srcQuoted = trimmed.match(/^<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*\/?>$/i);
+      const srcUnquoted = trimmed.match(/^<img\b[^>]*\bsrc=([^\s>]+)[^>]*\/?>$/i);
+      const src = (srcQuoted?.[1] ?? srcUnquoted?.[1] ?? '').trim();
+      if (!src) return null;
+      const altMatch = trimmed.match(/\balt=["']([^"']*)["']/i);
+      return { alt: (altMatch?.[1] ?? '').trim(), url: src };
+    };
 
     const isTableSeparator = (line: string) =>
       /^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
@@ -449,8 +489,8 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       const columnWidth = tableWidth / colCount;
       colWidths.fill(columnWidth);
       const cellPadding = 6;
-      const headerFontSize = 11;
-      const cellFontSize = 10;
+      const headerFontSize = 10;
+      const cellFontSize = 9;
 
       const measureRowHeight = (cells: string[], size: number) => {
         const rowSegments = cells.map((cell) => tokenizeInline(cell, size));
@@ -541,7 +581,10 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
 
     for (let idx = 0; idx < rawLines.length; idx += 1) {
       const rawLine = rawLines[idx];
-      const line = rawLine ?? '';
+      let line = rawLine ?? '';
+      if (line.length > 1800) {
+        line = `${line.slice(0, 1800)} … [gekürzt für PDF]`;
+      }
       const trimmed = line.trim();
 
       if (trimmed.startsWith('```')) {
@@ -552,6 +595,25 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
 
       if (!trimmed) {
         y -= baseFontSize;
+        continue;
+      }
+
+      const markdownImage = parseMarkdownImage(line);
+      const htmlImage = markdownImage ? null : parseHtmlImage(line);
+      const imageRef = markdownImage ?? htmlImage;
+      if (imageRef) {
+        const isDataUrl = imageRef.url.startsWith('data:image/');
+        const label = imageRef.alt || 'Bild';
+        const previewUrl = isDataUrl
+          ? 'eingebettetes Bild (Data URL)'
+          : imageRef.url.length > 100
+            ? `${imageRef.url.slice(0, 97)}...`
+            : imageRef.url;
+        const segments = tokenizeInline(`[Bild] ${label} — ${previewUrl}`, baseFontSize).map((seg) => ({
+          ...seg,
+          color: { r: 0.22, g: 0.22, b: 0.22 },
+        }));
+        drawWrappedSegments(segments, baseFontSize, 0);
         continue;
       }
 
@@ -583,12 +645,22 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
         const level = headingMatch[1].length;
         const headingText = stripInline(headingMatch[2]);
         const size = Math.max(12, 20 - level * 2);
+        const headingSizeByLevel: Record<number, number> = {
+          1: 18,
+          2: 16,
+          3: 14,
+          4: 13,
+          5: 12,
+          6: 12,
+        };
+        const appliedSize = headingSizeByLevel[level] ?? size;
         const segments = tokenizeInline(headingText, size).map((seg) => ({
           ...seg,
           font: fontBold,
+          size: appliedSize,
         }));
-        drawWrappedSegments(segments, size, 0);
-        y -= size / 3;
+        drawWrappedSegments(segments, appliedSize, 0);
+        y -= appliedSize / 4;
         continue;
       }
 
@@ -1037,6 +1109,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
 
   const handleExport = async (option: ExportOption) => {
     setExportingId(option.id);
+    setExportError(null);
     try {
       const normalizedContent = normalizeHtmlEntities(content);
       let fileContent = normalizedContent;
@@ -1195,6 +1268,8 @@ ${renderedHtml}
       }
     } catch (error) {
       console.error('Export failed:', error);
+      const message = error instanceof Error ? error.message : 'Unbekannter Export-Fehler';
+      setExportError(`Export fehlgeschlagen: ${message}`);
     } finally {
       setExportingId(null);
     }
@@ -1288,6 +1363,22 @@ ${renderedHtml}
       showCloseButton={true}
     >
       <div style={{ padding: '24px', maxHeight: '80vh', overflowY: 'auto', position: 'relative' }}>
+        {exportError && (
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px 12px',
+              border: '0.5px solid #8e4f4f',
+              borderRadius: '10px',
+              backgroundColor: '#8e4f4f22',
+              color: '#7a1f1f',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+            }}
+          >
+            {exportError}
+          </div>
+        )}
         {/* Schnell-Export - Accordion */}
         <div style={{ marginBottom: '14px', border: '0.5px solid #3A3A3A', borderRadius: '12px', overflow: 'hidden' }}>
           <button

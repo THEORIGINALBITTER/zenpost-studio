@@ -1,8 +1,10 @@
 /* Cursor Container */
 .zen-cursor {
   position: fixed;
+  left: 0;
+  top: 0;
   pointer-events: none;
-  transform: translate(-50%, -50%);
+  will-change: transform;
   z-index: 2147483647;
   opacity: 0;
   transition: opacity 0.3s ease-out;
@@ -13,7 +15,8 @@
 }
 
 /* Force-hide custom cursor (e.g. reading mode in Step4) */
-body.zen-cursor-force-hidden .zen-cursor {
+/* Using html instead of body — body class changes trigger WKWebView scroll resets */
+html.zen-cursor-force-hidden .zen-cursor {
   opacity: 0 !important;
 }
 
@@ -23,10 +26,6 @@ body.zen-cursor-force-hidden .zen-cursor {
   height: 12px;
   background: rgba(172, 142, 102, 0.9);
   border-radius: 50%;
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
 }
 
 /* Pulse Ripple */
@@ -61,11 +60,21 @@ body.zen-cursor-force-hidden .zen-cursor {
 
 /* Nur auf Desktop zeigen */
 @media (pointer: fine) {
-  body {
+  body.zen-cursor-active {
     cursor: none;
   }
-  body * {
+  body.zen-cursor-active * {
     cursor: none !important;
+  }
+  /* EditorJS: nativen Cursor im Editor erlauben (verhindert Cursor-Reset bei Bild-Resize) */
+  body.zen-cursor-active .codex-editor,
+  body.zen-cursor-active .codex-editor * {
+    cursor: auto !important;
+  }
+  body.zen-cursor-active .codex-editor [contenteditable],
+  body.zen-cursor-active .codex-editor input,
+  body.zen-cursor-active .codex-editor textarea {
+    cursor: text !important;
   }
 }
 

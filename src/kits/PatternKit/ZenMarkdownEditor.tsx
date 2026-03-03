@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, KeyboardEvent, type DragEvent } from 'react';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -17,10 +17,12 @@ import {
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
 import { textToMarkdown } from '../../services/aiService';
+import { isTauri } from '@tauri-apps/api/core';
 
 interface ZenMarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
+  projectPath?: string | null;
   placeholder?: string;
   height?: string;
   showCharCount?: boolean;
@@ -60,6 +62,7 @@ interface FloatingToolbarPosition {
 export const ZenMarkdownEditor = ({
   value,
   onChange,
+  projectPath,
   placeholder = '# Dein Markdown Inhalt hier einfügen...',
   height = '400px',
   showCharCount = true,
@@ -950,6 +953,16 @@ if (modifier && !showCommandMenu) {
 const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
   const newValue = e.target.value;
   onChange(newValue);
+  void (async () => {
+    try {
+      const converted = await convertRawImagePathLines(newValue);
+      if (converted && converted !== newValue) {
+        onChange(converted);
+      }
+    } catch (error) {
+      console.warn('[ZenMarkdownEditor] Bildpfad-Konvertierung fehlgeschlagen:', error);
+    }
+  })();
 
   setShowToolbar(false);
   setTimeout(updateActiveLine, 0);
@@ -1006,6 +1019,135 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
   };
 
   const colors = themeStyles[theme];
+
+  const isImageFile = (file: File) =>
+    file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(file.name);
+  const isImagePath = (inputPath: string) => /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(inputPath);
+  const sanitizeFileStem = (name: string) =>
+    name
+      .replace(/\.[^/.]+$/, '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'image';
+
+  const normalizeDroppedPath = (rawPath: string): string => {
+    const trimmed = rawPath.trim();
+    if (!trimmed) return '';
+    const withoutBrackets = trimmed.replace(/^<|>$/g, '');
+    if (withoutBrackets.startsWith('file://')) {
+      const fileUrlPath = withoutBrackets.replace(/^file:\/\//, '');
+      return decodeURIComponent(fileUrlPath);
+    }
+    return withoutBrackets;
+  };
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(reader.error ?? new Error('Datei konnte nicht gelesen werden.'));
+      reader.readAsDataURL(file);
+    });
+
+  const extractImagePathsFromDataTransfer = (event: DragEvent<HTMLTextAreaElement>): string[] => {
+    const uriListRaw = event.dataTransfer.getData('text/uri-list');
+    const textRaw = event.dataTransfer.getData('text/plain');
+    return `${uriListRaw}\n${textRaw}`
+      .split('\n')
+      .map((line) => normalizeDroppedPath(line))
+      .filter((line) => line && !line.startsWith('#'))
+      .filter(isImagePath);
+  };
+
+  const appendImageMarkdown = (imageLines: string[]) => {
+    if (imageLines.length === 0) return;
+    const trimmed = value.trimEnd();
+    const block = imageLines.join('\n\n');
+    const next = trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+    onChange(next);
+  };
+
+  const handleTextareaDragOver = (event: DragEvent<HTMLTextAreaElement>) => {
+    const hasFilePayload = Array.from(event.dataTransfer.types || []).includes('Files');
+    const hasImageFiles = Array.from(event.dataTransfer.files ?? []).some(isImageFile);
+    const hasImagePaths = extractImagePathsFromDataTransfer(event).length > 0;
+    if (hasFilePayload || hasImageFiles || hasImagePaths) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleTextareaDrop = async (event: DragEvent<HTMLTextAreaElement>) => {
+    const imageFiles = Array.from(event.dataTransfer.files ?? []).filter(isImageFile);
+    const imagePaths = extractImagePathsFromDataTransfer(event);
+    if (imageFiles.length === 0 && imagePaths.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (imageFiles.length > 0) {
+      const lines: string[] = [];
+      for (const imageFile of imageFiles.slice(0, 6)) {
+        const safeStem = sanitizeFileStem(imageFile.name);
+        const dataUrl = await fileToDataUrl(imageFile);
+        lines.push(`![${safeStem}](${dataUrl})`);
+      }
+      appendImageMarkdown(lines);
+      return;
+    }
+
+    const pathLines = imagePaths.slice(0, 6).map((imagePath) => {
+      const sourceName = imagePath.split('/').pop()?.split('\\').pop() || 'image';
+      const safeStem = sanitizeFileStem(sourceName);
+      return `![${safeStem}](${imagePath})`;
+    });
+    appendImageMarkdown(pathLines);
+  };
+
+  const isStandaloneImagePathLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return false;
+    if (/^!\[[^\]]*\]\([^)]+\)$/.test(trimmed)) return false;
+    const normalized = normalizeDroppedPath(trimmed);
+    return isImagePath(normalized);
+  };
+
+  const convertRawImagePathLines = async (rawValue: string): Promise<string | null> => {
+    const lines = rawValue.split('\n');
+    const pathLineIndexes = lines
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => isStandaloneImagePathLine(line));
+    if (pathLineIndexes.length === 0) return null;
+
+    const nextLines = [...lines];
+
+    if (isTauri()) {
+      const { readFile } = await import('@tauri-apps/plugin-fs');
+      for (const { index, line } of pathLineIndexes) {
+        const sourcePath = normalizeDroppedPath(line.trim());
+        const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
+        const safeStem = sanitizeFileStem(sourceName);
+        const ext = sourceName.split('.').pop()?.toLowerCase() || 'png';
+        try {
+          const bytes = await readFile(sourcePath);
+          const b64 = btoa(String.fromCharCode(...bytes));
+          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
+          nextLines[index] = `![${safeStem}](data:${mime};base64,${b64})`;
+        } catch {
+          nextLines[index] = `![${safeStem}](${sourcePath})`;
+        }
+      }
+      return nextLines.join('\n');
+    }
+
+    for (const { index, line } of pathLineIndexes) {
+      const sourcePath = normalizeDroppedPath(line.trim());
+      const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
+      const safeStem = sanitizeFileStem(sourceName);
+      nextLines[index] = `![${safeStem}](${sourcePath})`;
+    }
+    return nextLines.join('\n');
+  };
 
   return (
     <div className="w-full relative">
@@ -1243,6 +1385,10 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             ref={textareaRef}
             value={value}
             onChange={handleInput}
+            onDragOver={handleTextareaDragOver}
+            onDrop={(event) => {
+              void handleTextareaDrop(event);
+            }}
             onKeyDown={handleKeyDown}
             onFocus={() => {
   setTimeout(updateActiveLine, 0);
@@ -1349,7 +1495,7 @@ onKeyUp={() => {
           ref={previewRef}
           className={`${showPreview ? 'md:w-1/2 w-full' : 'hidden'} ${showPreview ? 'block md:block' : 'hidden'}`}
         >
-          <ZenMarkdownPreview content={value} height={height} />
+          <ZenMarkdownPreview content={value} height={height} projectPath={projectPath} />
         </div>
       )}
       </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
-import type { ProjectMetadata } from '../../../kits/PatternKit/ZenModalSystem';
+import { createDefaultProjectMetadata, type ProjectMetadata } from '../../../kits/PatternKit/ZenModalSystem';
 import { defaultDocInputFields, type DocStudioRuntime, type DocStudioStep, type DocTemplate, type ProjectInfo, type DocTab, type DocInputFields } from '../types';
 import type { TargetLanguage } from '../../../services/aiService';
 import type { ScanSummary, ScanArtifacts } from '../../../services/projectScanService';
@@ -32,16 +32,7 @@ export function useDocStudioState(initial?: DocStudioInitialState) {
   const [scanSummary, setScanSummary] = useState<ScanSummary | null>(initial?.scanSummary ?? null);
   const [scanArtifacts, setScanArtifacts] = useState<ScanArtifacts | null>(initial?.scanArtifacts ?? null);
   const [metadata, setMetadata] = useState<ProjectMetadata>(
-    initial?.metadata ?? {
-      authorName: '',
-      authorEmail: '',
-      companyName: '',
-      license: 'MIT',
-      year: new Date().getFullYear().toString(),
-      website: '',
-      repository: '',
-      contributingUrl: '',
-    }
+    initial?.metadata ?? createDefaultProjectMetadata()
   );
 
   const [selectedTemplates, setSelectedTemplates] = useState<DocTemplate[]>(initial?.selectedTemplates ?? []);

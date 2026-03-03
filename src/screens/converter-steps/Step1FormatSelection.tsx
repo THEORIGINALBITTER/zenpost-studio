@@ -26,6 +26,9 @@ interface Step1FormatSelectionProps {
   isConverting: boolean;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   onToggleFormat: (format: SupportedFormat) => void;
+  onApplyRecentTargets: (targets: SupportedFormat[]) => void;
+  onDeleteRecentItem: (id: string) => void;
+  onClearRecentItems: () => void;
   onUploadFile: (file: File) => void;
   onConvert: () => void;
 }
@@ -42,6 +45,9 @@ export const Step1FormatSelection = ({
   isConverting,
   fileInputRef,
   onToggleFormat,
+  onApplyRecentTargets,
+  onDeleteRecentItem,
+  onClearRecentItems,
   onUploadFile,
   onConvert,
 }: Step1FormatSelectionProps) => {
@@ -63,22 +69,18 @@ export const Step1FormatSelection = ({
     <div
       style={{
         display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'flex-start',
         padding: 'clamp(24px, 4vw, 48px) clamp(12px, 3vw, 32px)',
-        gap: '24px',
+        gap: '14px',
         maxWidth: '1080px',
         margin: '0 auto',
         width: '100%',
         boxSizing: 'border-box',
       }}
     >
-      {/* ─── Left: upload + format + convert ─── */}
-      <div style={{ flex: '1.2', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {/* Header */}
-       
-
-        {/* Beige card */}
+      <div style={{ width: 'min(100%, 660px)' }}>
         <div
           style={{
             borderRadius: '12px',
@@ -153,7 +155,7 @@ export const Step1FormatSelection = ({
                 ? ''
                 : hasInputContent
                 ? `${detectedFormatLabel} erkannt · klicken zum Wechseln`
-                : 'oder klicken zum Auswählen · .md .txt .json .html .pdf .docx .pages'}
+                : 'oder klicken zum Auswählen · .md .txt .json .html .pdf .docx .pages .png .jpg .jpeg .webp .svg'}
             </span>
           </div>
 
@@ -247,7 +249,7 @@ export const Step1FormatSelection = ({
         <input
           ref={fileInputRef}
           type="file"
-          accept=".md,.markdown,.txt,.json,.html,.htm,.pdf,.docx,.doc,.pages,.js,.jsx,.ts,.tsx,.py,.rs,.go,.java,.c,.cpp,.h,.hpp,.cs,.php,.rb,.swift,.kt,.scala"
+          accept=".md,.markdown,.txt,.json,.html,.htm,.pdf,.docx,.doc,.pages,.png,.jpg,.jpeg,.webp,.svg,.js,.jsx,.ts,.tsx,.py,.rs,.go,.java,.c,.cpp,.h,.hpp,.cs,.php,.rb,.swift,.kt,.scala"
           style={{ display: 'none' }}
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -257,29 +259,46 @@ export const Step1FormatSelection = ({
         />
       </div>
 
-      {/* ─── Right: recent conversions ─── */}
+      {/* ─── Bottom: conversion map ─── */}
       <div
         style={{
-          flex: '0.8',
-          minWidth: 0,
+          width: 'min(100%, 660px)',
           borderRadius: '14px',
           border: '0.5px solid #2F2F2F',
-          padding: '20px',
-          marginTop: '46px',
+          padding: '14px',
         }}
       >
-        <p
-          style={{
-            margin: '0 0 12px',
-            fontSize: '9px',
-            color: '#AC8E66',
-            fontFamily: 'IBM Plex Mono, monospace',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-          }}
-        >
-          Letzte Konvertierungen
-        </p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '12px' }}>
+          <p
+            style={{
+              margin: 0,
+              fontSize: '9px',
+              color: '#AC8E66',
+              fontFamily: 'IBM Plex Mono, monospace',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+            }}
+          >
+            Konvertierungs-Mappe
+          </p>
+          <button
+            type="button"
+            onClick={onClearRecentItems}
+            disabled={recentConversions.length === 0}
+            style={{
+              borderRadius: '6px',
+              border: '1px solid rgba(90,80,60,0.35)',
+              background: recentConversions.length > 0 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
+              color: recentConversions.length > 0 ? '#bfa985' : '#7d7568',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '9px',
+              padding: '4px 8px',
+              cursor: recentConversions.length > 0 ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Alle leeren
+          </button>
+        </div>
         {recentConversions.length === 0 ? (
           <div
             style={{
@@ -294,7 +313,7 @@ export const Step1FormatSelection = ({
             Noch keine Konvertierungen vorhanden.
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '420px', overflow: 'auto' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '210px', overflow: 'auto' }}>
             {recentConversions.map((item) => (
               <div
                 key={item.id}
@@ -303,27 +322,66 @@ export const Step1FormatSelection = ({
                   border: '0.5px solid #3A3A3A',
                   background: 'rgba(255,255,255,0.01)',
                   padding: '8px 10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
                 }}
               >
-                <div
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '11px',
+                      color: '#E7CCAA',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      marginBottom: '3px',
+                    }}
+                  >
+                    {item.fileName}
+                  </div>
+                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#8E8E8E' }}>
+                    {item.fromFormat.toUpperCase()} → {item.targetFormats.map((f) => f.toUpperCase()).join(', ')}
+                  </div>
+                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', marginTop: '2px' }}>
+                    {formatDate(item.createdAt)}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onApplyRecentTargets(item.targetFormats)}
                   style={{
+                    borderRadius: '6px',
+                    border: '1px solid rgba(172,142,102,0.45)',
+                    background: 'rgba(172,142,102,0.12)',
+                    color: '#d9c29e',
                     fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '11px',
-                    color: '#E7CCAA',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    fontSize: '10px',
+                    padding: '6px 8px',
+                    cursor: 'pointer',
                     whiteSpace: 'nowrap',
-                    marginBottom: '3px',
                   }}
                 >
-                  {item.fileName}
-                </div>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#8E8E8E' }}>
-                  {item.fromFormat.toUpperCase()} → {item.targetFormats.map((f) => f.toUpperCase()).join(', ')}
-                </div>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', marginTop: '2px' }}>
-                  {formatDate(item.createdAt)}
-                </div>
+                  Ziele übernehmen
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteRecentItem(item.id)}
+                  style={{
+                    borderRadius: '6px',
+                    border: '1px solid rgba(140,80,80,0.4)',
+                    background: 'rgba(160,90,90,0.1)',
+                    color: '#cda4a4',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    padding: '6px 8px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Löschen
+                </button>
               </div>
             ))}
           </div>

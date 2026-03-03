@@ -68,6 +68,22 @@ export interface ProjectMetadata {
   [key: string]: string;
 }
 
+export function createDefaultProjectMetadata(): ProjectMetadata {
+  return {
+    authorName: '',
+    authorEmail: '',
+    companyName: '',
+    license: 'MIT',
+    year: new Date().getFullYear().toString(),
+    website: '',
+    repository: '',
+    contributingUrl: '',
+    description: '',
+    keywords: '',
+    lang: 'de',
+  };
+}
+
 interface ZenMetadataModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -75,19 +91,7 @@ interface ZenMetadataModalProps {
   onSave: (metadata: ProjectMetadata) => void;
 }
 
-const defaultMetadata: ProjectMetadata = {
-  authorName: '',
-  authorEmail: '',
-  companyName: '',
-  license: 'MIT',
-  year: new Date().getFullYear().toString(),
-  website: '',
-  repository: '',
-  contributingUrl: '',
-  description: '',
-  keywords: '',
-  lang: 'de',
-};
+const defaultMetadata: ProjectMetadata = createDefaultProjectMetadata();
 
 // Typography-Konfiguration (außerhalb der Komponente)
 const typography = {

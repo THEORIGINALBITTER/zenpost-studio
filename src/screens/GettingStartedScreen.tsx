@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { loadMobileDrafts, saveMobileInboxPath, getSavedMobileInboxPath, type MobileDraft } from '../services/mobileInboxService';
+import { open } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
@@ -6,6 +8,7 @@ import {
   faCalendarDays,
   faFileLines,
   faFolderOpen,
+  faMobileScreen,
   faPencil,
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
@@ -30,11 +33,12 @@ interface GettingStartedScreenProps {
   onOpenDocStudio?: () => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
+  onOpenMobileInbox?: () => void;
   recentItems?: GettingStartedRecentItem[];
   onContinueRecent?: (item: GettingStartedRecentItem) => void;
 }
 
-type StudioId = 'doc-studio' | 'content-ai' | 'converter';
+type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile';
 
 interface StudioDef {
   id: StudioId;
@@ -54,6 +58,7 @@ export function GettingStartedScreen({
   onOpenDocStudio,
   onOpenContentAI,
   onOpenConverter,
+  onOpenMobileInbox,
   recentItems = [],
   onContinueRecent,
 }: GettingStartedScreenProps) {
@@ -65,6 +70,28 @@ export function GettingStartedScreen({
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [activeStudio, setActiveStudio] = useState<StudioId>('doc-studio');
+  const [mobileDrafts, setMobileDrafts] = useState<MobileDraft[]>([]);
+  const [mobileInboxPath, setMobileInboxPath] = useState<string>(getSavedMobileInboxPath() ?? '');
+
+  const refreshMobileDrafts = () => {
+    loadMobileDrafts().then(({ drafts, basePath }) => {
+      setMobileDrafts(drafts.slice(0, 3));
+      setMobileInboxPath(basePath);
+    });
+  };
+
+  useEffect(() => {
+    refreshMobileDrafts();
+  }, []);
+
+  async function handlePickMobileFolder() {
+    const selected = await open({ directory: true, multiple: false });
+    if (selected && typeof selected === 'string') {
+      saveMobileInboxPath(selected);
+      setMobileInboxPath(selected);
+      loadMobileDrafts().then(({ drafts }) => setMobileDrafts(drafts.slice(0, 3)));
+    }
+  }
 
   const studios: StudioDef[] = [
     {
@@ -121,11 +148,18 @@ export function GettingStartedScreen({
       useCases: [
         {
           title: 'Dateiformate konvertieren',
-          description: 'Markdown, Text und strukturierte Inhalte bereinigen/konvertieren',
+          description: 'Markdown, Text und strukturierte Inhalte, Bildformate bereinigen/konvertieren',
           icon: faFileLines,
           action: () => onOpenConverter?.(),
         },
       ],
+    },
+    {
+      id: 'mobile',
+      label: 'Mobile Inbox',
+      shortLabel: 'Mobile',
+      description: 'iPhone-Entwürfe via iCloud — Ideen unterwegs festhalten, hier weiterbearbeiten',
+      useCases: [],
     },
   ];
 
@@ -284,57 +318,163 @@ export function GettingStartedScreen({
               </p>
             </div>
 
-            {/* Use case cards */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                gap: '12px',
-              }}
-            >
-              {currentStudio.useCases.map((uc) => (
-                <button
-                  key={uc.title}
-                  onClick={uc.action}
-                  style={{
-                    borderRadius: '12px',
-                    border: '0.5px solid rgba(172,142,102,0.35)',
-                    background: 'rgba(255,255,255,0.45)',
-                    padding: '16px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '10px',
-                    transition: 'all 0.18s ease',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = 'none';
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <FontAwesomeIcon icon={uc.icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
-                    <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
+            {/* Use case cards — oder Mobile Drafts */}
+            {activeStudio === 'mobile' ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+
+                {/* Ordner-Konfiguration */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '8px 12px', borderRadius: '8px',
+                  background: 'rgba(255,255,255,0.3)',
+                  border: '0.5px solid rgba(172,142,102,0.3)',
+                  marginBottom: '4px',
+                }}>
+                  <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '10px', color: '#AC8E66', flexShrink: 0 }} />
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#7a7060',
+                    flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {mobileInboxPath || 'Kein Ordner gesetzt'}
+                  </span>
+                  <button
+                    onClick={handlePickMobileFolder}
+                    style={{
+                      background: 'none', border: '0.5px solid rgba(172,142,102,0.5)',
+                      borderRadius: '5px', padding: '3px 8px', cursor: 'pointer',
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#AC8E66',
+                      flexShrink: 0,
+                    }}
+                  >
+                    Ändern
+                  </button>
+                  <button
+                    onClick={refreshMobileDrafts}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#7a7060',
+                      padding: '0 4px',
+                    }}
+                    title="Aktualisieren"
+                  >
+                    ↻
+                  </button>
+                </div>
+
+                {mobileDrafts.length === 0 ? (
+                  <div style={{
+                    border: '1px dashed rgba(172,142,102,0.4)', borderRadius: '12px',
+                    padding: '20px', fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px', color: '#7a7060', lineHeight: 1.6,
+                  }}>
+                    <FontAwesomeIcon icon={faMobileScreen} style={{ marginRight: 8, color: '#AC8E66' }} />
+                    Noch keine Entwürfe. Auf dem iPhone speichern → per AirDrop in den gewählten Ordner senden.
                   </div>
-                  <div>
-                    <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                      {uc.title}
-                    </p>
-                    <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                      {uc.description}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
+                ) : (
+                  <>
+                    {mobileDrafts.map((draft) => (
+                      <button
+                        key={draft.id}
+                        onClick={onOpenMobileInbox}
+                        style={{
+                          borderRadius: '12px', border: '0.5px solid rgba(172,142,102,0.35)',
+                          background: 'rgba(255,255,255,0.45)', padding: '14px 16px',
+                          cursor: 'pointer', textAlign: 'left', display: 'flex',
+                          alignItems: 'center', gap: '12px', fontFamily: 'IBM Plex Mono, monospace',
+                          transition: 'all 0.18s ease', width: '100%',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = 'none';
+                        }}
+                      >
+                        <FontAwesomeIcon
+                          icon={draft.photoUri ? faFolderOpen : faPencil}
+                          style={{ fontSize: '14px', color: '#AC8E66', flexShrink: 0 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ margin: '0 0 3px 0', fontSize: '11px', color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {draft.text || '(kein Text)'}
+                          </p>
+                          <p style={{ margin: 0, fontSize: '9px', color: '#7a7060' }}>
+                            {new Date(draft.createdAt).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            {draft.platform ? ` · ${draft.platform}` : ''}
+                          </p>
+                        </div>
+                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
+                      </button>
+                    ))}
+                    <button
+                      onClick={onOpenMobileInbox}
+                      style={{
+                        background: 'none', border: 'none', fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px', color: '#AC8E66', cursor: 'pointer', textAlign: 'right',
+                        padding: '4px 0',
+                      }}
+                    >
+                      Alle anzeigen →
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                  gap: '12px',
+                }}
+              >
+                {currentStudio.useCases.map((uc) => (
+                  <button
+                    key={uc.title}
+                    onClick={uc.action}
+                    style={{
+                      borderRadius: '12px',
+                      border: '0.5px solid rgba(172,142,102,0.35)',
+                      background: 'rgba(255,255,255,0.45)',
+                      padding: '16px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      transition: 'all 0.18s ease',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <FontAwesomeIcon icon={uc.icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                        {uc.title}
+                      </p>
+                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
+                        {uc.description}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

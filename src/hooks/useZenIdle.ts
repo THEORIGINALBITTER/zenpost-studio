@@ -31,6 +31,8 @@ export function useZenIdle(delay = 2000) {
     window.addEventListener("keydown", reset);
     window.addEventListener("mousedown", reset);
     window.addEventListener("touchstart", reset);
+    window.addEventListener("wheel", reset, { passive: true });
+    window.addEventListener("scroll", reset, { passive: true });
 
     reset();
 
@@ -39,6 +41,8 @@ export function useZenIdle(delay = 2000) {
       window.removeEventListener("keydown", reset);
       window.removeEventListener("mousedown", reset);
       window.removeEventListener("touchstart", reset);
+      window.removeEventListener("wheel", reset);
+      window.removeEventListener("scroll", reset);
       if (timer.current !== null) {
         window.clearTimeout(timer.current);
       }

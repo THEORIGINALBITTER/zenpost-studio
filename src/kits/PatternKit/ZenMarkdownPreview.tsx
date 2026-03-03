@@ -1,16 +1,60 @@
-import { Children, isValidElement, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeRaw from 'rehype-raw';
 import 'highlight.js/styles/atom-one-dark.css';
 import './ZenMarkdownPreview.css';
+
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner, faPrint } from '@fortawesome/free-solid-svg-icons';
-import { invoke } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
+
+// Stable module-level constants — never recreated, so ReactMarkdown skips re-parse
+const REMARK_PLUGINS = [remarkGfm];
+const REHYPE_PLUGINS = [rehypeRaw, rehypeHighlight];
+
+// Memoized at module level so React.memo can bail out completely when content/components/urlTransform
+// are all stable — this prevents WKWebView from resetting scrollTop on unrelated parent re-renders
+const MemoizedMarkdownContent = memo(function MarkdownContent({
+  content,
+  components,
+  urlTransform,
+}: {
+  content: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  components: any;
+  urlTransform: (url: string) => string;
+}) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={REMARK_PLUGINS}
+      rehypePlugins={REHYPE_PLUGINS}
+      urlTransform={urlTransform}
+      components={components}
+    >
+      {content || '*Keine Vorschau verfügbar. Beginne mit dem Schreiben...*'}
+    </ReactMarkdown>
+  );
+});
+
+// Pure helper — no closure deps, lives outside the component
+const getChildrenText = (children: ReactNode): string =>
+  Children.toArray(children)
+    .map((child) => {
+      if (typeof child === 'string' || typeof child === 'number') return String(child);
+      if (isValidElement(child)) {
+        const nested = (child.props as { children?: ReactNode })?.children;
+        return nested ? getChildrenText(nested) : '';
+      }
+      return '';
+    })
+    .join('')
+    .trim();
 interface ZenMarkdownPreviewProps {
   content: string;
+  projectPath?: string | null;
   height?: string;
   onContentChange?: (content: string) => void;
   showTextAI?: boolean;
@@ -41,6 +85,7 @@ export const PREVIEW_THEME_LABELS: Record<PreviewThemeId, string> = {
 
 export const ZenMarkdownPreview = ({
   content,
+  projectPath,
   height = '400px',
   onContentChange,
   showTextAI = false,
@@ -70,6 +115,11 @@ export const ZenMarkdownPreview = ({
   const [isReadingCursorHidden, setIsReadingCursorHidden] = useState(false);
   const [areControlsExpanded, setAreControlsExpanded] = useState(!collapseControlsByDefault);
   const readingCursorTimerRef = useRef<number | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollTopRef = useRef(0);
+  const prevContentRef = useRef(content);
+  // Prevents onScroll from overwriting scrollTopRef during WKWebView-initiated scroll resets
+  const isRestoringScrollRef = useRef(false);
 
   const clearReadingCursorTimer = useCallback(() => {
     if (readingCursorTimerRef.current !== null) {
@@ -121,15 +171,45 @@ export const ZenMarkdownPreview = ({
   useEffect(() => {
     if (typeof document === 'undefined') return;
     const shouldHideZenCursor = autoHideReadingCursor && isReadingCursorHidden;
-    document.body.classList.toggle('zen-cursor-force-hidden', shouldHideZenCursor);
+    // Use <html> instead of <body> — body class changes trigger WKWebView scroll resets
+    document.documentElement.classList.toggle('zen-cursor-force-hidden', shouldHideZenCursor);
     return () => {
-      document.body.classList.remove('zen-cursor-force-hidden');
+      document.documentElement.classList.remove('zen-cursor-force-hidden');
     };
   }, [autoHideReadingCursor, isReadingCursorHidden]);
 
   useEffect(() => {
     onTranslationStateChange?.(isTranslating);
   }, [isTranslating, onTranslationStateChange]);
+
+  // Restore scroll position after re-renders (WKWebView resets scrollTop on state changes).
+  // isRestoringScrollRef prevents onScroll from overwriting scrollTopRef with the WKWebView reset value.
+  // Double rAF catches resets that WKWebView applies after the first animation frame.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    if (content !== prevContentRef.current) {
+      // New content → reset to top
+      scrollTopRef.current = 0;
+      prevContentRef.current = content;
+      return;
+    }
+    const saved = scrollTopRef.current;
+    isRestoringScrollRef.current = true;
+    el.scrollTop = saved;
+    const raf = requestAnimationFrame(() => {
+      if (scrollContainerRef.current?.scrollTop !== saved) {
+        scrollContainerRef.current!.scrollTop = saved;
+      }
+      requestAnimationFrame(() => {
+        isRestoringScrollRef.current = false;
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      isRestoringScrollRef.current = false;
+    };
+  });
 
   const handleZoomIn = () => setZoom(prev => Math.min(prev + 10, 200));
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 10, 50));
@@ -278,18 +358,237 @@ export const ZenMarkdownPreview = ({
     }
   };
 
-  const getChildrenText = (children: ReactNode): string =>
-    Children.toArray(children)
-      .map((child) => {
-        if (typeof child === 'string' || typeof child === 'number') return String(child);
-        if (isValidElement(child)) {
-          const nested = (child.props as { children?: ReactNode })?.children;
-          return nested ? getChildrenText(nested) : '';
-        }
-        return '';
-      })
-      .join('')
-      .trim();
+  const allowPreviewUrl = useCallback((url: string) => {
+    const normalized = (url || '').trim().toLowerCase();
+    if (!normalized) return '';
+    if (
+      normalized.startsWith('http://') ||
+      normalized.startsWith('https://') ||
+      normalized.startsWith('data:image/') ||
+      normalized.startsWith('blob:') ||
+      normalized.startsWith('asset:') ||
+      normalized.startsWith('file://')
+    ) {
+      return url;
+    }
+    return url;
+  }, []);
+
+  const resolvePreviewImageSrc = useCallback(
+    (source?: string): string => {
+      if (!source) return '';
+      const normalized = source.trim();
+      if (!normalized) return '';
+      if (
+        normalized.startsWith('http://') ||
+        normalized.startsWith('https://') ||
+        normalized.startsWith('data:') ||
+        normalized.startsWith('blob:') ||
+        normalized.startsWith('asset:')
+      ) {
+        return normalized;
+      }
+
+      if (!isTauri()) return normalized;
+
+      const toPosixPath = (value: string) => value.replace(/\\/g, '/');
+      const isAbsolutePath = (value: string) =>
+        value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value);
+
+      let absolutePath = normalized;
+      if (normalized.startsWith('file://')) {
+        absolutePath = decodeURIComponent(normalized.replace(/^file:\/\//, ''));
+      } else if (!isAbsolutePath(normalized) && projectPath) {
+        absolutePath = `${projectPath.replace(/[\\/]+$/, '')}/${normalized.replace(/^\.?\//, '')}`;
+      }
+
+      const normalizedPath = toPosixPath(absolutePath);
+      if (!isAbsolutePath(normalizedPath)) return normalized;
+      return convertFileSrc(normalizedPath);
+    },
+    [projectPath]
+  );
+
+  // Memoized components — only rebuilds when palette/previewStyle/resolvePreviewImageSrc change,
+  // not on every UI state change (menus, zoom display, cursor visibility, etc.)
+  const markdownComponents = useMemo(() => ({
+    h1: ({ node, ...props }: any) => (
+      <h1 className="text-3xl font-bold mb-4" style={{ color: palette.heading, textAlign: 'left' }} {...props} />
+    ),
+    h2: ({ node, ...props }: any) => (
+      <h2 className="text-2xl font-bold mb-3 mt-6" style={{ color: palette.accent, textAlign: 'left' }} {...props} />
+    ),
+    h3: ({ node, ...props }: any) => (
+      <h3 className="text-xl font-bold mb-2 mt-4" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
+    ),
+    h4: ({ node, ...props }: any) => (
+      <h4 className="text-lg font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
+    ),
+    h5: ({ node, ...props }: any) => (
+      <h5 className="text-base font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
+    ),
+    h6: ({ node, ...props }: any) => (
+      <h6 className="text-sm font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
+    ),
+    p: ({ node, ...props }: any) => (
+      <p
+        className="leading-relaxed"
+        style={{ color: palette.text, marginTop: 0, marginBottom: '0.8em', whiteSpace: 'pre-wrap' }}
+        {...props}
+      />
+    ),
+    br: ({ node, ...props }: any) => <br {...props} />,
+    a: ({ node, ...props }: any) => {
+      const href = props.href || '#';
+      const rawText = getChildrenText(props.children as ReactNode);
+      const isCta = /^CTA:\s*/i.test(rawText);
+      const label = rawText.replace(/^CTA:\s*/i, '').trim() || 'Mehr erfahren';
+
+      if (isCta) {
+        return (
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-lg px-4 py-2 font-bold no-underline transition"
+            style={{
+              marginTop: '0.4rem',
+              marginBottom: '1rem',
+              background: previewStyle === 'mono' ? '#2b2b2b' : '#AC8E66',
+              color: '#f5f1e8',
+              border: `1px solid ${previewStyle === 'mono' ? '#444' : '#8f7452'}`,
+            }}
+          >
+            {label}
+          </a>
+        );
+      }
+      return (
+        <a className="underline transition-colors" style={{ color: palette.link }} {...props} />
+      );
+    },
+    ul: ({ node, ...props }: any) => (
+      <ul className="list-disc list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
+    ),
+    ol: ({ node, ...props }: any) => (
+      <ol className="list-decimal list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
+    ),
+    li: ({ node, children, ...props }: any) => (
+      <li className="ml-4" style={{ color: palette.text }} {...props}>
+        {typeof children === 'object' && children !== null && !Array.isArray(children)
+          ? JSON.stringify(children)
+          : children}
+      </li>
+    ),
+    blockquote: ({ node, ...props }: any) => (
+      <blockquote
+        className="border-l-4 pl-4 py-2 my-4 italic"
+        style={{ borderColor: palette.heading, background: palette.quoteBg, color: palette.quoteText }}
+        {...props}
+      />
+    ),
+    code: ({ node, className, children, ...props }: any) => {
+      const match = /language-(\w+)/.exec(className || '');
+      const isInline = !match;
+      if (isInline) {
+        return (
+          <code
+            className="px-1.5 py-0.5 rounded font-mono text-sm"
+            style={{ background: palette.codeBg, color: palette.codeText }}
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      }
+      return (
+        <code
+          className={className}
+          style={{ background: 'transparent', color: palette.codeBlockText, padding: 0, display: 'block' }}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    },
+    u: ({ node, ...props }: any) => (
+      <u style={{ textDecorationThickness: '1.5px', textUnderlineOffset: '2px' }} {...props} />
+    ),
+    ins: ({ node, ...props }: any) => (
+      <ins style={{ textDecorationThickness: '1.5px', textUnderlineOffset: '2px' }} {...props} />
+    ),
+    mark: ({ node, ...props }: any) => {
+      const token = String(props['data-zen-marker'] ?? '').toLowerCase();
+      const baseStyle = { color: 'inherit', padding: '0 0.12em', borderRadius: '0.22em' };
+      const colorByToken: Record<string, { background?: string; color?: string; padding?: string | number }> = {
+        'hl-yellow': { background: '#fff2a8' },
+        'hl-green': { background: '#bff6c3' },
+        'hl-blue': { background: '#c8e7ff' },
+        'text-red': { background: 'transparent', color: '#c95c5c', padding: 0 },
+        'text-blue': { background: 'transparent', color: '#5b7fcb', padding: 0 },
+      };
+      return (
+        <mark
+          {...props}
+          style={{ ...baseStyle, ...(colorByToken[token] ?? { background: '#fff2a8' }), ...(props.style ?? {}) }}
+        />
+      );
+    },
+    pre: ({ node, ...props }: any) => (
+      <pre
+        className="rounded-lg p-4 mb-4 overflow-x-auto text-sm"
+        style={{ background: palette.codeBlockBg, border: `1px solid ${palette.heading}`, color: palette.codeBlockText }}
+        {...props}
+      />
+    ),
+    table: ({ node, ...props }: any) => (
+      <div className="overflow-x-auto mb-4">
+        <table className="min-w-full border-collapse" style={{ border: `1px solid ${palette.hr}` }} {...props} />
+      </div>
+    ),
+    thead: ({ node, ...props }: any) => <thead style={{ background: palette.tableHeadBg }} {...props} />,
+    th: ({ node, ...props }: any) => (
+      <th
+        className="px-4 py-2 text-left font-bold"
+        style={{ border: `1px solid ${palette.hr}`, color: palette.tableHeadText }}
+        {...props}
+      />
+    ),
+    td: ({ node, ...props }: any) => (
+      <td
+        className="px-4 py-2"
+        style={{ border: `1px solid ${palette.hr}`, color: palette.tableCellText, background: palette.tableCellBg }}
+        {...props}
+      />
+    ),
+    hr: ({ node, ...props }: any) => <hr className="my-6" style={{ borderColor: palette.hr }} {...props} />,
+    strong: ({ node, ...props }: any) => (
+      <strong className="font-bold" style={{ color: palette.heading }} {...props} />
+    ),
+    em: ({ node, ...props }: any) => (
+      <em className=" text-[15px]" style={{ color: palette.accent }} {...props} />
+    ),
+    img: ({ node, ...props }: any) => {
+      const src = resolvePreviewImageSrc(typeof props.src === 'string' ? props.src : undefined);
+      const alt = typeof props.alt === 'string' ? props.alt : 'Bild';
+      return (
+        <img
+          {...props}
+          src={src || props.src}
+          alt={alt}
+          loading="lazy"
+          style={{
+            maxWidth: '100%',
+            height: 'auto',
+            borderRadius: '8px',
+            border: `1px solid ${palette.hr}`,
+            margin: '0.6rem 0 1rem 0',
+          }}
+        />
+      );
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [palette, previewStyle, resolvePreviewImageSrc]);
 
   const handlePreviewScrollInteraction = useCallback(() => {
     if (areControlsExpanded) {
@@ -656,6 +955,7 @@ export const ZenMarkdownPreview = ({
 
         {/* Scrollable content area */}
         <div
+          ref={scrollContainerRef}
           className="zen-scrollbar"
           style={{
             flex: 1,
@@ -669,8 +969,17 @@ export const ZenMarkdownPreview = ({
             handleReadingActivity();
             handlePreviewScrollInteraction();
           }}
-          onScroll={handlePreviewScrollInteraction}
-          onTouchMove={handlePreviewScrollInteraction}
+          onScroll={(e) => {
+            // Ignore WKWebView-initiated resets that fire during scroll restoration
+            if (!isRestoringScrollRef.current) {
+              scrollTopRef.current = e.currentTarget.scrollTop;
+            }
+            handlePreviewScrollInteraction();
+          }}
+          onTouchMove={(e) => {
+            scrollTopRef.current = e.currentTarget.scrollTop;
+            handlePreviewScrollInteraction();
+          }}
           onTouchStart={handleReadingActivity}
           onMouseLeave={() => setIsReadingCursorHidden(false)}
         >
@@ -702,211 +1011,11 @@ export const ZenMarkdownPreview = ({
             zIndex: 1,
           }}
         >
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeRaw, rehypeHighlight]}
-            components={{
-              // Custom styling for markdown elements
-              h1: ({ node, ...props }) => (
-                <h1 className="text-3xl font-bold mb-4" style={{ color: palette.heading, textAlign: 'left' }} {...props} />
-              ),
-              h2: ({ node, ...props }) => (
-                <h2 className="text-2xl font-bold mb-3 mt-6" style={{ color: palette.accent, textAlign: 'left' }} {...props} />
-              ),
-              h3: ({ node, ...props }) => (
-                <h3 className="text-xl font-bold mb-2 mt-4" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
-              ),
-              h4: ({ node, ...props }) => (
-                <h4 className="text-lg font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
-              ),
-              h5: ({ node, ...props }) => (
-                <h5 className="text-base font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
-              ),
-              h6: ({ node, ...props }) => (
-                <h6 className="text-sm font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
-              ),
-              p: ({ node, ...props }) => (
-                <p
-                  className="leading-relaxed"
-                  style={{ color: palette.text, marginTop: 0, marginBottom: '0.8em', whiteSpace: 'pre-wrap' }}
-                  {...props}
-                />
-              ),
-              br: ({ node, ...props }) => (
-                <br {...props} />
-              ),
-              a: ({ node, ...props }) => (
-                (() => {
-                  const href = props.href || '#';
-                  const rawText = getChildrenText(props.children as ReactNode);
-                  const isCta = /^CTA:\s*/i.test(rawText);
-                  const label = rawText.replace(/^CTA:\s*/i, '').trim() || 'Mehr erfahren';
-
-                  if (isCta) {
-                    return (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center justify-center rounded-lg px-4 py-2 font-bold no-underline transition"
-                        style={{
-                          marginTop: '0.4rem',
-                          marginBottom: '1rem',
-                          background: previewStyle === 'mono' ? '#2b2b2b' : '#AC8E66',
-                          color: '#f5f1e8',
-                          border: `1px solid ${previewStyle === 'mono' ? '#444' : '#8f7452'}`,
-                        }}
-                      >
-                        {label}
-                      </a>
-                    );
-                  }
-
-                  return (
-                    <a
-                      className="underline transition-colors"
-                      style={{ color: palette.link }}
-                      {...props}
-                    />
-                  );
-                })()
-              ),
-              ul: ({ node, ...props }) => (
-                <ul className="list-disc list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
-              ),
-              ol: ({ node, ...props }) => (
-                <ol className="list-decimal list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
-              ),
-              li: ({ node, children, ...props }) => (
-                <li className="ml-4" style={{ color: palette.text }} {...props}>
-                  {typeof children === 'object' && children !== null && !Array.isArray(children)
-                    ? JSON.stringify(children)
-                    : children}
-                </li>
-              ),
-              blockquote: ({ node, ...props }) => (
-                <blockquote
-                  className="border-l-4 pl-4 py-2 my-4 italic"
-                  style={{ borderColor: palette.heading, background: palette.quoteBg, color: palette.quoteText }}
-                  {...props}
-                />
-              ),
-              code: ({ node, className, children, ...props }: any) => {
-                const match = /language-(\w+)/.exec(className || '');
-                const isInline = !match;
-
-                if (isInline) {
-                  return (
-                    <code
-                      className="px-1.5 py-0.5 rounded font-mono text-sm"
-                      style={{ background: palette.codeBg, color: palette.codeText }}
-                      {...props}
-                    >
-                      {children}
-                    </code>
-                  );
-                }
-
-                return (
-                  <code
-                    className={className}
-                    style={{
-                      background: 'transparent',
-                      color: palette.codeBlockText,
-                      padding: 0,
-                      display: 'block',
-                    }}
-                    {...props}
-                  >
-                    {children}
-                  </code>
-                );
-              },
-              u: ({ node, ...props }) => (
-                <u style={{ textDecorationThickness: '1.5px', textUnderlineOffset: '2px' }} {...props} />
-              ),
-              ins: ({ node, ...props }) => (
-                <ins style={{ textDecorationThickness: '1.5px', textUnderlineOffset: '2px' }} {...props} />
-              ),
-              mark: ({ node, ...props }: any) => {
-                const token = String(props['data-zen-marker'] ?? '').toLowerCase();
-                const baseStyle = {
-                  color: 'inherit',
-                  padding: '0 0.12em',
-                  borderRadius: '0.22em',
-                };
-                const colorByToken: Record<string, { background?: string; color?: string; padding?: string | number }> = {
-                  'hl-yellow': { background: '#fff2a8' },
-                  'hl-green': { background: '#bff6c3' },
-                  'hl-blue': { background: '#c8e7ff' },
-                  'text-red': { background: 'transparent', color: '#c95c5c', padding: 0 },
-                  'text-blue': { background: 'transparent', color: '#5b7fcb', padding: 0 },
-                };
-                return (
-                  <mark
-                    {...props}
-                    style={{
-                      ...baseStyle,
-                      ...(colorByToken[token] ?? { background: '#fff2a8' }),
-                      ...(props.style ?? {}),
-                    }}
-                  />
-                );
-              },
-              pre: ({ node, ...props }) => (
-                <pre
-                  className="rounded-lg p-4 mb-4 overflow-x-auto text-sm"
-                  style={{
-                    background: palette.codeBlockBg,
-                    border: `1px solid ${palette.heading}`,
-                    color: palette.codeBlockText,
-                  }}
-                  {...props}
-                />
-              ),
-              table: ({ node, ...props }) => (
-                <div className="overflow-x-auto mb-4">
-                  <table
-                    className="min-w-full border-collapse"
-                    style={{ border: `1px solid ${palette.hr}` }}
-                    {...props}
-                  />
-                </div>
-              ),
-              thead: ({ node, ...props }) => (
-                <thead style={{ background: palette.tableHeadBg }} {...props} />
-              ),
-              th: ({ node, ...props }) => (
-                <th
-                  className="px-4 py-2 text-left font-bold"
-                  style={{ border: `1px solid ${palette.hr}`, color: palette.tableHeadText }}
-                  {...props}
-                />
-              ),
-              td: ({ node, ...props }) => (
-                <td
-                  className="px-4 py-2"
-                  style={{
-                    border: `1px solid ${palette.hr}`,
-                    color: palette.tableCellText,
-                    background: palette.tableCellBg,
-                  }}
-                  {...props}
-                />
-              ),
-              hr: ({ node, ...props }) => (
-                <hr className="my-6" style={{ borderColor: palette.hr }} {...props} />
-              ),
-              strong: ({ node, ...props }) => (
-                <strong className="font-bold" style={{ color: palette.heading }} {...props} />
-              ),
-              em: ({ node, ...props }) => (
-                <em className=" text-[15px]" style={{ color: palette.accent }} {...props} />
-              ),
-            }}
-          >
-            {content || '*Keine Vorschau verfügbar. Beginne mit dem Schreiben...*'}
-          </ReactMarkdown>
+          <MemoizedMarkdownContent
+            content={content}
+            components={markdownComponents}
+            urlTransform={allowPreviewUrl}
+          />
         </div>
         </div>{/* end margin wrapper */}
         </div>{/* end scrollable content area */}

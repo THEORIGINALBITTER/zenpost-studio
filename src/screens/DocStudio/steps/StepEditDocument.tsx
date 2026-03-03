@@ -313,6 +313,7 @@ export function StepEditDocument({
 
     return mergedRows;
   }, [comparisonBaseContent, activeContent]);
+
   const translatorTargetLabel = (() => {
     const labels: Partial<Record<TargetLanguage, string>> = {
       deutsch: 'Deutsch',
@@ -1053,6 +1054,7 @@ export function StepEditDocument({
               {showPreview ? (
                 <ZenMarkdownPreview
                   content={activeContent}
+                  projectPath={projectPath}
                   height="580px"
                   onContentChange={(value) => onContentChange(activeTabId, value)}
                   collapseControlsByDefault
@@ -1069,6 +1071,7 @@ export function StepEditDocument({
                 <ZenMarkdownEditor
                   value={activeContent}
                   onChange={(value) => onContentChange(activeTabId, value)}
+                  projectPath={projectPath}
                   placeholder="Deine Dokumentation..."
                   showPreview={false}
                   showLineNumbers={true}

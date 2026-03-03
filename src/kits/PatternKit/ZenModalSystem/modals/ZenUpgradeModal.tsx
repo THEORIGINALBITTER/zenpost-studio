@@ -9,7 +9,6 @@ import {
   faCheck,
   faRocket,
   faKey,
-  faGift,
   faFileLines,
   faCalendarDays,
   faWandMagicSparkles,
@@ -32,7 +31,7 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
   onClose,
   highlightFeature,
 }) => {
-  const { activateLicense, startTrial, canStartTrial, isLoading, error, isPro } = useLicense();
+  const { activateLicense, isLoading, error, isPro } = useLicense();
   const [licenseKey, setLicenseKey] = useState('');
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
@@ -55,15 +54,6 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
         setShowKeyInput(false);
       }, 2000);
     }
-  };
-
-  const handleStartTrial = () => {
-    startTrial();
-    setSuccess(true);
-    setTimeout(() => {
-      onClose();
-      setSuccess(false);
-    }, 2000);
   };
 
   const handleGenerateDemo = () => {

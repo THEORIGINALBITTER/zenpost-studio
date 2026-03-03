@@ -1,5 +1,6 @@
 // App1.tsx
 import { useState, useEffect, useMemo, useRef } from "react";
+import { Helmet } from "react-helmet-async";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -23,6 +24,7 @@ import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStu
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
+import { MobileInboxScreen } from "./screens/MobileInboxScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
 import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutModal";
@@ -33,7 +35,7 @@ import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlan
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
 import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgradeModal";
 import { ZenBootstrapModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBootstrapModal";
-import type { ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
+import { createDefaultProjectMetadata, type ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { ScheduledPost } from "./types/scheduling";
 import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
 import { initializePublishingProject, loadSchedule, saveScheduledPostsWithFiles } from "./services/publishingService";
@@ -41,7 +43,7 @@ import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir, stat, writeTextFile } from "@tauri-apps/plugin-fs";
+import { readDir, readFile, readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
 import { CornerRibbon } from "./components/CornerRibbon";
@@ -56,10 +58,11 @@ import ZenCursor from "./components/ZenCursor";
 
 type DeveloperInfoProps = {
   onOpenProfile: () => void;
+  onImageClick?: () => void;
   compact?: boolean;
 };
 
-const DeveloperInfo = ({ onOpenProfile, compact = false }: DeveloperInfoProps) => (
+const DeveloperInfo = ({ onOpenProfile, onImageClick, compact = false }: DeveloperInfoProps) => (
   <div
     style={{
       marginTop: compact ? "14px" : "22px",
@@ -69,12 +72,18 @@ const DeveloperInfo = ({ onOpenProfile, compact = false }: DeveloperInfoProps) =
       gap: compact ? "10px" : "14px",
     }}
   >
-    <div
+    <button
+      onClick={onImageClick ?? onOpenProfile}
+      aria-label="Zu Denis Bitter"
       style={{
+        background: "transparent",
+        padding: 0,
+        cursor: "pointer",
+       
         width: compact ? "88px" : "120px",
         height: compact ? "88px" : "120px",
         borderRadius: "999px",
-        border: "2px solid #AC8E66",
+        border: "1px solid #AC8E66",
         overflow: "hidden",
         boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
       }}
@@ -84,7 +93,7 @@ const DeveloperInfo = ({ onOpenProfile, compact = false }: DeveloperInfoProps) =
         alt="Denis Bitter"
         style={{ width: "100%", height: "100%", objectFit: "cover" }}
       />
-    </div>
+    </button>
     <div
       style={{
         fontFamily: "IBM Plex Mono, monospace",
@@ -127,7 +136,7 @@ const DeveloperInfo = ({ onOpenProfile, compact = false }: DeveloperInfoProps) =
   </div>
 );
 
-type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started";
+type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox";
 
 // Doc Studio state interface is shared in DocStudio types
 
@@ -279,24 +288,51 @@ function AppContent() {
     const isIpad = () =>
       /iPad/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const isMobileLikeDevice = () => {
+      const ua = navigator.userAgent || "";
+      const mobileUa = /Android|iPhone|iPod|Windows Phone|webOS|Mobile/i.test(ua);
+      const touchPoints = navigator.maxTouchPoints || 0;
+      const viewportWidth = Math.min(
+        window.innerWidth || Number.MAX_SAFE_INTEGER,
+        window.screen?.width || Number.MAX_SAFE_INTEGER
+      );
+      // Handles phones/tablets even when "Desktop Website" is enabled.
+      const touchViewportMatch = touchPoints > 1 && viewportWidth <= 1280;
+
+      return mobileUa || touchViewportMatch;
+    };
 
     const update = () => {
-      const shouldBlock = !isTauri() && !isIpad() && media.matches;
+      const shouldBlock =
+        !isTauri() && !isIpad() && (media.matches || isMobileLikeDevice());
       setIsMobileBlocked(shouldBlock);
     };
 
     update();
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
     if (typeof media.addEventListener === "function") {
       media.addEventListener("change", update);
-      return () => media.removeEventListener("change", update);
+      return () => {
+        window.removeEventListener("resize", update);
+        window.removeEventListener("orientationchange", update);
+        media.removeEventListener("change", update);
+      };
     }
 
     if (typeof media.addListener === "function") {
       media.addListener(update);
-      return () => media.removeListener(update);
+      return () => {
+        window.removeEventListener("resize", update);
+        window.removeEventListener("orientationchange", update);
+        media.removeListener(update);
+      };
     }
 
-    return;
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
   }, []);
 
   useEffect(() => {
@@ -587,16 +623,7 @@ function AppContent() {
         audience: prev?.audience ?? 'intermediate',
         targetLanguage: prev?.targetLanguage ?? 'deutsch',
         inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-        metadata: prev?.metadata ?? {
-          authorName: '',
-          authorEmail: '',
-          companyName: '',
-          license: 'MIT',
-          year: new Date().getFullYear().toString(),
-          website: '',
-          repository: '',
-          contributingUrl: '',
-        },
+        metadata: prev?.metadata ?? createDefaultProjectMetadata(),
       }));
     }
 
@@ -624,16 +651,7 @@ function AppContent() {
       audience: prev?.audience ?? 'intermediate',
       targetLanguage: prev?.targetLanguage ?? 'deutsch',
       inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-      metadata: prev?.metadata ?? {
-        authorName: '',
-        authorEmail: '',
-        companyName: '',
-        license: 'MIT',
-        year: new Date().getFullYear().toString(),
-        website: '',
-        repository: '',
-        contributingUrl: '',
-      },
+      metadata: prev?.metadata ?? createDefaultProjectMetadata(),
     }));
     setReturnToDocStudioStep(3);
     setDocStudioStep(3);
@@ -671,6 +689,53 @@ function AppContent() {
 
   const handleSelectGettingStarted = () => {
     setCurrentScreen("getting-started");
+  };
+
+  const handleSelectMobileInbox = () => {
+    setCurrentScreen("mobile-inbox");
+  };
+
+  const handleOpenMobileDraftInContentAI = async (draft: import("./services/mobileInboxService").MobileDraft, photoFilePath: string | null) => {
+    const dateStr = new Date(draft.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "short" });
+
+    let content = draft.text || "";
+
+    if (draft.hasEmbeddedImage && draft.filePath) {
+      // Lazy: base64 jetzt erst aus der .md lesen (wurde beim Laden der Liste bewusst übersprungen)
+      try {
+        const mdContent = await readTextFile(draft.filePath);
+        const trimmed = mdContent.trimStart();
+        const bodyStart = trimmed.indexOf("\n---");
+        const fullBody = bodyStart !== -1 ? trimmed.slice(bodyStart + 4).trimStart() : trimmed;
+        content = fullBody; // enthält ![](data:image/...) + Text
+      } catch {
+        // fallthrough: nur Text übertragen
+      }
+    } else if (photoFilePath) {
+      // Fallback für alte Drafts ohne embedded base64: .jpg vom Mac lesen
+      try {
+        const bytes = await readFile(photoFilePath);
+        const CHUNK = 8192;
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
+        }
+        const base64 = btoa(binary);
+        const ext = photoFilePath.split(".").pop()?.toLowerCase() ?? "jpg";
+        const mime = ext === "png" ? "image/png" : "image/jpeg";
+        content = `![](data:${mime};base64,${base64})\n\n${content}`;
+      } catch {
+        // Foto nicht lesbar — nur Text übertragen
+      }
+    }
+
+    setTransferContent(content);
+    setTransferFileName(`Mobil-Entwurf ${dateStr}${draft.platform ? ` · ${draft.platform}` : ""}`);
+    setCameFromDocStudio(false);
+    setCameFromDashboard(false);
+    setContentStudioDashboardView("dashboard");
+    setContentTransformStep(1);
+    setCurrentScreen("content-transform");
   };
 
   // Open Content AI from Dashboard with blog-post preset
@@ -878,16 +943,7 @@ function AppContent() {
       audience: prev?.audience ?? 'intermediate',
       targetLanguage: prev?.targetLanguage ?? 'deutsch',
       inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-      metadata: prev?.metadata ?? {
-        authorName: '',
-        authorEmail: '',
-        companyName: '',
-        license: 'MIT',
-        year: new Date().getFullYear().toString(),
-        website: '',
-        repository: '',
-        contributingUrl: '',
-      },
+      metadata: prev?.metadata ?? createDefaultProjectMetadata(),
     }));
 
     setShowBugReportModal(false);
@@ -1154,6 +1210,7 @@ function AppContent() {
       "content-transform": "Content AI Studio",
       "doc-studio": "Doc Studio",
       "getting-started": "Getting Started",
+      "mobile-inbox": "Mobile Inbox",
     };
 
     return (
@@ -1192,6 +1249,8 @@ function AppContent() {
         );
       case "getting-started":
         return <>Getting Started · <span style={{ color: "#AC8E66" }}>Was möchtest du tun?</span></>;
+      case "mobile-inbox":
+        return <>Mobile · <span style={{ color: "#AC8E66" }}>iPhone Entwürfe</span></>;
       default:
         return "";
     }
@@ -1540,133 +1599,233 @@ function AppContent() {
 
   if (isMobileBlocked) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "24px",
-          background: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
-          color: "#EFE7DC",
-          textAlign: "center",
-          fontFamily: "IBM Plex Mono, monospace",
-        }}
-      >
+      <>
         <div
           style={{
-            maxWidth: "520px",
-            backgroundColor: "rgba(10, 10, 10, 0.9)",
-            border: "1px solid #AC8E66",
-            borderRadius: "12px",
-            padding: "28px",
-            boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+            background: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
+            color: "#EFE7DC",
+            textAlign: "center",
+            fontFamily: "IBM Plex Mono, monospace",
           }}
         >
           <div
             style={{
-              fontSize: "20px",
-              marginBottom: "12px",
-              color: "#AC8E66",
+              maxWidth: "520px",
+              backgroundColor: "rgba(10, 10, 10, 0.9)",
+              border: "1px solid #AC8E66",
+              borderRadius: "12px",
+              padding: "28px",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
             }}
           >
-            ZenPost Studio
-          </div>
-          <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
-            Diese App ist nur auf Desktop oder iPad verfügbar.
-            <br />
-            Die mobile App-Version ist für dein Gerät noch nicht verfügbar.
-          </div>
-          <div
-            style={{
-              marginTop: "18px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "10px",
-              alignItems: "center",
-            }}
-          >
-            <button
-              onClick={() => openExternal("https://theoriginalbitter.github.io/zenpost-studio/")}
+            <div
               style={{
-                width: "220px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                border: "1px solid #3A3A3A",
-                background: "transparent",
-                color: "#EFE7DC",
-                fontFamily: "IBM Plex Mono, monospace",
-                fontSize: "12px",
-                cursor: "pointer",
+                fontSize: "20px",
+                marginBottom: "12px",
+                color: "#AC8E66",
               }}
             >
-              ZenPost Guide
-            </button>
-            <button
-              onClick={() => openExternal("https://github.com/THEORIGINALBITTER/zenpost-studio")}
+              ZenPost Studio
+            </div>
+            <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
+              Diese App ist nur auf Desktop oder iPad verfügbar.
+              <br />
+              Die mobile App-Version ist für dein Gerät noch nicht verfügbar.
+            </div>
+            <div
               style={{
-                width: "220px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                border: "1px solid #3A3A3A",
-                background: "transparent",
-                color: "#EFE7DC",
-                fontFamily: "IBM Plex Mono, monospace",
-                fontSize: "12px",
-                cursor: "pointer",
+                marginTop: "18px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+                alignItems: "center",
               }}
             >
-              GitHub
-            </button>
-            <button
-              onClick={() => openExternal("mailto:saghallo@denisbitter.de")}
-              style={{
-                width: "220px",
-                padding: "10px 12px",
-                borderRadius: "8px",
-                border: "1px solid #3A3A3A",
-                background: "transparent",
-                color: "#EFE7DC",
-                fontFamily: "IBM Plex Mono, monospace",
-                fontSize: "12px",
-                cursor: "pointer",
-              }}
-            >
-              Support E-Mail
-            </button>
-          </div>
+              <button
+                onClick={() => openExternal("https://zenpost.denisbitter.de/")}
+                style={{
+                  width: "220px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #3A3A3A",
+                  background: "transparent",
+                  color: "#EFE7DC",
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                ZenPost Guide
+              </button>
+              <button
+                onClick={() => openExternal("https://github.com/THEORIGINALBITTER/zenpost-studio")}
+                style={{
+                  width: "220px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #3A3A3A",
+                  background: "transparent",
+                  color: "#EFE7DC",
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                GitHub
+              </button>
+              <button
+                onClick={() => openExternal("mailto:saghallo@denisbitter.de")}
+                style={{
+                  width: "220px",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #3A3A3A",
+                  background: "transparent",
+                  color: "#EFE7DC",
+                  fontFamily: "IBM Plex Mono, monospace",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                Support E-Mail
+              </button>
+            </div>
           <DeveloperInfo
             compact={true}
+            onImageClick={() => openExternal("https://denisbitter.de/")}
             onOpenProfile={() => openExternal("https://denisbitter.de/about")}
           />
-          <button
-            onClick={() => openExternal("https://denisbitter.de")}
-            style={{
-              marginTop: "18px",
-              paddingTop: "14px",
-              borderTop: "1px solid #2A2A2A",
-              fontSize: "11px",
-              color: "#8e8e8e",
-              letterSpacing: "0.02em",
-              background: "transparent",
-              borderLeft: "none",
-              borderRight: "none",
-              borderBottom: "none",
-              width: "100%",
-              fontFamily: "IBM Plex Mono, monospace",
-              cursor: "pointer",
-            }}
-          >
-            Made with <span style={{ color: "#AC8E66" }}>♥</span> by{" "}
-            <span style={{ color: "#AC8E66" }}>Denis Bitter</span>
-          </button>
+            <button
+              onClick={() => openExternal("https://denisbitter.de")}
+              style={{
+                marginTop: "18px",
+                paddingTop: "14px",
+                borderTop: "1px solid #2A2A2A",
+                fontSize: "11px",
+                color: "#8e8e8e",
+                letterSpacing: "0.02em",
+                background: "transparent",
+                borderLeft: "none",
+                borderRight: "none",
+                borderBottom: "none",
+                width: "100%",
+                fontFamily: "IBM Plex Mono, monospace",
+                cursor: "pointer",
+              }}
+            >
+              Made with <span style={{ color: "#AC8E66" }}>♥</span> by{" "}
+              <span style={{ color: "#AC8E66" }}>Denis Bitter</span>
+            </button>
+          </div>
         </div>
-      </div>
+        <ZenCursor />
+      </>
     );
   }
 
+  const seoMeta = (() => {
+    const appName = "ZenPost Studio";
+    const baseDescription =
+      "ZenPost Studio verwandelt Inhalte in plattformspezifische Formate und hilft bei Planung, Doku und Publishing.";
+
+    if (currentScreen === "doc-studio") {
+      return {
+        title: `${appName} | Doc Studio`,
+        description: `Dokumentation erstellen, strukturieren und exportieren mit dem ${appName} Doc Studio.`,
+        keywords: "Dokumentation,Doc Studio,README,API Docs,ZenPost",
+      };
+    }
+
+    if (currentScreen === "content-transform") {
+      if (contentTransformStep === 0) {
+        return {
+          title: `${appName} | Content Dashboard`,
+          description: "Projektübersicht, Dokumente und Publishing-Planung im ZenPost Content Dashboard.",
+          keywords: "Content Dashboard,Content Studio,Publishing,ZenPost",
+        };
+      }
+      return {
+        title: `${appName} | Content Transformer`,
+        description: "Inhalte in mehrere Plattformformate transformieren, optimieren und direkt weiterverwenden.",
+        keywords: "Content Transformation,Social Media,Blog,Markdown,ZenPost",
+      };
+    }
+
+    if (currentScreen === "converter") {
+      return {
+        title: `${appName} | Format Converter`,
+        description: `Dateien und Inhalte mit dem ${appName} Converter in passende Arbeitsformate umwandeln.`,
+        keywords: "Format Converter,Markdown,Dokumenten-Conversion,ZenPost",
+      };
+    }
+
+    if (currentScreen === "getting-started") {
+      return {
+        title: `${appName} | Getting Started`,
+        description: "Schnellstart in ZenPost Studio mit Einstieg in Converter, Content Studio und Doc Studio.",
+        keywords: "Getting Started,Onboarding,ZenPost Studio",
+      };
+    }
+
+    return {
+      title: `${appName} | Welcome`,
+      description: baseDescription,
+      keywords: "ZenPost Studio,Content Workflow,Publishing,Documentation",
+    };
+  })();
+
+  const seoRuntime = (() => {
+    const fallbackCanonical = "https://zenpost.denisbitter.de/";
+
+    if (typeof window === "undefined") {
+      return {
+        canonicalHref: fallbackCanonical,
+        ogUrl: fallbackCanonical,
+        robots: "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1",
+      };
+    }
+
+    const canonicalHref = `${window.location.origin}${window.location.pathname}`;
+    const hostname = window.location.hostname.toLowerCase();
+    const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
+    const shouldIndex = !isTauri() && !isLocalHost;
+
+    return {
+      canonicalHref,
+      ogUrl: canonicalHref,
+      robots: shouldIndex
+        ? "index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1"
+        : "noindex,nofollow",
+    };
+  })();
+
   return (
-    <div
+    <>
+      <Helmet>
+        <html lang="de" />
+        <title>{seoMeta.title}</title>
+        <link rel="canonical" href={seoRuntime.canonicalHref} />
+        <meta name="description" content={seoMeta.description} />
+        <meta name="keywords" content={seoMeta.keywords} />
+        <meta name="application-name" content="ZenPost Studio" />
+        <meta name="robots" content={seoRuntime.robots} />
+        <meta property="og:title" content={seoMeta.title} />
+        <meta property="og:description" content={seoMeta.description} />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="ZenPost Studio" />
+        <meta property="og:url" content={seoRuntime.ogUrl} />
+        <meta property="og:image" content="/github-preview-1200x630.png" />
+        <meta property="twitter:card" content="summary_large_image" />
+        <meta property="twitter:title" content={seoMeta.title} />
+        <meta property="twitter:description" content={seoMeta.description} />
+        <meta property="twitter:image" content="/github-preview-1200x630.png" />
+      </Helmet>
+      <div
       style={{
         display: 'flex',
         flexDirection: 'column',
@@ -1702,6 +1861,7 @@ function AppContent() {
             onSelectContentTransform={handleSelectContentTransform}
             onSelectDocStudio={handleSelectDocStudio}
             onSelectGettingStarted={handleSelectGettingStarted}
+            onSelectMobileInbox={handleSelectMobileInbox}
           />
         )}
         {currentScreen === "converter" && (
@@ -1905,9 +2065,13 @@ function AppContent() {
             onOpenDocStudio={handleSelectDocStudio}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
+            onOpenMobileInbox={handleSelectMobileInbox}
             recentItems={gettingStartedRecentItems}
             onContinueRecent={handleContinueRecentItem}
           />
+        )}
+        {currentScreen === "mobile-inbox" && (
+          <MobileInboxScreen onOpenInContentAI={handleOpenMobileDraftInContentAI} />
         )}
       </div>
 
@@ -2059,7 +2223,8 @@ function AppContent() {
 
       {/* Upgrade Modal - triggered by FeatureGate or manual */}
       <UpgradeModalWrapper />
-    </div>
+      </div>
+    </>
   );
 }
 

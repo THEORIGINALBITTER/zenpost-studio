@@ -13,7 +13,7 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            tauri_args: --target universal-apple-darwin
+            tauri_args: --target universal-apple-darwin --bundles dmg
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
           - os: ubuntu-22.04
             tauri_args: --bundles appimage

@@ -12,7 +12,7 @@ import {
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
 import { faNewspaper } from '@fortawesome/free-solid-svg-icons';
-import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, ZenSaveSuccessModal, ZenModal, ZenModalHeader, ZenRoughButton, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, ZenSaveSuccessModal, ZenModal, ZenModalHeader, ZenRoughButton, createDefaultProjectMetadata, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
 import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
@@ -824,16 +824,7 @@ export const ContentTransformScreen = ({
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedFileName, setSavedFileName] = useState('');
   const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
-  const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>({
-    authorName: '',
-    authorEmail: '',
-    companyName: '',
-    license: 'MIT',
-    year: new Date().getFullYear().toString(),
-    website: '',
-    repository: '',
-    contributingUrl: '',
-  });
+  const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>(createDefaultProjectMetadata());
   const metadata = externalMetadata ?? localMetadata;
   const handleMetadataSave = (newMetadata: ProjectMetadata) => {
     if (onMetadataChange) {
@@ -1951,6 +1942,7 @@ export const ContentTransformScreen = ({
                   ? openDocTabs.find((tab) => tab.id === step4SourceTabId)?.title || 'Original'
                   : fileName || 'Original'
               }
+              projectPath={projectPath}
             />
           </>
         );

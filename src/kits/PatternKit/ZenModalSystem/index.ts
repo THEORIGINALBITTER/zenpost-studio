@@ -43,7 +43,7 @@ export { ZenAISettingsModal } from './modals/ZenAISettingsModal';
 export { ZenAboutModal } from './modals/ZenAboutModal';
 export { ZenGithubModal } from './modals/ZenGithubModal';
 export { ZenSettingsModal } from './modals/ZenSettingsModal';
-export { ZenMetadataModal, extractMetadataFromContent } from './modals/ZenMetadataModal';
+export { ZenMetadataModal, extractMetadataFromContent, createDefaultProjectMetadata } from './modals/ZenMetadataModal';
 export type { ProjectMetadata } from './modals/ZenMetadataModal';
 export { ZenGeneratingModal } from './modals/ZenGeneratingModal';
 export { ZenSaveConfirmationModal } from './modals/ZenSaveConfirmationModal';

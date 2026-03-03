@@ -80,6 +80,9 @@
  
   width: 160px;
   max-width: min(214px, calc(100% - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 120;
   border: 1px solid rgba(172, 142, 102, 0.8);
   border-radius: 12px;
@@ -623,6 +626,105 @@
 .zen-cta-block-tool {
   display: grid;
   gap: 8px;
+}
+
+/* Image Block — Vorschau */
+.zen-image-block-preview-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zen-image-block-preview {
+  position: relative;
+  display: inline-block;
+  min-width: 25%;
+  max-width: 100%;
+  user-select: none;
+  transition: width 0.15s ease;
+}
+
+.zen-image-block-img {
+  display: block;
+  width: 100%;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+/* Größen-Badge oben links auf dem Bild */
+.zen-image-block-size-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: rgba(172, 142, 102, 0.9);
+  background: rgba(0, 0, 0, 0.55);
+  padding: 2px 5px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.zen-image-block-alt {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #6B6355;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #2A2A2A;
+  outline: none;
+  padding: 2px 0;
+  width: 100%;
+}
+
+.zen-image-block-alt::placeholder {
+  color: #3A3530;
+}
+
+/* Settings-Toolbar (⚙️ Menü von EditorJS) */
+.zen-image-block-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.zen-image-block-settings-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: #4A4540;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Preset-Größen-Buttons (in Settings-Toolbar) */
+.zen-image-block-btn-group {
+  display: flex;
+  gap: 4px;
+}
+
+.zen-image-block-size-btn {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid #2A2A2A;
+  border-radius: 4px;
+  color: #4A4540;
+  cursor: pointer;
+  transition: all 0.1s ease;
+  line-height: 1;
+}
+
+.zen-image-block-size-btn:hover {
+  border-color: rgba(172, 142, 102, 0.4);
+  color: #AC8E66;
+}
+
+.zen-image-block-size-btn.active {
+  border-color: #AC8E66;
+  color: #AC8E66;
+  background: rgba(172, 142, 102, 0.08);
 }
 
 .zen-link-block-tool__input,
