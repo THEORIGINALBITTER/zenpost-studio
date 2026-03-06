@@ -44,7 +44,9 @@ interface Step1SourceInputProps {
   onPreview?: (content?: string) => void;
   onSaveToProject?: (content?: string) => void;
   onSaveAsToProject?: (content?: string) => void;
+  onSaveToServer?: (content?: string) => void;
   canSaveToProject?: boolean;
+  canSaveToServer?: boolean;
   editTabs?: ContentPlatform[];
   activeEditTab?: ContentPlatform | null;
   onEditTabChange?: (platform: ContentPlatform) => void;
@@ -74,6 +76,8 @@ interface Step1SourceInputProps {
   onOpenEditorSettings?: () => void;
   zenThoughts?: string[];
   showZenThoughtInHeader?: boolean;
+  postMeta?: { title: string; subtitle: string; imageUrl: string; date: string };
+  onMetaChange?: (meta: { title: string; subtitle: string; imageUrl: string; date: string }) => void;
 }
 
 type LineDiffRow = {
@@ -259,7 +263,9 @@ export const Step1SourceInput = ({
   onPreview,
   onSaveToProject,
   onSaveAsToProject,
+  onSaveToServer,
   canSaveToProject = false,
+  canSaveToServer = false,
   editTabs = [],
   activeEditTab = null,
   onEditTabChange,
@@ -289,11 +295,14 @@ export const Step1SourceInput = ({
   onOpenEditorSettings,
   zenThoughts = [],
   showZenThoughtInHeader = false,
+  postMeta,
+  onMetaChange,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImageDragActive, setIsImageDragActive] = useState(false);
+  const [isMetaImageDragActive, setIsMetaImageDragActive] = useState(false);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
   const [showComparison, setShowComparison] = useState(false);
@@ -340,9 +349,30 @@ export const Step1SourceInput = ({
 
 
   const [showOutline, setShowOutline] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
+  const [blockHeadingRequest, setBlockHeadingRequest] = useState<{ level: number; token: number } | null>(null);
   const [activeCursorLine, setActiveCursorLine] = useState<number>(0);
+  const currentMetaImageUrl = (postMeta?.imageUrl ?? '').trim();
+  const metaImageIsInlineData = /^data:image\//i.test(currentMetaImageUrl);
+  const metaImageIsBlob = /^blob:/i.test(currentMetaImageUrl);
+  const metaImageInvalidForServer = metaImageIsInlineData || metaImageIsBlob;
+  const contentDiagnostics = useMemo(() => {
+    const raw = sourceContent ?? '';
+    const byteSize = new TextEncoder().encode(raw).length;
+    const inlineDataImageCount = (raw.match(/data:image\/[a-zA-Z0-9.+-]+;base64,/gi) ?? []).length;
+    const approxMb = byteSize / (1024 * 1024);
+    const approxKb = byteSize / 1024;
+    return {
+      byteSize,
+      inlineDataImageCount,
+      formattedSize: approxMb >= 1
+        ? `${approxMb.toFixed(2)} MB`
+        : `${approxKb.toFixed(1)} KB`,
+      isHeavy: approxMb >= 1 || inlineDataImageCount >= 1,
+    };
+  }, [sourceContent]);
   const modifierKeyLabel = useMemo(() => {
     if (typeof window === 'undefined') return 'Cmd/Ctrl';
     return /Mac|iPhone|iPad|iPod/.test(window.navigator.platform) ? 'Cmd' : 'Ctrl';
@@ -366,7 +396,10 @@ export const Step1SourceInput = ({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowOutline(false);
+      if (e.key === "Escape") {
+        setShowOutline(false);
+        setShowMeta(false);
+      }
 
       const isToggleOutlineShortcut =
         (e.metaKey || e.ctrlKey) &&
@@ -619,6 +652,68 @@ export const Step1SourceInput = ({
     return candidates.map(normalizeDroppedPath).filter(isImagePath);
   };
 
+  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date', value: string) => {
+    onMetaChange?.({
+      ...(postMeta ?? { title: '', subtitle: '', imageUrl: '', date: '' }),
+      [field]: value,
+    });
+  }, [onMetaChange, postMeta]);
+
+  const extractDroppedImageUrl = (event: DragEvent<HTMLElement>): string => {
+    const dataTransfer = event.dataTransfer;
+    if (!dataTransfer) return '';
+
+    const uriListRaw = dataTransfer.getData('text/uri-list');
+    const textRaw = dataTransfer.getData('text/plain');
+    const candidates = `${uriListRaw}\n${textRaw}`
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'))
+      .map(normalizeDroppedPath);
+
+    const directUrl = candidates.find((candidate) => /^https?:\/\//i.test(candidate));
+    if (directUrl) return directUrl;
+
+    const imagePath = candidates.find(isImagePath);
+    if (imagePath) return imagePath;
+
+    return '';
+  };
+
+  const handleMetaImageDrop = useCallback(async (event: DragEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsMetaImageDragActive(false);
+
+    const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
+    if (imageFiles.length > 0) {
+      const firstImage = imageFiles[0];
+      if (firstImage.size > MAX_IMAGE_FILE_SIZE_MB * 1024 * 1024) {
+        onError?.(`Bild zu groß: ${firstImage.name} ist größer als ${MAX_IMAGE_FILE_SIZE_MB}MB.`);
+        return;
+      }
+      try {
+        const dataUrl = await fileToDataUrl(firstImage);
+        updatePostMetaField('imageUrl', dataUrl);
+        onError?.('');
+        return;
+      } catch (error) {
+        console.error('Meta image drop handling failed:', error);
+        onError?.('Bild konnte nicht als URL übernommen werden.');
+        return;
+      }
+    }
+
+    const droppedUrl = extractDroppedImageUrl(event);
+    if (droppedUrl) {
+      updatePostMetaField('imageUrl', droppedUrl);
+      onError?.('');
+      return;
+    }
+
+    onError?.('Nur Bilddateien oder Bild-URLs sind für Bild-URL erlaubt.');
+  }, [onError, updatePostMetaField]);
+
   // Get active doc tab info
   const activeDocTab = docTabs.find((tab) => tab.id === activeDocTabId);
 
@@ -721,6 +816,10 @@ export const Step1SourceInput = ({
       .pop() ?? outlineItems[0]?.line ?? -1;
 
   const insertHeading = (level: number) => {
+    if (editorType === 'block') {
+      setBlockHeadingRequest({ level, token: Date.now() });
+      return;
+    }
     const prefix = `${'#'.repeat(level)} `;
     const trimmed = sourceContent.replace(/\s*$/, '');
     const next = trimmed ? `${trimmed}\n\n${prefix}` : `${prefix}`;
@@ -1134,13 +1233,13 @@ export const Step1SourceInput = ({
                 transform: showOutline ? 'rotate(0deg)' : 'rotate(-90deg)',
                 transformOrigin: 'left top',
                 padding: '10px 10px',
-                backgroundColor: '#121212',
+                backgroundColor: '#1a1a1a',
                 border: '1px solid #AC8E66',
                 borderRadius: '8px 8px 0px 0px',
                 cursor: 'pointer',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '10px',
-                color: '#D9D4C5',
+                color: '#aaaaaa',
                 letterSpacing: '0.03em',
                 zIndex: 1,
               }}
@@ -1159,13 +1258,13 @@ export const Step1SourceInput = ({
                 transform: 'rotate(-90deg)',
                 transformOrigin: 'left top',
                 padding: '10px 10px',
-                backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#121212',
+                backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#1a1a1a',
                 border: !canUseComparison ? '1px solid #3A3A3A' : '1px solid #AC8E66',
                 borderRadius: '8px 8px 0px 0px',
                 cursor: !canUseComparison ? 'not-allowed' : 'pointer',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '10px',
-                color: !canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#D9D4C5',
+                color: !canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#aaaaaa',
                 letterSpacing: '0.03em',
                 whiteSpace: 'nowrap',
                 zIndex: 1,
@@ -1174,6 +1273,166 @@ export const Step1SourceInput = ({
             >
               Vergleich {showComparison ? 'an' : 'aus'}
             </button>
+
+            {/* Meta Tab Button */}
+            <button
+              onClick={() => setShowMeta((v) => !v)}
+              className=" lg:flex"
+              style={{
+                position: 'absolute',
+                left: -28,
+                top: 420,
+                transform: 'rotate(-90deg)',
+                transformOrigin: 'left top',
+                padding: '10px 10px',
+                backgroundColor: showMeta ? '#d0cbb8' : '#1a1a1a',
+                border: '1px solid #AC8E66',
+                borderRadius: '8px 8px 0px 0px',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                color: showMeta ? '#1a1a1a' : '#aaaaaa',
+                letterSpacing: '0.03em',
+                whiteSpace: 'nowrap',
+                zIndex: 1,
+              }}
+            >
+              Post Metadaten
+            </button>
+
+            {/* Meta Panel */}
+            {showMeta && (
+              <div
+                style={{
+                  width: 240,
+                  position: 'absolute',
+                  top: 90,
+                  left: -260,
+                  padding: '12px',
+                  borderRadius: 10,
+                  background: '#151515',
+                  border: '1px solid rgba(172, 142, 102, 0.25)',
+                  boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  maxHeight: 'calc(100vh - 320px)',
+                  overflowY: 'auto',
+                  zIndex: 6,
+                  transform: 'translateX(120px)',
+
+                }}
+              >
+                <div className="font-mono text-[9px] text-[#AC8E66] tracking-wide">Post Metadaten · ESC Closed</div>
+                <div className="font-mono text-[9px] leading-[12px] text-[#999]" style={{ marginBottom: 4 }}>
+                  Geladene Artikel werden vorgefuellt · Leer = auto aus Inhalt
+                </div>
+                {(['title', 'subtitle', 'imageUrl', 'date'] as const).map((field) => (
+                  <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div className="font-mono text-[9px] text-[#999]">
+                      {field === 'imageUrl' ? 'Bild-URL' : field === 'title' ? 'Titel' : field === 'subtitle' ? 'Untertitel' : 'Datum'}
+                    </div>
+                    {field === 'title' || field === 'subtitle' ? (
+                      <textarea
+                        value={postMeta?.[field] ?? ''}
+                        onChange={(e) => updatePostMetaField(field, e.target.value)}
+                        rows={field === 'title' ? 2 : 3}
+                        placeholder={field === 'title' ? 'Titel eingeben...' : 'Untertitel eingeben...'}
+                        style={{
+                          background: '#0f0f0f',
+                          border: '1px solid #3A3A3A',
+                          borderRadius: 6,
+                          padding: '6px 8px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          color: '#D9D4C5',
+                          width: '100%',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                          resize: 'vertical',
+                          minHeight: field === 'title' ? 42 : 54,
+                          lineHeight: '14px',
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type={field === 'date' ? 'date' : 'text'}
+                        value={postMeta?.[field] ?? ''}
+                        onChange={(e) => updatePostMetaField(field, e.target.value)}
+                        onDragEnter={field === 'imageUrl' ? (event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setIsMetaImageDragActive(true);
+                        } : undefined}
+                        onDragOver={field === 'imageUrl' ? (event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setIsMetaImageDragActive(true);
+                        } : undefined}
+                        onDragLeave={field === 'imageUrl' ? (event) => {
+                          const nextTarget = event.relatedTarget as Node | null;
+                          if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+                          setIsMetaImageDragActive(false);
+                        } : undefined}
+                        onDrop={field === 'imageUrl' ? (event) => {
+                          void handleMetaImageDrop(event);
+                        } : undefined}
+                        placeholder={field === 'imageUrl' ? 'https://...' : field === 'date' ? new Date().toISOString().slice(0, 10) : ''}
+                        style={{
+                          background: field === 'imageUrl' && isMetaImageDragActive ? 'rgba(172, 142, 102, 0.08)' : '#0f0f0f',
+                          border: field === 'imageUrl' && isMetaImageDragActive ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+                          borderRadius: 6,
+                          padding: '6px 8px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          color: '#D9D4C5',
+                          width: '100%',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    )}
+                    {field === 'imageUrl' && (
+                      <>
+                        <div
+                          className="font-mono text-[9px]"
+                          style={{ color: (postMeta?.imageUrl ?? '').trim() ? '#AC8E66' : '#777' }}
+                        >
+                          {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
+                        </div>
+                        {metaImageInvalidForServer && (
+                          <div
+                            className="font-mono text-[9px]"
+                            style={{
+                              color: '#d39b52',
+                              lineHeight: '12px',
+                            }}
+                          >
+                            Hinweis: data/blob Bild-URLs werden beim Server-Export hochgeladen,
+                            wenn im API-Tab ein Upload-Endpunkt gesetzt ist.
+                          </div>
+                        )}
+                        {(postMeta?.imageUrl ?? '').trim() &&
+                          /^(https?:\/\/|data:image\/|blob:|file:\/\/|\/)/i.test((postMeta?.imageUrl ?? '').trim()) && (
+                            <img
+                              src={(postMeta?.imageUrl ?? '').trim()}
+                              alt="Meta Bild Vorschau"
+                              style={{
+                                width: '100%',
+                                maxHeight: 70,
+                                objectFit: 'cover',
+                                borderRadius: 6,
+                                border: '1px solid #3A3A3A',
+                                background: '#0f0f0f',
+                              }}
+                            />
+                          )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Outline Panel */}
             {showOutline && (
@@ -1387,6 +1646,7 @@ export const Step1SourceInput = ({
                   onRegisterContentSnapshotGetter={(getter) => {
                     editorSnapshotGetterRef.current = getter;
                   }}
+                  headingRequest={blockHeadingRequest}
                   focusHeadingRequest={outlineBlockFocusRequest}
                   onActiveHeadingChange={handleActiveBlockHeadingChange}
                   placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
@@ -1652,6 +1912,31 @@ export const Step1SourceInput = ({
                 <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66' }} />
                 Speichern unter
               </button>
+              <button
+                onClick={async () => {
+                  const content = await resolveLiveContent();
+                  onSaveToServer?.(content);
+                }}
+                disabled={!canSaveToServer}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: 'transparent',
+                  border: `1px solid ${canSaveToServer ? '#AC8E66' : '#3A3A3A'}`,
+                  borderRadius: '6px',
+                  cursor: canSaveToServer ? 'pointer' : 'not-allowed',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '11px',
+                  color: canSaveToServer ? '#AC8E66' : '#555',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s',
+                  opacity: canSaveToServer ? 1 : 0.4,
+                }}
+              >
+                <FontAwesomeIcon icon={faExternalLinkAlt} />
+                Auf Server speichern
+              </button>
               <div style={{ flex: 1 }} />
               <button
                 onClick={onNext}
@@ -1684,6 +1969,18 @@ export const Step1SourceInput = ({
                 }}
               >
                 Shortcuts: {modifierKeyLabel}+S Speichern, {modifierKeyLabel}+Shift+S Speichern unter, {modifierKeyLabel}+W Tab schliessen, {modifierKeyLabel}+G Gliederung, Esc Schliessen
+              </div>
+              <div
+                className="font-mono text-[9px]"
+                style={{
+                  marginTop: '2px',
+                  padding: '0 12px 10px 12px',
+                  letterSpacing: '0.02em',
+                  color: contentDiagnostics.isHeavy ? '#d39b52' : '#777',
+                }}
+              >
+                Inhalt: {contentDiagnostics.formattedSize} · data:image eingebettet: {contentDiagnostics.inlineDataImageCount}
+                {contentDiagnostics.isHeavy ? ' · Tipp: Bilder als URL statt Base64 speichern.' : ''}
               </div>
             </div>
           )}

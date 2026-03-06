@@ -139,7 +139,6 @@ interface ContentTransformScreenProps {
   currentStep?: number;
   initialContent?: string | null;
   initialFileName?: string | null;
-  initialPostMeta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string } | null;
   initialPlatform?: ContentPlatform;
   cameFromDocStudio?: boolean;
   cameFromDashboard?: boolean;
@@ -153,7 +152,7 @@ interface ContentTransformScreenProps {
   onFileRequestHandled?: () => void;
   metadata?: ProjectMetadata;
   onMetadataChange?: (metadata: ProjectMetadata) => void;
-  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "save_server" | "transform" | "goto_platforms" | null;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "transform" | null;
   onHeaderActionHandled?: () => void;
   onStep1BackToPostingChange?: (visible: boolean) => void;
   onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
@@ -175,8 +174,6 @@ interface ContentTransformScreenProps {
   /** Called when a file is saved successfully with the new path and content */
   onFileSaved?: (filePath: string, content: string, fileName: string) => void;
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
-  /** Original server slug if this content was loaded from server — used to overwrite the correct article */
-  serverArticleSlug?: string | null;
 }
 
 type ContentDocTab = {
@@ -190,336 +187,12 @@ type ContentDocTab = {
 const isPlaceholderDraftTab = (tab: ContentDocTab) =>
   tab.kind === 'draft' && tab.title === 'Entwurf';
 
-const EMPTY_POST_META = { title: '', subtitle: '', imageUrl: '', date: '' };
-
-const normalizeDateForInput = (rawDate?: string): string => {
-  const trimmed = (rawDate ?? '').trim();
-  if (!trimmed) return '';
-  const isoDateMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (isoDateMatch) return trimmed;
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toISOString().slice(0, 10);
-};
-
-const extractPostMetaFromContent = (
-  content: string,
-  fallbackTitle?: string
-): { title: string; subtitle: string; imageUrl: string; date: string } => {
-  const frontmatterDateMatch = content.match(
-    /^---[\s\S]*?\n(?:publishDate|date):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}).*?\n[\s\S]*?---/m
-  );
-  const h1Title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
-  const h2Subtitle = content.match(/^##\s+(.+)$/m)?.[1]?.trim() ?? '';
-  const imageUrl = content.match(/!\[[^\]]*\]\(([^)]+)\)/)?.[1]?.trim() ?? '';
-  const fallbackClean = (fallbackTitle ?? '').replace(/\.[^.]+$/, '').trim();
-  return {
-    title: h1Title || fallbackClean,
-    subtitle: h2Subtitle,
-    imageUrl,
-    date: normalizeDateForInput(frontmatterDateMatch?.[1] ?? ''),
-  };
-};
-
-type ServerBlock = { type: string; data: Record<string, unknown> };
-
-const isServerUsableImageUrl = (value?: string): boolean => {
-  const candidate = (value ?? '').trim();
-  if (!candidate) return false;
-  if (/^data:image\//i.test(candidate)) return false;
-  if (/^blob:/i.test(candidate)) return false;
-  return true;
-};
-
-const resolveServerImageUrl = (rawValue: string, imageBaseUrl?: string | null): string => {
-  const candidate = rawValue.trim();
-  if (!candidate) return '';
-  if (!isServerUsableImageUrl(candidate)) return '';
-  if (/^https?:\/\//i.test(candidate)) return candidate;
-
-  const base = (imageBaseUrl ?? '').trim();
-  if (!base) return candidate;
-
-  let normalizedBase = base.replace(/\/+$/, '');
-  if (!/^https?:\/\//i.test(normalizedBase)) {
-    normalizedBase = `https://${normalizedBase}`;
-  }
-
-  let relative = candidate.replace(/^\/+/, '');
-  if (/\/images$/i.test(normalizedBase) && /^images\//i.test(relative)) {
-    relative = relative.replace(/^images\/+/i, '');
-  }
-  return `${normalizedBase}/${relative}`;
-};
-
-const isInlineOrBlobImageUrl = (value?: string): boolean => {
-  const candidate = (value ?? '').trim();
-  if (!candidate) return false;
-  return /^data:image\//i.test(candidate) || /^blob:/i.test(candidate);
-};
-
-const toAbsoluteEndpointUrl = (apiBaseUrl: string, endpoint: string): string => (
-  /^https?:\/\//i.test(endpoint)
-    ? endpoint
-    : `${apiBaseUrl.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`
-);
-
-const normalizeDataImageUrl = (dataUrl: string): string => {
-  if (!/^data:image\//i.test(dataUrl)) return dataUrl;
-  const commaIdx = dataUrl.indexOf(',');
-  if (commaIdx < 0) return dataUrl;
-  const header = dataUrl.slice(0, commaIdx + 1);
-  const payload = dataUrl.slice(commaIdx + 1).replace(/\s+/g, '');
-  return `${header}${payload}`;
-};
-
-const blobUrlToDataImageUrl = async (blobUrl: string): Promise<string> => {
-  const response = await fetch(blobUrl);
-  if (!response.ok) throw new Error('Blob-Bild konnte nicht gelesen werden.');
-  const blob = await response.blob();
-  return await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ''));
-    reader.onerror = () => reject(new Error('Blob-Bild konnte nicht konvertiert werden.'));
-    reader.readAsDataURL(blob);
-  });
-};
-
-const uploadImageDataUrlToServer = async (
-  dataUrl: string,
-  uploadUrl: string,
-  apiKey: string,
-  fileNameHint: string
-): Promise<string> => {
-  const payload = {
-    imageData: normalizeDataImageUrl(dataUrl),
-    fileName: fileNameHint,
-  };
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(body || `Upload fehlgeschlagen (HTTP ${response.status})`);
-  }
-  const result = await response.json() as {
-    success?: boolean;
-    url?: string;
-    imageUrl?: string;
-    path?: string;
-    targetDir?: string;
-    documentRoot?: string;
-    message?: string;
-  };
-  if (!result?.success) {
-    throw new Error(`Upload fehlgeschlagen: ${String(result?.message ?? 'ungueltige Serverantwort')}`);
-  }
-  const uploadedUrl = String(result.url ?? result.imageUrl ?? '').trim();
-  if (!uploadedUrl) {
-    const debugPath = String(result.path ?? result.targetDir ?? '').trim();
-    throw new Error(`Upload fehlgeschlagen: keine Bild-URL erhalten. ${debugPath ? `Pfad: ${debugPath}` : ''}`.trim());
-  }
-  console.info('[ZenPost] Bild hochgeladen', {
-    fileNameHint,
-    uploadedUrl,
-    path: result.path ?? null,
-    targetDir: result.targetDir ?? null,
-    documentRoot: result.documentRoot ?? null,
-  });
-  return uploadedUrl;
-};
-
-const buildServerBlocksFromMarkdown = (
-  markdown: string,
-  fallbackImageUrl?: string
-): ServerBlock[] => {
-  const lines = markdown.split('\n');
-  const blocks: ServerBlock[] = [];
-  const fallbackUrl = isServerUsableImageUrl(fallbackImageUrl) ? String(fallbackImageUrl).trim() : '';
-  let index = 0;
-
-  while (index < lines.length) {
-    const line = lines[index];
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      index += 1;
-      continue;
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
-    if (headingMatch) {
-      blocks.push({
-        type: 'header',
-        data: {
-          level: headingMatch[1].length,
-          text: headingMatch[2].trim(),
-        },
-      });
-      index += 1;
-      continue;
-    }
-
-    const markdownImageMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
-    if (markdownImageMatch) {
-      const alt = markdownImageMatch[1]?.trim() ?? '';
-      const rawUrl = markdownImageMatch[2]?.trim() ?? '';
-      const url = isServerUsableImageUrl(rawUrl) ? rawUrl : fallbackUrl;
-      if (url) {
-        blocks.push({
-          type: 'image',
-          data: {
-            url,
-            src: url,
-            caption: alt,
-            alt,
-          },
-        });
-      }
-      index += 1;
-      continue;
-    }
-
-    blocks.push({
-      type: 'paragraph',
-      data: {
-        text: line,
-      },
-    });
-    index += 1;
-  }
-
-  return blocks;
-};
-
-const normalizeMarkdownForServer = (markdown: string, fallbackImageUrl?: string): string => {
-  const fallbackUrl = isServerUsableImageUrl(fallbackImageUrl) ? String(fallbackImageUrl).trim() : '';
-  if (!fallbackUrl) return markdown;
-  return markdown
-    .replace(
-      /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/gi,
-      (_match, alt) => `![${String(alt ?? '')}](${fallbackUrl})`
-    )
-    .replace(
-      /<img\b([^>]*?)\bsrc=["'](data:image\/[^"']+)["']([^>]*)\/?>/gi,
-      (_match, beforeSrc, _dataSrc, afterSrc) => `<img${String(beforeSrc ?? '')}src="${fallbackUrl}"${String(afterSrc ?? '')}>`
-    );
-};
-
-const replaceInlineImagesByUploadedUrls = async (
-  markdown: string,
-  uploadUrl: string,
-  apiKey: string,
-  fileNameSeed: string
-): Promise<{ markdown: string; expectedCount: number; uploadedCount: number }> => {
-  let next = markdown;
-
-  const markdownMatches = Array.from(
-    markdown.matchAll(/!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/gi)
-  );
-  const expectedCount = markdownMatches.length;
-  let uploadedCount = 0;
-  for (let idx = 0; idx < markdownMatches.length; idx += 1) {
-    const match = markdownMatches[idx];
-    const alt = String(match[1] ?? '');
-    const dataUrl = String(match[2] ?? '');
-    const uploaded = await uploadImageDataUrlToServer(
-      dataUrl,
-      uploadUrl,
-      apiKey,
-      `${fileNameSeed}-md-${idx + 1}.png`
-    );
-    next = next.replace(`![${alt}](${dataUrl})`, `![${alt}](${uploaded})`);
-    uploadedCount += 1;
-  }
-
-  const htmlMatches = Array.from(
-    next.matchAll(/<img\b([^>]*?)\bsrc=["'](data:image\/[^"']+)["']([^>]*)\/?>/gi)
-  );
-  for (let idx = 0; idx < htmlMatches.length; idx += 1) {
-    const match = htmlMatches[idx];
-    const beforeSrc = String(match[1] ?? '');
-    const dataUrl = String(match[2] ?? '');
-    const afterSrc = String(match[3] ?? '');
-    const uploaded = await uploadImageDataUrlToServer(
-      dataUrl,
-      uploadUrl,
-      apiKey,
-      `${fileNameSeed}-html-${idx + 1}.png`
-    );
-    const original = `<img${beforeSrc}src="${dataUrl}"${afterSrc}>`;
-    const replaced = `<img${beforeSrc}src="${uploaded}"${afterSrc}>`;
-    next = next.replace(original, replaced);
-    uploadedCount += 1;
-  }
-
-  return { markdown: next, expectedCount: expectedCount + htmlMatches.length, uploadedCount };
-};
-
-const normalizeIncomingPostMeta = (
-  meta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string } | null
-): { title: string; subtitle: string; imageUrl: string; date: string } => ({
-  title: (meta?.title ?? '').trim(),
-  subtitle: (meta?.subtitle ?? '').trim(),
-  imageUrl: (meta?.imageUrl ?? '').trim(),
-  date: normalizeDateForInput(meta?.date),
-});
-
-const toUserFacingError = (rawError: string, context: 'transform' | 'post'): string => {
-  const raw = (rawError || '').trim();
-  const lower = raw.toLowerCase();
-  const prefix = context === 'post' ? 'Direkt-Posting fehlgeschlagen' : 'Transformation fehlgeschlagen';
-
-  if (!raw) {
-    return `${prefix}. Bitte prüfe API-Konfiguration und Verbindung.`;
-  }
-  if (
-    lower.includes('load failed') ||
-    lower.includes('failed to fetch') ||
-    lower.includes('networkerror') ||
-    lower.includes('fetch error')
-  ) {
-    return `${prefix}: Verbindung zur API fehlgeschlagen. Bitte API-URL, Internet und Firewall/CORS prüfen.`;
-  }
-  if (lower.includes('api-key fehlt') || lower.includes('api key fehlt') || lower.includes('configuration not found') || lower.includes('not configured')) {
-    return `${prefix}: API-Daten nicht korrekt. Bitte API-Key und Zugangsdaten in den Einstellungen prüfen.`;
-  }
-  if (lower.includes('unauthorized') || lower.includes('401')) {
-    return `${prefix}: Zugriff abgelehnt (401). Bitte API-Key prüfen.`;
-  }
-  if (lower.includes('403') || lower.includes('forbidden')) {
-    return `${prefix}: Zugriff verweigert (403). Bitte Rechte/Scopes der API prüfen.`;
-  }
-  if (lower.includes('404') || lower.includes('not found')) {
-    return `${prefix}: API-Endpunkt nicht gefunden (404). Bitte URL/Route prüfen.`;
-  }
-  if (lower.includes('429') || lower.includes('rate limit')) {
-    return `${prefix}: API-Limit erreicht (429). Bitte später erneut versuchen.`;
-  }
-  if (lower.includes('500') || lower.includes('502') || lower.includes('503')) {
-    return `${prefix}: Serverfehler. Bitte später erneut versuchen.`;
-  }
-  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('aborted')) {
-    return `${prefix}: Zeitüberschreitung. Bitte Verbindung und API-Responsezeit prüfen.`;
-  }
-  if (lower.includes('cors')) {
-    return `${prefix}: CORS-Problem. Bitte Server-CORS für diese App freigeben.`;
-  }
-  return `${prefix}: ${raw}`;
-};
-
 export const ContentTransformScreen = ({
   onBack: _onBack,
   onStepChange,
   currentStep: externalStep,
   initialContent,
   initialFileName,
-  initialPostMeta,
   initialPlatform,
   cameFromDocStudio,
   cameFromDashboard,
@@ -545,7 +218,6 @@ export const ContentTransformScreen = ({
   onMultiPlatformModeChange,
   onFileSaved,
   onOpenZenThoughtsEditor,
-  serverArticleSlug,
 }: ContentTransformScreenProps) => {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
@@ -566,7 +238,6 @@ export const ContentTransformScreen = ({
   const sourceContentRef = useRef<string>('');
   const liveContentGetterRef = useRef<(() => Promise<string>) | null>(null);
   const [fileName, setFileName] = useState<string>('');
-  const [postMeta, setPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string }>(EMPTY_POST_META);
   const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>([]);
   const [activeDocTabId, setActiveDocTabId] = useState<string | null>(null);
   const activeDocTabIdRef = useRef<string | null>(null);
@@ -680,7 +351,6 @@ export const ContentTransformScreen = ({
       activeDocTabIdRef.current = draftTabId;
       setActiveDocTabId(draftTabId);
       setFileName('Entwurf');
-      setPostMeta(EMPTY_POST_META);
       emitExternalContentChange(currentContent, 'step1', draftTabId);
       return;
     }
@@ -926,154 +596,6 @@ export const ContentTransformScreen = ({
     await handleSaveAsSourceToProject(contentToSave);
   };
 
-  const handleSaveSourceToServer = async (contentOverride?: string) => {
-    try {
-      const contentToSave = await resolveLatestSourceContent(contentOverride);
-      if (!contentToSave.trim()) {
-        alert('Kein Inhalt zum Export auf den Server.');
-        return;
-      }
-
-      let apiBaseUrl = (zenStudioSettings.contentServerApiUrl ?? '').trim();
-      // Ensure absolute URL – add https:// if user forgot the protocol
-      if (apiBaseUrl && !/^https?:\/\//i.test(apiBaseUrl)) {
-        apiBaseUrl = `https://${apiBaseUrl}`;
-      }
-      const endpoint = (zenStudioSettings.contentServerApiEndpoint ?? '').trim() || '/save_articles.php';
-      const uploadEndpoint = (zenStudioSettings.contentServerImageUploadEndpoint ?? '').trim() || '/upload_images.php';
-      const apiKey = (zenStudioSettings.contentServerApiKey ?? '').trim();
-
-      if (!apiBaseUrl && !/^https?:\/\//i.test(endpoint)) {
-        setSettingsDefaultTab('api');
-        setShowSettings(true);
-        alert('Bitte API URL in Einstellungen -> API setzen.');
-        return;
-      }
-
-      const targetUrl = toAbsoluteEndpointUrl(apiBaseUrl, endpoint);
-      const uploadUrl = uploadEndpoint
-        ? (
-          /^https?:\/\//i.test(uploadEndpoint)
-            ? uploadEndpoint
-            : (apiBaseUrl ? toAbsoluteEndpointUrl(apiBaseUrl, uploadEndpoint) : '')
-        )
-        : '';
-
-      const currentTab = activeDocTabIdRef.current
-        ? openDocTabs.find((tab) => tab.id === activeDocTabIdRef.current)
-        : null;
-      const title = (currentTab?.title || fileName || 'Entwurf').trim() || 'Entwurf';
-      // If article was loaded from server, use original slug to ensure correct overwrite
-      const fallbackSlug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-        || `entwurf-${Date.now()}`;
-
-      const markdownHasInlineImages = /!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+\)/i.test(contentToSave)
-        || /<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*\/?>/i.test(contentToSave);
-      let markdownPrepared = contentToSave;
-      let inlineUploadExpected = 0;
-      let inlineUploadCompleted = 0;
-      let metaUploadCompleted = 0;
-      if (markdownHasInlineImages) {
-        if (!uploadUrl) {
-          alert('Inline-Bilder erkannt, aber kein Upload-Endpunkt konfiguriert (API -> Upload Endpoint).');
-          return;
-        }
-        const inlineResult = await replaceInlineImagesByUploadedUrls(
-          markdownPrepared,
-          uploadUrl,
-          apiKey,
-          fallbackSlug
-        );
-        markdownPrepared = inlineResult.markdown;
-        inlineUploadExpected = inlineResult.expectedCount;
-        inlineUploadCompleted = inlineResult.uploadedCount;
-        if (inlineUploadCompleted !== inlineUploadExpected) {
-          throw new Error(`Inline-Bild-Upload unvollstaendig (${inlineUploadCompleted}/${inlineUploadExpected}).`);
-        }
-      }
-
-      // Meta-Felder: nutze explizit gesetzte Werte, sonst auto-extraktion
-      const metaTitle = postMeta.title.trim() || title;
-      const metaSubtitle = postMeta.subtitle.trim() || (markdownPrepared.match(/^##\s+(.+)/m)?.[1] ?? '');
-      const extractedImage = (markdownPrepared.match(/!\[[^\]]*\]\(([^)]+)\)/)?.[1] ?? '').trim();
-      const preferredImage = postMeta.imageUrl.trim() || extractedImage;
-      let normalizedPreferredImage = preferredImage;
-      if (preferredImage && isInlineOrBlobImageUrl(preferredImage)) {
-        if (!uploadUrl) {
-          alert('Bild-URL in Post-Metadaten ist data/blob, aber Upload-Endpunkt fehlt.');
-          return;
-        }
-        const dataUrl = preferredImage.startsWith('blob:')
-          ? await blobUrlToDataImageUrl(preferredImage)
-          : preferredImage;
-        normalizedPreferredImage = await uploadImageDataUrlToServer(
-          dataUrl,
-          uploadUrl,
-          apiKey,
-          `${fallbackSlug}-meta.png`
-        );
-        metaUploadCompleted = 1;
-      }
-      if (/!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+\)/i.test(markdownPrepared)
-        || /<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*\/?>/i.test(markdownPrepared)) {
-        throw new Error('Es sind noch nicht ersetzte data:image Inhalte im Markdown vorhanden.');
-      }
-      const metaImage = resolveServerImageUrl(normalizedPreferredImage, zenStudioSettings.contentServerImageBaseUrl);
-      if (metaImage && /^https?:\/\//i.test(metaImage)) {
-        const filePart = metaImage.split('?')[0].split('#')[0].split('/').pop() ?? '';
-        if (filePart && !/\.(png|jpe?g|webp|gif|svg)$/i.test(filePart)) {
-          alert('Bild-URL wirkt unvollstaendig (keine Dateiendung). Bitte Bild erneut hochladen oder gueltige URL setzen.');
-          return;
-        }
-      }
-      const metaDate = postMeta.date.trim() || new Date().toISOString().slice(0, 10);
-      const metaSlug = serverArticleSlug?.trim()
-        || (postMeta.title.trim()
-        ? postMeta.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
-        : fallbackSlug);
-      const markdownForServer = normalizeMarkdownForServer(markdownPrepared, metaImage);
-      const serverBlocks = buildServerBlocksFromMarkdown(markdownForServer, metaImage);
-      const serverContent = {
-        blocks: serverBlocks,
-        markdown: markdownForServer,
-      };
-
-      const payload = {
-        slug: metaSlug,
-        title: metaTitle,
-        subtitle: metaSubtitle,
-        date: metaDate,
-        image: metaImage,
-        imageUrl: metaImage,
-        blocks: serverBlocks,
-        content: serverContent,
-        markdown: markdownForServer,
-      };
-
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        throw new Error(errorBody || `HTTP ${response.status}`);
-      }
-
-      const uploadInfo = (inlineUploadCompleted > 0 || metaUploadCompleted > 0)
-        ? ` (Bilder hochgeladen: ${inlineUploadCompleted + metaUploadCompleted})`
-        : '';
-      alert(`✓ Artikel erfolgreich auf Server exportiert${uploadInfo}.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unbekannter Fehler beim Server-Export.';
-      alert(`Server-Export fehlgeschlagen: ${message}`);
-    }
-  };
-
   // Track initial content load to prevent re-loading
   const loadedInitialKeyRef = useRef<string | null>(null);
   const lastRequestedArticleIdRef = useRef<string | null>(null);
@@ -1082,8 +604,7 @@ export const ContentTransformScreen = ({
   // Load initial content if provided (from Doc Studio or Planner) - when content changes
   useEffect(() => {
     if (initialContent === null || initialContent === undefined) return;
-    const initialMetaKey = JSON.stringify(initialPostMeta ?? null);
-    const initialKey = `${initialFileName ?? ''}::${initialMetaKey}::${initialContent}`;
+    const initialKey = `${initialFileName ?? ''}::${initialContent}`;
     if (initialKey !== loadedInitialKeyRef.current) {
       // Extract title from content if it starts with a markdown heading
       const extractTitleFromContent = (content: string): string | null => {
@@ -1113,17 +634,9 @@ export const ContentTransformScreen = ({
       setActiveDocTabId(targetTabId);
       setSourceContent(initialContent);
       setFileName(tabTitle);
-      const extractedMeta = extractPostMetaFromContent(initialContent, tabTitle);
-      const incomingMeta = normalizeIncomingPostMeta(initialPostMeta);
-      setPostMeta({
-        title: incomingMeta.title || extractedMeta.title,
-        subtitle: incomingMeta.subtitle || extractedMeta.subtitle,
-        imageUrl: incomingMeta.imageUrl || extractedMeta.imageUrl,
-        date: incomingMeta.date || extractedMeta.date,
-      });
       loadedInitialKeyRef.current = initialKey;
     }
-  }, [initialContent, initialFileName, initialPostMeta, openDocTabs]);
+  }, [initialContent, initialFileName, openDocTabs]);
 
   useEffect(() => {
     if (!projectPath) return;
@@ -1226,7 +739,6 @@ export const ContentTransformScreen = ({
       const tabId = `article:${requestedArticleId}`;
       const title = article.title || 'Artikel';
       const content = article.content || '';
-      const inferredMeta = extractPostMetaFromContent(content, title);
       setOpenDocTabs((prev) =>
         prev.some((tab) => tab.id === tabId)
           ? prev
@@ -1237,12 +749,6 @@ export const ContentTransformScreen = ({
       setActiveDocTabId(tabId);
       setSourceContent(content);
       setFileName(title);
-      setPostMeta({
-        title: (article.title ?? '').trim() || inferredMeta.title,
-        subtitle: (article.subtitle ?? '').trim() || inferredMeta.subtitle,
-        imageUrl: (article.coverImageUrl ?? '').trim() || inferredMeta.imageUrl,
-        date: normalizeDateForInput(article.publishDate) || inferredMeta.date,
-      });
       setError(null);
       setStep(1);
       lastRequestedArticleIdRef.current = requestedArticleId;
@@ -1267,7 +773,6 @@ export const ContentTransformScreen = ({
       setSourceContent(content);
       const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
-      setPostMeta(extractPostMetaFromContent(content, fileNameFromPath));
       setError(null);
       setStep(1);
       onFileRequestHandled?.();
@@ -1304,7 +809,6 @@ export const ContentTransformScreen = ({
         setActiveDocTabId(resolvedTabId);
         setSourceContent(content);
         setFileName(fileNameFromPath);
-        setPostMeta(extractPostMetaFromContent(content, fileNameFromPath));
         setError(null);
         setStep(1);
         lastRequestedFilePathRef.current = requestedFilePath;
@@ -1379,7 +883,7 @@ export const ContentTransformScreen = ({
 
   // Settings Modal
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'api' | 'zenstudio'>('ai');
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'zenstudio'>('ai');
   const [settingsSocialTab, setSettingsSocialTab] = useState<
     'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github' | undefined
   >(undefined);
@@ -1881,7 +1385,7 @@ export const ContentTransformScreen = ({
           } else {
             failedPlatforms.push({
               platform,
-              error: toUserFacingError(result.error || 'Unbekannter Fehler', 'transform'),
+              error: result.error || 'Unbekannter Fehler',
             });
           }
         }
@@ -1940,7 +1444,7 @@ export const ContentTransformScreen = ({
           setStep4LastChangeSource('ai');
           setStep(4);
         } else {
-          const errorMsg = toUserFacingError(result.error || 'Transformation fehlgeschlagen', 'transform');
+          const errorMsg = result.error || 'Transformation fehlgeschlagen';
           setError(errorMsg);
           // Show notification if error is related to AI configuration
           if (
@@ -1956,10 +1460,7 @@ export const ContentTransformScreen = ({
         }
       }
     } catch (err) {
-      const errorMsg = toUserFacingError(
-        err instanceof Error ? err.message : 'Unbekannter Fehler',
-        'transform'
-      );
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler';
       setError(errorMsg);
       // Show notification if error is related to AI configuration
       if (
@@ -1982,7 +1483,6 @@ export const ContentTransformScreen = ({
     setStep(1);
     setSourceContent('');
     setFileName('');
-    setPostMeta(EMPTY_POST_META);
     setTransformedContent('');
     setError(null);
     setPreviewMode(false);
@@ -2020,7 +1520,7 @@ export const ContentTransformScreen = ({
       const socialPlatform = platformMap[selectedPlatform];
 
       if (!socialPlatform) {
-        setError('Export verwenden — kein API-Posting für dieses Format verfügbar.');
+        setError('Diese Plattform unterstützt kein direktes Posten');
         setIsPosting(false);
         return;
       }
@@ -2083,17 +1583,13 @@ export const ContentTransformScreen = ({
           const body = lines.length > 1 ? lines.slice(1).join('\n') : sourceContent;
 
           postContent = {
-            subreddit: 'test',
+            subreddit: 'test', // User would need to specify subreddit
             title: title,
             text: body,
           } as RedditPostOptions;
 
-          // Reddit needs subreddit — redirect to settings to configure
-          setSettingsDefaultTab('social');
-          setSettingsSocialTab('reddit');
-          setSettingsMissingSocialHint(true);
-          setSettingsMissingSocialLabel('Reddit');
-          setShowSettings(true);
+          // For Reddit, we need subreddit - show error
+          setError('Für Reddit Posts muss ein Subreddit angegeben werden. Nutze die Transform-Funktion für mehr Optionen.');
           setIsPosting(false);
           return;
 
@@ -2126,12 +1622,7 @@ export const ContentTransformScreen = ({
           break;
 
         case 'github':
-          // GitHub needs repo/category config — redirect to settings
-          setSettingsDefaultTab('social');
-          setSettingsSocialTab('github');
-          setSettingsMissingSocialHint(true);
-          setSettingsMissingSocialLabel('GitHub');
-          setShowSettings(true);
+          setError('GitHub Discussions benötigt Repository-Informationen. Nutze die Transform-Funktion für mehr Optionen.');
           setIsPosting(false);
           return;
 
@@ -2149,16 +1640,13 @@ export const ContentTransformScreen = ({
         alert(`✓ Erfolgreich auf ${selectedPlatform} gepostet!\n${result.url || ''}`);
         handleReset();
       } else {
-        setError(toUserFacingError(result.error || 'Posting fehlgeschlagen', 'post'));
+        setError(result.error || 'Posting fehlgeschlagen');
         if (result.error?.includes('configuration') || result.error?.includes('not found')) {
           // Settings notification handled by modal
         }
       }
     } catch (err) {
-      const errorMsg = toUserFacingError(
-        err instanceof Error ? err.message : 'Unbekannter Fehler beim Posten',
-        'post'
-      );
+      const errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler beim Posten';
       setError(errorMsg);
     } finally {
       setIsPosting(false);
@@ -2188,13 +1676,6 @@ export const ContentTransformScreen = ({
       onHeaderActionHandled?.();
       return;
     }
-    if (headerAction === "goto_platforms" && effectiveStep === 4) {
-      setPreviewMode(false);
-      setError(null);
-      setStep(2);
-      onHeaderActionHandled?.();
-      return;
-    }
     if (headerAction === "next") {
       if (effectiveStep === 1) {
         handleNextFromStep1();
@@ -2211,9 +1692,6 @@ export const ContentTransformScreen = ({
     }
     if (headerAction === "save_as" && effectiveStep === 1) {
       void handleSaveAsSourceToProject();
-    }
-    if (headerAction === "save_server" && effectiveStep === 1) {
-      void handleSaveSourceToServer();
     }
     onHeaderActionHandled?.();
   }, [
@@ -2286,11 +1764,7 @@ export const ContentTransformScreen = ({
               onSaveAsToProject={(latestContent) => {
                 void handleSaveAsSourceToProject(latestContent);
               }}
-              onSaveToServer={(latestContent) => {
-                void handleSaveSourceToServer(latestContent);
-              }}
               canSaveToProject={!!sourceContent.trim() && (!isTauri() || !!projectPath)}
-              canSaveToServer={!!sourceContent.trim() && !!zenStudioSettings.contentServerApiUrl}
               editTabs={editTabs}
               activeEditTab={activeEditTab}
               onEditTabChange={(platform) => {
@@ -2363,8 +1837,6 @@ export const ContentTransformScreen = ({
               }}
               zenThoughts={zenStudioSettings.thoughts}
               showZenThoughtInHeader={zenStudioSettings.showInContentAIStudio}
-              postMeta={postMeta}
-              onMetaChange={setPostMeta}
             />
           </>
         );
@@ -2588,12 +2060,7 @@ export const ContentTransformScreen = ({
       style={{ backgroundColor: effectiveStep === 2 || effectiveStep === 3 ? '#d0cbb8' : 'transparent' }}
     >
       {/* Main Content */}
-      <div
-        className="flex-1 overflow-y-auto"
-        style={{ paddingTop: effectiveStep === 2 || effectiveStep === 3 ? '70px' : '0' }}
-      >
-        {renderStepContent()}
-      </div>
+      <div className="flex-1 overflow-y-auto">{renderStepContent()}</div>
 
       {/* Footer */}
       <div className="relative border-t border-[#AC8E66] py-3">

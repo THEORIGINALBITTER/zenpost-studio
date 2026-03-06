@@ -10,6 +10,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner, faPrint } from '@fortawesome/free-solid-svg-icons';
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
+import { useOpenExternal } from '../../hooks/useOpenExternal';
 
 // Stable module-level constants — never recreated, so ReactMarkdown skips re-parse
 const REMARK_PLUGINS = [remarkGfm];
@@ -38,6 +39,12 @@ const MemoizedMarkdownContent = memo(function MarkdownContent({
     </ReactMarkdown>
   );
 });
+
+// Extract YouTube video ID from any YouTube URL variant
+const extractYouTubeId = (url: string): string | null => {
+  const m = url.match(/(?:youtube\.com\/watch\?(?:[^&]*&)*v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+};
 
 // Pure helper — no closure deps, lives outside the component
 const getChildrenText = (children: ReactNode): string =>
@@ -105,6 +112,7 @@ export const ZenMarkdownPreview = ({
   marginLeft = 64,
   marginRight = 64,
 }: ZenMarkdownPreviewProps) => {
+  const { openExternal } = useOpenExternal();
   const [zoom, setZoom] = useState(70);
   const [previewTheme, setPreviewTheme] = useState<PreviewThemeId>(externalPreviewTheme ?? 'mono-clean');
   const previewStyle: 'color' | 'mono' = previewTheme.startsWith('mono') ? 'mono' : 'color';
@@ -444,12 +452,35 @@ export const ZenMarkdownPreview = ({
       const isCta = /^CTA:\s*/i.test(rawText);
       const label = rawText.replace(/^CTA:\s*/i, '').trim() || 'Mehr erfahren';
 
+      const handleLinkClick = (e: React.MouseEvent) => {
+        if (!href || href === '#') return;
+        e.preventDefault();
+        void openExternal(href);
+      };
+
+      // YouTube embed
+      const youtubeId = extractYouTubeId(href);
+      if (youtubeId) {
+        return (
+          <div style={{ margin: '1rem 0 1.4rem 0', borderRadius: '10px', overflow: 'hidden', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}>
+            <iframe
+              width="100%"
+              height="315"
+              src={`https://www.youtube-nocookie.com/embed/${youtubeId}`}
+              title="YouTube video"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+              style={{ border: 'none', display: 'block' }}
+            />
+          </div>
+        );
+      }
+
       if (isCta) {
         return (
           <a
             href={href}
-            target="_blank"
-            rel="noopener noreferrer"
+            onClick={handleLinkClick}
             className="inline-flex items-center justify-center rounded-lg px-4 py-2 font-bold no-underline transition"
             style={{
               marginTop: '0.4rem',
@@ -457,6 +488,7 @@ export const ZenMarkdownPreview = ({
               background: previewStyle === 'mono' ? '#2b2b2b' : '#AC8E66',
               color: '#f5f1e8',
               border: `1px solid ${previewStyle === 'mono' ? '#444' : '#8f7452'}`,
+              cursor: 'pointer',
             }}
           >
             {label}
@@ -464,7 +496,12 @@ export const ZenMarkdownPreview = ({
         );
       }
       return (
-        <a className="underline transition-colors" style={{ color: palette.link }} {...props} />
+        <a
+          className="underline transition-colors"
+          style={{ color: palette.link, cursor: 'pointer' }}
+          href={href}
+          onClick={handleLinkClick}
+        />
       );
     },
     ul: ({ node, ...props }: any) => (
@@ -583,12 +620,13 @@ export const ZenMarkdownPreview = ({
             borderRadius: '8px',
             border: `1px solid ${palette.hr}`,
             margin: '0.6rem 0 1rem 0',
+            ...(typeof props.style === 'object' ? props.style : {}),
           }}
         />
       );
     },
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [palette, previewStyle, resolvePreviewImageSrc]);
+  }), [palette, previewStyle, resolvePreviewImageSrc, openExternal]);
 
   const handlePreviewScrollInteraction = useCallback(() => {
     if (areControlsExpanded) {

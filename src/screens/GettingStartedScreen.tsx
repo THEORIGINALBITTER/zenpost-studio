@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
-import { loadMobileDrafts, saveMobileInboxPath, getSavedMobileInboxPath, type MobileDraft } from '../services/mobileInboxService';
-import { open } from '@tauri-apps/plugin-dialog';
+import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
 import { isTauri } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
   faBook,
   faCalendarDays,
+  faDownload,
   faFileLines,
   faFolderOpen,
   faMobileScreen,
   faPencil,
+  faQrcode,
+  faServer,
+  faSpinner,
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
@@ -35,11 +38,16 @@ interface GettingStartedScreenProps {
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
   onOpenMobileInbox?: () => void;
+  onOpenMobileSettings?: () => void;
+  onOpenApiSettings?: () => void;
   recentItems?: GettingStartedRecentItem[];
   onContinueRecent?: (item: GettingStartedRecentItem) => void;
+  onOpenServerArticle?: (slug: string) => void;
 }
 
 type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile';
+const MOBILE_APP_DOWNLOAD_URL = 'https://zenpost.studio';
+const MOBILE_APP_QR_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
 
 interface StudioDef {
   id: StudioId;
@@ -54,14 +62,19 @@ interface StudioDef {
   }[];
 }
 
+type ServerSlugItem = { slug: string; title?: string; date?: string };
+
 export function GettingStartedScreen({
   onBack: _onBack,
   onOpenDocStudio,
   onOpenContentAI,
   onOpenConverter,
   onOpenMobileInbox,
+  onOpenMobileSettings,
+  onOpenApiSettings,
   recentItems = [],
   onContinueRecent,
+  onOpenServerArticle,
 }: GettingStartedScreenProps) {
   const [zenStudioSettings] = useState(() => loadZenStudioSettings());
   const [projectPath] = useState<string | null>(() => {
@@ -72,27 +85,95 @@ export function GettingStartedScreen({
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [activeStudio, setActiveStudio] = useState<StudioId>('doc-studio');
   const [mobileDrafts, setMobileDrafts] = useState<MobileDraft[]>([]);
-  const [mobileInboxPath, setMobileInboxPath] = useState<string>(getSavedMobileInboxPath() ?? '');
+  const [serverArticles, setServerArticles] = useState<ServerSlugItem[] | null>(null);
+  const [serverLoading, setServerLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  const [deleteToast, setDeleteToast] = useState<string | null>(null);
+
+  const getFriendlyServerError = (rawError: string | null): string => {
+    if (!rawError) return '';
+    const normalized = rawError.toLowerCase();
+    const isConnectionIssue =
+      normalized.includes('load failed') ||
+      normalized.includes('failed to fetch') ||
+      normalized.includes('networkerror') ||
+      normalized.includes('network error') ||
+      normalized.includes('timeout') ||
+      normalized.includes('http 0') ||
+      normalized.includes('fetch');
+
+    if (isConnectionIssue) {
+      return 'Keine Verbindung. Stelle Deine Verbindung im Zahnrad unter API ein.';
+    }
+    return rawError;
+  };
 
   const refreshMobileDrafts = () => {
-    loadMobileDrafts().then(({ drafts, basePath }) => {
+    loadMobileDrafts().then(({ drafts }) => {
       setMobileDrafts(drafts.slice(0, 3));
-      setMobileInboxPath(basePath);
     });
+  };
+
+  const loadServerArticles = async () => {
+    const settings = loadZenStudioSettings();
+    let base = (settings.contentServerApiUrl ?? '').trim();
+    if (!base) { setServerError('Keine Server-URL konfiguriert. Bitte in Einstellungen → API eintragen.'); return; }
+    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
+    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
+    const url = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
+    setServerLoading(true);
+    setServerError(null);
+    try {
+      const headers: Record<string, string> = {};
+      if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
+      const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as unknown;
+      if (!Array.isArray(data)) throw new Error('Unerwartetes Antwortformat');
+      setServerArticles(data as ServerSlugItem[]);
+    } catch (e) {
+      setServerError(e instanceof Error ? e.message : 'Verbindungsfehler');
+      setServerArticles([]);
+    } finally {
+      setServerLoading(false);
+    }
+  };
+
+  const deleteServerArticle = async (slug: string) => {
+    const settings = loadZenStudioSettings();
+    let base = (settings.contentServerApiUrl ?? '').trim();
+    if (!base) return;
+    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
+    const endpoint = (settings.contentServerDeleteEndpoint ?? '/delete_articles.php').trim();
+    const endpointUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
+    const url = `${endpointUrl}?slug=${encodeURIComponent(slug)}`;
+    setDeletingSlug(slug);
+    try {
+      const headers: Record<string, string> = {};
+      if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
+      const res = await fetch(url, { method: 'DELETE', headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setDeleteToast('Artikel erfolgreich gelöscht');
+      setTimeout(() => setDeleteToast(null), 3000);
+      void loadServerArticles();
+    } catch (e) {
+      setServerError(e instanceof Error ? e.message : 'Löschen fehlgeschlagen');
+    } finally {
+      setDeletingSlug(null);
+      setConfirmingDeleteSlug(null);
+    }
   };
 
   useEffect(() => {
     refreshMobileDrafts();
   }, []);
 
-  async function handlePickMobileFolder() {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === 'string') {
-      saveMobileInboxPath(selected);
-      setMobileInboxPath(selected);
-      loadMobileDrafts().then(({ drafts }) => setMobileDrafts(drafts.slice(0, 3)));
-    }
-  }
+  const handleOpenMobileDownload = () => {
+    if (typeof window === 'undefined') return;
+    window.open(MOBILE_APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+  };
 
   const studios: StudioDef[] = [
     {
@@ -122,7 +203,7 @@ export function GettingStartedScreen({
       description: 'KI-gestütztes Schreiben für Social Media, Artikel und Planung',
       useCases: [
         {
-          title: 'Content transformieren',
+          title: 'Dokumenten Dashboard',
           description: 'LinkedIn, X, Medium und weitere Kanäle bespielen',
           icon: faWandMagicSparkles,
           action: () => onOpenContentAI?.(),
@@ -157,7 +238,7 @@ export function GettingStartedScreen({
     },
     {
       id: 'mobile',
-      label: 'Mobile Inbox',
+      label: 'Mobile Inbox Beta Version',
       shortLabel: 'Mobile',
       description: 'iPhone-Entwürfe via iCloud — Ideen unterwegs festhalten, hier weiterbearbeiten',
       useCases: [],
@@ -226,7 +307,9 @@ export function GettingStartedScreen({
                     width: '36px',
                     height: '100px',
                     borderRadius: '10px 0 0 10px',
-                    border: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
                     borderRight: 'none',
                     background: isActive ? '#d0cbb8' : '#1a1a1a',
                     cursor: 'pointer',
@@ -272,14 +355,14 @@ export function GettingStartedScreen({
                         color: isActive ? '#7a5a30' : '#AC8E66',
                         background: isActive ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.15)',
                         borderRadius: '3px',
-                        padding: '1px 3px',
+                        padding: '1px 4px',
                         border: '0.5px solid rgba(172,142,102,0.5)',
                         writingMode: 'horizontal-tb',
                         letterSpacing: '0.5px',
                         lineHeight: 1,
                       }}
                     >
-                      NEW
+                      BETA
                     </span>
                   )}
                 </button>
@@ -292,7 +375,9 @@ export function GettingStartedScreen({
             style={{
               flex: 1,
               borderRadius: '0 14px 14px 0',
-              border: '1px solid #b8b0a0',
+              borderTop: '1px solid #b8b0a0',
+              borderRight: '1px solid #b8b0a0',
+              borderBottom: '1px solid #b8b0a0',
               borderLeft: 'none',
               background: '#d0cbb8',
               padding: '24px 28px',
@@ -342,175 +427,16 @@ export function GettingStartedScreen({
 
             {/* Use case cards — oder Mobile Drafts */}
             {activeStudio === 'mobile' ? (
-              !isTauri() ? (
-                /* Web-Teaser: App noch nicht im Browser verfügbar */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'flex-start', gap: '14px',
-                    padding: '16px', borderRadius: '12px',
-                    background: 'rgba(172,142,102,0.1)',
-                    border: '1px solid rgba(172,142,102,0.35)',
-                  }}>
-                    <FontAwesomeIcon icon={faMobileScreen} style={{ fontSize: '28px', color: '#AC8E66', flexShrink: 0, marginTop: '2px' }} />
-                    <div style={{ flex: 1 }}>
-                      <p style={{
-                        margin: '0 0 4px 0', fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '13px', fontWeight: '500', color: '#1a1a1a',
-                      }}>
-                        ZenPost Mobile
-                      </p>
-                      <p style={{
-                        margin: '0 0 12px 0', fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '10px', color: '#5a5040', lineHeight: 1.6,
-                      }}>
-                        Ideen unterwegs festhalten — Texte, Fotos und Plattform-Tags direkt auf dem iPhone erfassen und per AirDrop in den Desktop bringen.
-                      </p>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                        {[
-                          'Entwürfe auf dem iPhone erfassen',
-                          'Fotos direkt mit Ideen verbinden',
-                          'Per AirDrop in den Desktop übertragen',
-                          'Plattform-Tags: LinkedIn, X, Newsletter',
-                        ].map((feat) => (
-                          <div key={feat} style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                            <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#AC8E66', flexShrink: 0 }} />
-                            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#5a5040' }}>
-                              {feat}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{
-                    padding: '10px 14px', borderRadius: '8px',
-                    background: 'rgba(255,255,255,0.3)',
-                    border: '0.5px dashed rgba(172,142,102,0.4)',
-                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-                    color: '#7a7060', lineHeight: 1.6, textAlign: 'center',
-                  }}>
-                    Die Mobile Inbox ist im Desktop-App verfügbar.
-                    <br />
-                    <span style={{ color: '#AC8E66' }}>zenpost.studio</span> → Download → Mobile-Tab
-                  </div>
-                </div>
-              ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-
-                {/* Ordner-Konfiguration */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '8px 12px', borderRadius: '8px',
-                  background: 'rgba(255,255,255,0.3)',
-                  border: '0.5px solid rgba(172,142,102,0.3)',
-                  marginBottom: '4px',
-                }}>
-                  <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '10px', color: '#AC8E66', flexShrink: 0 }} />
-                  <span style={{
-                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#7a7060',
-                    flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                  }}>
-                    {mobileInboxPath || 'Kein Ordner gesetzt'}
-                  </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                    gap: '12px',
+                  }}
+                >
                   <button
-                    onClick={handlePickMobileFolder}
-                    style={{
-                      background: 'none', border: '0.5px solid rgba(172,142,102,0.5)',
-                      borderRadius: '5px', padding: '3px 8px', cursor: 'pointer',
-                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#AC8E66',
-                      flexShrink: 0,
-                    }}
-                  >
-                    Ändern
-                  </button>
-                  <button
-                    onClick={refreshMobileDrafts}
-                    style={{
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#7a7060',
-                      padding: '0 4px',
-                    }}
-                    title="Aktualisieren"
-                  >
-                    ↻
-                  </button>
-                </div>
-
-                {mobileDrafts.length === 0 ? (
-                  <div style={{
-                    border: '1px dashed rgba(172,142,102,0.4)', borderRadius: '12px',
-                    padding: '20px', fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '10px', color: '#7a7060', lineHeight: 1.6,
-                  }}>
-                    <FontAwesomeIcon icon={faMobileScreen} style={{ marginRight: 8, color: '#AC8E66' }} />
-                    Noch keine Entwürfe. Auf dem iPhone speichern → per AirDrop in den gewählten Ordner senden.
-                  </div>
-                ) : (
-                  <>
-                    {mobileDrafts.map((draft) => (
-                      <button
-                        key={draft.id}
-                        onClick={onOpenMobileInbox}
-                        style={{
-                          borderRadius: '12px', border: '0.5px solid rgba(172,142,102,0.35)',
-                          background: 'rgba(255,255,255,0.45)', padding: '14px 16px',
-                          cursor: 'pointer', textAlign: 'left', display: 'flex',
-                          alignItems: 'center', gap: '12px', fontFamily: 'IBM Plex Mono, monospace',
-                          transition: 'all 0.18s ease', width: '100%',
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = 'none';
-                        }}
-                      >
-                        <FontAwesomeIcon
-                          icon={draft.photoUri ? faFolderOpen : faPencil}
-                          style={{ fontSize: '14px', color: '#AC8E66', flexShrink: 0 }}
-                        />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <p style={{ margin: '0 0 3px 0', fontSize: '11px', color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {draft.text || '(kein Text)'}
-                          </p>
-                          <p style={{ margin: 0, fontSize: '9px', color: '#7a7060' }}>
-                            {new Date(draft.createdAt).toLocaleDateString('de-DE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                            {draft.platform ? ` · ${draft.platform}` : ''}
-                          </p>
-                        </div>
-                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
-                      </button>
-                    ))}
-                    <button
-                      onClick={onOpenMobileInbox}
-                      style={{
-                        background: 'none', border: 'none', fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '10px', color: '#AC8E66', cursor: 'pointer', textAlign: 'right',
-                        padding: '4px 0',
-                      }}
-                    >
-                      Alle anzeigen →
-                    </button>
-                  </>
-                )}
-              </div>
-              )
-            ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                  gap: '12px',
-                }}
-              >
-                {currentStudio.useCases.map((uc) => (
-                  <button
-                    key={uc.title}
-                    onClick={uc.action}
+                    onClick={() => onOpenMobileInbox?.()}
                     style={{
                       borderRadius: '12px',
                       border: '0.5px solid rgba(172,142,102,0.35)',
@@ -536,19 +462,372 @@ export function GettingStartedScreen({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <FontAwesomeIcon icon={uc.icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={faMobileScreen} style={{ fontSize: '16px', color: '#AC8E66' }} />
                       <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
                     </div>
                     <div>
                       <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                        {uc.title}
+                        Inbox abrufen
                       </p>
                       <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                        {uc.description}
+                        Mobile Entwürfe öffnen und in Content AI weiterbearbeiten.
+                      </p>
+                    </div>
+                    <div style={{ marginTop: '2px', fontSize: '9px', color: '#5a5040' }}>
+                      {isTauri()
+                        ? `${mobileDrafts.length} Entwurf${mobileDrafts.length !== 1 ? 'e' : ''} gefunden`
+                        : 'Desktop-App erforderlich'}
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={handleOpenMobileDownload}
+                    style={{
+                      borderRadius: '12px',
+                      border: '0.5px solid rgba(172,142,102,0.35)',
+                      background: 'rgba(255,255,255,0.45)',
+                      padding: '16px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      transition: 'all 0.18s ease',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <FontAwesomeIcon icon={faDownload} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={faQrcode} style={{ fontSize: '12px', color: '#AC8E66', opacity: 0.8 }} />
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                        App herunterladen
+                      </p>
+                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
+                        QR-Code scannen oder Download-Seite direkt öffnen.
+                      </p>
+                    </div>
+                    <div
+                      style={{
+                        alignSelf: 'center',
+                        width: 96,
+                        height: 96,
+                        border: '1px solid rgba(172,142,102,0.35)',
+                        borderRadius: 8,
+                        backgroundColor: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <img src={MOBILE_APP_QR_SRC} alt="QR-Code App Download" style={{ width: '100%', height: '100%' }} />
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => onOpenMobileSettings?.()}
+                    style={{
+                      borderRadius: '12px',
+                      border: '0.5px solid rgba(172,142,102,0.35)',
+                      background: 'rgba(255,255,255,0.45)',
+                      padding: '16px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '10px',
+                      transition: 'all 0.18s ease',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
+                    </div>
+                    <div>
+                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                        Mobile Inbox Ordner einstellen
+                      </p>
+                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
+                        Öffnet direkt die Systemeinstellungen im Tab Mobile.
                       </p>
                     </div>
                   </button>
-                ))}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                    gap: '12px',
+                  }}
+                >
+                  {currentStudio.useCases.map((uc) => (
+                    <button
+                      key={uc.title}
+                      onClick={uc.action}
+                      style={{
+                        borderRadius: '12px',
+                        border: '0.5px solid rgba(172,142,102,0.35)',
+                        background: 'rgba(255,255,255,0.45)',
+                        padding: '16px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        transition: 'all 0.18s ease',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <FontAwesomeIcon icon={uc.icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                          {uc.title}
+                        </p>
+                        <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
+                          {uc.description}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+
+                  {/* Server Artikel card — only for content-ai */}
+                  {activeStudio === 'content-ai' && (
+                    <button
+                      onClick={() => { void loadServerArticles(); }}
+                      style={{
+                        borderRadius: '12px',
+                        border: '0.5px solid rgba(31,138,65,0.4)',
+                        background: serverArticles !== null ? 'rgba(31,138,65,0.08)' : 'rgba(255,255,255,0.45)',
+                        padding: '16px',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '10px',
+                        transition: 'all 0.18s ease',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(31,138,65,0.15)';
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = serverArticles !== null ? 'rgba(31,138,65,0.08)' : 'rgba(255,255,255,0.45)';
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <FontAwesomeIcon
+                          icon={serverLoading ? faSpinner : faServer}
+                          spin={serverLoading}
+                          style={{ fontSize: '16px', color: '#1F8A41' }}
+                        />
+                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#1F8A41', opacity: 0.6 }} />
+                      </div>
+                      <div>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                          Server Artikel
+                        </p>
+                        <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
+                          {serverArticles !== null
+                            ? `${serverArticles.length} Artikel gefunden`
+                            : 'Artikel vom Server laden'}
+                        </p>
+                      </div>
+                    </button>
+                  )}
+                </div>
+
+                {/* Delete toast */}
+                {deleteToast && (
+                  <div style={{
+                    padding: '8px 14px',
+                    borderRadius: '8px',
+                    background: 'rgba(31,111,63,0.12)',
+                    border: '0.5px solid rgba(31,138,65,0.4)',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    color: '#1F6F3F',
+                  }}>
+                    {deleteToast}
+                  </div>
+                )}
+
+                {/* Server article list */}
+                {serverArticles !== null && activeStudio === 'content-ai' && (
+                  <div
+                    style={{
+                      border: '0.5px solid rgba(31,138,65,0.3)',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      background: 'rgba(255,255,255,0.3)',
+                    }}
+                  >
+                    {serverError && (
+                      <div
+                        style={{
+                          padding: '12px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '10px',
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <p
+                          style={{
+                            margin: 0,
+                            fontSize: '10px',
+                            color: '#B3261E',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            flex: 1,
+                            minWidth: '220px',
+                          }}
+                        >
+                          {getFriendlyServerError(serverError)}
+                        </p>
+                        <button
+                          onClick={() => onOpenApiSettings?.()}
+                          style={{
+                            border: '0.5px solid rgba(179,38,30,0.45)',
+                            borderRadius: '8px',
+                            background: 'rgba(179,38,30,0.08)',
+                            color: '#8f1d16',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '9px',
+                            padding: '6px 10px',
+                            cursor: onOpenApiSettings ? 'pointer' : 'not-allowed',
+                            opacity: onOpenApiSettings ? 1 : 0.6,
+                          }}
+                          disabled={!onOpenApiSettings}
+                          title="API-Einstellungen öffnen"
+                        >
+                          API jetzt öffnen
+                        </button>
+                      </div>
+                    )}
+                    {serverArticles.length === 0 && !serverError && (
+                      <p style={{ margin: 0, padding: '12px 16px', fontSize: '10px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>
+                        Keine Artikel gefunden.
+                      </p>
+                    )}
+                    {serverArticles.map((article, i) => {
+                      const slug = typeof article === 'string' ? article : article.slug;
+                      const title = typeof article === 'string' ? article : (article.title || article.slug);
+                      const date = typeof article === 'string' ? '' : (article.date ?? '');
+                      const isConfirming = confirmingDeleteSlug === slug;
+                      const isDeleting = deletingSlug === slug;
+                      return (
+                        <div
+                          key={slug}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            borderTop: i > 0 ? '0.5px solid rgba(31,138,65,0.15)' : 'none',
+                          }}
+                        >
+                          <button
+                            onClick={() => onOpenServerArticle?.(slug)}
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '10px 16px',
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              textAlign: 'left',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(31,138,65,0.08)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                          >
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: '10px', color: '#1a1a1a', fontWeight: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {title}
+                              </div>
+                              {date && (
+                                <div style={{ fontSize: '9px', color: '#7a7060', marginTop: '2px' }}>{date}</div>
+                              )}
+                            </div>
+                            <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '9px', color: '#1F8A41', marginLeft: '8px', flexShrink: 0 }} />
+                          </button>
+                          <button
+                            disabled={isDeleting}
+                            onClick={() => {
+                              if (isConfirming) {
+                                void deleteServerArticle(slug);
+                              } else {
+                                setConfirmingDeleteSlug(slug);
+                                setTimeout(() => setConfirmingDeleteSlug((s) => s === slug ? null : s), 3000);
+                              }
+                            }}
+                            style={{
+                              flexShrink: 0,
+                              padding: '6px 10px',
+                              marginRight: '8px',
+                              border: isConfirming ? '0.5px solid rgba(180,30,30,0.4)' : '0.5px solid rgba(172,142,102,0.3)',
+                              borderRadius: '6px',
+                              background: isConfirming ? 'rgba(180,30,30,0.08)' : 'transparent',
+                              color: isConfirming ? '#B3261E' : '#8a7a6a',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px',
+                              cursor: isDeleting ? 'default' : 'pointer',
+                              whiteSpace: 'nowrap',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {isDeleting ? '…' : isConfirming ? 'Löschen?' : '×'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>

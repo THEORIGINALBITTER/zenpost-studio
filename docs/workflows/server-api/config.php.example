@@ -1,0 +1,14 @@
+<?php
+// config.php.example
+// In config.php umbenennen und Werte setzen (oder setup.php nutzen).
+
+return [
+    'db_host' => 'db5017946056.hosting-data.io',
+    'db_name' => 'dbs14279868',
+    'db_user' => 'DB_USER',
+    'db_pass' => 'DB_PASS',
+    // Simple Mode: false = kein API-Key noetig
+    'api_key_enabled' => false,
+    'api_key' => '',
+];
+

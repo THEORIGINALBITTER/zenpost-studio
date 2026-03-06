@@ -33,6 +33,7 @@
 - **Entwicklung**
   - [Architektur](dev/architecture.md)
   - [API](dev/api.md)
+  - [Mobile App MVP](dev/mobile-app-mvp.md)
 
 - **Links**
   - [GitHub Repo](https://github.com/theoriginalbitter/zenpost-studio)

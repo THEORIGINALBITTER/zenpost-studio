@@ -43,6 +43,7 @@ export function ContentStudioProjectMapScreen({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState('');
   const [fileSort, setFileSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('name-asc');
+  const [activeTab, setActiveTab] = useState<'files' | 'web'>(isDesktopRuntime ? 'files' : 'web');
 
   const matchesFileSearch = (name: string, path: string, query: string): boolean => {
     const q = query.trim().toLowerCase();
@@ -224,11 +225,46 @@ export function ContentStudioProjectMapScreen({
           </div>
         )}
 
+        <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
+          {isDesktopRuntime && (
+            <button
+              onClick={() => setActiveTab('files')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: '6px',
+                border: `1px solid ${activeTab === 'files' ? '#AC8E66' : '#3A3A3A'}`,
+                background: activeTab === 'files' ? 'rgba(172,142,102,0.12)' : 'transparent',
+                color: activeTab === 'files' ? '#AC8E66' : '#777',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Projektdateien
+            </button>
+          )}
+          <button
+            onClick={() => setActiveTab('web')}
+            style={{
+              padding: '5px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${activeTab === 'web' ? '#AC8E66' : '#3A3A3A'}`,
+              background: activeTab === 'web' ? 'rgba(172,142,102,0.12)' : 'transparent',
+              color: activeTab === 'web' ? '#AC8E66' : '#777',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              cursor: 'pointer',
+            }}
+          >
+            Web · {webDocuments.length}
+          </button>
+        </div>
+
         <div style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#BEBEBE' }}>
-            {isDesktopRuntime ? 'Projektdateien' : 'Web-Dokumente'}
+            {activeTab === 'files' ? 'Projektdateien' : 'Web-Dokumente'}
           </span>
-          {isDesktopRuntime && (
+          {activeTab === 'files' && isDesktopRuntime && (
             <button
               type="button"
               onClick={() =>
@@ -281,7 +317,7 @@ export function ContentStudioProjectMapScreen({
         />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {isDesktopRuntime
+          {activeTab === 'files' && isDesktopRuntime
             ? filteredAllFiles.map((file) => (
                 <button
                   key={file.path}
@@ -326,9 +362,11 @@ export function ContentStudioProjectMapScreen({
               ))}
         </div>
 
-        {((isDesktopRuntime && filteredAllFiles.length === 0) || (!isDesktopRuntime && filteredWebDocuments.length === 0)) && (
+        {((activeTab === 'files' && isDesktopRuntime && filteredAllFiles.length === 0) || (activeTab === 'web' && filteredWebDocuments.length === 0)) && (
           <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
-            {isDesktopRuntime ? (allFiles.length === 0 ? 'Keine Dateien gefunden.' : 'Keine Treffer.') : (webDocuments.length === 0 ? 'Noch keine Web-Dokumente geladen.' : 'Keine Treffer.')}
+            {activeTab === 'files'
+              ? (allFiles.length === 0 ? 'Keine Dateien gefunden.' : 'Keine Treffer.')
+              : (webDocuments.length === 0 ? 'Noch keine Web-Dokumente geladen.' : 'Keine Treffer.')}
           </div>
         )}
       </div>

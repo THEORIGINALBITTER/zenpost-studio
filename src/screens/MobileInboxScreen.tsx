@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { loadMobileDrafts, type MobileDraft } from "../services/mobileInboxService";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
+import { readFile } from "@tauri-apps/plugin-fs";
+import { isTauri } from "@tauri-apps/api/core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faImage,
@@ -29,26 +30,70 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
   // Rohe Dateipfade für das Übergeben an Content AI (readFile braucht nativen Pfad)
   const [photoFilePaths, setPhotoFilePaths] = useState<Record<string, string>>({});
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
+  const [importedPackagesNotice, setImportedPackagesNotice] = useState<string | null>(null);
+  // Blob URLs für Thumbnails — müssen beim Refresh/Unmount revoked werden
+  const blobUrlsRef = useRef<string[]>([]);
+  const importNoticeTimeoutRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setFailedImages(new Set());
     try {
-      const { drafts: loaded, basePath: bp } = await loadMobileDrafts();
+      const { drafts: loaded, basePath: bp, importedPackages } = await loadMobileDrafts();
       setDrafts(loaded);
       setBasePath(bp);
+      if (importedPackages > 0) {
+        setImportedPackagesNotice(
+          `${importedPackages} Paket${importedPackages === 1 ? "" : "e"} importiert`
+        );
+        if (importNoticeTimeoutRef.current !== null) {
+          window.clearTimeout(importNoticeTimeoutRef.current);
+        }
+        importNoticeTimeoutRef.current = window.setTimeout(() => {
+          setImportedPackagesNotice(null);
+          importNoticeTimeoutRef.current = null;
+        }, 6000);
+      }
+
+      // Alte Blob-URLs freigeben
+      blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      blobUrlsRef.current = [];
 
       const paths: Record<string, string> = {};
       const filePaths: Record<string, string> = {};
       for (const d of loaded) {
+        if (!isTauri() && d.webPhotoDataUrl) {
+          paths[d.id] = d.webPhotoDataUrl;
+          continue;
+        }
+        if (!isTauri() || !d.photoUri) continue;
         if (d.photoUri) {
           const fullPath = await join(bp, d.photoUri);
-          filePaths[d.id] = fullPath;              // nativer Pfad für readFile
-          paths[d.id] = convertFileSrc(fullPath);  // asset:// URL für <img> Thumbnail
+          filePaths[d.id] = fullPath;
+          try {
+            const bytes = await readFile(fullPath);
+            const ext = fullPath.split('.').pop()?.toLowerCase() ?? 'jpg';
+            const mime =
+              ext === 'png' ? 'image/png' :
+              ext === 'webp' ? 'image/webp' :
+              ext === 'gif' ? 'image/gif' :
+              ext === 'bmp' ? 'image/bmp' :
+              'image/jpeg';
+            const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+            blobUrlsRef.current.push(blobUrl);
+            paths[d.id] = blobUrl;
+          } catch {
+            // Foto nicht lesbar — Thumbnail-Placeholder bleibt
+          }
         }
       }
       setPhotoPaths(paths);
       setPhotoFilePaths(filePaths);
+    } catch {
+      setDrafts([]);
+      setBasePath("");
+      setPhotoPaths({});
+      setPhotoFilePaths({});
     } finally {
       setLoading(false);
     }
@@ -57,7 +102,18 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
   useEffect(() => {
     refresh();
     const interval = setInterval(refresh, 10_000);
-    return () => clearInterval(interval);
+    const handleInboxChanged = () => {
+      refresh();
+    };
+    window.addEventListener("zenpost-mobile-inbox-changed", handleInboxChanged);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("zenpost-mobile-inbox-changed", handleInboxChanged);
+      if (importNoticeTimeoutRef.current !== null) {
+        window.clearTimeout(importNoticeTimeoutRef.current);
+      }
+      blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    };
   }, [refresh]);
 
   function formatDate(iso: string) {
@@ -94,6 +150,9 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
       <div style={styles.pathHint}>
         <span style={styles.pathLabel}>Ordner:</span>
         <code style={styles.pathCode}>{basePath || "wird geladen…"}</code>
+        {importedPackagesNotice ? (
+          <span style={styles.importNotice}>{importedPackagesNotice}</span>
+        ) : null}
       </div>
 
       {/* Inhalt */}
@@ -168,7 +227,7 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
                 {/* Action: In Content AI öffnen */}
                 <button
                   style={styles.openBtn}
-                  onClick={() => onOpenInContentAI?.(draft, photoFilePaths[draft.id] ?? null)}
+                  onClick={() => onOpenInContentAI?.(draft, photoFilePaths[draft.id] ?? draft.photoUri ?? null)}
                   title="In Content AI öffnen"
                 >
                   <span style={styles.openBtnLabel}>In Content AI öffnen</span>
@@ -249,6 +308,15 @@ const styles = {
     fontFamily: "IBM Plex Mono, monospace",
     overflow: "hidden" as const,
     textOverflow: "ellipsis" as const,
+    whiteSpace: "nowrap" as const,
+  },
+  importNotice: {
+    marginLeft: 8,
+    fontSize: 10,
+    color: "#AC8E66",
+    border: "1px solid rgba(172,142,102,0.4)",
+    borderRadius: 6,
+    padding: "3px 7px",
     whiteSpace: "nowrap" as const,
   },
   center: {

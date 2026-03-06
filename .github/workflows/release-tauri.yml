@@ -57,7 +57,24 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Build & Release
+      - name: Signing mode info
+        run: |
+          if [ "${{ matrix.os }}" != "macos-latest" ]; then
+            echo "Release mode: unsigned (non-macOS target)"
+          elif [ -n "${{ secrets.APPLE_CERTIFICATE }}" ] && \
+               [ -n "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" ] && \
+               [ -n "${{ secrets.APPLE_SIGNING_IDENTITY }}" ] && \
+               [ -n "${{ secrets.KEYCHAIN_PASSWORD }}" ] && \
+               [ -n "${{ secrets.APPLE_ID }}" ] && \
+               [ -n "${{ secrets.APPLE_PASSWORD }}" ] && \
+               [ -n "${{ secrets.APPLE_TEAM_ID }}" ]; then
+            echo "Release mode: signed + notarized (macOS)"
+          else
+            echo "Release mode: unsigned fallback (macOS secrets missing)"
+          fi
+
+      - name: Build & Release (macOS signed + notarized)
+        if: matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE != '' && secrets.APPLE_CERTIFICATE_PASSWORD != '' && secrets.APPLE_SIGNING_IDENTITY != '' && secrets.KEYCHAIN_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_PASSWORD != '' && secrets.APPLE_TEAM_ID != ''
         uses: tauri-apps/tauri-action@v0.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,6 +87,20 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "ZenPost Studio ${{ github.ref_name }}"
+          releaseBody: |
+            Automated build for ${{ github.ref_name }}
+            macOS build signed and notarized.
+          prerelease: false
+          args: ${{ matrix.tauri_args }}
+
+      - name: Build & Release (unsigned fallback)
+        if: matrix.os != 'macos-latest' || secrets.APPLE_CERTIFICATE == '' || secrets.APPLE_CERTIFICATE_PASSWORD == '' || secrets.APPLE_SIGNING_IDENTITY == '' || secrets.KEYCHAIN_PASSWORD == '' || secrets.APPLE_ID == '' || secrets.APPLE_PASSWORD == '' || secrets.APPLE_TEAM_ID == ''
+        uses: tauri-apps/tauri-action@v0.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "ZenPost Studio ${{ github.ref_name }}"

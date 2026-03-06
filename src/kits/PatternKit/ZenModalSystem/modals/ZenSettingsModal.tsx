@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { MODAL_CONTENT } from '../config/ZenModalConfig';
 import { ZenAISettingsContent } from './components/ZenAISettingsContent';
@@ -7,27 +7,31 @@ import { ZenEditorSettingsContent } from './components/ZenEditorSettingsContent'
 import { ZenLicenseSettingsContent } from './components/ZenLicenseSettingsContent';
 import { ZenLocalAISetupContent } from './components/ZenLocalAISetupContent';
 import { ZenStudioSettingsContent } from './components/ZenStudioSettingsContent';
+import { ZenMobileSettingsContent } from './components/ZenMobileSettingsContent';
+import { ZenApiSettingsContent } from './components/ZenApiSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: () => void;
-  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'zenstudio';
+  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile';
   defaultSocialTab?: 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
   showMissingSocialHint?: boolean;
   missingSocialLabel?: string;
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'zenstudio';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'ai', label: 'AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
+  { id: 'api', label: 'API', icon: faPlug },
   { id: 'social', label: 'Social Media', icon: faShareNodes },
   { id: 'editor', label: 'Editor', icon: faPenNib },
+  { id: 'mobile', label: 'Mobile', icon: faMobileScreen },
   { id: 'zenstudio', label: 'ZenGedanken', icon: faLightbulb },
   { id: 'license', label: 'Lizenz', icon: faIdCard },
 ];
@@ -44,12 +48,18 @@ export const ZenSettingsModal = ({
 }: ZenSettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [hoveredTab, setHoveredTab] = useState<TabType | null>(null);
+  const contentPanelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       setActiveTab(defaultTab);
     }
   }, [defaultTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    contentPanelRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+  }, [activeTab, isOpen]);
 
   const content = MODAL_CONTENT.settings;
 
@@ -131,6 +141,7 @@ export const ZenSettingsModal = ({
 
         {/* Content Panel */}
         <div
+          ref={contentPanelRef}
           style={{
             flex: 1,
             overflowY: 'auto',
@@ -143,6 +154,7 @@ export const ZenSettingsModal = ({
             <ZenAISettingsContent onSwitchTab={(tab) => setActiveTab(tab as TabType)} />
           )}
           {activeTab === 'localai' && <ZenLocalAISetupContent />}
+          {activeTab === 'api' && <ZenApiSettingsContent />}
           {activeTab === 'social' && (
             <ZenSocialMediaSettingsContent
               initialTab={defaultSocialTab}
@@ -151,6 +163,7 @@ export const ZenSettingsModal = ({
             />
           )}
           {activeTab === 'editor' && <ZenEditorSettingsContent />}
+          {activeTab === 'mobile' && <ZenMobileSettingsContent />}
           {activeTab === 'zenstudio' && (
             <ZenStudioSettingsContent onOpenZenThoughtsEditor={onOpenZenThoughtsEditor} />
           )}

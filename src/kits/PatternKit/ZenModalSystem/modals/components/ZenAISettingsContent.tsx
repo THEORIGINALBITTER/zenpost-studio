@@ -160,7 +160,7 @@ return (
                       ? "http://127.0.0.1:11434"
                       : "https://your-api.com"
                   }
-                  className="w-full bg-transparent border border-[#AC8E66]/70 rounded-lg font-mono text-[10px] text-[#3a3a3a] text-center focus:outline-none focus:border-[#AC8E66] placeholder:text-[#7a6a52]/70"
+                  className="bg-transparent border border-[#AC8E66]/70 rounded-lg font-mono text-[10px] text-[#3a3a3a] text-center focus:outline-none focus:border-[#AC8E66] placeholder:text-[#7a6a52]/70"
                   style={{ padding: "8px 16px" }}
                 />
               </div>
@@ -175,15 +175,15 @@ return (
                 gap: 14,
                 padding: "16px 20px",
                 borderRadius: 10,
-                background: "rgba(172,142,102,1)",
-                border: "1px solid rgba(172,142,102,0.25)",
-                color: "#6b5a3e",
+                background: "rgba(20,20,20,0.03)",
+                border: "1px solid rgba(179,38,30,0.28)",
+                color: "#6d2f2f",
               }}
             >
               <div className="text-center leading-relaxed">
                 Lokale KI ist in der Web-Version aus Sicherheitsgründen nicht möglich.
                 <br />
-                Bitte <strong style={{ color: "#AC8E66" }}>ZenPost Studio (Desktop)</strong> nutzen
+                Bitte <strong style={{ color: "#8f1d16" }}>ZenPost Studio (Desktop)</strong> nutzen
                 oder einen Cloud-Provider wählen.
               </div>
               <ZenRoughButton

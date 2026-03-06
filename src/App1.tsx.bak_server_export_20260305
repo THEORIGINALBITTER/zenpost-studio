@@ -57,86 +57,6 @@ import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraf
 
 import ZenCursor from "./components/ZenCursor";
 
-const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unknown> }>, title?: string): string => {
-  const lines: string[] = [];
-  if (title) lines.push(`# ${title}`, '');
-  for (const block of blocks) {
-    switch (block.type) {
-      case 'header': {
-        const level = typeof block.data.level === 'number' ? block.data.level : 2;
-        lines.push(`${'#'.repeat(level)} ${String(block.data.text ?? '')}`);
-        break;
-      }
-      case 'image': {
-        // Server stores URL in data.src (custom) OR data.url OR data.file.url (EditorJS default)
-        const fileObj = block.data.file as Record<string, unknown> | undefined;
-        const url = String(block.data.src ?? fileObj?.url ?? block.data.url ?? '');
-        const alt = String(block.data.alt ?? block.data.caption ?? '');
-        if (url) lines.push(`![${alt}](${url})`);
-        break;
-      }
-      case 'youtube':
-      case 'video':
-      case 'embed': {
-        const url = String(block.data.url ?? block.data.src ?? block.data.embed ?? '');
-        const label = block.type === 'youtube' ? 'YouTube' : block.type === 'video' ? 'Video' : 'Embed';
-        if (url) lines.push(`[${label}: ${url}](${url})`);
-        break;
-      }
-      case 'quote': {
-        const text = String(block.data.text ?? '').trim();
-        const caption = String(block.data.caption ?? '').trim();
-        if (text) lines.push(`> ${text}`);
-        if (caption) lines.push(`> — ${caption}`);
-        break;
-      }
-      case 'list': {
-        type ListItem = { content?: string; items?: ListItem[] };
-        const rawItems = Array.isArray(block.data.items) ? block.data.items : [];
-        const ordered = block.data.style === 'ordered';
-        rawItems.forEach((item, i) => {
-          // Items can be plain strings OR objects {content, items, meta}
-          const text = typeof item === 'string' ? item : String((item as ListItem).content ?? '');
-          if (text.trim()) lines.push(ordered ? `${i + 1}. ${text.trim()}` : `- ${text.trim()}`);
-        });
-        break;
-      }
-      case 'cta': {
-        const text = String(block.data.text ?? 'Link');
-        const url = String(block.data.url ?? '');
-        if (url) lines.push(`[${text}](${url})`);
-        break;
-      }
-      case 'delimiter':
-        lines.push('---');
-        break;
-      case 'code': {
-        const code = String(block.data.code ?? '').trim();
-        if (code) lines.push('```\n' + code + '\n```');
-        break;
-      }
-      default: {
-        const text = String(block.data.text ?? '').trim();
-        if (text) lines.push(text);
-      }
-    }
-    lines.push('');
-  }
-  return lines.join('\n').trim();
-};
-
-const extractFirstImageUrlFromBlocks = (
-  blocks: Array<{ type: string; data: Record<string, unknown> }>
-): string => {
-  for (const block of blocks) {
-    if (block.type !== 'image') continue;
-    const fileObj = block.data.file as Record<string, unknown> | undefined;
-    const url = String(block.data.src ?? fileObj?.url ?? block.data.url ?? '').trim();
-    if (url) return url;
-  }
-  return '';
-};
-
 type DeveloperInfoProps = {
   onOpenProfile: () => void;
   onImageClick?: () => void;
@@ -241,7 +161,7 @@ function AppContent() {
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile'>('ai');
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'zenstudio' | 'mobile'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
   const [showMailSuccessModal, setShowMailSuccessModal] = useState(false);
@@ -258,7 +178,6 @@ function AppContent() {
   // Content transfer between Doc Studio and Content AI Studio
   const [transferContent, setTransferContent] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
-  const [transferPostMeta, setTransferPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string } | null>(null);
   const [cameFromDocStudio, setCameFromDocStudio] = useState(false);
   const [cameFromDashboard, setCameFromDashboard] = useState(false);
   const [returnToDocStudioStep, setReturnToDocStudioStep] = useState<number>(0);
@@ -270,10 +189,6 @@ function AppContent() {
   const [contentStudioRecentArticles, setContentStudioRecentArticles] = useState<ZenArticle[]>([]);
   const [contentStudioAllFiles, setContentStudioAllFiles] = useState<StudioFile[]>([]);
   const [webDocuments, setWebDocuments] = useState<WebStoredDocument[]>([]);
-  const [contentStudioServerArticles, setContentStudioServerArticles] = useState<unknown[] | undefined>(undefined);
-  const [contentStudioServerArticlesLoading, setContentStudioServerArticlesLoading] = useState(false);
-  const [contentStudioServerArticlesError, setContentStudioServerArticlesError] = useState<string | null>(null);
-  const [activeServerArticleSlug, setActiveServerArticleSlug] = useState<string | null>(null);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
   const [docStudioRequestedFilePath, setDocStudioRequestedFilePath] = useState<string | null>(null);
@@ -295,9 +210,7 @@ function AppContent() {
     | "back_posting"
     | "save"
     | "save_as"
-    | "save_server"
     | "transform"
-    | "goto_platforms"
     | null
   >(null);
   const [showContentSaveMenu, setShowContentSaveMenu] = useState(false);
@@ -368,54 +281,6 @@ function AppContent() {
       setContentStudioDashboardView("dashboard");
     }
   }, [contentTransformStep, contentStudioDashboardView]);
-
-  const refetchContentStudioServerArticles = () => {
-    const settings = loadZenStudioSettings();
-    let base = (settings.contentServerApiUrl ?? '').trim();
-    if (!base) {
-      setContentStudioServerArticles(undefined);
-      setContentStudioServerArticlesError('Keine Verbindung. Stelle Deine Verbindung im Zahnrad unter API ein.');
-      return;
-    }
-    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
-    const url = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
-    const headers: Record<string, string> = {};
-    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-    setContentStudioServerArticlesLoading(true);
-    setContentStudioServerArticlesError(null);
-    fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) })
-      .then((res) => res.ok ? res.json() : Promise.reject(new Error(`HTTP ${res.status}`)))
-      .then((data: unknown) => {
-        if (Array.isArray(data)) {
-          setContentStudioServerArticles(data as unknown[]);
-          return;
-        }
-        setContentStudioServerArticles([]);
-        setContentStudioServerArticlesError('Antwort vom Server ist ungültig. Bitte API-Endpoint prüfen.');
-      })
-      .catch((err: unknown) => {
-        setContentStudioServerArticles([]);
-        const message = err instanceof Error ? err.message.toLowerCase() : '';
-        const connectionIssue =
-          message.includes('load failed') ||
-          message.includes('failed to fetch') ||
-          message.includes('network') ||
-          message.includes('timeout') ||
-          message.includes('http 0');
-        setContentStudioServerArticlesError(
-          connectionIssue
-            ? 'Keine Verbindung. Stelle Deine Verbindung im Zahnrad unter API ein.'
-            : 'Server konnte nicht geladen werden. Bitte API-Einstellungen prüfen.'
-        );
-      })
-      .finally(() => setContentStudioServerArticlesLoading(false));
-  };
-
-  useEffect(() => {
-    if (currentScreen !== "content-transform" || contentTransformStep !== 0) return;
-    refetchContentStudioServerArticles();
-  }, [currentScreen, contentTransformStep]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -555,7 +420,6 @@ function AppContent() {
     // Export content is already set, use it as initial content
     setTransferContent(exportContent);
     setTransferFileName(null);
-    setTransferPostMeta(null);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(true);
@@ -613,8 +477,6 @@ function AppContent() {
 
     setTransferContent(content);
     setTransferFileName(safeName);
-    setTransferPostMeta(null);
-    setActiveServerArticleSlug(null);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
@@ -634,7 +496,6 @@ function AppContent() {
       setContentStudioRequestedFilePath(post.savedFilePath);
       setTransferContent(null);
       setTransferFileName(null);
-      setTransferPostMeta(null);
       setEditingScheduledPostId(post.id);
       setCameFromDocStudio(false);
       setCameFromDashboard(false);
@@ -659,7 +520,6 @@ function AppContent() {
     setEditingScheduledPostId(post.id);
     setTransferContent(fullContent.trim());
     setTransferFileName(post.title || post.platform);
-    setTransferPostMeta(null);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setShowPlannerModal(false);
@@ -807,7 +667,6 @@ function AppContent() {
   // Transfer content from Doc Studio to Content AI Studio
   const handleTransferToContentStudio = (content: string, currentDocStudioStep: number, state: DocStudioState) => {
     setTransferContent(content);
-    setTransferPostMeta(null);
     setCameFromDocStudio(true);
     setReturnToDocStudioStep(currentDocStudioStep); // Remember which step to return to
     setDocStudioState(state); // Save the entire Doc Studio state
@@ -1135,7 +994,6 @@ function AppContent() {
     const blobSafeContent = await replaceLargeInlineImagesWithBlobUrls(widthAdjustedContent);
     setTransferContent(blobSafeContent);
     setTransferFileName(transferTitle);
-    setTransferPostMeta(null);
     setContentStudioRequestedFilePath(null);
     setContentStudioRequestedArticleId(null);
     setCameFromDocStudio(false);
@@ -1151,7 +1009,6 @@ function AppContent() {
     setCameFromDocStudio(false);
     setIsEditingZenThoughts(false);
     setTransferContent(null); // No initial content
-    setTransferPostMeta(null);
     setContentStudioDashboardView("dashboard");
     setContentTransformStep(0);
     setCurrentScreen("content-transform");
@@ -1184,18 +1041,15 @@ function AppContent() {
         await writeTextFile(filePath, content);
         setTransferContent(null);
         setTransferFileName(null);
-        setTransferPostMeta(null);
         setContentStudioRequestedFilePath(filePath);
       } catch (error) {
         console.error("[ZenStudio] ZEN_GEDANKEN.md konnte nicht geschrieben werden:", error);
         setTransferContent(content);
         setTransferFileName("ZEN_GEDANKEN.md");
-        setTransferPostMeta(null);
       }
     } else {
       setTransferContent(content);
       setTransferFileName("ZEN_GEDANKEN.md");
-      setTransferPostMeta(null);
     }
 
     setContentTransformStep(1);
@@ -1427,69 +1281,6 @@ function AppContent() {
 
     return deduped;
   }, [contentStudioRecentArticles, contentStudioAllFiles]);
-
-  const handleOpenServerArticle = async (slug: string) => {
-    const settings = loadZenStudioSettings();
-    let base = (settings.contentServerApiUrl ?? '').trim();
-    if (!base) return;
-    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
-    const listUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
-    const url = `${listUrl}?slug=${encodeURIComponent(slug)}`;
-    const headers: Record<string, string> = {};
-    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-    const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return;
-    const data = await res.json() as {
-      success?: boolean;
-      title?: string;
-      subtitle?: string;
-      date?: string;
-      publishDate?: string;
-      image?: string;
-      imageUrl?: string;
-      markdown?: string;
-      blocks?: Array<{ type: string; data: Record<string, unknown> }>;
-    };
-    if (data.success === false) return;
-    // Prefer pre-rendered markdown field if server provides it
-    const blocks = data.blocks ?? [];
-    const markdown = data.markdown?.trim() ? data.markdown : blocksToMarkdown(blocks, data.title);
-    const imageFromBlocks = extractFirstImageUrlFromBlocks(blocks);
-    persistWebDocument(markdown, `${slug}.md`);
-    setTransferContent(markdown);
-    setTransferFileName(`${slug}.md`);
-    setTransferPostMeta({
-      title: (data.title ?? '').trim(),
-      subtitle: (data.subtitle ?? '').trim(),
-      imageUrl: (((data.image ?? data.imageUrl) ?? imageFromBlocks) ?? '').trim(),
-      date: ((data.date ?? data.publishDate) ?? '').trim(),
-    });
-    setActiveServerArticleSlug(slug);
-    setCameFromDocStudio(false);
-    setCameFromDashboard(false);
-    setCurrentScreen("content-transform");
-    setContentTransformStep(1);
-  };
-
-  const handleDeleteServerArticle = async (slug: string): Promise<void> => {
-    const settings = loadZenStudioSettings();
-    let base = (settings.contentServerApiUrl ?? '').trim();
-    if (!base) return;
-    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    const endpoint = (settings.contentServerDeleteEndpoint ?? '/delete_articles.php').trim();
-    const endpointUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
-    const url = `${endpointUrl}?slug=${encodeURIComponent(slug)}`;
-    const headers: Record<string, string> = {};
-    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-    const res = await fetch(url, { method: 'DELETE', headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    // Optimistic removal + reload to confirm
-    setContentStudioServerArticles((prev) =>
-      Array.isArray(prev) ? prev.filter((a) => (a as { slug?: string }).slug !== slug) : prev
-    );
-    refetchContentStudioServerArticles();
-  };
 
   const handleContinueRecentItem = (item: GettingStartedRecentItem) => {
     if (item.source === "content-ai") {
@@ -1859,7 +1650,6 @@ function AppContent() {
                 onClick={() => setContentStudioDashboardView("project-map")}
                 active={contentStudioDashboardView === "project-map"}
               />
-
             </div>
             <div className="flex flex-wrap gap-2 ml-auto">
               <StudioBarButton
@@ -1881,12 +1671,13 @@ function AppContent() {
           {contentTransformStep !== 4 && (
             <div className="flex flex-wrap gap-2">
               <StudioBarButton
-                label="Dashboard"
+                label="Projekt + Dokumente"
                 icon={<FontAwesomeIcon icon={faFolderOpen} />}
                 onClick={() => {
-                  setContentStudioDashboardView("project-map");
-                  setContentTransformStep(0);
+                  setContentStudioModalTab("all");
+                  setShowContentStudioModal(true);
                 }}
+                active={showContentStudioModal && contentStudioModalTab === "all"}
               />
               <StudioBarButton
                 label="Planen"
@@ -1919,7 +1710,7 @@ function AppContent() {
                       position: "absolute",
                       top: "42px",
                       left: 0,
-                      width: "220px",
+                      width: "149px",
                       border: "0.5px solid #AC8E66",
                       borderRadius: "0 0 10px 10px",
                       background: "#121212",
@@ -1966,25 +1757,6 @@ function AppContent() {
                     >
                       <FontAwesomeIcon icon={faSave} />
                       <span>Speichern unter...</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowContentSaveMenu(false);
-                        setContentTransformHeaderAction("save_server");
-                      }}
-                      style={saveMenuItemStyle}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = "rgba(172, 142, 102, 0.16)";
-                        e.currentTarget.style.color = "#F4E8D5";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = "#121212";
-                        e.currentTarget.style.color = "#EFEBDC";
-                      }}
-                    >
-                      <FontAwesomeIcon icon={faFileExport} />
-                      <span>Auf Server speichern</span>
                     </button>
                   </div>
                 )}
@@ -2065,13 +1837,8 @@ function AppContent() {
                 )}
               </div>
 
-              {/* Rechts: Posten, Export & Planen */}
+              {/* Rechts: Export & Planen */}
               <div className="flex flex-wrap gap-2 ml-auto">
-                <StudioBarButton
-                  label="Posten"
-                  icon={<FontAwesomeIcon icon={faPaperPlane} />}
-                  onClick={() => setContentTransformHeaderAction("goto_platforms")}
-                />
                 <StudioBarButton
                   label="Export"
                   icon={<FontAwesomeIcon icon={faFileExport} />}
@@ -2369,7 +2136,6 @@ function AppContent() {
             onOpenInContentStudio={(content, fileName) => {
               setTransferContent(content);
               setTransferFileName(fileName);
-              setTransferPostMeta(null);
               setCameFromDocStudio(false);
               setCameFromDashboard(false);
               setMultiPlatformMode(false);
@@ -2465,16 +2231,6 @@ function AppContent() {
                   setPlannerDefaultTab('kalender');
                   setShowPlannerModal(true);
                 }}
-                serverArticles={contentStudioServerArticles}
-                serverArticlesLoading={contentStudioServerArticlesLoading}
-                serverError={contentStudioServerArticlesError}
-                serverName={(() => { const s = loadZenStudioSettings(); return s.servers?.[s.activeServerIndex ?? 0]?.name ?? undefined; })()}
-                onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
-                onDeleteServerArticle={handleDeleteServerArticle}
-                onOpenApiSettings={() => {
-                  setSettingsDefaultTab('api');
-                  setShowAISettingsModal(true);
-                }}
               />
             )
           ) : (
@@ -2484,7 +2240,6 @@ function AppContent() {
               currentStep={contentTransformStep}
               initialContent={transferContent}
               initialFileName={transferFileName}
-              initialPostMeta={transferPostMeta}
               initialPlatform={cameFromDashboard ? 'blog-post' : undefined}
               cameFromDocStudio={cameFromDocStudio}
               cameFromDashboard={cameFromDashboard}
@@ -2519,7 +2274,6 @@ function AppContent() {
               onMultiPlatformModeChange={setMultiPlatformMode}
               onFileSaved={handleFileSavedWhileEditing}
               onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
-              serverArticleSlug={activeServerArticleSlug}
             />
           )
         )}
@@ -2581,13 +2335,8 @@ function AppContent() {
               setSettingsDefaultTab('mobile');
               setShowAISettingsModal(true);
             }}
-            onOpenApiSettings={() => {
-              setSettingsDefaultTab('api');
-              setShowAISettingsModal(true);
-            }}
             recentItems={gettingStartedRecentItems}
             onContinueRecent={handleContinueRecentItem}
-            onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
           />
         )}
         {currentScreen === "mobile-inbox" && (
@@ -2853,9 +2602,7 @@ const StudioBarButton = ({
     style={{
       width: "150px",
       height: "40px",
-      borderTop: active ? "1px solid #2A2A2A" : "1px dotted #2A2A2A",
-      borderLeft: active ? "1px solid #2A2A2A" : "1px dotted #2A2A2A",
-      borderRight: active ? "1px solid #2A2A2A" : "1px dotted #2A2A2A",
+      border: active ? "1px solid #2A2A2A" : "1px dotted #2A2A2A",
       borderBottom: "0",
       borderRadius: "10px 10px 0 0",
       padding: "0 10px",

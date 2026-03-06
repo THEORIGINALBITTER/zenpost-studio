@@ -29,6 +29,13 @@ type ContentStudioDashboardScreenProps = {
   onOpenDocuments: () => void;
   onOpenPlanner: () => void;
   onOpenCalendar: () => void;
+  serverArticles?: unknown[];
+  serverArticlesLoading?: boolean;
+  serverError?: string | null;
+  serverName?: string;
+  onOpenServerArticle?: (slug: string) => void;
+  onDeleteServerArticle?: (slug: string) => Promise<void>;
+  onOpenApiSettings?: () => void;
 };
 
 const ActionTile = ({
@@ -79,6 +86,13 @@ export function ContentStudioDashboardScreen({
   onOpenDocuments,
   onOpenPlanner,
   onOpenCalendar,
+  serverArticles,
+  serverArticlesLoading,
+  serverError,
+  serverName,
+  onOpenServerArticle,
+  onDeleteServerArticle,
+  onOpenApiSettings,
 }: ContentStudioDashboardScreenProps) {
   const visibleRecentProjects = recentProjectPaths.slice(0, 6);
   const stableOrderRef = useRef<string[]>([]);
@@ -90,6 +104,25 @@ export function ContentStudioDashboardScreen({
   stableOrderRef.current = stableOrderRef.current.filter((p) => visibleRecentProjects.includes(p));
   const allProjects = stableOrderRef.current;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<string | 'server'>('');
+  const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
+  const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  const [deleteToast, setDeleteToast] = useState<{ msg: string; ok: boolean } | null>(null);
+
+  const handleDelete = (slug: string) => {
+    if (!onDeleteServerArticle) return;
+    setDeletingSlug(slug);
+    onDeleteServerArticle(slug)
+      .then(() => {
+        setDeleteToast({ msg: 'Artikel erfolgreich gelöscht', ok: true });
+        setTimeout(() => setDeleteToast(null), 3000);
+      })
+      .catch((e: unknown) => {
+        setDeleteToast({ msg: e instanceof Error ? e.message : 'Löschen fehlgeschlagen', ok: false });
+        setTimeout(() => setDeleteToast(null), 4000);
+      })
+      .finally(() => { setDeletingSlug(null); setConfirmingDeleteSlug(null); });
+  };
   const [cardHovered, setCardHovered] = useState(false);
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
   const activeProjectName = activeProjectPath?.split(/[\\/]/).filter(Boolean).pop() || 'Projekt';
@@ -167,11 +200,12 @@ export function ContentStudioDashboardScreen({
               {allProjects.map((path) => {
                 const tabName = path.split(/[\\/]/).filter(Boolean).pop() || path;
                 const tabLabel = tabName.length > 6 ? tabName.slice(0, 5) + '…' : tabName;
-                const isActive = path === activeProjectPath;
+                const isActive = selectedTab !== 'server' && path === activeProjectPath;
                 return (
                   <button
                     key={path}
                     onClick={() => {
+                      setSelectedTab('');
                       setSelectedPath(path);
                       onSelectProjectPath(path);
                     }}
@@ -180,7 +214,9 @@ export function ContentStudioDashboardScreen({
                       width: '36px',
                       height: '80px',
                       borderRadius: '10px 0 0 10px',
-                      border: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
                       borderRight: 'none',
                       background: isActive ? '#d0cbb8' : '#1a1a1a',
                       cursor: 'pointer',
@@ -218,13 +254,184 @@ export function ContentStudioDashboardScreen({
                   </button>
                 );
               })}
+              {onOpenServerArticle && (
+                <button
+                  onClick={() => setSelectedTab('server')}
+                  title={serverName ? `Server Artikel · ${serverName}` : 'Server Artikel'}
+                  style={{
+                    width: '36px',
+                    height: '80px',
+                    borderRadius: '10px 0 0 10px',
+                    borderTop: selectedTab === 'server' ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderLeft: selectedTab === 'server' ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderBottom: selectedTab === 'server' ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                    borderRight: 'none',
+                    background: selectedTab === 'server' ? '#d0cbb8' : '#1a1a1a',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 0,
+                    transition: 'background 0.2s',
+                    position: 'relative',
+                    zIndex: selectedTab === 'server' ? 20 : 10,
+                  }}
+                  onMouseEnter={(event) => {
+                    if (selectedTab !== 'server') event.currentTarget.style.background = '#2a2a2a';
+                  }}
+                  onMouseLeave={(event) => {
+                    if (selectedTab !== 'server') event.currentTarget.style.background = '#1a1a1a';
+                  }}
+                >
+                  <span
+                    style={{
+                      writingMode: 'vertical-rl',
+                      textOrientation: 'mixed',
+                      transform: 'rotate(180deg)',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '9px',
+                      color: selectedTab === 'server' ? '#1a1a1a' : '#8E8E8E',
+                      whiteSpace: 'nowrap',
+                      letterSpacing: '0.3px',
+                    }}
+                  >
+                    Server
+                  </span>
+                </button>
+              )}
             </div>
 
             <div
               style={{ position: 'relative', width: '280px', minHeight: '320px', zIndex: 15 }}
-              onMouseEnter={() => hasDocs && setCardHovered(true)}
+              onMouseEnter={() => selectedTab !== 'server' && hasDocs && setCardHovered(true)}
               onMouseLeave={() => setCardHovered(false)}
             >
+              {selectedTab === 'server' ? (
+                <div
+                  style={{
+                    width: '100%',
+                    height: '320px',
+                    borderRadius: '0 12px 12px 0',
+                    padding: '14px 16px',
+                    border: '1px solid #b8b0a0',
+                    borderLeft: 'none',
+                    background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    boxShadow: '4px 4px 20px rgba(0,0,0,0.25)',
+                  }}
+                >
+                  <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: '0 0 8px 0', textTransform: 'uppercase', letterSpacing: '1px', flexShrink: 0 }}>
+                    Server Artikel{serverName ? ` · ${serverName}` : ''}
+                    {serverArticlesLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
+                  </p>
+                  {serverError && (
+                    <div
+                      style={{
+                        borderRadius: '6px',
+                        border: '0.5px solid rgba(179,38,30,0.35)',
+                        background: 'rgba(179,38,30,0.06)',
+                        padding: '8px',
+                        marginBottom: '8px',
+                        flexShrink: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <span style={{ fontSize: '9px', color: '#8f1d16', fontFamily: 'IBM Plex Mono, monospace', lineHeight: 1.4 }}>
+                        {serverError}
+                      </span>
+                      <button
+                        onClick={() => onOpenApiSettings?.()}
+                        style={{
+                          border: '0.5px solid rgba(179,38,30,0.45)',
+                          borderRadius: '6px',
+                          background: 'rgba(179,38,30,0.08)',
+                          color: '#8f1d16',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '8px',
+                          padding: '4px 8px',
+                          cursor: onOpenApiSettings ? 'pointer' : 'not-allowed',
+                          opacity: onOpenApiSettings ? 1 : 0.6,
+                          whiteSpace: 'nowrap',
+                        }}
+                        disabled={!onOpenApiSettings}
+                      >
+                        API jetzt öffnen
+                      </button>
+                    </div>
+                  )}
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {(!serverArticles || serverArticles.length === 0) && !serverArticlesLoading && (
+                      <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: 0 }}>
+                        Keine Artikel gefunden.
+                      </p>
+                    )}
+                    {serverArticles && serverArticles.map((raw, i) => {
+                      const slug = typeof raw === 'string' ? raw : ((raw as { slug?: string }).slug ?? '');
+                      const title = typeof raw === 'string' ? raw : ((raw as { title?: string }).title || slug);
+                      const isConfirming = confirmingDeleteSlug === slug;
+                      const isDeleting = deletingSlug === slug;
+                      return (
+                        <div
+                          key={slug || i}
+                          style={{
+                            borderRadius: '6px',
+                            border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                            background: 'rgba(255,255,255,0.4)',
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div
+                            onClick={() => onOpenServerArticle?.(slug)}
+                            style={{ flex: 1, minWidth: 0, padding: '8px 10px', cursor: 'pointer' }}
+                          >
+                            <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {title}
+                            </p>
+                          </div>
+                          {onDeleteServerArticle && (
+                            <button
+                              disabled={isDeleting}
+                              onClick={() => {
+                                if (isConfirming) {
+                                  handleDelete(slug);
+                                } else {
+                                  setConfirmingDeleteSlug(slug);
+                                  setTimeout(() => setConfirmingDeleteSlug((s) => s === slug ? null : s), 3000);
+                                }
+                              }}
+                              style={{
+                                flexShrink: 0,
+                                padding: '4px 8px',
+                                marginRight: '6px',
+                                border: isConfirming ? '0.5px solid rgba(180,30,30,0.4)' : 'none',
+                                borderRadius: '4px',
+                                background: isConfirming ? 'rgba(180,30,30,0.08)' : 'transparent',
+                                color: isConfirming ? '#B3261E' : '#8a7a6a',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '9px',
+                                cursor: isDeleting ? 'default' : 'pointer',
+                              }}
+                            >
+                              {isDeleting ? '…' : isConfirming ? 'Löschen?' : '×'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'right', opacity: 0.7, flexShrink: 0, paddingTop: '6px' }}>
+                    Klicken zum Öffnen →
+                  </div>
+                </div>
+              ) : (
+              <>
               <button
                 onClick={() => activeProjectPath && onSelectProjectPath(activeProjectPath)}
                 disabled={!activeProjectPath}
@@ -368,7 +575,10 @@ export function ContentStudioDashboardScreen({
                   </div>
                 </div>
               )}
+              </>
+              )}
             </div>
+
 
             <button
               onClick={onPickProject}
@@ -490,6 +700,160 @@ export function ContentStudioDashboardScreen({
             </div>
           )}
         </div>
+
+        {onOpenServerArticle && (serverArticles === undefined || serverArticles !== null) && (
+          <div style={{ marginTop: '24px' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#BEBEBE', fontFamily: 'IBM Plex Mono, monospace' }}>
+              Server Artikel{serverName ? ` · ${serverName}` : ''}
+              {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '8px' }}>Lädt…</span>}
+            </p>
+            {serverError && (
+              <div
+                style={{
+                  borderRadius: '10px',
+                  border: '0.5px solid rgba(179,38,30,0.35)',
+                  background: 'rgba(179,38,30,0.06)',
+                  padding: '12px',
+                  color: '#cf6679',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '10px',
+                  flexWrap: 'wrap',
+                  marginBottom: '8px',
+                }}
+              >
+                <span>{serverError}</span>
+                <button
+                  onClick={() => onOpenApiSettings?.()}
+                  style={{
+                    border: '0.5px solid rgba(179,38,30,0.45)',
+                    borderRadius: '8px',
+                    background: 'rgba(179,38,30,0.08)',
+                    color: '#cf6679',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    padding: '5px 9px',
+                    cursor: onOpenApiSettings ? 'pointer' : 'not-allowed',
+                    opacity: onOpenApiSettings ? 1 : 0.6,
+                  }}
+                  disabled={!onOpenApiSettings}
+                >
+                  API jetzt öffnen
+                </button>
+              </div>
+            )}
+            {!serverArticles && !serverArticlesLoading && !serverError && (
+              <div style={{ borderRadius: '10px', border: '0.5px solid #2F2F2F', padding: '12px', color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px' }}>
+                Keine Server-URL konfiguriert.
+              </div>
+            )}
+            {serverArticles && serverArticles.length === 0 && !serverArticlesLoading && (
+              <div style={{ borderRadius: '10px', border: '0.5px solid #2F2F2F', padding: '12px', color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px' }}>
+                Keine Artikel gefunden.
+              </div>
+            )}
+            {serverArticles && serverArticles.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {serverArticles.map((raw, i) => {
+                  const slug = typeof raw === 'string' ? raw : ((raw as { slug?: string }).slug ?? '');
+                  const title = typeof raw === 'string' ? raw : ((raw as { title?: string }).title || slug);
+                  const date = typeof raw === 'string' ? '' : ((raw as { date?: string }).date ?? '');
+                  const isConfirming = confirmingDeleteSlug === slug;
+                  const isDeleting = deletingSlug === slug;
+                  return (
+                    <div
+                      key={slug || i}
+                      style={{
+                        borderRadius: '10px',
+                        border: '0.5px solid #3A3A3A',
+                        background: 'rgba(255,255,255,0.01)',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <button
+                        onClick={() => onOpenServerArticle(slug)}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: '10px 12px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          background: 'transparent',
+                          border: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '12px',
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ color: '#E7CCAA', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {title}
+                          </div>
+                          {title !== slug && slug && (
+                            <div style={{ color: '#8E8E8E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px' }}>
+                              {slug}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
+                          {date || '—'}
+                        </div>
+                      </button>
+                      {onDeleteServerArticle && (
+                        <button
+                          disabled={isDeleting}
+                          onClick={() => {
+                            if (isConfirming) {
+                              setDeletingSlug(slug);
+                              void onDeleteServerArticle(slug).finally(() => { setDeletingSlug(null); setConfirmingDeleteSlug(null); });
+                            } else {
+                              setConfirmingDeleteSlug(slug);
+                              setTimeout(() => setConfirmingDeleteSlug((s) => s === slug ? null : s), 3000);
+                            }
+                          }}
+                          style={{
+                            flexShrink: 0,
+                            padding: '6px 12px',
+                            marginRight: '8px',
+                            border: isConfirming ? '0.5px solid rgba(180,30,30,0.4)' : '0.5px solid #3A3A3A',
+                            borderRadius: '6px',
+                            background: isConfirming ? 'rgba(180,30,30,0.1)' : 'transparent',
+                            color: isConfirming ? '#cf6679' : '#666',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '10px',
+                            cursor: isDeleting ? 'default' : 'pointer',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {isDeleting ? '…' : isConfirming ? 'Löschen?' : '×'}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {deleteToast && (
+              <div style={{
+                marginTop: '10px',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                background: deleteToast.ok ? 'rgba(31,111,63,0.12)' : 'rgba(180,30,30,0.1)',
+                border: `0.5px solid ${deleteToast.ok ? 'rgba(31,138,65,0.4)' : 'rgba(180,30,30,0.4)'}`,
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                color: deleteToast.ok ? '#1F6F3F' : '#B3261E',
+              }}>
+                {deleteToast.msg}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

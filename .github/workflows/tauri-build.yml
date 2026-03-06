@@ -60,12 +60,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Tauri
-        uses: tauri-apps/tauri-action@v0.6.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: ${{ matrix.args }}
+      - name: Build Tauri (no release upload)
+        run: npm run tauri build -- ${{ matrix.args }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
