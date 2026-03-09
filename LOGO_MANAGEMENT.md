@@ -76,12 +76,6 @@ Dies erzeugt automatisch:
    npm run build
    ```
 
-## Performance-Hinweis
-
-⚠️ Das alte `ZenPost.png` (1.6MB) ist für Web-Performance zu groß!
-
-**Empfehlung:** Für die Rückseite der Flip-Animation eine optimierte Version erstellen oder das Logo durch Text ersetzen.
-
 ## Betroffene Dateien bei Logo-Änderung
 
 - [src/kits/DesignKit/ZenLogoFlip.tsx](src/kits/DesignKit/ZenLogoFlip.tsx)
