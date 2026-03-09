@@ -1,4 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import ZenEngine, { type RuleAnalysisResult } from '../../services/zenEngineService';
+import { getUserRules, addUserRule, deleteUserRule } from '../../services/userRulesService';
+import { getFeedback, recordAccepted, recordIgnored, isSuppressed } from '../../services/userFeedbackService';
+import { getEngineProfile, isRuleGroupActive } from '../../services/zenEngineProfileService';
+import { ZenEngineAboutModal } from './ZenModalSystem/modals/ZenEngineAboutModal';
 import { createRoot, Root } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import EditorJS, { OutputData } from '@editorjs/editorjs';
@@ -24,6 +29,40 @@ import DragDrop from 'editorjs-drag-drop';
 import { ZenDropdown } from './ZenModalSystem/components/ZenDropdown';
 import './ZenBlockEditor.css';
 
+// ─── Image Auto-Optimization ──────────────────────────────────────────────────
+// Wird beim Einlesen von data:image/ URLs im Editor aufgerufen (Paste, URL-Input).
+// Graceful degradation: bei Fehler (Web-Build ohne Tauri) bleibt das Original.
+async function autoOptimizeDataUrl(url: string): Promise<string> {
+  if (!url.startsWith('data:image/')) return url;
+  try {
+    const base64 = url.split(',')[1];
+    if (!base64) return url;
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    // Kleine Bilder (<50 KB) nicht anfassen — kein Optimierungsgewinn
+    if (bytes.length < 50_000) return url;
+
+    // Bildinfo lesen — GIFs überspringen (Animation würde zerstört)
+    try {
+      const info = await ZenEngine.imageInfo(bytes);
+      if (info.format.toUpperCase() === 'GIF') return url;
+    } catch {
+      // imageInfo fehlgeschlagen → trotzdem optimieren
+    }
+
+    const result = await ZenEngine.imageOptimize(bytes, {
+      max_width: 1920,
+      max_height: 1920,
+      output_format: 'jpeg',
+      quality: 85,
+    });
+    return result.data_url;
+  } catch {
+    return url;
+  }
+}
 
 export type EditorTheme = 'dark' | 'light';
 
@@ -117,8 +156,9 @@ class ZenImageBlockTool {
       urlInput.placeholder = 'Image URL (https://...)';
       urlInput.value = '';
       urlInput.type = 'url';
-      urlInput.addEventListener('change', () => {
-        this.data.url = urlInput.value.trim();
+      urlInput.addEventListener('change', async () => {
+        const raw = urlInput.value.trim();
+        this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
         if (this.data.url) {
           outer.innerHTML = '';
           outer.appendChild(this._buildPreview(outer));
@@ -888,6 +928,130 @@ interface ZenBlockEditorProps {
   onActiveHeadingChange?: (headingIndex: number) => void;
 }
 
+// ─── ZenLearnForm ─────────────────────────────────────────────────────────────
+
+interface ZenLearnFormProps {
+  theme: 'dark' | 'light';
+  colors: { border: string; placeholder: string; text: string; background: string };
+  onSave: (pattern: string, suggestion: string, replacements: string[]) => void;
+}
+
+function ZenLearnForm({ theme, colors, onSave }: ZenLearnFormProps) {
+  const [open, setOpen] = useState(false);
+  const [pattern, setPattern] = useState('');
+  const [suggestion, setSuggestion] = useState('');
+  const [repsRaw, setRepsRaw] = useState('');
+
+  const handleSave = () => {
+    const p = pattern.trim();
+    const s = suggestion.trim() || 'Benutzerdefinierte Regel';
+    if (!p) return;
+    const reps = repsRaw.split(',').map(r => r.trim()).filter(Boolean);
+    onSave(p, s, reps);
+    setPattern(''); setSuggestion(''); setRepsRaw(''); setOpen(false);
+  };
+
+  const inputStyle: React.CSSProperties = {
+    fontFamily: 'IBM Plex Mono, monospace',
+    fontSize: 10,
+    background: theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+    border: `1px solid ${colors.border}`,
+    borderRadius: 4,
+    color: colors.text,
+    padding: '3px 8px',
+    outline: 'none',
+    width: '100%',
+  };
+
+  return (
+    <div style={{ borderTop: `1px solid ${colors.border}`, padding: '6px 14px' }}>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: 9,
+            background: 'transparent',
+            border: '1px dashed rgba(172,142,102,0.4)',
+            borderRadius: 4,
+            color: 'rgba(172,142,102,0.7)',
+            cursor: 'pointer',
+            padding: '2px 10px',
+            letterSpacing: '0.03em',
+            width: '100%',
+            textAlign: 'left',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = '#AC8E66';
+            (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66';
+            (e.currentTarget as HTMLButtonElement).style.background =
+              theme === 'dark' ? 'rgba(172,142,102,0.08)' : 'rgba(172,142,102,0.06)';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.4)';
+            (e.currentTarget as HTMLButtonElement).style.color = 'rgba(172,142,102,0.7)';
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+          }}
+        >
+          + Wort / Phrase lernen
+        </button>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              autoFocus
+              value={pattern}
+              onChange={e => setPattern(e.target.value)}
+              placeholder="Wort oder Phrase"
+              style={{ ...inputStyle, flex: 1 }}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+            />
+            <input
+              value={suggestion}
+              onChange={e => setSuggestion(e.target.value)}
+              placeholder="Hinweis (optional)"
+              style={{ ...inputStyle, flex: 2 }}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              value={repsRaw}
+              onChange={e => setRepsRaw(e.target.value)}
+              placeholder="Ersatz-Chips, komma-getrennt (optional)"
+              style={{ ...inputStyle, flex: 1 }}
+              onKeyDown={e => e.key === 'Enter' && handleSave()}
+            />
+            <button
+              type="button" onClick={handleSave}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, padding: '3px 10px',
+                borderRadius: 4, border: '1px solid #AC8E66',
+                background: '#AC8E66', color: '#fff', cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              Speichern
+            </button>
+            <button
+              type="button" onClick={() => setOpen(false)}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, padding: '3px 8px',
+                borderRadius: 4, border: `1px solid ${colors.border}`,
+                background: 'transparent', color: colors.placeholder, cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── ZenBlockEditor ───────────────────────────────────────────────────────────
+
 /**
  * ZenBlockEditor - Block-based editor powered by EditorJS
  * Allows users to either type freely or use block-based editing with formatting
@@ -921,6 +1085,7 @@ export const ZenBlockEditor = ({
   const overlayMenuRef = useRef<HTMLDivElement | null>(null);
   const lastActiveHeadingRef = useRef<number | null>(null);
   const lastActiveBlockIndexRef = useRef<number | null>(null);
+  const toolbarActionBlockIndexRef = useRef<number | null>(null);
   const lastHandledFocusRequestTokenRef = useRef<number | null>(null);
   const lastHandledHeadingRequestTokenRef = useRef<number | null>(null);
   type ImageResizeCommitHandle = number | ReturnType<typeof globalThis.setTimeout>;
@@ -928,6 +1093,224 @@ export const ZenBlockEditor = ({
   const imageResizeCommitIsIdleRef = useRef(false);
   const blockTypeObserverRef = useRef<MutationObserver | null>(null);
   const lastLocalMarkdownRef = useRef<string>(value);
+
+  // ZenEngine Stats (word/char count) — debounced
+  const [editorStats, setEditorStats] = useState({ word_count: 0, char_count: 0 });
+  const statsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const updateStats = useCallback((text: string) => {
+    if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
+    statsDebounceRef.current = setTimeout(async () => {
+      // Strip base64 image data before counting — otherwise embedded images
+      // inflate char_count by hundreds of thousands of characters.
+      // Keep the alt text (e.g. "![foto]") so word count stays meaningful.
+      const textForStats = text.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
+      try {
+        const stats = await ZenEngine.renderMarkdown(textForStats);
+        setEditorStats({ word_count: stats.word_count, char_count: stats.char_count });
+      } catch {
+        // Graceful degradation: local fallback
+        setEditorStats({
+          word_count: textForStats.split(/\s+/).filter(Boolean).length,
+          char_count: textForStats.length,
+        });
+      }
+    }, 800);
+  }, []);
+  useEffect(() => {
+    updateStats(value);
+    return () => { if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current); };
+  }, [value, updateStats]);
+
+  // ZenEngine Analyse (Füllwörter, Passive Voice, etc.) — debounced, separater Timer
+  const [analyzeResult, setAnalyzeResult] = useState<RuleAnalysisResult | null>(null);
+  const [showHintsPanel, setShowHintsPanel] = useState(false);
+  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const totalHintCount = analyzeResult?.suggestions.length ?? 0;
+
+  const runAnalysis = useCallback(async (text: string) => {
+    try {
+      const result = await ZenEngine.analyzeText(text, JSON.stringify(getUserRules()));
+      // Profil + Feedback Filter: deaktivierte Regelgruppen und supprimierte Regeln ausblenden
+      const profile = getEngineProfile();
+      const feedback = getFeedback();
+      const filtered = {
+        ...result,
+        suggestions: result.suggestions.filter(s =>
+          isRuleGroupActive(s.rule, profile) &&
+          (s.is_user_rule || !isSuppressed(s.rule, s.matched_text, feedback))
+        ),
+      };
+      setAnalyzeResult(filtered);
+      if (filtered.suggestions.length === 0) setShowHintsPanel(false);
+    } catch {
+      setAnalyzeResult(null);
+      setShowHintsPanel(false);
+    }
+  }, []);
+
+  const updateAnalysis = useCallback((text: string) => {
+    if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current);
+    analyzeDebounceRef.current = setTimeout(() => runAnalysis(text), 1200);
+  }, [runAnalysis]);
+  useEffect(() => {
+    updateAnalysis(value);
+    return () => { if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current); };
+  }, [value, updateAnalysis]);
+
+  // ── Content Intelligence ───────────────────────────────────────────────────
+  interface ContentIntel {
+    readingTime: number;       // minutes
+    lix: number;               // LIX readability score
+    lixLabel: string;          // human label
+    avgSentenceLen: number;    // words per sentence
+    keywords: Array<{ word: string; freq: number }>;
+    imageCount: number;
+    missingAltCount: number;   // images without alt text
+    headlineCount: number;
+    multipleH1: boolean;
+  }
+  const [contentIntel, setContentIntel] = useState<ContentIntel | null>(null);
+  const [showIntelPanel, setShowIntelPanel] = useState(false);
+  const [showEngineAbout, setShowEngineAbout] = useState(false);
+
+  useEffect(() => {
+    if (!value) { setContentIntel(null); return; }
+
+    // Strip HTML tags first (EditorJS inline tools emit e.g. <mark class="zen-inline-marker">)
+    // to prevent class names leaking into keyword analysis, then strip markdown syntax
+    const plain = value
+      .replace(/<[^>]+>/g, ' ')                    // HTML tags → space (removes class names etc.)
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')  // images → alt text only
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')    // links → text only
+      .replace(/#{1,6}\s/g, '')                    // headings
+      .replace(/[*_`~]/g, '')                      // emphasis/code
+      .replace(/^\s*[-*+]\s/gm, '')               // lists
+      .replace(/^\s*\d+\.\s/gm, '');              // numbered lists
+
+    const words = plain.split(/\s+/).filter(Boolean);
+    const sentences = plain.split(/[.!?]+/).filter(s => s.trim().length > 2);
+    const wc = words.length;
+    const sc = Math.max(sentences.length, 1);
+    const avgSentenceLen = Math.round(wc / sc);
+    const longWords = words.filter(w => w.replace(/[^a-zA-ZäöüÄÖÜß]/g, '').length > 6).length;
+    const lix = Math.round(avgSentenceLen + (longWords * 100 / Math.max(wc, 1)));
+    const lixLabel = lix < 30 ? 'Sehr leicht' : lix < 40 ? 'Leicht' : lix < 50 ? 'Mittel' : lix < 60 ? 'Schwer' : 'Sehr schwer';
+    const readingTime = Math.max(1, Math.ceil(wc / 200));
+
+    // Top keywords (German + English stop words filtered)
+    const stopWords = new Set(['der', 'die', 'das', 'und', 'in', 'ist', 'ein', 'eine', 'auf', 'mit', 'für', 'von', 'zu', 'an', 'im', 'den', 'dem', 'des', 'als', 'auch', 'es', 'sich', 'er', 'sie', 'wir', 'ich', 'du', 'man', 'hat', 'haben', 'sein', 'wird', 'werden', 'sind', 'war', 'nicht', 'noch', 'aber', 'oder', 'wenn', 'dann', 'so', 'wie', 'dass', 'bei', 'nach', 'aus', 'vor', 'über', 'mehr', 'the', 'and', 'or', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'a', 'an', 'this', 'that', 'it', 'by', 'at', 'we', 'can', 'have', 'has', 'from', 'your', 'you', 'will', 'all', 'one', 'which', 'their', 'there', 'been', 'they', 'than', 'its', 'were', 'each', 'use', 'how', 'about', 'would', 'make', 'our', 'into', 'than', 'then', 'these', 'those', 'some', 'such']);
+    const freq = new Map<string, number>();
+    for (const w of words) {
+      const clean = w.toLowerCase().replace(/[^a-zA-ZäöüÄÖÜß]/g, '');
+      if (clean.length > 3 && !stopWords.has(clean)) freq.set(clean, (freq.get(clean) ?? 0) + 1);
+    }
+    const keywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([word, f]) => ({ word, freq: f }));
+
+    // Image + alt-text check
+    const imageMatches = [...value.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)];
+    const imageCount = imageMatches.length;
+    const missingAltCount = imageMatches.filter(m => !m[1].trim()).length;
+
+    // Headline structure
+    const headlineMatches = value.match(/^#{1,6}\s.+/gm) ?? [];
+    const headlineCount = headlineMatches.length;
+    const multipleH1 = headlineMatches.filter(h => h.startsWith('# ')).length > 1;
+
+    setContentIntel({ readingTime, lix, lixLabel, avgSentenceLen, keywords, imageCount, missingAltCount, headlineCount, multipleH1 });
+  }, [value]);
+
+  // Clear highlights when content changes or panel closes
+  useEffect(() => {
+    if (!showHintsPanel && typeof CSS !== 'undefined' && CSS.highlights) {
+      CSS.highlights.delete('zen-hint');
+    }
+  }, [showHintsPanel]);
+
+  /** Collect all DOM Range objects for matchedText within the editor */
+  const findRangesInEditor = useCallback((matchedText: string): Range[] => {
+    if (!holderRef.current) return [];
+    const walker = document.createTreeWalker(holderRef.current, NodeFilter.SHOW_TEXT);
+    const ranges: Range[] = [];
+    const needle = matchedText.toLowerCase();
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      const text = (node.textContent ?? '').toLowerCase();
+      let idx = text.indexOf(needle);
+      while (idx !== -1) {
+        const range = new Range();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + matchedText.length);
+        ranges.push(range);
+        idx = text.indexOf(needle, idx + 1);
+      }
+    }
+    return ranges;
+  }, []);
+
+  const highlightMatch = useCallback((matchedText: string) => {
+    if (typeof CSS === 'undefined' || !CSS.highlights) return;
+    CSS.highlights.delete('zen-hint');
+    const ranges = findRangesInEditor(matchedText);
+    if (ranges.length > 0) {
+      CSS.highlights.set('zen-hint', new Highlight(...ranges));
+      (ranges[0].startContainer.parentElement ?? holderRef.current!)
+        .scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [findRangesInEditor]);
+
+  /** Replace the nth occurrence of matchedText in the editor with replacement */
+  const replaceInEditor = useCallback((matchedText: string, replacement: string, occurrenceIndex: number) => {
+    const ranges = findRangesInEditor(matchedText);
+    const target = ranges[occurrenceIndex] ?? ranges[0];
+    if (!target) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(target);
+    document.execCommand('insertText', false, replacement);
+    // Clear highlight for this word after replacement
+    if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete('zen-hint');
+  }, [findRangesInEditor]);
+
+  /** Parse quoted replacement words out of suggestion text, e.g. "Aktiv formulieren: 'durchführen'" */
+  const parseReplacements = (suggestion: string): string[] => {
+    const found = suggestion.match(/'([^']+)'/g) ?? [];
+    return found.map(s => s.slice(1, -1));
+  };
+
+  /**
+   * TS-side fallback chips for known rule patterns where the C++ engine returns
+   * only a generic description without specific word suggestions.
+   * For passive voice, we map the auxiliary verb → common active alternatives.
+   */
+  const WORD_CHIPS: Record<string, string[]> = {
+    // Passive auxiliaries (DE)
+    'wird':    ['hat', 'kann', 'lässt sich'],
+    'werden':  ['haben', 'lassen sich', 'können'],
+    'wurde':   ['hat', 'machte', 'erledigte'],
+    'wurden':  ['haben', 'machten', 'erledigten'],
+    'worden':  ['gemacht', 'erledigt'],
+    // Filler / weak words (DE)
+    'eigentlich':     ['tatsächlich', 'konkret'],
+    'wirklich':       ['tatsächlich', 'nachweislich'],
+    'irgendwie':      ['konkret', 'auf welche Weise'],
+    'gewissermaßen':  ['konkret', 'faktisch'],
+    'sozusagen':      [],
+    'quasi':          ['faktisch', 'im Grunde'],
+    // Filler / weak words (EN)
+    'really':    ['actually', 'genuinely'],
+    'basically': ['fundamentally', 'in essence'],
+    'somehow':   ['specifically', 'concretely'],
+    'just':      [],
+    'very':      [],
+  };
+
+  const getChips = (matchedText: string, suggestion: string): string[] => {
+    const fromEngine = parseReplacements(suggestion);
+    if (fromEngine.length > 0) return fromEngine;
+    return WORD_CHIPS[matchedText.toLowerCase()] ?? [];
+  };
+
   // Use ref to always have latest onChange callback (fixes closure bug)
   const onChangeRef = useRef(onChange);
   useEffect(() => {
@@ -1205,20 +1588,6 @@ export const ZenBlockEditor = ({
         continue;
       }
 
-      // Markdown link [text](url)
-      const linkMatch = line.match(/^\[(.+?)\]\((.+?)\)\s*$/);
-      if (linkMatch) {
-        blocks.push({
-          type: 'linkBlock',
-          data: {
-            text: linkMatch[1] ?? '',
-            url: linkMatch[2] ?? '',
-          },
-        });
-        i++;
-        continue;
-      }
-
       // CTA [CTA: Text](url)
       const ctaMatch = line.match(/^\[CTA:\s*(.+?)\]\((.+?)\)\s*$/i);
       if (ctaMatch) {
@@ -1227,6 +1596,20 @@ export const ZenBlockEditor = ({
           data: {
             text: ctaMatch[1] ?? '',
             url: ctaMatch[2] ?? '',
+          },
+        });
+        i++;
+        continue;
+      }
+
+      // Markdown link [text](url)
+      const linkMatch = line.match(/^\[(.+?)\]\((.+?)\)\s*$/);
+      if (linkMatch) {
+        blocks.push({
+          type: 'linkBlock',
+          data: {
+            text: linkMatch[1] ?? '',
+            url: linkMatch[2] ?? '',
           },
         });
         i++;
@@ -1470,7 +1853,10 @@ export const ZenBlockEditor = ({
 
           case 'code':
             const lang = block.data.language || '';
-            return `\`\`\`${lang}\n${block.data.code}\n\`\`\``;
+            const codeBody = typeof block.data?.code === 'string'
+              ? block.data.code
+              : (typeof block.data?.text === 'string' ? block.data.text : '');
+            return `\`\`\`${lang}\n${codeBody}\n\`\`\``;
 
           case 'linkBlock':
             if (!block.data?.url) return '';
@@ -1495,8 +1881,38 @@ export const ZenBlockEditor = ({
             if (!block.data?.url) return '';
             return `[CTA: ${normalizeInlineText(block.data.text || 'Mehr erfahren')}](${normalizeInlineText(block.data.url)})`;
 
+          case 'cta':
+            if (!block.data?.url) return '';
+            return `[CTA: ${normalizeInlineText(block.data.text || block.data.label || 'Mehr erfahren')}](${normalizeInlineText(block.data.url)})`;
+
+          case 'table':
+            if (!Array.isArray(block.data?.content) || block.data.content.length === 0) return '';
+            {
+              const rows = block.data.content as unknown[][];
+              const normalizeCell = (cell: unknown) => normalizeInlineText(cell ?? '');
+              const header = (rows[0] ?? []).map(normalizeCell);
+              const body = rows.slice(1).map((row) => (row ?? []).map(normalizeCell));
+              const lines: string[] = [];
+              lines.push(`| ${header.join(' | ')} |`);
+              lines.push(`| ${header.map(() => '---').join(' | ')} |`);
+              body.forEach((row) => {
+                lines.push(`| ${row.join(' | ')} |`);
+              });
+              return lines.join('\n');
+            }
+
           case 'tableBlock':
             return normalizeInlineText(block.data.table || '');
+
+          case 'youtube':
+          case 'embed':
+          case 'video': {
+            const embedUrl = normalizeUrlValue(
+              block.data?.url || block.data?.embed || block.data?.src || block.data?.file?.url || ''
+            );
+            if (!embedUrl) return '';
+            return `[YouTube: ${embedUrl}](${embedUrl})`;
+          }
 
           case 'quote':
             return normalizeInlineText(block.data.text || '')
@@ -2206,6 +2622,7 @@ export const ZenBlockEditor = ({
   };
 
   const colors = themeStyles[theme];
+  const gold = '#AC8E66';
 
   const className = [
     'zen-block-editor',
@@ -2340,6 +2757,18 @@ export const ZenBlockEditor = ({
     event.preventDefault();
   };
 
+  const rememberToolbarBlock = () => {
+    const info = getCurrentBlockInfo();
+    if (!info) return;
+    toolbarActionBlockIndexRef.current = info.index;
+    lastActiveBlockIndexRef.current = info.index;
+  };
+
+  const keepSelectionAndRememberBlock = (event: React.MouseEvent) => {
+    keepSelection(event);
+    rememberToolbarBlock();
+  };
+
   const applyInlineFormat = (command: string, value?: string) => {
     document.execCommand(command, false, value);
     setMenuOpen(false);
@@ -2350,7 +2779,7 @@ export const ZenBlockEditor = ({
     const selection = window.getSelection();
     const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
 
-    if (!holder || !selection || !range || range.collapsed || !holder.contains(range.commonAncestorContainer)) {
+    if (!holder || !selection || !range || !holder.contains(range.commonAncestorContainer)) {
       setMenuOpen(false);
       return;
     }
@@ -2368,6 +2797,79 @@ export const ZenBlockEditor = ({
           };
 
     const markerToken = tokenByColor[color.toLowerCase()] ?? (mode === 'highlight' ? 'hl-yellow' : 'text-red');
+    const findMarkerFromNode = (node: Node | null): HTMLElement | null => {
+      if (!node) return null;
+      if (node instanceof HTMLElement) return node.closest('mark.zen-inline-marker');
+      return node.parentElement?.closest('mark.zen-inline-marker') ?? null;
+    };
+    const unwrapMarker = (marker: HTMLElement) => {
+      const parent = marker.parentNode;
+      if (!parent) return;
+      while (marker.firstChild) {
+        parent.insertBefore(marker.firstChild, marker);
+      }
+      parent.removeChild(marker);
+    };
+    const dispatchInputFromNode = (node: Node | null) => {
+      const editable = (node instanceof HTMLElement ? node : node?.parentElement)?.closest<HTMLElement>(
+        '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
+      );
+      editable?.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    const moveCaretToEnd = (target: HTMLElement) => {
+      selection.removeAllRanges();
+      const caretRange = document.createRange();
+      caretRange.selectNodeContents(target);
+      caretRange.collapse(false);
+      selection.addRange(caretRange);
+    };
+
+    const startMarker = findMarkerFromNode(range.startContainer);
+    const endMarker = findMarkerFromNode(range.endContainer);
+    const sameMarker = startMarker && endMarker && startMarker === endMarker ? startMarker : null;
+
+    if (sameMarker) {
+      if (sameMarker.dataset.zenMarker === markerToken) {
+        const parentForInput = sameMarker.parentNode;
+        unwrapMarker(sameMarker);
+        dispatchInputFromNode(parentForInput);
+        setMenuOpen(false);
+        return;
+      }
+
+      sameMarker.dataset.zenMarker = markerToken;
+      moveCaretToEnd(sameMarker);
+      dispatchInputFromNode(sameMarker);
+      setMenuOpen(false);
+      return;
+    }
+
+    if (range.collapsed) {
+      setMenuOpen(false);
+      return;
+    }
+
+    const intersectingMarkers = Array.from(
+      holder.querySelectorAll<HTMLElement>('mark.zen-inline-marker')
+    ).filter((marker) => {
+      try {
+        return range.intersectsNode(marker);
+      } catch {
+        return false;
+      }
+    });
+
+    if (
+      intersectingMarkers.length > 0 &&
+      intersectingMarkers.every((marker) => marker.dataset.zenMarker === markerToken)
+    ) {
+      const firstParent = intersectingMarkers[0].parentNode;
+      intersectingMarkers.forEach((marker) => unwrapMarker(marker));
+      dispatchInputFromNode(firstParent);
+      setMenuOpen(false);
+      return;
+    }
+
     const mark = document.createElement('mark');
     mark.className = 'zen-inline-marker';
     mark.dataset.zenMarker = markerToken;
@@ -2380,16 +2882,68 @@ export const ZenBlockEditor = ({
       range.insertNode(mark);
     }
 
-    selection.removeAllRanges();
-    const caretRange = document.createRange();
-    caretRange.selectNodeContents(mark);
-    caretRange.collapse(false);
-    selection.addRange(caretRange);
+    moveCaretToEnd(mark);
+    dispatchInputFromNode(mark);
 
-    const editable = mark.closest<HTMLElement>(
-      '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
-    );
-    editable?.dispatchEvent(new Event('input', { bubbles: true }));
+    setMenuOpen(false);
+  };
+
+  const clearColorFormat = () => {
+    const holder = holderRef.current;
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+    if (!holder || !selection || !range || !holder.contains(range.commonAncestorContainer)) {
+      setMenuOpen(false);
+      return;
+    }
+
+    const findMarkerFromNode = (node: Node | null): HTMLElement | null => {
+      if (!node) return null;
+      if (node instanceof HTMLElement) return node.closest('mark.zen-inline-marker');
+      return node.parentElement?.closest('mark.zen-inline-marker') ?? null;
+    };
+    const unwrapMarker = (marker: HTMLElement) => {
+      const parent = marker.parentNode;
+      if (!parent) return;
+      while (marker.firstChild) {
+        parent.insertBefore(marker.firstChild, marker);
+      }
+      parent.removeChild(marker);
+    };
+    const dispatchInputFromNode = (node: Node | null) => {
+      const editable = (node instanceof HTMLElement ? node : node?.parentElement)?.closest<HTMLElement>(
+        '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
+      );
+      editable?.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+
+    if (range.collapsed) {
+      const marker = findMarkerFromNode(range.startContainer);
+      if (marker) {
+        const parentForInput = marker.parentNode;
+        unwrapMarker(marker);
+        dispatchInputFromNode(parentForInput);
+      }
+      setMenuOpen(false);
+      return;
+    }
+
+    const intersectingMarkers = Array.from(
+      holder.querySelectorAll<HTMLElement>('mark.zen-inline-marker')
+    ).filter((marker) => {
+      try {
+        return range.intersectsNode(marker);
+      } catch {
+        return false;
+      }
+    });
+
+    if (intersectingMarkers.length > 0) {
+      const firstParent = intersectingMarkers[0].parentNode;
+      intersectingMarkers.forEach((marker) => unwrapMarker(marker));
+      dispatchInputFromNode(firstParent);
+    }
 
     setMenuOpen(false);
   };
@@ -2633,27 +3187,49 @@ export const ZenBlockEditor = ({
     setMenuOpen(false);
   };
 
+  const toPlainText = (value: unknown): string => {
+    if (value == null) return '';
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return String(value).trim();
+    }
+    if (Array.isArray(value)) {
+      return value.map((entry) => toPlainText(entry)).filter(Boolean).join('\n').trim();
+    }
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>;
+      const preferredKeys = ['text', 'content', 'label', 'url', 'title', 'caption', 'value', 'html'];
+      for (const key of preferredKeys) {
+        const candidate = toPlainText(obj[key]);
+        if (candidate) return candidate;
+      }
+      return Object.values(obj).map((entry) => toPlainText(entry)).filter(Boolean).join(' ').trim();
+    }
+    return '';
+  };
+
   const extractBlockText = (block: any): string => {
     if (!block) return '';
     const data = block.data ?? {};
     switch (block.type) {
       case 'header':
       case 'paragraph':
-        return String(data.text ?? '').trim();
+        return toPlainText(data.text);
       case 'quote':
-        return String(data.text ?? '').trim();
+        return toPlainText(data.text);
       case 'list':
-        return Array.isArray(data.items) ? data.items.map((i: string) => String(i).trim()).join('\n').trim() : '';
+        return Array.isArray(data.items)
+          ? data.items.map((item: unknown) => toPlainText(item)).filter(Boolean).join('\n').trim()
+          : '';
       case 'code':
-        return String(data.code ?? '').trim();
+        return toPlainText(data.code);
       case 'linkBlock':
-        return String(data.text ?? data.url ?? '').trim();
+        return toPlainText(data.text ?? data.label ?? data.url);
       case 'ctaBlock':
-        return String(data.text ?? '').trim();
+        return toPlainText(data.text ?? data.label ?? data.url);
       case 'tableBlock':
-        return String(data.table ?? '').trim();
+        return toPlainText(data.table);
       case 'imageBlock':
-        return String(data.alt ?? data.url ?? '').trim();
+        return toPlainText(data.alt ?? data.url);
       default:
         return '';
     }
@@ -2661,10 +3237,10 @@ export const ZenBlockEditor = ({
 
   const convertCurrentBlock = async (
     target: 'paragraph' | 'header' | 'list' | 'quote',
-    options?: { level?: number; listStyle?: 'unordered' | 'ordered' }
+    options?: { level?: number; listStyle?: 'unordered' | 'ordered'; sourceIndex?: number }
   ) => {
     const editor = editorRef.current as any;
-    const info = getCurrentBlockInfo();
+    const info = getCurrentBlockInfo(options?.sourceIndex ?? toolbarActionBlockIndexRef.current);
     if (!editor?.blocks || !editor?.save || !info) return;
 
     try {
@@ -2700,19 +3276,25 @@ export const ZenBlockEditor = ({
 
       editor.blocks.delete(info.index);
       editor.blocks.insert(type, data, undefined, info.index, true);
+      toolbarActionBlockIndexRef.current = info.index;
       focusBlockByIndex(info.index, target === 'header' ? 'start' : 'end');
     } catch {
       // no-op
     }
   };
 
-  const getCurrentBlockInfo = () => {
+  const getCurrentBlockInfo = (preferredIndex?: number | null) => {
     const holder = holderRef.current;
     const editor = editorRef.current as any;
     if (!holder || !editor?.blocks) return null;
 
     const blocks = holder.querySelectorAll<HTMLElement>('.ce-block');
-    let index = editor.blocks.getCurrentBlockIndex?.();
+    let index: number | undefined =
+      typeof preferredIndex === 'number' &&
+      preferredIndex >= 0 &&
+      preferredIndex < blocks.length
+        ? preferredIndex
+        : editor.blocks.getCurrentBlockIndex?.();
 
     if (typeof index !== 'number' || index < 0) {
       const active = document.activeElement as HTMLElement | null;
@@ -2894,6 +3476,7 @@ export const ZenBlockEditor = ({
       ref={containerRef}
       className={className}
       data-zen-scroll="editor"
+      data-panel-open={showHintsPanel || showIntelPanel ? 'true' : 'false'}
       style={{
         border: `1px solid ${colors.border}`,
         borderRadius: 8,
@@ -2917,10 +3500,304 @@ export const ZenBlockEditor = ({
         }}
       />
 
+      {/* ZenEngine Hints Panel */}
+      {showHintsPanel && analyzeResult && analyzeResult.suggestions.length > 0 && (
+        <div style={{
+          position: 'sticky',
+          bottom: 24,
+          margin: '0 8px',
+          borderRadius: 8,
+          background: theme === 'dark' ? 'rgba(21,21,21,0.97)' : 'rgba(237,230,216,0.97)',
+          border: `1px solid ${colors.border}`,
+          backdropFilter: 'blur(8px)',
+          zIndex: 130,
+          maxHeight: 240,
+          overflowY: 'auto',
+          padding: '6px 0',
+        }}>
+          {analyzeResult.suggestions.map((s, i) => {
+            const isUser = !!s.is_user_rule;
+            const displayText = s.matched_text.trim();
+            const chips = isUser ? s.replacements : getChips(s.matched_text, s.suggestion);
+            const occurrenceIndex = analyzeResult.suggestions.slice(0, i).filter(x => x.matched_text === s.matched_text).length;
+            const chipColor = isUser ? '#AC8E66' : '#C0633A';
+            const chipBg = isUser
+              ? (theme === 'dark' ? 'rgba(172,142,102,0.18)' : 'rgba(172,142,102,0.12)')
+              : (theme === 'dark' ? 'rgba(192,99,58,0.18)' : 'rgba(192,99,58,0.12)');
+            const chipBorder = isUser ? '1px solid rgba(172,142,102,0.4)' : '1px solid rgba(192,99,58,0.4)';
+            return (
+              <div key={i} style={{
+                padding: '5px 14px',
+                borderBottom: i < analyzeResult.suggestions.length - 1 ? `1px solid ${colors.border}` : 'none',
+              }}>
+                <div
+                  role="button" tabIndex={0}
+                  onClick={() => highlightMatch(s.matched_text)}
+                  onKeyDown={e => e.key === 'Enter' && highlightMatch(s.matched_text)}
+                  style={{ display: 'flex', alignItems: 'baseline', gap: 10, cursor: 'pointer' }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '0.75')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '1')}
+                >
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                    background: chipBg, color: chipColor,
+                    borderRadius: 4, padding: '1px 6px', border: chipBorder,
+                    flexShrink: 0, whiteSpace: 'nowrap',
+                  }}>
+                    {displayText}
+                  </span>
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: colors.placeholder, lineHeight: 1.4, flex: 1 }}>
+                    {s.suggestion || s.rule.replace(/_/g, ' ')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (isUser) {
+                        deleteUserRule(s.matched_text);
+                      } else {
+                        recordIgnored(s.rule, s.matched_text);
+                      }
+                      runAnalysis(value);
+                    }}
+                    title={isUser ? 'Regel löschen' : 'Hinweis ausblenden'}
+                    style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, background: 'transparent', border: 'none', color: colors.placeholder, cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}
+                  >
+                    ×
+                  </button>
+                </div>
+                {chips.length > 0 && (
+                  <div style={{ display: 'flex', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    {chips.map((rep, ri) => (
+                      <button
+                        key={ri} type="button"
+                        onClick={() => { replaceInEditor(s.matched_text, rep, occurrenceIndex); recordAccepted(s.rule, s.matched_text); }}
+                        style={{
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, padding: '1px 8px',
+                          borderRadius: 4, border: `1px solid ${colors.border}`,
+                          background: theme === 'dark' ? 'rgba(172,142,102,0.12)' : 'rgba(172,142,102,0.1)',
+                          color: '#AC8E66', cursor: 'pointer', whiteSpace: 'nowrap',
+                        }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = theme === 'dark' ? 'rgba(172,142,102,0.12)' : 'rgba(172,142,102,0.1)'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                      >
+                        {rep}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* "Wort lernen" inline form */}
+          <ZenLearnForm
+            theme={theme}
+            colors={colors}
+            onSave={(pattern, suggestion, replacements) => {
+              addUserRule({ pattern, suggestion, replacements, confidence: 0.85 });
+              runAnalysis(value);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Content Intelligence Panel */}
+      {showIntelPanel && contentIntel && (
+        <div style={{
+          position: 'sticky',
+          bottom: 24,
+          margin: '0 8px',
+          borderRadius: 8,
+          background: theme === 'dark' ? 'rgba(21,21,21,0.97)' : 'rgba(237,230,216,0.97)',
+          border: `1px solid ${colors.border}`,
+          backdropFilter: 'blur(8px)',
+          zIndex: 130,
+          padding: '10px 14px',
+        }}>
+          {/* Row 1: Readability + Reading time */}
+          <div style={{ display: 'flex', gap: 20, marginBottom: 8, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>Lesbarkeit (LIX)</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: 14, fontWeight: 600,
+                  color: contentIntel.lix < 40 ? '#6aaa64' : contentIntel.lix < 55 ? '#AC8E66' : '#C0633A',
+                }}>
+                  {contentIntel.lix}
+                </span>
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: colors.placeholder }}>
+                  {contentIntel.lixLabel}
+                </span>
+              </div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder, marginTop: 2 }}>
+                Ø {contentIntel.avgSentenceLen} Wörter/Satz
+              </div>
+            </div>
+            <div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>Lesedauer</div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 14, fontWeight: 600, color: colors.text }}>
+                ~{contentIntel.readingTime} Min.
+              </div>
+            </div>
+            {contentIntel.imageCount > 0 && (
+              <div>
+                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>Bilder</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 14, fontWeight: 600, color: colors.text }}>{contentIntel.imageCount}</span>
+                  {contentIntel.missingAltCount > 0 && (
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#C0633A' }}>
+                      {contentIntel.missingAltCount}× kein Alt-Text
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {contentIntel.headlineCount > 0 && (
+              <div>
+                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>Headlines</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 14, fontWeight: 600, color: colors.text }}>{contentIntel.headlineCount}</span>
+                  {contentIntel.multipleH1 && (
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#C0633A' }}>Mehrere H1</span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Row 2: Top Keywords */}
+          {contentIntel.keywords.length > 0 && (
+            <div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 5, textTransform: 'uppercase', letterSpacing: 1 }}>Top Keywords</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {contentIntel.keywords.map((kw, i) => (
+                  <span key={i} style={{
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: 9,
+                    padding: '1px 7px',
+                    borderRadius: 4,
+                    border: `1px solid ${colors.border}`,
+                    background: theme === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+                    color: colors.text,
+                  }}>
+                    {kw.word} <span style={{ color: colors.placeholder }}>×{kw.freq}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ZenEngine Status-Bar */}
+      <div
+        style={{
+          position: 'sticky',
+          bottom: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '3px 16px',
+          background: theme === 'dark' ? 'rgba(18,18,18,0.92)' : 'rgba(232,225,210,0.92)',
+          borderTop: `1px solid ${colors.border}`,
+          backdropFilter: 'blur(6px)',
+          zIndex: 130,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => { setShowIntelPanel(p => !p); setShowHintsPanel(false); }}
+          style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: 9,
+            background: showIntelPanel
+              ? (theme === 'dark' ? 'rgba(172,142,102,0.18)' : 'rgba(172,142,102,0.15)')
+              : 'transparent',
+            border: `1px solid ${showIntelPanel ? 'rgba(172,142,102,0.5)' : 'transparent'}`,
+            borderRadius: 4,
+            color: showIntelPanel ? '#AC8E66' : colors.placeholder,
+            cursor: 'pointer',
+            padding: '1px 6px',
+            lineHeight: 1.4,
+          }}
+          onMouseEnter={e => {
+            if (!showIntelPanel) {
+              (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.35)';
+            }
+          }}
+          onMouseLeave={e => {
+            if (!showIntelPanel) {
+              (e.currentTarget as HTMLButtonElement).style.color = colors.placeholder;
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent';
+            }
+          }}
+        >
+          {editorStats.word_count.toLocaleString('de-DE')} Wörter
+        </button>
+        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
+        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder, pointerEvents: 'none' }}>
+          {editorStats.char_count.toLocaleString('de-DE')} Zeichen
+        </span>
+        {contentIntel && (
+          <>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder, pointerEvents: 'none' }}>
+              ~{contentIntel.readingTime} Min.
+            </span>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
+            <span style={{
+              fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, pointerEvents: 'none',
+              color: contentIntel.lix < 40 ? '#6aaa64' : contentIntel.lix < 55 ? '#AC8E66' : '#C0633A',
+            }}>
+              LIX {contentIntel.lix}
+            </span>
+          </>
+        )}
+        {totalHintCount > 0 && (
+          <>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
+            <button
+              type="button"
+              onClick={() => { setShowHintsPanel(p => !p); setShowIntelPanel(false); }}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 9,
+                color: showHintsPanel ? '#fff' : (totalHintCount >= 5 ? '#C0633A' : '#AC8E66'),
+                background: showHintsPanel
+                  ? (totalHintCount >= 5 ? '#C0633A' : '#AC8E66')
+                  : 'transparent',
+                border: `1px solid ${totalHintCount >= 5 ? '#C0633A' : '#AC8E66'}`,
+                borderRadius: 4,
+                padding: '1px 6px',
+                cursor: 'pointer',
+                lineHeight: 1.4,
+              }}
+            >
+              {totalHintCount} {totalHintCount === 1 ? 'Hinweis' : 'Hinweise'}
+            </button>
+          </>
+        )}
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={() => setShowEngineAbout(true)}
+          onKeyDown={e => e.key === 'Enter' && setShowEngineAbout(true)}
+          onMouseEnter={e => (e.currentTarget.style.color = gold)}
+          onMouseLeave={e => (e.currentTarget.style.color = colors.border)}
+          style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, marginLeft: 'auto', cursor: 'pointer', userSelect: 'none' }}
+        >
+          ZenEngine
+        </span>
+      </div>
+
+      <ZenEngineAboutModal isOpen={showEngineAbout} onClose={() => setShowEngineAbout(false)} />
+
       <button
         type="button"
        
         className="zen-block-menu-dot"
+        data-testid="zen-block-menu-dot"
         data-open={menuOpen ? 'true' : 'false'}
         style={{ left: dotPosition.x, top: dotPosition.y }}
         onMouseDown={(e) => e.preventDefault()}
@@ -3001,6 +3878,7 @@ export const ZenBlockEditor = ({
               <button type="button" onMouseDown={keepSelection} title="Marker Blau" aria-label="Marker Blau" onClick={() => applyColorFormat('highlight', '#c8e7ff')}>M3</button>
               <button type="button" onMouseDown={keepSelection} title="Text Rot" aria-label="Text Rot" onClick={() => applyColorFormat('text', '#c95c5c')}>T1</button>
               <button type="button" onMouseDown={keepSelection} title="Text Blau" aria-label="Text Blau" onClick={() => applyColorFormat('text', '#5b7fcb')}>T2</button>
+              <button type="button" onMouseDown={keepSelection} title="Demarkieren" aria-label="Demarkieren" onClick={clearColorFormat}>DM</button>
             </div>
 
             <div className="zen-overlay-block-menu__section">Einfügen</div>
@@ -3018,13 +3896,13 @@ export const ZenBlockEditor = ({
               <>
                 <div className="zen-overlay-block-menu__section">Konvertieren</div>
                 <div className="zen-overlay-block-menu__grid">
-                  <button type="button" onClick={() => void convertCurrentBlock('paragraph')}>Text</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('header', { level: 1 })}>H1</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('header', { level: 2 })}>H2</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('header', { level: 3 })}>H3</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('list', { listStyle: 'unordered' })}>UL</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('list', { listStyle: 'ordered' })}>OL</button>
-                  <button type="button" onClick={() => void convertCurrentBlock('quote')}>Quote</button>
+                  <button type="button" data-testid="zen-convert-text" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('paragraph')}>Text</button>
+                  <button type="button" data-testid="zen-convert-h1" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('header', { level: 1 })}>H1</button>
+                  <button type="button" data-testid="zen-convert-h2" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('header', { level: 2 })}>H2</button>
+                  <button type="button" data-testid="zen-convert-h3" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('header', { level: 3 })}>H3</button>
+                  <button type="button" data-testid="zen-convert-ul" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('list', { listStyle: 'unordered' })}>UL</button>
+                  <button type="button" data-testid="zen-convert-ol" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('list', { listStyle: 'ordered' })}>OL</button>
+                  <button type="button" data-testid="zen-convert-quote" onMouseDown={keepSelectionAndRememberBlock} onClick={() => void convertCurrentBlock('quote')}>Quote</button>
                 </div>
               </>
             )}

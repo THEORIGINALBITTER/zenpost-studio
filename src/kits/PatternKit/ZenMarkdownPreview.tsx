@@ -1,4 +1,6 @@
 import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import ZenEngine from '../../services/zenEngineService';
+import { internalizeImages } from '../../services/zenImageStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -82,13 +84,10 @@ interface ZenMarkdownPreviewProps {
   marginRight?: number;
 }
 
-export type PreviewThemeId = 'color-classic' | 'color-soft' | 'mono-clean' | 'mono-ink';
-export const PREVIEW_THEME_LABELS: Record<PreviewThemeId, string> = {
-  'color-classic': 'Color Classic',
-  'color-soft': 'Color Soft',
-  'mono-clean': 'Mono Clean',
-  'mono-ink': 'Mono Ink',
-};
+export type { PreviewThemeId } from './zenMarkdownPreviewTypes';
+export { PREVIEW_THEME_LABELS } from './zenMarkdownPreviewTypes';
+import type { PreviewThemeId } from './zenMarkdownPreviewTypes';
+import { PREVIEW_THEME_LABELS } from './zenMarkdownPreviewTypes';
 
 export const ZenMarkdownPreview = ({
   content,
@@ -128,6 +127,36 @@ export const ZenMarkdownPreview = ({
   const prevContentRef = useRef(content);
   // Prevents onScroll from overwriting scrollTopRef during WKWebView-initiated scroll resets
   const isRestoringScrollRef = useRef(false);
+
+  // ── ZenImageStore + Stats: ein kombinierter Debounce-Zyklus ──
+  // previewContent: base64-Bilder → Blob-URLs (einmal dekodiert, danach stabil).
+  // previewStats: ZenEngine IPC-Call für Wort-/Zeichenzahl — im selben Timer.
+  // Das Original-`content` bleibt unverändert für Posting und Export.
+  const [previewContent, setPreviewContent] = useState(() => internalizeImages(content));
+  const [previewStats, setPreviewStats] = useState({ word_count: 0, char_count: 0 });
+  const contentUpdateRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (contentUpdateRef.current !== null) window.clearTimeout(contentUpdateRef.current);
+    contentUpdateRef.current = window.setTimeout(async () => {
+      setPreviewContent(internalizeImages(content));
+      // Strip base64 image data before counting — embedded images inflate
+      // char_count by hundreds of thousands of characters.
+      const textForStats = content.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
+      try {
+        const stats = await ZenEngine.renderMarkdown(textForStats);
+        setPreviewStats({ word_count: stats.word_count, char_count: stats.char_count });
+      } catch {
+        setPreviewStats({
+          word_count: textForStats.split(/\s+/).filter(Boolean).length,
+          char_count: textForStats.length,
+        });
+      }
+      contentUpdateRef.current = null;
+    }, 300);
+    return () => {
+      if (contentUpdateRef.current !== null) window.clearTimeout(contentUpdateRef.current);
+    };
+  }, [content]);
 
   const clearReadingCursorTimer = useCallback(() => {
     if (readingCursorTimerRef.current !== null) {
@@ -438,13 +467,22 @@ export const ZenMarkdownPreview = ({
     h6: ({ node, ...props }: any) => (
       <h6 className="text-sm font-bold mb-2 mt-3" style={{ color: palette.subtle, textAlign: 'left' }} {...props} />
     ),
-    p: ({ node, ...props }: any) => (
-      <p
-        className="leading-relaxed"
-        style={{ color: palette.text, marginTop: 0, marginBottom: '0.8em', whiteSpace: 'pre-wrap' }}
-        {...props}
-      />
-    ),
+    p: ({ node, ...props }: any) => {
+      const inListItem = node?.parent?.type === 'listItem';
+      return (
+        <p
+          className="leading-relaxed"
+          style={{
+            color: palette.text,
+            marginTop: 0,
+            marginBottom: inListItem ? 0 : '0.8em',
+            whiteSpace: 'pre-wrap',
+            display: inListItem ? 'inline' : undefined,
+          }}
+          {...props}
+        />
+      );
+    },
     br: ({ node, ...props }: any) => <br {...props} />,
     a: ({ node, ...props }: any) => {
       const href = props.href || '#';
@@ -472,6 +510,21 @@ export const ZenMarkdownPreview = ({
               allowFullScreen
               style={{ border: 'none', display: 'block' }}
             />
+            <a
+              href={href}
+              onClick={handleLinkClick}
+              className="inline-flex items-center justify-center rounded-lg px-3 py-2 font-bold no-underline transition"
+              style={{
+                margin: '0.6rem 0.8rem 0.8rem 0.8rem',
+                background: previewStyle === 'mono' ? '#2b2b2b' : '#AC8E66',
+                color: '#f5f1e8',
+                border: `1px solid ${previewStyle === 'mono' ? '#444' : '#8f7452'}`,
+                cursor: 'pointer',
+                fontSize: '12px',
+              }}
+            >
+              Auf YouTube öffnen
+            </a>
           </div>
         );
       }
@@ -501,26 +554,36 @@ export const ZenMarkdownPreview = ({
           style={{ color: palette.link, cursor: 'pointer' }}
           href={href}
           onClick={handleLinkClick}
-        />
+        >
+          {rawText || href}
+        </a>
       );
     },
     ul: ({ node, ...props }: any) => (
-      <ul className="list-disc list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
+      <ul className="list-disc list-outside pl-6 mb-6 space-y-1" style={{ color: palette.text }} {...props} />
     ),
     ol: ({ node, ...props }: any) => (
-      <ol className="list-decimal list-inside mb-6 space-y-2" style={{ color: palette.text }} {...props} />
+      <ol className="list-decimal list-outside pl-6 mb-6 space-y-1" style={{ color: palette.text }} {...props} />
     ),
     li: ({ node, children, ...props }: any) => (
-      <li className="ml-4" style={{ color: palette.text }} {...props}>
-        {typeof children === 'object' && children !== null && !Array.isArray(children)
-          ? JSON.stringify(children)
-          : children}
+      <li className="leading-relaxed" style={{ color: palette.text }} {...props}>
+        {children}
       </li>
     ),
     blockquote: ({ node, ...props }: any) => (
       <blockquote
-        className="border-l-4 pl-4 py-2 my-4 italic"
-        style={{ borderColor: palette.heading, background: palette.quoteBg, color: palette.quoteText }}
+        className="italic"
+        style={{
+          borderLeft: '10px solid',
+          borderColor: palette.heading,
+          paddingLeft: '12px',
+          paddingTop: '12px',
+          paddingBottom: '12px',
+          marginTop: '16px',
+          marginBottom: '16px',
+          background: palette.quoteBg,
+          color: palette.quoteText,
+        }}
         {...props}
       />
     ),
@@ -803,6 +866,26 @@ export const ZenMarkdownPreview = ({
             {zoom}%
           </button>
 
+          {/* Engine Stats */}
+          {previewStats.word_count > 0 && (
+            <div
+              className="
+                h-9 px-3
+                inline-flex items-center gap-1.5
+                rounded-lg
+                bg-[#111]
+                border border-[#222]
+                font-mono text-[9px] text-[#555]
+                select-none
+              "
+              title="ZenEngine Statistik"
+            >
+              <span>{previewStats.word_count.toLocaleString('de-DE')}W</span>
+              <span className="text-[#2a2a2a]">·</span>
+              <span>{previewStats.char_count.toLocaleString('de-DE')}Z</span>
+            </div>
+          )}
+
           <button
             onClick={handleZoomIn}
             className="
@@ -1050,7 +1133,7 @@ export const ZenMarkdownPreview = ({
           }}
         >
           <MemoizedMarkdownContent
-            content={content}
+            content={previewContent}
             components={markdownComponents}
             urlTransform={allowPreviewUrl}
           />

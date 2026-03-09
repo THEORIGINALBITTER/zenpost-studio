@@ -1,6 +1,9 @@
+mod engine;
+
 use tauri::Emitter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use engine::{markdown, image_proc, rules};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
@@ -60,6 +63,66 @@ fn print_current_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window.print().map_err(|e| format!("Print failed: {}", e))
 }
 
+// ─── ZenEngine Commands ───────────────────────────────────────────────────────
+
+#[tauri::command]
+fn engine_version() -> String {
+    engine::engine_version()
+}
+
+#[tauri::command]
+fn engine_render_markdown(
+    input: String,
+    options: Option<markdown::MarkdownOptions>,
+) -> Result<markdown::MarkdownResult, String> {
+    Ok(markdown::render_markdown(&input, options))
+}
+
+#[tauri::command]
+fn engine_markdown_to_plain(input: String) -> String {
+    markdown::markdown_to_plain(&input)
+}
+
+#[tauri::command]
+fn engine_image_info(data: Vec<u8>) -> Result<image_proc::ImageInfo, String> {
+    image_proc::get_image_info(&data)
+}
+
+#[tauri::command]
+fn engine_image_resize(
+    data: Vec<u8>,
+    options: image_proc::ResizeOptions,
+) -> Result<image_proc::ProcessedImage, String> {
+    image_proc::resize_image(&data, options)
+}
+
+#[tauri::command]
+fn engine_image_convert(
+    data: Vec<u8>,
+    format: String,
+    quality: Option<u8>,
+) -> Result<image_proc::ProcessedImage, String> {
+    image_proc::convert_image(&data, &format, quality)
+}
+
+#[tauri::command]
+fn engine_image_optimize(
+    data: Vec<u8>,
+    options: image_proc::OptimizeOptions,
+) -> Result<image_proc::ProcessedImage, String> {
+    image_proc::optimize_image(&data, options)
+}
+
+#[tauri::command]
+fn engine_analyze_text(
+    text: String,
+    rules_json: Option<String>,
+) -> Result<rules::RuleAnalysisResult, String> {
+    rules::analyze_text(&text, rules_json.as_deref())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -68,7 +131,19 @@ pub fn run() {
     .plugin(tauri_plugin_http::init())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![http_fetch, print_current_window])
+    .invoke_handler(tauri::generate_handler![
+        http_fetch,
+        print_current_window,
+        // ZenEngine
+        engine_version,
+        engine_render_markdown,
+        engine_markdown_to_plain,
+        engine_image_info,
+        engine_image_resize,
+        engine_image_convert,
+        engine_image_optimize,
+        engine_analyze_text,
+    ])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(

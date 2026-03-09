@@ -12,6 +12,26 @@
   white-space: pre-wrap;
 }
 
+/* Lists: avoid loose-list vertical gaps in preview */
+.zen-markdown-preview ul,
+.zen-markdown-preview ol {
+  margin-top: 0.35rem;
+  margin-bottom: 0.9rem;
+  padding-left: 1.4rem;
+}
+
+.zen-markdown-preview li {
+  white-space: normal !important;
+  margin: 0.2rem 0;
+  line-height: 1.55;
+}
+
+.zen-markdown-preview li > p {
+  display: inline !important;
+  margin: 0 !important;
+  white-space: normal !important;
+}
+
 @media print {
   @page {
     margin: 16mm;

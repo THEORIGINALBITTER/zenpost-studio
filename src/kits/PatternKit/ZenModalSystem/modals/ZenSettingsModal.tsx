@@ -9,8 +9,9 @@ import { ZenLocalAISetupContent } from './components/ZenLocalAISetupContent';
 import { ZenStudioSettingsContent } from './components/ZenStudioSettingsContent';
 import { ZenMobileSettingsContent } from './components/ZenMobileSettingsContent';
 import { ZenApiSettingsContent } from './components/ZenApiSettingsContent';
+import { ZenEngineSettingsContent } from './components/ZenEngineSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
@@ -23,7 +24,7 @@ interface ZenSettingsModalProps {
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'ai', label: 'AI', icon: faRobot },
@@ -32,6 +33,7 @@ const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'social', label: 'Social Media', icon: faShareNodes },
   { id: 'editor', label: 'Editor', icon: faPenNib },
   { id: 'mobile', label: 'Mobile', icon: faMobileScreen },
+  { id: 'zenengine', label: 'ZenEngine', icon: faBolt },
   { id: 'zenstudio', label: 'ZenGedanken', icon: faLightbulb },
   { id: 'license', label: 'Lizenz', icon: faIdCard },
 ];
@@ -167,6 +169,7 @@ export const ZenSettingsModal = ({
           {activeTab === 'zenstudio' && (
             <ZenStudioSettingsContent onOpenZenThoughtsEditor={onOpenZenThoughtsEditor} />
           )}
+          {activeTab === 'zenengine' && <ZenEngineSettingsContent />}
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

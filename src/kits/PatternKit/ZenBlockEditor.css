@@ -1,3 +1,9 @@
+/* ================= ZenEngine Highlight API ================= */
+::highlight(zen-hint) {
+  background-color: rgba(192, 99, 58, 0.35);
+  color: inherit;
+}
+
 /* ================= Base ================= */
 .codex-editor,
 .codex-editor__redactor {
@@ -113,7 +119,10 @@
     0 4px 10px rgba(0, 0, 0, 0.35);
   z-index: 121;
   cursor: pointer;
-  
+}
+
+[data-panel-open="true"] .zen-block-menu-dot {
+  display: none;
 }
 
 
@@ -386,6 +395,25 @@
   color: inherit;
   padding: 0 0.12em;
   border-radius: 0.22em;
+}
+
+/* Marker contrast tuning per theme */
+.zen-editor-theme-dark .zen-inline-marker[data-zen-marker="hl-yellow"] {
+  color: #171717 !important;
+}
+
+.zen-editor-theme-dark .zen-inline-marker[data-zen-marker="hl-green"] {
+  color: #132117 !important;
+}
+
+.zen-editor-theme-dark .zen-inline-marker[data-zen-marker="hl-blue"] {
+  color: #0f1d2b !important;
+}
+
+.zen-editor-theme-light .zen-inline-marker[data-zen-marker="hl-yellow"],
+.zen-editor-theme-light .zen-inline-marker[data-zen-marker="hl-green"],
+.zen-editor-theme-light .zen-inline-marker[data-zen-marker="hl-blue"] {
+  color: inherit !important;
 }
 
 .zen-block-editor mark.zen-inline-marker[data-zen-marker="text-red"] {
