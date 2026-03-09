@@ -79,7 +79,7 @@ export const ZenSettingsModal = ({
         style={{
           display: 'flex',
           flexDirection: 'row',
-          height: 'calc(90vh - 74px)',
+          height: '100%',
           overflow: 'hidden',
         }}
       >

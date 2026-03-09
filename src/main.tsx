@@ -2,18 +2,25 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
 import App1 from "./App1";
+import { BlockEditorHarness } from "./test/BlockEditorHarness";
 import './App.css'
+
+const searchParams = new URLSearchParams(window.location.search);
+const isE2EBlockEditorHarness = searchParams.get("e2eHarness") === "block-editor";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <HelmetProvider>
-      <App1 />
+      {isE2EBlockEditorHarness ? <BlockEditorHarness /> : <App1 />}
     </HelmetProvider>
   </React.StrictMode>,
 );
 
 const preloader = document.getElementById("zen-preloader");
 if (preloader) {
+  if (isE2EBlockEditorHarness) {
+    preloader.remove();
+  } else {
   const getIsMobileLike = () => {
     const ua = navigator.userAgent || "";
     return (
@@ -68,5 +75,6 @@ if (preloader) {
 
     window.addEventListener("zenpost-app-ready", removePreloader, { once: true });
     window.setTimeout(removePreloader, 12000);
+  }
   }
 }

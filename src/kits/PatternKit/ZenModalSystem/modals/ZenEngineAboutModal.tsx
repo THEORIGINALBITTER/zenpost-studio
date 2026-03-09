@@ -30,18 +30,49 @@ const BUILT_IN_RULES = [
   { id: 'exclamation',      label: 'Ausrufezeichen',    count: 1,  desc: 'Mehrfach-!! erkennen' },
 ];
 
-const CAPABILITIES: Array<{ icon: IconDefinition; label: string; desc: string }> = [
-  { icon: faCode,             label: 'Markdown → HTML',      desc: 'cmark-kompatibel via comrak (Rust)' },
-  { icon: faFileLines,        label: 'Plain Text Extraktion', desc: 'Markdown-Syntax entfernen für AI-Calls' },
-  { icon: faImage,            label: 'Image Processing',      desc: 'Resize, Convert, Optimize (JPEG/PNG/WebP)' },
-  { icon: faCrop,             label: 'Thumbnail Generator',   desc: 'Plattform-optimierte Dimensionen (8 Plattformen)' },
-  { icon: faMagnifyingGlass,  label: 'Rule Engine (C++)',     desc: 'Substring-Matching, Phase 2: LLVM JIT / Regex' },
-  { icon: faBookOpen,         label: 'User Rules',            desc: 'Lernfähig — eigene Wörter & Phrases' },
+const CAPABILITIES: Array<{ icon: IconDefinition; label: string; desc: string; detail: string }> = [
+  {
+    icon: faCode,
+    label: 'Markdown → HTML',
+    desc: 'cmark-kompatibel via comrak (Rust)',
+    detail: 'Wandelt Markdown-Text in sauberes HTML um — vollständig kompatibel zum CommonMark-Standard. Unterstützt GFM-Erweiterungen: Tabellen, Strikethrough, Tasklisten und Autolinks. Läuft via comrak (Rust-Bibliothek) direkt in der nativen Engine — kein JavaScript, kein Browser-DOM.',
+  },
+  {
+    icon: faFileLines,
+    label: 'Plain Text Extraktion',
+    desc: 'Markdown-Syntax entfernen für AI-Calls',
+    detail: 'Entfernt alle Markdown-Syntax-Zeichen (**, __, #, >, ` usw.) und gibt reinen Fließtext zurück. Wird intern für AI-Calls verwendet, damit das Sprachmodell keinen Markup-Ballast verarbeiten muss — spart Tokens und verbessert die Antwortqualität.',
+  },
+  {
+    icon: faImage,
+    label: 'Image Processing',
+    desc: 'Resize, Convert, Optimize (JPEG/PNG/WebP)',
+    detail: 'Verarbeitet Bilder direkt in der C++-Engine: Skalieren (Fit/Fill), Format-Konvertierung zwischen JPEG, PNG und WebP sowie verlustbehaftete Optimierung mit einstellbarer Qualitätsstufe. Alle Operationen laufen lokal — kein Upload, kein Netzwerk.',
+  },
+  {
+    icon: faCrop,
+    label: 'Thumbnail Generator',
+    desc: 'Plattform-optimierte Dimensionen (8 Plattformen)',
+    detail: 'Erstellt automatisch platform-optimierte Thumbnail-Versionen aus dem ersten Bild im Artikel. Unterstützte Plattformen: LinkedIn (1200×627), Twitter/X (1200×675), YouTube (1280×720), Dev.to (1000×420), Medium (1400×936), Reddit (1200×628), GitHub Blog & Discussion (1200×630).',
+  },
+  {
+    icon: faMagnifyingGlass,
+    label: 'Rule Engine (C++)',
+    desc: 'Substring-Matching, Phase 2: LLVM JIT / Regex',
+    detail: 'Analysiert Text mit einem regelbasierten C++17-Engine: erkennt Passiv, Füllwörter, schwache Wörter, Nominalstil, doppelte Leerzeichen und Ausrufezeichen-Overuse. Jedes Match enthält Position, Konfidenz und Ersetzungsvorschläge. Phase 2 plant LLVM JIT-Kompilierung für Regex-Regeln.',
+  },
+  {
+    icon: faBookOpen,
+    label: 'User Rules',
+    desc: 'Lernfähig — eigene Wörter & Phrases',
+    detail: 'Eigene Wörter und Phrasen, die im Editor über „+ Wort / Phrase lernen" hinzugefügt werden, landen als User Rules direkt in der C++-Engine. Die Engine lernt deinen persönlichen Schreibstil: welche Begriffe du meidest, welche Alternativen du bevorzugst — persistent im lokalen Speicher.',
+  },
 ];
 
 export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProps) {
   const [version, setVersion] = useState<string | null>(null);
   const [feedbackStats, setFeedbackStats] = useState(() => getFeedbackStats(getFeedback()));
+  const [hoveredCap, setHoveredCap] = useState<string | null>(null);
   const userRules = getUserRules();
 
   useEffect(() => {
@@ -61,6 +92,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
       onClose={onClose}
       size="md"
       theme="paper"
+      zIndex={20000}
       title="ZenEngine"
       subtitle={
         <span style={{ ...mono, fontSize: 11, color: gold, opacity: 0.8 }}>
@@ -86,22 +118,32 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
             Fähigkeiten
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            {CAPABILITIES.map(cap => (
-              <div key={cap.label} style={{
-                padding: '8px 12px',
-                borderRadius: 6,
-                border: `1px solid ${border}`,
-                background: 'rgba(172,142,102,0.04)',
-              }}>
-                <div style={{ ...mono, fontSize: 10, color: '#333', fontWeight: 600, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <FontAwesomeIcon icon={cap.icon} style={{ color: gold, fontSize: 10, width: 12, flexShrink: 0 }} />
-                  {cap.label}
+            {CAPABILITIES.map(cap => {
+              const isHovered = hoveredCap === cap.label;
+              return (
+                <div
+                  key={cap.label}
+                  onMouseEnter={() => setHoveredCap(cap.label)}
+                  onMouseLeave={() => setHoveredCap(null)}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: 6,
+                    border: `1px solid ${isHovered ? gold : border}`,
+                    background: isHovered ? 'rgba(172,142,102,0.09)' : 'rgba(172,142,102,0.04)',
+                    transition: 'border-color 0.15s, background 0.15s',
+                    cursor: 'default',
+                  }}
+                >
+                  <div style={{ ...mono, fontSize: 10, color: '#333', fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <FontAwesomeIcon icon={cap.icon} style={{ color: gold, fontSize: 10, width: 12, flexShrink: 0 }} />
+                    {cap.label}
+                  </div>
+                  <div style={{ ...mono, fontSize: 9, color: isHovered ? '#555' : '#888', lineHeight: 1.6, transition: 'color 0.15s' }}>
+                    {isHovered ? cap.detail : cap.desc}
+                  </div>
                 </div>
-                <div style={{ ...mono, fontSize: 9, color: '#888', lineHeight: 1.5 }}>
-                  {cap.desc}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 

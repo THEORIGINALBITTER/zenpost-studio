@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { isTauri, invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-dialog';
 import JSZip from 'jszip';
 import {
   loadZenStudioSettings,
@@ -25,6 +27,7 @@ export const ZenApiSettingsContent = () => {
     name: 'Server A',
     contentServerApiUrl: settings.contentServerApiUrl,
     contentServerApiKey: settings.contentServerApiKey,
+    contentServerLocalCachePath: settings.contentServerLocalCachePath,
     contentServerApiEndpoint: settings.contentServerApiEndpoint,
     contentServerImageUploadEndpoint: settings.contentServerImageUploadEndpoint,
     contentServerPingEndpoint: settings.contentServerPingEndpoint,
@@ -39,6 +42,7 @@ export const ZenApiSettingsContent = () => {
       activeServerIndex: idx,
       contentServerApiUrl: server.contentServerApiUrl,
       contentServerApiKey: server.contentServerApiKey,
+      contentServerLocalCachePath: server.contentServerLocalCachePath,
       contentServerApiEndpoint: server.contentServerApiEndpoint,
       contentServerImageUploadEndpoint: server.contentServerImageUploadEndpoint,
       contentServerPingEndpoint: server.contentServerPingEndpoint,
@@ -55,6 +59,7 @@ export const ZenApiSettingsContent = () => {
       name: servers.length < 26 ? `Server ${letter}` : `Server ${servers.length + 1}`,
       contentServerApiUrl: null,
       contentServerApiKey: null,
+      contentServerLocalCachePath: null,
       contentServerApiEndpoint: '/save_articles.php',
       contentServerImageUploadEndpoint: '/upload_images.php',
       contentServerPingEndpoint: '/ping.php',
@@ -69,6 +74,7 @@ export const ZenApiSettingsContent = () => {
       activeServerIndex: newIdx,
       contentServerApiUrl: null,
       contentServerApiKey: null,
+      contentServerLocalCachePath: null,
       contentServerApiEndpoint: '/save_articles.php',
       contentServerImageUploadEndpoint: '/upload_images.php',
       contentServerPingEndpoint: '/ping.php',
@@ -90,6 +96,7 @@ export const ZenApiSettingsContent = () => {
       activeServerIndex: safeIdx,
       contentServerApiUrl: activeServer.contentServerApiUrl,
       contentServerApiKey: activeServer.contentServerApiKey,
+      contentServerLocalCachePath: activeServer.contentServerLocalCachePath,
       contentServerApiEndpoint: activeServer.contentServerApiEndpoint,
       contentServerImageUploadEndpoint: activeServer.contentServerImageUploadEndpoint,
       contentServerPingEndpoint: activeServer.contentServerPingEndpoint,
@@ -106,6 +113,7 @@ export const ZenApiSettingsContent = () => {
     const flatPatch: Partial<ZenStudioSettings> = { servers: newServers };
     if ('contentServerApiUrl' in patch) flatPatch.contentServerApiUrl = patch.contentServerApiUrl;
     if ('contentServerApiKey' in patch) flatPatch.contentServerApiKey = patch.contentServerApiKey;
+    if ('contentServerLocalCachePath' in patch) flatPatch.contentServerLocalCachePath = patch.contentServerLocalCachePath;
     if ('contentServerApiEndpoint' in patch) flatPatch.contentServerApiEndpoint = patch.contentServerApiEndpoint;
     if ('contentServerImageUploadEndpoint' in patch) flatPatch.contentServerImageUploadEndpoint = patch.contentServerImageUploadEndpoint;
     if ('contentServerPingEndpoint' in patch) flatPatch.contentServerPingEndpoint = patch.contentServerPingEndpoint;
@@ -154,6 +162,29 @@ export const ZenApiSettingsContent = () => {
   "content": "Fehlerfall ohne Pflichtfelder"
 }`;
 
+  // In Tauri nutzen wir den nativen http_fetch-Command (reqwest, kein CSP/CORS-Block).
+  // Im Web fällt es auf normalen browser fetch zurück.
+  const zenFetch = async (
+    url: string,
+    method: string,
+    headers: Record<string, string>,
+    body?: string
+  ): Promise<{ status: number; text: string }> => {
+    if (isTauri()) {
+      const res = await invoke<{ status: number; body: string }>('http_fetch', {
+        request: { url, method, headers, body: body ?? null },
+      });
+      return { status: res.status, text: res.body };
+    }
+    const response = await fetch(url, {
+      method,
+      headers,
+      ...(body ? { body } : {}),
+    });
+    const text = await response.text().catch(() => '');
+    return { status: response.status, text };
+  };
+
   const handleTestConnection = async () => {
     setTesting(true);
     setTestResult(null);
@@ -164,20 +195,14 @@ export const ZenApiSettingsContent = () => {
         setResult('Fehler: API URL oder Ping-Endpoint fehlt.', 'error');
         return;
       }
-
-      const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: {
-          ...(settings.contentServerApiKey ? { Authorization: `Bearer ${settings.contentServerApiKey}` } : {}),
-        },
-      });
-
-      const text = await response.text().catch(() => '');
-      if (!response.ok) {
-        setResult(`Fehler ${response.status}: ${text || 'Keine Antwortdetails'}`, 'error');
-        return;
+      const headers: Record<string, string> = {};
+      if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
+      const { status, text } = await zenFetch(targetUrl, 'GET', headers);
+      if (status >= 200 && status < 300) {
+        setResult(`OK: ${text || 'Verbindung erfolgreich'}`, 'success');
+      } else {
+        setResult(`Fehler ${status}: ${text || 'Keine Antwortdetails'}`, 'error');
       }
-      setResult(`OK: ${text || 'Verbindung erfolgreich'}`, 'success');
     } catch (error) {
       setResult(`Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`, 'error');
     } finally {
@@ -196,26 +221,20 @@ export const ZenApiSettingsContent = () => {
       setResult(`Health-Check fehlgeschlagen: ${label} URL fehlt.`, 'error');
       return;
     }
+    const headers: Record<string, string> = {};
+    if (body) headers['Content-Type'] = 'application/json';
+    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
 
-    const response = await fetch(targetUrl, {
-      method,
-      headers: {
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...(settings.contentServerApiKey ? { Authorization: `Bearer ${settings.contentServerApiKey}` } : {}),
-      },
-      ...(body ? { body } : {}),
-    });
-
-    const text = await response.text().catch(() => '');
-    if (response.ok) {
-      setResult(`Health OK: ${label} (${response.status})`, 'success');
+    const { status, text } = await zenFetch(targetUrl, method, headers, body);
+    if (status >= 200 && status < 300) {
+      setResult(`Health OK: ${label} (${status})`, 'success');
       return;
     }
-    if (response.status < 500) {
-      setResult(`Health erreichbar: ${label} (${response.status}) ${text ? `- ${text}` : ''}`.trim(), 'info');
+    if (status < 500) {
+      setResult(`Health erreichbar: ${label} (${status}) ${text ? `- ${text}` : ''}`.trim(), 'info');
       return;
     }
-    setResult(`Health Fehler: ${label} (${response.status}) ${text ? `- ${text}` : ''}`.trim(), 'error');
+    setResult(`Health Fehler: ${label} (${status}) ${text ? `- ${text}` : ''}`.trim(), 'error');
   };
 
   const runHealthCheck = async (key: string, runner: () => Promise<void>) => {
@@ -262,22 +281,15 @@ export const ZenApiSettingsContent = () => {
       setResult('Fehler: API URL oder Upsert-Endpoint fehlt.', 'error');
       return;
     }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
 
-    const response = await fetch(targetUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(settings.contentServerApiKey ? { Authorization: `Bearer ${settings.contentServerApiKey}` } : {}),
-      },
-      body: payload,
-    });
-
-    const text = await response.text().catch(() => '');
-    if (!response.ok) {
-      setResult(`${label} Fehler ${response.status}: ${text || 'Keine Antwortdetails'}`, 'error');
-      return;
+    const { status, text } = await zenFetch(targetUrl, 'POST', headers, payload);
+    if (status >= 200 && status < 300) {
+      setResult(`${label} OK: ${text || 'Erfolgreich gesendet'}`, 'success');
+    } else {
+      setResult(`${label} Fehler ${status}: ${text || 'Keine Antwortdetails'}`, 'error');
     }
-    setResult(`${label} OK: ${text || 'Erfolgreich gesendet'}`, 'success');
   };
 
   const handleSendTestInsert = async () => {
@@ -322,6 +334,36 @@ export const ZenApiSettingsContent = () => {
     }
   };
 
+  const handlePickLocalCachePath = async () => {
+    try {
+      if (isTauri()) {
+        const selected = await open({
+          directory: true,
+          multiple: false,
+          title: 'Lokalen Server-Cache Ordner waehlen',
+          defaultPath: activeServer.contentServerLocalCachePath ?? undefined,
+        });
+        if (typeof selected === 'string' && selected.trim().length > 0) {
+          updateServerField({ contentServerLocalCachePath: selected });
+        }
+        return;
+      }
+
+      const manualPath = window.prompt(
+        'Lokalen Server-Cache Pfad eintragen:',
+        activeServer.contentServerLocalCachePath ?? ''
+      );
+      if (manualPath !== null) {
+        updateServerField({ contentServerLocalCachePath: manualPath.trim() || null });
+      }
+    } catch (error) {
+      setResult(
+        `Ordnerauswahl fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+        'error'
+      );
+    }
+  };
+
   const buildConfigPhp = () => {
     const apiEnabled = !!(settings.contentServerApiKey && settings.contentServerApiKey.trim().length > 0);
     return `<?php\nreturn [\n    'db_host' => 'HIER_DB_HOST',\n    'db_name' => 'HIER_DB_NAME',\n    'db_user' => 'HIER_DB_USER',\n    'db_pass' => 'HIER_DB_PASS',\n    'api_key_enabled' => ${apiEnabled ? 'true' : 'false'},\n    'api_key' => '${(settings.contentServerApiKey ?? '').replace(/'/g, "\\'")}',\n    'image_public_base' => '${(settings.contentServerImageBaseUrl ?? '').replace(/'/g, "\\'")}',\n];\n`;
@@ -362,8 +404,8 @@ export const ZenApiSettingsContent = () => {
   };
 
   return (
-    <div className="w-full flex justify-center" style={{ padding: '24px 24px' }}>
-      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '24px' }}>
+      <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '20px 24px' }}>
           <div style={stepTitleStyle}>1. Server-Paket erstellen</div>
           <button type="button" onClick={handleDownloadServerPackage} disabled={buildingPackage} style={testButtonStyle}>
@@ -444,91 +486,128 @@ export const ZenApiSettingsContent = () => {
           </div>
 
           {/* Server Name */}
-          <div style={miniLabelStyle}>Server Name</div>
-          <input
-            type="text"
-            value={activeServer.name}
-            onChange={(e) => updateServerField({ name: e.target.value })}
-            placeholder="Server Name"
-            style={{ ...textInputStyle, fontWeight: 600 }}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}> </div>
+            <input
+              type="text"
+              value={activeServer.name}
+              onChange={(e) => updateServerField({ name: e.target.value })}
+              placeholder="Server Name API Verzeichnis"
+              style={{ ...textInputStyle, fontWeight: 600 }}
+            />
+          </div>
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666' }}>
+          <div style={fieldHintStyle}>
             Simple Mode: API Key leer lassen. Advanced Mode: API Key in setup.php aktivieren und hier eintragen.
           </div>
 
-          <div style={miniLabelStyle}>API Base URL</div>
-          <input
-            type="text"
-            value={activeServer.contentServerApiUrl ?? ''}
-            onChange={(e) => updateServerField({ contentServerApiUrl: e.target.value })}
-            placeholder="https://dein-server.de"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerApiUrl ?? ''}
+              onChange={(e) => updateServerField({ contentServerApiUrl: e.target.value })}
+              placeholder="https://dein-server.de/api"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>Upsert Endpoint</div>
-          <input
-            type="text"
-            value={activeServer.contentServerApiEndpoint}
-            onChange={(e) => updateServerField({ contentServerApiEndpoint: e.target.value })}
-            placeholder="/save_articles.php"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Upsert Endpoint in der API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerApiEndpoint}
+              onChange={(e) => updateServerField({ contentServerApiEndpoint: e.target.value })}
+              placeholder="/save_articles.php - Bitte hier nur die Datei angeben"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>Upload Endpoint</div>
-          <input
-            type="text"
-            value={activeServer.contentServerImageUploadEndpoint}
-            onChange={(e) => updateServerField({ contentServerImageUploadEndpoint: e.target.value })}
-            placeholder="/upload_images.php"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Upload Endpoint in der API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerImageUploadEndpoint}
+              onChange={(e) => updateServerField({ contentServerImageUploadEndpoint: e.target.value })}
+              placeholder="/upload_images.php"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>Ping Endpoint</div>
-          <input
-            type="text"
-            value={activeServer.contentServerPingEndpoint}
-            onChange={(e) => updateServerField({ contentServerPingEndpoint: e.target.value })}
-            placeholder="/ping.php"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Ping Endpoint in der API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerPingEndpoint}
+              onChange={(e) => updateServerField({ contentServerPingEndpoint: e.target.value })}
+              placeholder="/ping.php"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>List Endpoint</div>
-          <input
-            type="text"
-            value={activeServer.contentServerListEndpoint}
-            onChange={(e) => updateServerField({ contentServerListEndpoint: e.target.value })}
-            placeholder="/articles.php"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>List Endpoint in der API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerListEndpoint}
+              onChange={(e) => updateServerField({ contentServerListEndpoint: e.target.value })}
+              placeholder="/articles.php"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>Delete Endpoint</div>
-          <input
-            type="text"
-            value={activeServer.contentServerDeleteEndpoint}
-            onChange={(e) => updateServerField({ contentServerDeleteEndpoint: e.target.value })}
-            placeholder="/delete_articles.php"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Delete Endpoint in der API Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerDeleteEndpoint}
+              onChange={(e) => updateServerField({ contentServerDeleteEndpoint: e.target.value })}
+              placeholder="/delete_articles.php"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>API Key</div>
-          <input
-            type="password"
-            value={activeServer.contentServerApiKey ?? ''}
-            onChange={(e) => updateServerField({ contentServerApiKey: e.target.value })}
-            placeholder="API Key"
-            style={textInputStyle}
-          />
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>API Key</div>
+            <input
+              type="password"
+              value={activeServer.contentServerApiKey ?? ''}
+              onChange={(e) => updateServerField({ contentServerApiKey: e.target.value })}
+              placeholder="API Key"
+              style={textInputStyle}
+            />
+          </div>
 
-          <div style={miniLabelStyle}>Image Base URL (optional)</div>
-          <input
-            type="text"
-            value={activeServer.contentServerImageBaseUrl ?? ''}
-            onChange={(e) => updateServerField({ contentServerImageBaseUrl: e.target.value })}
-            placeholder="Bild-Basis URL (optional), z. B. https://denisbitter.de/images"
-            style={textInputStyle}
-          />
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666' }}>
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Lokaler Server-Cache Pfad</div>
+            <div style={inputRowStyle}>
+              <input
+                type="text"
+                value={activeServer.contentServerLocalCachePath ?? ''}
+                onChange={(e) => updateServerField({ contentServerLocalCachePath: e.target.value })}
+                placeholder="/Users/deinname/ZenStudio/server-a-cache"
+                style={{ ...textInputStyle, flex: 1 }}
+              />
+              <button type="button" onClick={() => { void handlePickLocalCachePath(); }} style={inlineButtonStyle}>
+                Ordner waehlen
+              </button>
+            </div>
+          </div>
+          <div style={fieldHintStyle}>
+            Beim Server-Speichern wird zuerst lokal als slug.md in diesem Ordner gespeichert und danach synchronisiert.
+          </div>
+
+          <div style={fieldGroupStyle}>
+            <div style={miniLabelStyle}>Image Base URL (optional)in der Base URL deines Servers</div>
+            <input
+              type="text"
+              value={activeServer.contentServerImageBaseUrl ?? ''}
+              onChange={(e) => updateServerField({ contentServerImageBaseUrl: e.target.value })}
+              placeholder="Bild-Basis URL (optional), z. B. https://name.de/images"
+              style={textInputStyle}
+            />
+          </div>
+          <div style={fieldHintStyle}>
             Relative Bildpfade aus Post-Metadaten werden beim Server-Export gegen diese Basis-URL aufgelöst.
           </div>
 
@@ -660,6 +739,43 @@ const textInputStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '11px',
   color: '#222',
+};
+
+const fieldGroupStyle: React.CSSProperties = {
+  width: '100%',
+  maxWidth: '720px',
+  alignSelf: 'center',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '6px',
+};
+
+const inputRowStyle: React.CSSProperties = {
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px',
+};
+
+const fieldHintStyle: React.CSSProperties = {
+  width: '100%',
+  maxWidth: '720px',
+  alignSelf: 'center',
+  fontFamily: 'IBM Plex Mono, monospace',
+  fontSize: '10px',
+  color: '#666',
+};
+
+const inlineButtonStyle: React.CSSProperties = {
+  border: '1px solid #3A3A3A',
+  borderRadius: '8px',
+  padding: '10px 12px',
+  fontFamily: 'IBM Plex Mono, monospace',
+  fontSize: '11px',
+  color: '#AC8E66',
+  backgroundColor: '#151515',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 };
 
 const testButtonStyle: React.CSSProperties = {

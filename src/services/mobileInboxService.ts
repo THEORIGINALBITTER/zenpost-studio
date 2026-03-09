@@ -2,6 +2,7 @@ import { readDir, readTextFile, readFile, writeFile, writeTextFile, exists, mkdi
 import { homeDir, join } from "@tauri-apps/api/path";
 import { isTauri } from "@tauri-apps/api/core";
 import JSZip from "jszip";
+import ZenEngine, { type OptimizeOptions } from "./zenEngineService";
 
 export type MobileDraft = {
   id: string;
@@ -371,4 +372,81 @@ export async function loadMobileDrafts(): Promise<{ drafts: MobileDraft[]; baseP
     basePath,
     importedPackages,
   };
+}
+
+// ─── Image Optimization für Mobile → Desktop/Web Transfer ────────────────────
+
+const DEFAULT_MOBILE_IMAGE_OPTIONS: OptimizeOptions = {
+  max_width: 1920,
+  max_height: 1920,
+  output_format: 'jpeg',
+  quality: 88,
+};
+
+/** base64-String → optimierte data URL via ZenEngine (ein IPC-Call) */
+async function optimizeBase64(base64: string, options: OptimizeOptions): Promise<string> {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const result = await ZenEngine.imageOptimize(bytes, options);
+  return result.data_url;
+}
+
+/**
+ * Lädt das Foto eines Mobile Drafts und optimiert es via ZenEngine.
+ * Gibt eine optimierte base64 data URL zurück — bereit für Content AI.
+ *
+ * Unterstützt:
+ * - Tauri Desktop: liest Datei vom Dateisystem (photoUri-Pfad)
+ * - Web: liest aus webMobileInboxFiles (Browser File API)
+ * - Eingebettete base64-Bilder im Draft-Text
+ *
+ * @returns Optimierte data URL oder null wenn kein Bild vorhanden
+ */
+export async function optimizeMobileDraftPhoto(
+  draft: MobileDraft,
+  basePath: string,
+  options: OptimizeOptions = DEFAULT_MOBILE_IMAGE_OPTIONS,
+): Promise<string | null> {
+  try {
+    // 1. Eingebettetes base64-Bild im Draft-Text (hat Vorrang)
+    if (draft.hasEmbeddedImage) {
+      if (isTauri() && draft.filePath) {
+        const rawContent = await readTextFile(draft.filePath).catch(() => null);
+        if (rawContent) {
+          const embeddedMatch = rawContent.match(
+            /!\[[^\]]*\]\((data:image\/[a-zA-Z0-9.+-]+;base64,([A-Za-z0-9+/=]+))\)/
+          );
+          if (embeddedMatch) {
+            return await optimizeBase64(embeddedMatch[2], options);
+          }
+        }
+      }
+      if (!isTauri() && draft.webPhotoDataUrl) {
+        const base64 = draft.webPhotoDataUrl.split(',')[1];
+        if (base64) return await optimizeBase64(base64, options);
+      }
+    }
+
+    // 2. Externes Foto via photoUri
+    if (!draft.photoUri) return null;
+
+    if (!isTauri()) {
+      // Web: via webPhotoDataUrl oder File-Lookup
+      const dataUrl = draft.webPhotoDataUrl ?? (await getWebMobilePhotoDataUrl(draft.photoUri));
+      if (!dataUrl) return null;
+      const base64 = dataUrl.split(',')[1];
+      if (!base64) return dataUrl;
+      return await optimizeBase64(base64, options);
+    }
+
+    // Tauri Desktop: Datei vom Dateisystem lesen
+    const fullPath = await join(basePath, draft.photoUri);
+    const bytes = await readFile(fullPath);
+    const result = await ZenEngine.imageOptimize(bytes, options);
+    return result.data_url;
+  } catch {
+    // Fallback: unoptimierte Version zurückgeben
+    return draft.webPhotoDataUrl ?? null;
+  }
 }

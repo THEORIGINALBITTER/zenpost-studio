@@ -76,7 +76,6 @@ const InputField = ({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="font-mono text-[#151515] focus:border-[#D4AF78] focus:outline-none"
         style={{
           width: '100%',
           padding: '14px 16px',
@@ -88,6 +87,9 @@ const InputField = ({
           fontSize: '9px',
           transition: 'border-color 0.2s',
           boxSizing: 'border-box',
+          fontFamily: 'IBM Plex Mono, monospace',
+          color: '#151515',
+          outline: 'none',
         }}
       />
     </div>
@@ -101,10 +103,12 @@ export const ZenSocialMediaSettingsContent = ({
 }: ZenSocialMediaSettingsContentProps) => {
   const [config, setConfig] = useState<SocialMediaConfig>({});
   const [activeTab, setActiveTab] = useState<TabType>('twitter');
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     const loadedConfig = loadSocialConfig();
     setConfig(loadedConfig);
+    setIsHydrated(true);
   }, []);
 
   useEffect(() => {
@@ -115,8 +119,9 @@ export const ZenSocialMediaSettingsContent = ({
 
   // Auto-save on changes
   useEffect(() => {
+    if (!isHydrated) return;
     saveSocialConfig(config);
-  }, [config]);
+  }, [config, isHydrated]);
 
   const updateTwitterConfig = (field: string, value: string) => {
     setConfig((prev) => ({
@@ -221,8 +226,8 @@ export const ZenSocialMediaSettingsContent = ({
   };
 
   return (
-    <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
-    <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '32px' }}>
+    <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
     <div style={{ padding: '24px 32px',  fontSize: '11px', }}>
       <div style={{ marginBottom: '24px' }}>
         {showMissingConfigHint && missingPlatformLabel && (
@@ -258,7 +263,6 @@ export const ZenSocialMediaSettingsContent = ({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className="font-mono transition-colors"
             style={{
               padding: '10px 16px',
               fontSize: '11px',
@@ -267,6 +271,8 @@ export const ZenSocialMediaSettingsContent = ({
               border: 'none',
               cursor: 'pointer',
               color: activeTab === tab.id ? '#AC8E66' : '#777',
+              fontFamily: 'IBM Plex Mono, monospace',
+              transition: 'color 0.2s',
             }}
           >
             <FontAwesomeIcon icon={tab.icon} style={{ marginRight: '8px' }} />
@@ -304,7 +310,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'twitter' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >
@@ -366,7 +372,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'reddit' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >
@@ -428,7 +434,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'linkedin' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >
@@ -474,7 +480,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'devto' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >
@@ -504,7 +510,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'medium' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >
@@ -534,7 +540,7 @@ export const ZenSocialMediaSettingsContent = ({
       {activeTab === 'github' && (
         <div
           style={{
-            maxWidth: '600px',
+            maxWidth: '560px',
             margin: '0 auto',
           }}
         >

@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import {
+  loadSocialConfig, isPlatformConfigured,
+  postToDevTo, postToMedium, postToLinkedIn,
+  type SocialPlatform, type SocialMediaConfig,
+} from '../../../../services/socialMediaService';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
+import ZenEngine from '../../../../services/zenEngineService';
 import { marked } from 'marked';
 import { Document as DocxDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import JSZip from 'jszip';
@@ -156,6 +162,14 @@ const TONE_OPTIONS: ToneOption[] = [
   { value: 'enthusiastic', label: 'Enthusiastic', description: 'Begeistert, motivierend, energisch' },
 ];
 
+// Map PublishOption IDs to SocialPlatform (for API publishing)
+const SOCIAL_PLATFORM_IDS: Record<string, SocialPlatform> = {
+  'medium':      'medium',
+  'devto':       'devto',
+  'linkedin':    'linkedin',
+  'github-gist': 'github',
+};
+
 // Map PublishOption IDs to ContentPlatform
 const PLATFORM_MAP: Record<string, ContentPlatform> = {
   'medium': 'medium',
@@ -221,6 +235,10 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [showToneSelector, setShowToneSelector] = useState(false);
   const [pendingPlatform, setPendingPlatform] = useState<PublishOption | null>(null);
   const [activeAccordion, setActiveAccordion] = useState<'quick' | 'additional' | 'publish'>('quick');
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishedId, setPublishedId] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
+  const socialConfig = useMemo<SocialMediaConfig>(() => loadSocialConfig(), [isOpen]);
   const { openExternal } = useOpenExternal();
 
   const createPdfBytes = async (text: string) => {
@@ -1158,7 +1176,11 @@ ${renderedHtml}
           extension = 'pdf';
           break;
         case 'text':
-          fileContent = markdownToPlainText(normalizedContent);
+          try {
+            fileContent = isTauri() ? await ZenEngine.markdownToPlain(normalizedContent) : markdownToPlainText(normalizedContent);
+          } catch {
+            fileContent = markdownToPlainText(normalizedContent);
+          }
           extension = 'txt';
           break;
         case 'docx':
@@ -1276,7 +1298,67 @@ ${renderedHtml}
   };
 
   const handlePublish = async (option: PublishOption) => {
-    // Copy content to clipboard first
+    const socialPlatformId = SOCIAL_PLATFORM_IDS[option.id];
+
+    if (socialPlatformId && isPlatformConfigured(socialPlatformId, socialConfig)) {
+      setPublishingId(option.id);
+      setPublishError(null);
+      try {
+        const title = documentName || 'Untitled';
+        let result: { success: boolean; url?: string; error?: string };
+
+        if (option.id === 'devto') {
+          result = await postToDevTo(
+            { title, body_markdown: content, published: false, tags: [] },
+            socialConfig.devto!,
+          );
+        } else if (option.id === 'medium') {
+          result = await postToMedium(
+            { title, content, contentFormat: 'markdown', publishStatus: 'draft' },
+            socialConfig.medium!,
+          );
+        } else if (option.id === 'linkedin') {
+          result = await postToLinkedIn(
+            { text: content.substring(0, 3000) },
+            socialConfig.linkedin!,
+          );
+        } else if (option.id === 'github-gist') {
+          const filename = `${title.replace(/[^a-z0-9]/gi, '_')}.md`;
+          const resp = await fetch('https://api.github.com/gists', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${socialConfig.github!.accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ description: title, public: false, files: { [filename]: { content } } }),
+          });
+          if (!resp.ok) throw new Error('Gist konnte nicht erstellt werden');
+          const gistData = await resp.json();
+          result = { success: true, url: gistData.html_url };
+        } else {
+          result = { success: false, error: 'Nicht implementiert' };
+        }
+
+        if (result.success) {
+          setPublishedId(option.id);
+          if (result.url) {
+            try { await openExternal(result.url); } catch { window.open(result.url, '_blank', 'noopener,noreferrer'); }
+          }
+          setTimeout(() => setPublishedId(null), 3000);
+        } else {
+          setPublishError({ id: option.id, message: result.error ?? 'Unbekannter Fehler' });
+          setTimeout(() => setPublishError(null), 4000);
+        }
+      } catch (err) {
+        setPublishError({ id: option.id, message: err instanceof Error ? err.message : 'Fehler beim Posten' });
+        setTimeout(() => setPublishError(null), 4000);
+      } finally {
+        setPublishingId(null);
+      }
+      return;
+    }
+
+    // Fallback: copy + open
     try {
       await navigator.clipboard.writeText(content);
       setCopied(true);
@@ -1284,15 +1366,9 @@ ${renderedHtml}
     } catch (err) {
       console.error('Failed to copy:', err);
     }
-
-    // Open the platform's posting page
     try {
-      console.log('[ZenExportModal] Opening URL:', option.url);
       await openExternal(option.url);
-      console.log('[ZenExportModal] URL opened successfully');
     } catch (err) {
-      console.error('[ZenExportModal] Failed to open URL:', err);
-      // Fallback: try window.open directly
       window.open(option.url, '_blank', 'noopener,noreferrer');
     }
   };
@@ -1593,7 +1669,7 @@ ${renderedHtml}
             color: '#777',
             marginBottom: '16px',
           }}>
-            Klicke auf eine Plattform, um den Content zu kopieren und die Posting-Seite zu öffnen
+            Plattformen mit API-Key (goldener Punkt) werden direkt gepostet. Andere: Content kopieren & Seite öffnen.
           </p>
 
           <div style={{
@@ -1601,51 +1677,74 @@ ${renderedHtml}
             gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '12px',
           }}>
-            {PUBLISH_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                onClick={() => handlePublish(option)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '12px',
-                  padding: '24px 16px',
-                  backgroundColor: 'transparent',
-                  border: '0.5px solid #3A3A3A',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#555555';
-                  e.currentTarget.style.backgroundColor = '#555555' + '20';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#3A3A3A';
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                }}
-              >
-                <FontAwesomeIcon
-                  icon={option.icon}
+            {PUBLISH_OPTIONS.map((option) => {
+              const socialPid = SOCIAL_PLATFORM_IDS[option.id];
+              const isConfigured = !!(socialPid && isPlatformConfigured(socialPid, socialConfig));
+              const isPublishing = publishingId === option.id;
+              const isPublished = publishedId === option.id;
+              const hasError = publishError?.id === option.id;
+              const borderColor = isPublished ? '#4caf50' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.5)' : '#3A3A3A';
+              const iconColor = isPublished ? '#4caf50' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
+              return (
+                <button
+                  key={option.id}
+                  onClick={() => !isPublishing && handlePublish(option)}
                   style={{
-                    fontSize: '32px',
-                    color: '#555',
+                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '12px',
+                    padding: '24px 16px',
+                    backgroundColor: isPublished ? 'rgba(76,175,80,0.07)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent',
+                    border: `0.5px solid ${borderColor}`,
+                    borderRadius: '12px',
+                    cursor: isPublishing ? 'default' : 'pointer',
+                    transition: 'all 0.2s',
+                    opacity: isPublishing ? 0.75 : 1,
                   }}
-                />
-                <span style={{
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '11px',
-                  color: '#555',
-                  fontWeight: 'normal'
-                }}>
-                  {option.label}
-                </span>
-              </button>
-            ))}
+                  onMouseEnter={(e) => {
+                    if (isPublishing) return;
+                    e.currentTarget.style.borderColor = isPublished ? '#4caf50' : isConfigured ? '#AC8E66' : '#555555';
+                    e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.12)' : isConfigured ? 'rgba(172,142,102,0.1)' : '#55555520';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = borderColor;
+                    e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.07)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                  }}
+                >
+                  {/* Configured indicator dot */}
+                  {isConfigured && !isPublishing && !isPublished && (
+                    <span style={{
+                      position: 'absolute', top: 8, right: 8,
+                      width: 6, height: 6, borderRadius: '50%',
+                      backgroundColor: '#AC8E66',
+                    }} />
+                  )}
+                  <FontAwesomeIcon
+                    icon={isPublishing ? faSpinner : isPublished ? faCheck : option.icon}
+                    spin={isPublishing}
+                    style={{ fontSize: '32px', color: iconColor }}
+                  />
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '11px',
+                    color: isPublished ? '#4caf50' : hasError ? '#e05c5c' : iconColor,
+                    fontWeight: isConfigured ? 500 : 'normal',
+                  }}>
+                    {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : hasError ? 'Fehler' : option.label}
+                  </span>
+                  {hasError && (
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', textAlign: 'center', lineHeight: 1.4 }}>
+                      {publishError!.message.substring(0, 45)}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
           </div>
             </div>
           )}

@@ -3,8 +3,8 @@
  * Unterstützt mehrere AI-Provider
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import ZenEngine from './zenEngineService';
 
 interface RustHttpResponse {
   status: number;
@@ -604,7 +604,7 @@ export function getAvailableProviders(): Array<{
   return [
     {
       value: 'auto',
-      label: '✨ Auto (KI wählt)',
+      label: 'Auto (KI wählt selbst)',
       requiresApiKey: false,
     },
     {
@@ -998,6 +998,9 @@ async function callAIForTransform(
   };
 }
 
+// Platforms where plain text is better input than raw Markdown
+const TEXT_ONLY_PLATFORMS: ContentPlatform[] = ['linkedin', 'twitter', 'reddit', 'youtube'];
+
 /**
  * Main Content Transformation Function
  */
@@ -1033,8 +1036,17 @@ export async function transformContent(
     autoSelectedModel = `${autoSelectResult.reason}`;
   }
 
+  // For text-only platforms: strip Markdown syntax before building the prompt.
+  // LinkedIn/Twitter/Reddit/YouTube don't render Markdown — raw ##, ** etc. are noise for the AI.
+  let promptContent = content;
+  if (isTauri() && TEXT_ONLY_PLATFORMS.includes(transformConfig.platform)) {
+    try {
+      promptContent = await ZenEngine.markdownToPlain(content);
+    } catch { /* silent fallback to raw content */ }
+  }
+
   // Build prompt
-  const prompt = buildTransformPrompt(content, transformConfig);
+  const prompt = buildTransformPrompt(promptContent, transformConfig);
 
   console.log(`[transformContent] Platform: ${transformConfig.platform}`);
   console.log(`[transformContent] Prompt preview (first 300 chars):`, prompt.substring(0, 300));
@@ -1320,9 +1332,25 @@ export async function improveText(
   const style = options?.style || 'general';
   const improvementInstructions = getImprovementInstructions(style, options?.customInstruction);
 
+  // ZenEngine rule analysis: enrich the prompt with concrete weaknesses found in the text.
+  // Only runs in Tauri (native engine); silently skipped in web mode.
+  let analysisHints = '';
+  if (isTauri()) {
+    try {
+      const analysis = await ZenEngine.analyzeText(content);
+      if (analysis.suggestions.length > 0) {
+        const hints = analysis.suggestions
+          .slice(0, 5)
+          .map(s => `- ${s.suggestion}`)
+          .join('\n');
+        analysisHints = `\nKonkrete Schwachstellen (automatisch erkannt):\n${hints}\n`;
+      }
+    } catch { /* silent fallback */ }
+  }
+
   const prompt = `Du bist ein professioneller Lektor und Content-Experte. Verbessere den folgenden Text.
 ${improvementInstructions}
-
+${analysisHints}
 Wichtige Regeln:
 - Behalte alle Markdown-Formatierungen bei
 - Behalte die Kernaussage und Bedeutung bei

@@ -84,6 +84,36 @@ export function markdownToEditorJS(markdown: string): EditorJSData {
       continue;
     }
 
+    // CTA [CTA: Text](url)
+    const ctaMatch = trimmedLine.match(/^\[CTA:\s*(.+?)\]\((.+?)\)\s*$/i);
+    if (ctaMatch) {
+      blocks.push({
+        id: generateBlockId(),
+        type: 'ctaBlock',
+        data: {
+          text: ctaMatch[1] ?? '',
+          url: ctaMatch[2] ?? '',
+        },
+      });
+      i++;
+      continue;
+    }
+
+    // Markdown link [text](url)
+    const linkMatch = trimmedLine.match(/^\[(.+?)\]\((.+?)\)\s*$/);
+    if (linkMatch) {
+      blocks.push({
+        id: generateBlockId(),
+        type: 'linkBlock',
+        data: {
+          text: linkMatch[1] ?? '',
+          url: linkMatch[2] ?? '',
+        },
+      });
+      i++;
+      continue;
+    }
+
     // Listen (unordered)
     if (trimmedLine.match(/^[-*+]\s+/)) {
       const items: string[] = [];
@@ -257,6 +287,11 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
   }
 
   const markdownLines: string[] = [];
+  const normalizeUrlValue = (url: string) =>
+    String(url ?? '')
+      .replace(/[\u200B-\u200D\uFEFF]/g, '')
+      .replace(/\s+/g, '')
+      .trim();
   const normalizeInlineText = (text: string) => {
     const convertOrderedLists = (input: string) =>
       input.replace(/<ol(\s+[^>]*)?>([\s\S]*?)<\/ol>/gi, (_match, _attrs, inner) => {
@@ -377,6 +412,49 @@ export function editorJSToMarkdown(data: EditorJSData | string): string {
           markdownLines.push(''); // Leerzeile nach Bild
         }
         break;
+
+      case 'linkBlock': {
+        const linkUrl = normalizeUrlValue(block.data?.url || '');
+        const linkText = normalizeInlineText(block.data?.text || linkUrl);
+        if (linkUrl) {
+          markdownLines.push(`[${linkText}](${linkUrl})`);
+          markdownLines.push('');
+        }
+        break;
+      }
+
+      case 'ctaBlock': {
+        const ctaUrl = normalizeUrlValue(block.data?.url || '');
+        const ctaText = normalizeInlineText(block.data?.text || 'Mehr erfahren');
+        if (ctaUrl) {
+          markdownLines.push(`[CTA: ${ctaText}](${ctaUrl})`);
+          markdownLines.push('');
+        }
+        break;
+      }
+
+      case 'cta': {
+        const ctaUrl = normalizeUrlValue(block.data?.url || '');
+        const ctaText = normalizeInlineText(block.data?.text || block.data?.label || 'Mehr erfahren');
+        if (ctaUrl) {
+          markdownLines.push(`[CTA: ${ctaText}](${ctaUrl})`);
+          markdownLines.push('');
+        }
+        break;
+      }
+
+      case 'youtube':
+      case 'embed':
+      case 'video': {
+        const embedUrl = normalizeUrlValue(
+          block.data?.url || block.data?.embed || block.data?.src || block.data?.file?.url || ''
+        );
+        if (embedUrl) {
+          markdownLines.push(`[YouTube: ${embedUrl}](${embedUrl})`);
+          markdownLines.push('');
+        }
+        break;
+      }
 
       case 'warning':
       case 'alert':

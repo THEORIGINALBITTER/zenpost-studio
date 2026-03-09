@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-
+import { useState } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 
@@ -9,27 +8,10 @@ interface ZenGeneratingModalProps {
   onClose?: () => void;
 }
 
+const mono = 'IBM Plex Mono, monospace';
+
 export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGeneratingModalProps) {
-  const [progress, setProgress] = useState(0);
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setProgress(0);
-      setShowAbortConfirm(false);
-      return;
-    }
-
-    // Simulate progress (fake progress for visual feedback)
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= 95) return prev; // Stop at 95% (never reach 100% until done)
-        return prev + Math.random() * 3;
-      });
-    }, 200);
-
-    return () => clearInterval(interval);
-  }, [isOpen]);
 
   const handleRequestClose = () => {
     if (!onClose) return;
@@ -40,229 +22,125 @@ export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGenerat
     setShowAbortConfirm(false);
     onClose?.();
   };
+
   return (
     <>
       <ZenModal
         isOpen={isOpen}
         onClose={handleRequestClose}
         showCloseButton={true}
-        size='xl'
-       
+        size="sm"
       >
+        {/* Dark preloader panel */}
         <div
           style={{
-            padding: '48px 32px',
-            textAlign: 'center',
-            border: '#555'
+            background: 'linear-gradient(0deg, #0b0b0b 0%, #171717 100%)',
+            borderRadius: '0 0 12px 12px',
+            padding: '52px 32px 44px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 28,
           }}
         >
-          {/* AI Spinner Animation */}
-          <div
-            style={{
-              position: 'relative',
-              width: '120px',
-              height: '120px',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              marginBottom: '32px',
-            }}
-          >
-            {/* Outer Gear */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '0',
-                left: '0',
-                width: '120px',
-                height: '120px',
-                border: '1px dotted #AC8E66',
-                borderRadius: '50%',
-                borderStyle: 'dashed',
-                animation: 'spin-slow 4s linear infinite',
-              }}
-            />
+          {/* Doc stack — identical to HTML preloader, scaled up a bit */}
+          <div className="zgen-doc-stack">
+            <div className="zgen-doc zgen-doc-back" />
+            <div className="zgen-doc zgen-doc-mid" />
+            <div className="zgen-doc zgen-doc-front">
+              <div className="zgen-doc-line" />
+              <div className="zgen-doc-line" />
+              <div className="zgen-doc-line" />
+              <div className="zgen-doc-line" />
+            </div>
+          </div>
 
-            {/* Middle Gear */}
+          {/* Text */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
             <div
               style={{
-                position: 'absolute',
-                top: '15px',
-                left: '15px',
-                width: '90px',
-                height: '90px',
-                border: '3px solid #AC8E66',
-                borderRadius: '50%',
-                borderTopColor: 'transparent',
-                borderRightColor: 'transparent',
-                animation: 'spin-reverse 4s linear infinite',
-              }}
-            />
-
-            {/* Inner Core - Pulsing with Progress */}
-            <div
-              style={{
-                position: 'absolute',
-                top: '35px',
-                left: '35px',
-                width: '50px',
-                height: '50px',
-                backgroundColor: '#AC8E66',
-                borderRadius: '50%',
-                animation: 'pulse 2s ease-in-out infinite',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '14px',
-                fontWeight: 'bold',
-                color: '#1a1a1a',
-                fontFamily: 'monospace',
+                fontFamily: mono,
+                fontSize: 13,
+                fontWeight: 500,
+                letterSpacing: '0.12em',
+                color: '#AC8E66',
+                textTransform: 'uppercase',
               }}
             >
-              {Math.round(progress)}%
+              ZenPost Studio
             </div>
-
-            {/* Orbiting Dots */}
             <div
               style={{
-                position: 'absolute',
-                top: '0',
-                left: '57px',
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#AC8E66',
-                borderRadius: '50%',
-                animation: 'orbit 3s linear infinite',
+                fontFamily: mono,
+                fontSize: 9,
+                letterSpacing: '0.08em',
+                color: 'rgba(172,142,102,0.45)',
               }}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                top: '57px',
-                right: '0',
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#AC8E66',
-                borderRadius: '50%',
-                animation: 'orbit 3s linear infinite 0.75s',
-              }}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '0',
-                left: '57px',
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#AC8E66',
-                borderRadius: '50%',
-                animation: 'orbit 3s linear infinite 1.5s',
-              }}
-            />
-            <div
-              style={{
-                position: 'absolute',
-                top: '57px',
-                left: '0',
-                width: '6px',
-                height: '6px',
-                backgroundColor: '#AC8E66',
-                borderRadius: '50%',
-                
-                animation: 'orbit 3s linear infinite 2.25s',
-              }}
-            />
+            >
+              {templateName ? `Erstelle ${templateName} …` : 'Generiere Inhalt …'}
+            </div>
           </div>
+        </div>
 
-          {/* Message */}
-          <p
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '16px',
-              color: '#555',
-              marginBottom: '8px',
-              animation: 'fade-in-out 2s ease-in-out infinite',
-            }}
-          >
-            Ich mache mich ans Werk...
-          </p>
-
-          <p
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '12px',
-              color: '#999',
-              marginBottom: '32px',
-            }}
-          >
-            {templateName ? `Erstelle ${templateName}` : 'Generiere Dokumentation'}
-          </p>
-
-          {/* Progress Indicator */}
-          <div
-            style={{
-              width: '100%',
-              maxWidth: '300px',
-              height: '4px',
-              backgroundColor: '#1A1A1A',
-              borderRadius: '2px',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              marginBottom: '24px',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                height: '100%',
-                width: '40%',
-                backgroundColor: '#AC8E66',
-                borderRadius: '2px',
-                animation: 'progress-slide 2s ease-in-out infinite',
-              }}
-            />
-          </div>
-
-          {/* CSS Animations */}
-          <style>{`
-          @keyframes spin-slow {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
+        <style>{`
+          /* ── Doc stack ── */
+          .zgen-doc-stack {
+            position: relative;
+            width: 60px;
+            height: 74px;
+            animation: zgen-float 3.2s ease-in-out infinite;
           }
-
-          @keyframes spin-reverse {
-            from { transform: rotate(360deg); }
-            to { transform: rotate(0deg); }
+          .zgen-doc {
+            position: absolute;
+            width: 52px;
+            height: 66px;
+            background: #ede6d8;
+            border-radius: 3px 11px 3px 3px;
           }
-
-          @keyframes pulse {
-            0%, 100% {
-              transform: scale(1);
-              opacity: 1;
-            }
-            50% {
-              transform: scale(1.1);
-              opacity: 0.8;
-            }
+          .zgen-doc-back  { transform: rotate(-9deg) translate(-5px, 5px); opacity: 0.22; }
+          .zgen-doc-mid   { transform: rotate(-4deg) translate(-2px, 2px); opacity: 0.48; }
+          .zgen-doc-front {
+            transform: rotate(0deg);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding: 16px 9px 9px 9px;
           }
-
-          @keyframes orbit {
-            0% { transform: rotate(0deg) translateX(60px) rotate(0deg); }
-            100% { transform: rotate(360deg) translateX(60px) rotate(-360deg); }
+          /* folded corner */
+          .zgen-doc-front::before {
+            content: '';
+            position: absolute;
+            top: 0; right: 0;
+            width: 13px; height: 13px;
+            background: linear-gradient(225deg, #171717 50%, rgba(172,142,102,0.25) 50%);
           }
-
-          @keyframes fade-in-out {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.6; }
+          .zgen-doc-line {
+            height: 2px;
+            border-radius: 1px;
+            background: #ac8e66;
+            transform-origin: left center;
+            animation: zgen-write 2s ease-in-out infinite;
           }
+          .zgen-doc-line:nth-child(1) { width: 78%;  animation-delay: 0s;     }
+          .zgen-doc-line:nth-child(2) { width: 100%; animation-delay: 0.28s;  }
+          .zgen-doc-line:nth-child(3) { width: 62%;  animation-delay: 0.56s;  }
+          .zgen-doc-line:nth-child(4) { width: 88%;  animation-delay: 0.84s;  }
 
-          @keyframes progress-slide {
-            0% { transform: translateX(-100%); }
-            50% { transform: translateX(250%); }
-            100% { transform: translateX(-100%); }
+          @keyframes zgen-write {
+            0%        { transform: scaleX(0); opacity: 0; }
+            12%       { transform: scaleX(1); opacity: 1; }
+            72%       { transform: scaleX(1); opacity: 1; }
+            88%, 100% { transform: scaleX(0); opacity: 0; }
+          }
+          @keyframes zgen-float {
+            0%, 100% { transform: translateY(0px);  }
+            50%      { transform: translateY(-8px); }
           }
         `}</style>
-        </div>
       </ZenModal>
+
+      {/* Abort confirm */}
       <ZenModal
         isOpen={showAbortConfirm}
         onClose={() => setShowAbortConfirm(false)}
@@ -271,19 +149,13 @@ export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGenerat
         size="md"
         showCloseButton={true}
       >
-        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div
-            style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '12px',
-              color: '#777',
-            }}
-          >
+        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ fontFamily: mono, fontSize: 12, color: '#777' }}>
             Der aktuelle Vorgang wird abgebrochen. Bereits generierter Output geht verloren.
           </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <ZenRoughButton
-              label="Abbrechen"
+              label="Weiter warten"
               onClick={() => setShowAbortConfirm(false)}
               size="small"
             />

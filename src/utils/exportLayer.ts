@@ -1,6 +1,8 @@
 import { PDFDocument, StandardFonts } from 'pdf-lib';
+import JSZip from 'jszip';
 import type { PublishingStatus, SocialPlatform } from '../types/scheduling';
 import type { ChecklistItem } from './checklistStorage';
+import ZenEngine, { type OptimizeOptions } from '../services/zenEngineService';
 
 export type ExportChecklistItem = {
   id: string;
@@ -346,3 +348,128 @@ export const exportPayloadToPdf = async (payload: ExportPayload): Promise<Uint8A
   const buffer = await pdf.save();
   return new Uint8Array(buffer);
 };
+
+// ─── Image Optimization für Export ───────────────────────────────────────────
+
+const DEFAULT_EXPORT_IMAGE_OPTIONS: OptimizeOptions = {
+  max_width: 1200,
+  max_height: 1200,
+  output_format: 'jpeg',
+  quality: 82,
+};
+
+/**
+ * Findet alle eingebetteten base64-Bilder in Markdown-Content und optimiert
+ * sie via ZenEngine (resize + compression). Gibt den optimierten Content zurück.
+ * Schlägt eine Optimierung fehl, bleibt das Original-Bild erhalten.
+ */
+/**
+ * Exportiert alle Posts als ZIP-Bundle:
+ * - zenpost-export/manifest.json
+ * - zenpost-export/posts/<platform>-post.md  (Bilder als Pfad-Referenz)
+ * - zenpost-export/images/img-XXXX.jpg       (optimierte Bilder)
+ *
+ * Inline base64-Bilder werden via ZenEngine optimiert und als separate
+ * Dateien gespeichert — keine riesigen base64-Strings im Markdown.
+ */
+export async function exportPayloadToZip(payload: ExportPayload): Promise<Uint8Array> {
+  const zip = new JSZip();
+  const root = zip.folder('zenpost-export')!;
+  const postsFolder = root.folder('posts')!;
+  const imagesFolder = root.folder('images')!;
+
+  root.file('manifest.json', JSON.stringify({
+    version: payload.version,
+    generatedAt: payload.generatedAt,
+    projectPath: payload.projectPath ?? null,
+    postCount: payload.posts.length,
+  }, null, 2));
+
+  const IMAGE_PATTERN = /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)/g;
+  let imgCounter = 0;
+
+  for (const post of payload.posts) {
+    let content = post.content;
+    const imageMatches = [...content.matchAll(IMAGE_PATTERN)];
+
+    for (const match of imageMatches) {
+      const [fullMatch, alt, dataUrl] = match;
+      try {
+        const base64 = dataUrl.split(',')[1];
+        if (!base64) continue;
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const optimized = await ZenEngine.imageOptimize(bytes, {
+          max_width: 1200,
+          max_height: 1200,
+          output_format: 'jpeg',
+          quality: 82,
+        });
+        imgCounter++;
+        const imgName = `img-${String(imgCounter).padStart(4, '0')}.jpg`;
+        const imgBase64 = optimized.data_url.split(',')[1];
+        imagesFolder.file(imgName, imgBase64, { base64: true });
+        content = content.replace(fullMatch, `![${alt}](../images/${imgName})`);
+      } catch {
+        // Inline-Bild behalten wenn Optimierung fehlschlägt
+      }
+    }
+
+    // YAML-Frontmatter + Post-Inhalt
+    const frontmatterLines = [
+      '---',
+      `platform: ${post.platform}`,
+      `title: ${post.title || ''}`,
+      `status: ${post.status}`,
+      `character_count: ${post.characterCount}`,
+      `word_count: ${post.wordCount}`,
+      `source: ${post.source}`,
+      post.date ? `date: ${post.date}` : null,
+      post.time ? `time: ${post.time}` : null,
+      '---',
+      '',
+    ].filter(Boolean).join('\n');
+
+    const stem = `${post.platform}-${post.id.slice(0, 8)}`;
+    postsFolder.file(`${stem}.md`, frontmatterLines + content);
+  }
+
+  if (payload.unassignedChecklist.length > 0) {
+    const checklistMd = payload.unassignedChecklist
+      .map(item => `- [${item.completed ? 'x' : ' '}] ${item.text}`)
+      .join('\n');
+    root.file('checklist.md', `# Unzugeordnete Aufgaben\n\n${checklistMd}\n`);
+  }
+
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+}
+
+export async function optimizeImagesInMarkdown(
+  content: string,
+  options: OptimizeOptions = DEFAULT_EXPORT_IMAGE_OPTIONS,
+): Promise<string> {
+  // Pattern: ![alt](data:image/TYPE;base64,DATA)
+  const IMAGE_PATTERN = /!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)\)/g;
+  const matches = [...content.matchAll(IMAGE_PATTERN)];
+  if (matches.length === 0) return content;
+
+  let result = content;
+  for (const match of matches) {
+    const [fullMatch, alt, dataUrl] = match;
+    try {
+      const base64 = dataUrl.split(',')[1];
+      if (!base64) continue;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      const optimized = await ZenEngine.imageOptimize(bytes, options);
+      result = result.replace(fullMatch, `![${alt}](${optimized.data_url})`);
+    } catch {
+      // Original behalten wenn Optimierung fehlschlägt
+    }
+  }
+  return result;
+}

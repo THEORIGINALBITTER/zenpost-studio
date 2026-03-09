@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, generatePlatformThumbnail, type PlatformThumbnailResult } from '../../services/zenEngineService';
+import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { save } from '@tauri-apps/plugin-dialog';
 import { downloadDir, join } from '@tauri-apps/api/path';
+import { isTauri } from '@tauri-apps/api/core';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -19,6 +22,7 @@ import {
   faWrench,
   faBolt,
   faPenNib,
+  faTriangleExclamation,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
@@ -42,6 +46,8 @@ import {
 import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
 import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import { EDITOR_SETTINGS_STORAGE_KEY } from '../../constants/settingsKeys';
+import { applySteuerFormatConfig, autoFixSteuerFormatContent, validateSteuerFormatContent } from '../../config/formatConfigTrans';
+import { optimizeImagesInMarkdown } from '../../utils/exportLayer';
 
 interface Step4TransformResultProps {
   transformedContent: string;
@@ -49,16 +55,17 @@ interface Step4TransformResultProps {
   autoSelectedModel?: string | null;
   onReset: () => void;
   onBack: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (targetSocialPlatform?: SocialPlatform) => void;
   onContentChange?: (content: string, meta?: { source: 'ai' | 'translator' | 'manual'; action?: string }) => void; // Allow updating content after translation
   cameFromDocStudio?: boolean;
   cameFromDashboard?: boolean;
   isPreview?: boolean;
-  headerAction?: "copy" | "download" | "edit" | "post" | "posten" | "reset" | "back_doc" | "back_dashboard" | null;
+  headerAction?: "copy" | "download" | "edit" | "post" | "posten" | "post_all" | "reset" | "back_doc" | "back_dashboard" | null;
   onHeaderActionHandled?: () => void;
   useHeaderActions?: boolean;
   onBackToDocStudio?: (editedContent?: string) => void;
   onBackToDashboard?: (generatedContent?: string) => void;
+  onOpenPlatformSelection?: () => void;
   onGoToTransform?: (platform: ContentPlatform) => void; // Navigate to Step 2/3 for AI transformation
   // Multi-platform mode props
   multiPlatformMode?: boolean;
@@ -148,6 +155,15 @@ const platformMapping: Record<ContentPlatform, SocialPlatform | null> = {
   'blog-post': null, // Generic blog post doesn't have direct posting
 };
 
+const socialToContentPlatform: Record<SocialPlatform, ContentPlatform> = {
+  linkedin: 'linkedin',
+  twitter: 'twitter',
+  reddit: 'reddit',
+  devto: 'devto',
+  medium: 'medium',
+  github: 'github-discussion',
+};
+
 export const Step4TransformResult = ({
   transformedContent,
   platform,
@@ -164,6 +180,7 @@ export const Step4TransformResult = ({
   useHeaderActions = false,
   onBackToDocStudio,
   onBackToDashboard,
+  onOpenPlatformSelection,
   onGoToTransform,
   multiPlatformMode = false,
   transformedContents = {},
@@ -216,6 +233,34 @@ export const Step4TransformResult = ({
 
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [autoFixFeedback, setAutoFixFeedback] = useState<string | null>(null);
+  const activeQaPlatform = (multiPlatformMode && activeResultTab ? activeResultTab : platform) as ContentPlatform;
+  const qaResult = useMemo(
+    () => validateSteuerFormatContent(currentContent, activeQaPlatform),
+    [currentContent, activeQaPlatform]
+  );
+
+  const handleAutoFixQa = () => {
+    const result = autoFixSteuerFormatContent(currentContent, activeQaPlatform);
+    if (!result.changed) {
+      setAutoFixFeedback('Keine automatische Korrektur notwendig.');
+      window.setTimeout(() => setAutoFixFeedback(null), 3000);
+      return;
+    }
+
+    setCurrentContent(result.content);
+    onContentChange?.(result.content, {
+      source: 'manual',
+      action: 'qa-autofix',
+    });
+    setActivePanel('vergleich');
+    setAutoFixFeedback(
+      result.appliedFixes.length > 0
+        ? `Auto-Fix angewendet: ${result.appliedFixes.join(' ')}`
+        : 'Auto-Fix angewendet.'
+    );
+    window.setTimeout(() => setAutoFixFeedback(null), 4000);
+  };
 
   // Posten Modal State
   const [showPostenModal, setShowPostenModal] = useState(false);
@@ -235,13 +280,113 @@ export const Step4TransformResult = ({
   const [customInstruction, setCustomInstruction] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
+  // ZenEngine Stats + Quality Analysis
+  const [engineStats, setEngineStats] = useState<MarkdownResult | null>(null);
+  const [qualityAnalysis, setQualityAnalysis] = useState<RuleAnalysisResult | null>(null);
+  const engineDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const stripBase64Images = useCallback(
+    (text: string) =>
+      text.replace(
+        /!\[([^\]]*)\]\(\s*data:[^)\s]+(?:\s+["'][^"']*["'])?\s*\)/g,
+        '![$1]()'
+      ),
+    []
+  );
+
+  const runEngineAnalysis = useCallback((text: string) => {
+    if (engineDebounceRef.current) clearTimeout(engineDebounceRef.current);
+    engineDebounceRef.current = setTimeout(async () => {
+      // Strip base64 image data before stats/analysis — embedded images inflate
+      // char_count and confuse the rule engine with binary-like character sequences.
+      const textForEngine = stripBase64Images(text);
+      try {
+        const [stats, quality] = await Promise.all([
+          ZenEngine.renderMarkdown(textForEngine),
+          ZenEngine.analyzeText(textForEngine),
+        ]);
+        setEngineStats(stats);
+        setQualityAnalysis(quality);
+      } catch {
+        // Engine nicht verfügbar (z.B. Web-Build) — graceful degradation
+      }
+    }, 600);
+  }, [stripBase64Images]);
+
+  useEffect(() => {
+    runEngineAnalysis(currentContent);
+    return () => { if (engineDebounceRef.current) clearTimeout(engineDebounceRef.current); };
+  }, [currentContent, runEngineAnalysis]);
+
+  // Platform Thumbnail — silently generated in background when content or platform changes
+  const [platformThumbnail, setPlatformThumbnail] = useState<PlatformThumbnailResult | null>(null);
+  const thumbnailDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    setPlatformThumbnail(null);
+    if (thumbnailDebounceRef.current) clearTimeout(thumbnailDebounceRef.current);
+    thumbnailDebounceRef.current = setTimeout(async () => {
+      try {
+        const result = await generatePlatformThumbnail(currentContent, activeQaPlatform);
+        setPlatformThumbnail(result);
+      } catch { /* silent — kein Bild im Content oder Engine nicht verfügbar */ }
+    }, 800);
+    return () => { if (thumbnailDebounceRef.current) clearTimeout(thumbnailDebounceRef.current); };
+  }, [currentContent, activeQaPlatform]);
+
   // Success feedback
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastAction, setLastAction] = useState<string>('');
   const [previewThemeByKey, setPreviewThemeByKey] = useState<Record<string, PreviewThemeId>>({
     default: 'mono-clean',
   });
-  const [showComparison, setShowComparison] = useState(false);
+  const [activePanel, setActivePanel] = useState<'vergleich' | 'engine' | 'thumbnail' | 'qa' | null>(null);
+  const togglePanel = (panel: 'vergleich' | 'engine' | 'thumbnail' | 'qa') =>
+    setActivePanel(prev => prev === panel ? null : panel);
+  const handleDownloadThumbnail = async () => {
+    if (!platformThumbnail?.dataUrl) return;
+    try {
+      const [meta, data] = platformThumbnail.dataUrl.split(',');
+      if (!meta || !data) return;
+      const isBase64 = meta.includes('base64');
+      const mimeMatch = /data:([^;]+);/i.exec(meta);
+      const mimeType = mimeMatch?.[1] ?? 'image/jpeg';
+      const byteString = isBase64 ? atob(data) : decodeURIComponent(data);
+      const byteArray = new Uint8Array(byteString.length);
+      for (let i = 0; i < byteString.length; i += 1) {
+        byteArray[i] = byteString.charCodeAt(i);
+      }
+
+      if (isTauri()) {
+        const defaultName = `thumbnail-${platformThumbnail.platform}.jpg`;
+        const defaultBase = projectPath || (await downloadDir());
+        const defaultPath = await join(defaultBase, defaultName);
+        const filePath = await save({
+          defaultPath,
+          filters: [{ name: 'JPEG', extensions: ['jpg', 'jpeg'] }],
+        });
+        if (!filePath) return;
+        await writeFile(filePath, byteArray);
+        return;
+      }
+
+      const blob = new Blob([byteArray], { type: mimeType });
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = `thumbnail-${platformThumbnail.platform}.jpg`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      const anchor = document.createElement('a');
+      anchor.href = platformThumbnail.dataUrl;
+      anchor.download = `thumbnail-${platformThumbnail.platform}.jpg`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    }
+  };
   const [comparisonSource, setComparisonSource] = useState<string>('original');
 
   const previewContextKey = useMemo(() => {
@@ -252,6 +397,95 @@ export const Step4TransformResult = ({
 
   const activePreviewTheme = previewThemeByKey[previewContextKey] ?? previewThemeByKey.default ?? 'mono-clean';
   const previewStyleMode: 'mono' | 'color' = activePreviewTheme.startsWith('mono') ? 'mono' : 'color';
+  const failedMultiPostResults = useMemo(
+    () => multiPostResults.filter((result) => !result.success),
+    [multiPostResults]
+  );
+  const engineInputContent = useMemo(() => stripBase64Images(currentContent), [currentContent, stripBase64Images]);
+  const engineBlockedRanges = useMemo(() => {
+    const text = engineInputContent;
+    const ranges: Array<{ start: number; end: number }> = [];
+    const addRanges = (regex: RegExp) => {
+      let match: RegExpExecArray | null = null;
+      while ((match = regex.exec(text)) !== null) {
+        if (typeof match.index === 'number') {
+          ranges.push({ start: match.index, end: match.index + match[0].length });
+        }
+      }
+    };
+    addRanges(/```[\s\S]*?```/g);
+    addRanges(/`[^`\n]+`/g);
+
+    let offset = 0;
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (line.includes('|') && line.split('|').length >= 3) {
+        ranges.push({ start: offset, end: offset + line.length });
+      }
+      offset += line.length + 1;
+    }
+
+    return ranges;
+  }, [engineInputContent]);
+  const highlightedPreviewContent = useMemo(() => {
+    if (activePanel !== 'engine' || !qualityAnalysis?.suggestions?.length) {
+      return currentContent;
+    }
+
+    const source = engineInputContent;
+
+    const sorted = [...qualityAnalysis.suggestions]
+      .filter(
+        (s) =>
+          Number.isFinite(s.start) &&
+          Number.isFinite(s.end) &&
+          s.end > s.start &&
+          s.end <= engineInputContent.length
+      )
+      .filter((s) => !engineBlockedRanges.some((r) => s.start < r.end && s.end > r.start))
+      .sort((a, b) => a.start - b.start);
+
+    if (sorted.length === 0) return source;
+
+    const safe: Array<{ start: number; end: number }> = [];
+    let lastEnd = -1;
+    for (const s of sorted) {
+      if (s.start >= lastEnd) {
+        safe.push({ start: s.start, end: s.end });
+        lastEnd = s.end;
+      }
+    }
+
+    let result = source;
+    for (let i = safe.length - 1; i >= 0; i -= 1) {
+      const { start, end } = safe[i];
+      result = `${result.slice(0, start)}<mark data-zen-marker="hl-blue">${result.slice(start, end)}</mark>${result.slice(end)}`;
+    }
+
+    return result;
+  }, [activePanel, qualityAnalysis, engineInputContent, currentContent, engineBlockedRanges]);
+
+  const engineSuggestions = useMemo(() => {
+    if (!qualityAnalysis?.suggestions?.length) return [];
+    const map = new Map<
+      string,
+      { rule: string; suggestion: string; confidence: number; count: number }
+    >();
+    for (const s of qualityAnalysis.suggestions) {
+      const key = `${s.rule}||${s.suggestion}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.count += 1;
+        if (s.confidence > existing.confidence) {
+          existing.confidence = s.confidence;
+        }
+      } else {
+        map.set(key, { rule: s.rule, suggestion: s.suggestion, confidence: s.confidence, count: 1 });
+      }
+    }
+    return Array.from(map.values());
+  }, [qualityAnalysis]);
+  const hasPostingErrors = Boolean((postResult && !postResult.success) || failedMultiPostResults.length > 0);
 
   const comparisonSourceOptions = useMemo(() => {
     const options: Array<{ value: string; label: string }> = [
@@ -424,6 +658,11 @@ export const Step4TransformResult = ({
   const socialPlatform = platformMapping[platform];
   const config = loadSocialConfig();
   const hasConfig = socialPlatform ? isPlatformConfigured(socialPlatform, config) : false;
+  const preferredSettingsPlatform = useMemo<SocialPlatform | undefined>(() => {
+    if (postResult && !postResult.success) return postResult.platform;
+    if (failedMultiPostResults.length > 0) return failedMultiPostResults[0].platform;
+    return socialPlatform ?? undefined;
+  }, [postResult, failedMultiPostResults, socialPlatform]);
 
   const handleCopy = async () => {
     try {
@@ -446,9 +685,22 @@ const handleDownload = async () => {
     const dir = await downloadDir();
     const path = await join(dir, filename);
 
-    await writeTextFile(path, currentContent);
+    // Image optimization (D: Stats)
+    const IMAGE_PATTERN = /!\[[^\]]*\]\((data:image\/[^)]+)\)/g;
+    const imagesBefore = [...currentContent.matchAll(IMAGE_PATTERN)];
+    let contentToSave = currentContent;
+    let statsMsg = '';
 
-    alert(`Datei gespeichert:\n${path}`);
+    if (imagesBefore.length > 0) {
+      const sizeBefore = imagesBefore.reduce((sum, m) => sum + m[1].length, 0);
+      contentToSave = await optimizeImagesInMarkdown(currentContent);
+      const sizeAfter = [...contentToSave.matchAll(IMAGE_PATTERN)].reduce((sum, m) => sum + m[1].length, 0);
+      const savedKb = Math.round((sizeBefore - sizeAfter) / 1024);
+      statsMsg = `\n${imagesBefore.length} Bild${imagesBefore.length !== 1 ? 'er' : ''} optimiert (-${savedKb} KB)`;
+    }
+
+    await writeTextFile(path, contentToSave);
+    alert(`Datei gespeichert:\n${path}${statsMsg}`);
   } catch (error) {
     console.error("Error saving file:", error);
     alert("Fehler beim Speichern der Datei");
@@ -466,8 +718,35 @@ const handleDownload = async () => {
         'Hinweis: Die API-Integration ist optional. Du kannst den Content auch manuell kopieren und posten.'
       );
       if (shouldConfigure) {
-        onOpenSettings();
+        onOpenSettings(socialPlatform);
       }
+      return;
+    }
+
+    let contentForPost = currentContent;
+    let qaForCurrent = validateSteuerFormatContent(contentForPost, platform);
+    if (!qaForCurrent.ok) {
+      if (platform === 'twitter') {
+        const fix = autoFixSteuerFormatContent(contentForPost, 'twitter');
+        const fixedQa = validateSteuerFormatContent(fix.content, 'twitter');
+        if (fix.changed && fixedQa.ok) {
+          const previewTweets = fix.content.split(/\n{2,}/).filter(Boolean).length;
+          const shouldUseFix = window.confirm(
+            `Twitter-Inhalt ist zu lang. Soll automatisch gekürzt und als Vorschlag übernommen werden?\n\nVorschlag: ${previewTweets} Tweet${previewTweets === 1 ? '' : 's'}`
+          );
+          if (shouldUseFix) {
+            contentForPost = fix.content;
+            setCurrentContent(fix.content);
+            onContentChange?.(fix.content, { source: 'manual', action: 'twitter-post-autofix' });
+            qaForCurrent = fixedQa;
+          }
+        }
+      }
+    }
+
+    if (!qaForCurrent.ok) {
+      const message = qaForCurrent.errors.map((issue) => `- ${issue.message}`).join('\n');
+      alert(`Posten blockiert durch QA-Regeln:\n${message}`);
       return;
     }
 
@@ -475,13 +754,15 @@ const handleDownload = async () => {
     setPostResult(null);
 
     try {
+      const formattedContent = applySteuerFormatConfig(contentForPost, platform);
+
       // Prepare content based on platform
       let postContent: any;
 
       switch (platform) {
         case 'twitter':
           // Split into tweets if content is long
-          const tweets = currentContent.split('\n\n').filter((t) => t.trim());
+          const tweets = formattedContent.split('\n\n').filter((t) => t.trim());
           postContent = {
             text: tweets[0],
             thread: tweets.length > 1 ? tweets.slice(1) : undefined,
@@ -490,7 +771,7 @@ const handleDownload = async () => {
 
         case 'reddit':
           // Extract title from first line
-          const lines = currentContent.split('\n');
+          const lines = formattedContent.split('\n');
           const title = lines[0].replace(/^#\s*/, '').substring(0, 300);
           const text = lines.slice(1).join('\n').trim();
           postContent = {
@@ -502,13 +783,13 @@ const handleDownload = async () => {
 
         case 'linkedin':
           postContent = {
-            text: currentContent,
+            text: formattedContent,
             visibility: 'PUBLIC',
           };
           break;
 
         case 'devto':
-          const devtoLines = currentContent.split('\n');
+          const devtoLines = formattedContent.split('\n');
           const devtoTitle = devtoLines[0].replace(/^#\s*/, '');
           const bodyMarkdown = devtoLines.slice(1).join('\n').trim();
           postContent = {
@@ -520,7 +801,7 @@ const handleDownload = async () => {
           break;
 
         case 'medium':
-          const mediumLines = currentContent.split('\n');
+          const mediumLines = formattedContent.split('\n');
           const mediumTitle = mediumLines[0].replace(/^#\s*/, '');
           const content = mediumLines.slice(1).join('\n').trim();
           postContent = {
@@ -532,7 +813,7 @@ const handleDownload = async () => {
           break;
 
         case 'github-discussion':
-          const ghLines = currentContent.split('\n');
+          const ghLines = formattedContent.split('\n');
           const ghTitle = ghLines[0].replace(/^#\s*/, '');
           const body = ghLines.slice(1).join('\n').trim();
           postContent = {
@@ -545,7 +826,7 @@ const handleDownload = async () => {
           break;
 
         default:
-          postContent = { text: currentContent };
+          postContent = { text: formattedContent };
       }
 
       const result = await postToSocialMedia(socialPlatform, postContent, config);
@@ -592,14 +873,16 @@ const handleDownload = async () => {
     }
   };
 
-  const prepareContentForPlatform = (targetPlatform: SocialPlatform): any => {
-    const lines = currentContent.split('\n');
+  const prepareContentForPlatform = (targetPlatform: SocialPlatform, sourceOverride?: string): any => {
+    const contentPlatform = socialToContentPlatform[targetPlatform];
+    const preparedContent = applySteuerFormatConfig(sourceOverride ?? currentContent, contentPlatform);
+    const lines = preparedContent.split('\n');
     const title = lines[0].replace(/^#\s*/, '');
     const body = lines.slice(1).join('\n').trim();
 
     switch (targetPlatform) {
       case 'twitter':
-        const tweets = currentContent.split('\n\n').filter((t) => t.trim());
+        const tweets = preparedContent.split('\n\n').filter((t) => t.trim());
         return {
           text: tweets[0],
           thread: tweets.length > 1 ? tweets.slice(1) : undefined,
@@ -612,7 +895,7 @@ const handleDownload = async () => {
         };
       case 'linkedin':
         return {
-          text: currentContent,
+          text: preparedContent,
           visibility: 'PUBLIC',
         };
       case 'devto':
@@ -638,19 +921,22 @@ const handleDownload = async () => {
           categoryId: '',
         };
       default:
-        return { text: currentContent };
+        return { text: preparedContent };
     }
   };
 
-  const handleMultiDirectPost = async () => {
+  const handleMultiDirectPost = async (platformsOverride?: SocialPlatform[]) => {
     setShowPostMethodModal(false);
     setIsMultiPosting(true);
     setMultiPostResults([]);
 
     const results: PostResult[] = [];
     const currentConfig = loadSocialConfig();
+    const targetPlatforms = platformsOverride && platformsOverride.length > 0
+      ? platformsOverride
+      : selectedPostPlatforms;
 
-    for (const targetPlatform of selectedPostPlatforms) {
+    for (const targetPlatform of targetPlatforms) {
       if (!isPlatformConfigured(targetPlatform, currentConfig)) {
         results.push({
           success: false,
@@ -661,7 +947,30 @@ const handleDownload = async () => {
       }
 
       try {
-        const postContent = prepareContentForPlatform(targetPlatform);
+        let sourceForPlatform = currentContent;
+        if (targetPlatform === 'twitter') {
+          const fix = autoFixSteuerFormatContent(currentContent, 'twitter');
+          if (fix.changed) {
+            sourceForPlatform = fix.content;
+          }
+        }
+
+        const postContent = prepareContentForPlatform(targetPlatform, sourceForPlatform);
+        const qaPlatform = socialToContentPlatform[targetPlatform];
+        const qaCheck = validateSteuerFormatContent(
+          targetPlatform === 'twitter'
+            ? [postContent.text, ...(postContent.thread ?? [])].filter(Boolean).join('\n\n')
+            : (postContent.body_markdown ?? postContent.content ?? postContent.text ?? postContent.body ?? ''),
+          qaPlatform
+        );
+        if (!qaCheck.ok) {
+          results.push({
+            success: false,
+            platform: targetPlatform,
+            error: qaCheck.errors.map((issue) => issue.message).join(' | '),
+          });
+          continue;
+        }
         const result = await postToSocialMedia(targetPlatform, postContent, currentConfig);
         results.push(result);
 
@@ -679,6 +988,27 @@ const handleDownload = async () => {
 
     setMultiPostResults(results);
     setIsMultiPosting(false);
+  };
+
+  const handlePostAllFromCurrentResult = async () => {
+    const fromTabs = multiPlatformMode
+      ? (Object.keys(transformedContents) as ContentPlatform[])
+      : [];
+    const candidateContentPlatforms = fromTabs.length > 0 ? fromTabs : [platform];
+
+    const allTargets = candidateContentPlatforms
+      .map((contentPlatform) => platformMapping[contentPlatform])
+      .filter((value): value is SocialPlatform => value !== null);
+
+    const uniqueTargets = Array.from(new Set(allTargets));
+
+    if (uniqueTargets.length === 0) {
+      alert('Für die ausgewählten Plattformen ist kein Direkt-Posting verfügbar.');
+      return;
+    }
+
+    setSelectedPostPlatforms(uniqueTargets);
+    await handleMultiDirectPost(uniqueTargets);
   };
 
   const handleMultiAIOptimize = () => {
@@ -710,9 +1040,19 @@ const handleDownload = async () => {
     } else if (headerAction === "edit") {
       onBack();
     } else if (headerAction === "post") {
-      handlePost();
+      if (isPreview && onOpenPlatformSelection) {
+        onOpenPlatformSelection();
+      } else {
+        handlePost();
+      }
     } else if (headerAction === "posten") {
-      setShowPostenModal(true);
+      if (isPreview && onOpenPlatformSelection) {
+        onOpenPlatformSelection();
+      } else {
+        setShowPostenModal(true);
+      }
+    } else if (headerAction === "post_all") {
+      void handlePostAllFromCurrentResult();
     } else if (headerAction === "reset") {
       onReset();
     } else if (headerAction === "back_doc" && onBackToDocStudio) {
@@ -732,6 +1072,7 @@ const handleDownload = async () => {
     handleCopy,
     handleDownload,
     handlePost,
+    handlePostAllFromCurrentResult,
   ]);
 
   return (
@@ -746,9 +1087,7 @@ const handleDownload = async () => {
       <div className="flex flex-col items-center w-full max-w-4xl">
         {/* Title */}
         <div className="mb-4">
-          <h2 className="font-mono text-3xl text-[#dbd9d5]  text-center">
-            {isPreview ? " " : "Transformation abgeschlossen."}
-          </h2>
+        
         </div>
 
         <div style={{ height: '48px' }} />
@@ -756,19 +1095,24 @@ const handleDownload = async () => {
    
        
         {/* Multi-Platform Tab Bar */}
-        {multiPlatformMode && Object.keys(transformedContents).length > 1 && (
+        {multiPlatformMode
+          && Object.keys(transformedContents).length > 1
+          && docTabs.filter((tab) => tab.kind === 'derived').length === 0 && (
           <div
-            className="mb-8 w-full max-w-2xl"
-            style={{ opacity: isIdle ? 0.35 : 1, transition: 'opacity 250ms ease' }}
+            style={{
+              width: '90vw',
+              marginBottom: '4px',
+              padding: '0 24px',
+              boxSizing: 'border-box',
+              opacity: isIdle ? 0.35 : 1,
+              transition: 'opacity 250ms ease',
+            }}
           >
             <div
               style={{
                 display: 'flex',
                 gap: '8px',
-                padding: '8px',
-                backgroundColor: '#1F1F1F',
-                borderRadius: '12px',
-                border: '1px solid #3A3A3A',
+                alignItems: 'flex-end',
               }}
             >
               {Object.keys(transformedContents).map((platformKey) => {
@@ -782,27 +1126,31 @@ const handleDownload = async () => {
                     }}
                     style={{
                       flex: 1,
-                      padding: '10px 16px',
-                      backgroundColor: isActive ? '#AC8E66' : 'transparent',
-                      border: isActive ? 'none' : '1px solid #fff',
-                      borderRadius: '8px',
+                      padding: '7px 12px',
+                      backgroundColor: isActive ? '#d9d4c5' : '#1a1a1a',
+                      border: isActive ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+                      borderBottom: 'none',
+                      borderRadius: '8px 8px 0 0',
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '12px',
-                      fontWeight: isActive ? '600' : '400',
-                      color: isActive ? '#1A1A1A' : '#999',
+                      fontSize: '10px',
+                      fontWeight: isActive ? '500' : '400',
+                      color: isActive ? '#151515' : '#8f8f8f',
                       transition: 'all 0.2s',
+                      lineHeight: 1.2,
+                      minHeight: '35px',
+                      transform: 'translateY(0)',
                     }}
                     onMouseEnter={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.backgroundColor = '#2A2A2A';
-                        e.currentTarget.style.color = '#e5e5e5';
+                        e.currentTarget.style.borderColor = '#AC8E66';
+                        e.currentTarget.style.color = '#AC8E66';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!isActive) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.color = '#999';
+                        e.currentTarget.style.borderColor = '#3A3A3A';
+                        e.currentTarget.style.color = '#8f8f8f';
                       }
                     }}
                   >
@@ -828,7 +1176,7 @@ const handleDownload = async () => {
                 borderRadius: '8px',
               }}
             >
-              <span style={{ fontSize: '18px' }}>✨</span>
+              <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66', fontSize: '16px', flexShrink: 0 }} />
               <div style={{ flex: 1 }}>
                 <p
                   style={{
@@ -856,6 +1204,239 @@ const handleDownload = async () => {
             </div>
           </div>
         )}
+
+        {hasPostingErrors && (
+          <div
+            style={{
+              width: '90vw',
+              marginBottom: '24px',
+              paddingTop: '50px',
+              boxSizing: 'border-box',
+            }}
+          >
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '16px',
+                border: '1px solid rgba(179,38,30,0.45)',
+                background: ' rgba(26,26,26,0.92)',
+                boxShadow: '0 10px 24px rgba(0,0,0,0.22)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FontAwesomeIcon icon={faTriangleExclamation} 
+                style={{ color: '#ffb4ab', fontSize: '12px' }} />
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', 
+                  fontSize: '11px', color: '#ffb4ab', fontWeight: 200 }}>
+                  Posting Einstellungs Fehler
+                </span>
+              </div>
+
+              <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {postResult && !postResult.success && (
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,180,171,0.35)',
+                      background: 'rgba(20,20,20,0.65)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#ffb4ab', fontSize: '10px' }} />
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#f8d6d1' }}>
+                      {platformLabels[platform]}: {postResult.error || 'Unbekannter Fehler'}
+                    </span>
+                  </div>
+                )}
+
+                {failedMultiPostResults.map((result, index) => (
+                  <div
+                    key={`posting-error-${result.platform}-${index}`}
+                    style={{
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,180,171,0.35)',
+                      background: 'rgba(20,20,20,0.65)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#ffb4ab', fontSize: '10px' }} />
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#f8d6d1' }}>
+                      {result.platform}: {result.error || 'Unbekannter Fehler'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => onOpenSettings(preferredSettingsPlatform)}
+                  style={{
+                    border: '1px solid rgba(255,180,171,0.45)',
+                    background: 'rgba(26,26,26,0.6)',
+                    color: '#ffb4ab',
+                    borderRadius: '8px',
+                    padding: '7px 12px',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Einstellungen öffnen
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {currentContent && currentContent.trim() ? (
+          <div
+            className="flex items-center gap-1.5"
+            style={{
+              width: '90vw',
+              padding: '6px 2rem 0.35rem 4.75rem',
+              marginTop: '14px',
+              marginBottom: '-6px',
+            }}
+          >
+            {hasComparison && (
+              <button
+                onClick={() => togglePanel('vergleich')}
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#151515',
+                  border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                  borderRadius: '8px 8px 0px 0px',
+                  borderBottom: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '9px',
+                  fontWeight: activePanel === 'vergleich' ? 200 : 400,
+                  color: activePanel === 'vergleich' ? '#151515' : '#333',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (activePanel !== 'vergleich') {
+                    e.currentTarget.style.color = '#AC8E66';
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activePanel !== 'vergleich') {
+                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                  }
+                }}
+              >
+                Vergleich
+              </button>
+            )}
+            <button
+              onClick={() => togglePanel('engine')}
+              style={{
+                padding: '8px 12px',
+                backgroundColor: activePanel === 'engine' ? '#d9d4c5' : '#151515',
+                border: activePanel === 'engine' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                borderRadius: '8px 8px 0px 0px',
+                borderBottom: 'none',
+                cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '9px',
+                fontWeight: activePanel === 'engine' ? 200 : 400,
+                color: activePanel === 'engine' ? '#151515' : '#333',
+                transition: 'all 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                if (activePanel !== 'engine') {
+                  e.currentTarget.style.color = '#AC8E66';
+                  e.currentTarget.style.borderColor = '#AC8E66';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (activePanel !== 'engine') {
+                  e.currentTarget.style.color = '#333';
+                  e.currentTarget.style.borderColor = '#3A3A3A';
+                }
+              }}
+            >
+              Engine{qualityAnalysis && qualityAnalysis.match_count > 0 ? (
+                <span style={{ color: qualityAnalysis.match_count > 3 ? '#c97a3a' : '#8a8a6a' }}>
+                  {' '}· {qualityAnalysis.match_count}
+                </span>
+              ) : null}
+            </button>
+            {(qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
+              <button
+                onClick={() => togglePanel('qa')}
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: activePanel === 'qa' ? '#d9d4c5' : '#151515',
+                  border: activePanel === 'qa' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                  borderRadius: '8px 8px 0px 0px',
+                  borderBottom: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '9px',
+                  fontWeight: activePanel === 'qa' ? 200 : 400,
+                  color: activePanel === 'qa' ? '#151515' : '#333',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (activePanel !== 'qa') {
+                    e.currentTarget.style.color = '#AC8E66';
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activePanel !== 'qa') {
+                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                  }
+                }}
+              >
+                QA
+              </button>
+            )}
+            {platformThumbnail && (
+              <button
+                onClick={() => togglePanel('thumbnail')}
+                style={{
+                  padding: '8px 12px',
+                  backgroundColor: activePanel === 'thumbnail' ? '#d9d4c5' : '#151515',
+                  border: activePanel === 'thumbnail' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                  borderRadius: '8px 8px 0px 0px',
+                  borderBottom: 'none',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '9px',
+                  fontWeight: activePanel === 'thumbnail' ? 200 : 400,
+                  color: activePanel === 'thumbnail' ? '#151515' : '#333',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  if (activePanel !== 'thumbnail') {
+                    e.currentTarget.style.color = '#AC8E66';
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activePanel !== 'thumbnail') {
+                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                  }
+                }}
+              >
+                Thumbnail
+              </button>
+            )}
+          </div>
+        ) : null}
 
         {/* Result Container */}
         <div className=" border-[10px] border-[#AC8E66] "
@@ -891,17 +1472,6 @@ const handleDownload = async () => {
                       variant="compact"
                     />
                   </div>
-                )}
-                {hasComparison && (
-             
-                  <button
-                    onClick={() => setShowComparison((prev) => !prev)}
-                    className=" ml-[40px] mt-[2px] font-mono text-[9px] px-2 py-[5px] rounded 
-                    border border-[#3A3A3A] text-[#999] 
-                    hover:text-[#AC8E66] hover:border-[#AC8E66] transition-colors"
-                  >
-                    Vergleich {showComparison ? 'an' : 'aus'}
-                  </button>
                 )}
               </div>
             ) : <div />}
@@ -1401,7 +1971,7 @@ const handleDownload = async () => {
 
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
-            {showComparison && hasComparison && (
+            {activePanel === 'vergleich' && hasComparison && (
               <div
                 style={{
                   marginBottom: '12px',
@@ -1478,9 +2048,196 @@ const handleDownload = async () => {
                 </div>
               </div>
             )}
+            {activePanel === 'qa' && (qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  padding: '10px',
+                  border: '0.5px solid #3a3a3a',
+                  borderRadius: '10px',
+                  backgroundColor: '#101010',
+                }}
+              >
+                <div
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: '8px',
+                    border: qaResult.errors.length > 0 ? '1px solid #ef4444' : '1px solid #AC8E66',
+                    backgroundColor: qaResult.errors.length > 0 ? 'rgba(127,29,29,0.25)' : 'rgba(172,142,102,0.14)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p
+                      style={{
+                        margin: 0,
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        color: qaResult.errors.length > 0 ? '#fca5a5' : '#AC8E66',
+                        fontWeight: 600,
+                      }}
+                    >
+                      QA Check · {platformLabels[activeQaPlatform]}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleAutoFixQa}
+                      style={{
+                        padding: '6px 10px',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        borderRadius: '6px',
+                        border: '1px solid #AC8E66',
+                        background: 'transparent',
+                        color: '#AC8E66',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Auto-Fix
+                    </button>
+                  </div>
+                  {qaResult.errors.map((issue) => (
+                    <p
+                      key={`err-${issue.code}-${issue.message}`}
+                      style={{
+                        margin: '6px 0 0 0',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        color: '#fecaca',
+                      }}
+                    >
+                      Fehler: {issue.message}
+                    </p>
+                  ))}
+                  {qaResult.warnings.map((issue) => (
+                    <p
+                      key={`warn-${issue.code}-${issue.message}`}
+                      style={{
+                        margin: '6px 0 0 0',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        color: '#f5deb3',
+                      }}
+                    >
+                      Hinweis: {issue.message}
+                    </p>
+                  ))}
+                  {autoFixFeedback && (
+                    <p
+                      style={{
+                        margin: '8px 0 0 0',
+                        fontSize: '10px',
+                        fontFamily: 'monospace',
+                        color: '#d9d4c5',
+                      }}
+                    >
+                      {autoFixFeedback}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+            {activePanel === 'engine' && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  padding: '10px',
+                  border: '0.5px solid #3a3a3a',
+                  borderRadius: '10px',
+                  backgroundColor: '#101010',
+                }}
+              >
+                <div
+                  className="rounded-[6px] border border-[#3a3a2a]/30 overflow-hidden"
+                  style={{ background: 'rgba(172,142,102,0.04)' }}
+                >
+                  <div className="px-3 py-1.5 border-b border-[#3a3a2a]/20 flex items-center justify-between">
+                    <span className="font-mono text-[9px] text-[#888] tracking-wider uppercase">
+                      ZenEngine Analyse
+                    </span>
+                    {qualityAnalysis && (
+                      <span className="font-mono text-[9px]" style={{ color: qualityAnalysis.match_count > 3 ? '#c97a3a' : '#5a7a5a' }}>
+                        {qualityAnalysis.match_count === 0 ? 'Keine Hinweise' : `${qualityAnalysis.match_count} Hinweis${qualityAnalysis.match_count !== 1 ? 'e' : ''}`}
+                      </span>
+                    )}
+                  </div>
+                  {engineSuggestions.length > 0 ? (
+                    <div className="divide-y divide-[#3a3a2a]/10">
+                      {engineSuggestions.slice(0, 8).map((s, i) => (
+                          <div key={i} className="flex items-start gap-2 px-3 py-1.5">
+                            <span
+                              className="font-mono text-[9px] mt-0.5 shrink-0"
+                              style={{ color: s.confidence >= 0.9 ? '#c97a3a' : '#888860' }}
+                            >
+                              {Math.round(s.confidence * 100)}%
+                            </span>
+                            <span className="font-mono text-[9px] text-[#666]">
+                              <span className="text-[#888]">{' · '}</span>
+                              <span className="text-[#AC8E66]">
+                                {s.rule.replace(/_/g, ' ')}
+                              </span>
+                              {s.count > 1 ? (
+                                <span className="text-[#777]">{` (${s.count}x)`}</span>
+                              ) : null}
+                              {' — '}{s.suggestion}
+                            </span>
+                          </div>
+                        ))}
+                      {engineSuggestions.length > 8 && (
+                        <div className="px-3 py-1 font-mono text-[9px] text-[#555]">
+                          +{engineSuggestions.length - 8} weitere Hinweise
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-3 py-2 font-mono text-[9px] text-[#5a7a5a]">
+                      Keine Stilprobleme gefunden.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {activePanel === 'thumbnail' && platformThumbnail && (
+              <div
+                style={{
+                  marginBottom: '12px',
+                  padding: '10px',
+                  border: '0.5px solid #3a3a3a',
+                  borderRadius: '10px',
+                  backgroundColor: '#101010',
+                }}
+              >
+                <div
+                  className="rounded-[6px] border border-[#3a3a2a]/30 overflow-hidden"
+                  style={{ background: 'rgba(172,142,102,0.04)' }}
+                >
+                  <div className="px-3 py-1.5 border-b border-[#3a3a2a]/20 flex items-center justify-between">
+                    <span className="font-mono text-[9px] text-[#888] tracking-wider uppercase">
+                      Thumbnail
+                    </span>
+                    <span className="font-mono text-[9px] text-[#555]">
+                      {platformThumbnail.width}×{platformThumbnail.height}px · JPEG 85%
+                    </span>
+                  </div>
+                  <div className="p-3">
+                <img
+                  src={platformThumbnail.dataUrl}
+                  alt="Platform Thumbnail"
+                  style={{ width: '100%', height: 'auto', borderRadius: '4px', display: 'block' }}
+                />
+                <button
+                  type="button"
+                  onClick={handleDownloadThumbnail}
+                  className="inline-block mt-2 font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66]/50 text-[#AC8E66] no-underline hover:bg-[#AC8E66]/10 transition-colors"
+                >
+                  ↓ Download
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
             {currentContent && currentContent.trim() ? (
               <ZenMarkdownPreview
-                content={currentContent}
+                content={highlightedPreviewContent}
                 height="500px"
                 projectPath={projectPath}
                 onContentChange={handleContentUpdate}
@@ -1526,23 +2283,37 @@ const handleDownload = async () => {
           </div>
         </div>
 
-        {/* Character Count */}
-        <div className="mb-12">
-          <p className="text-[#555] font-mono text-[10px] mt-[5px]">
-            {currentContent.length} Zeichen • {currentContent.split('\n').length} Zeilen
-          </p>
+        {/* ZenEngine Stats Row — immer sichtbar */}
+        <div className="mb-3 w-full flex items-center gap-3 flex-wrap mt-[5px]" style={{ maxWidth: '42rem' }}>
+          {[
+            { label: 'Wörter', value: engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length },
+            { label: 'Zeichen', value: engineStats?.char_count ?? currentContent.length },
+            { label: 'Zeilen', value: engineStats?.line_count ?? currentContent.split('\n').length },
+          ].map(({ label, value }) => (
+            <span key={label} className="font-mono text-[10px] text-[#555]">
+              <span className="text-[#888]">{value.toLocaleString('de-DE')}</span> {label}
+            </span>
+          ))}
+          {qualityAnalysis && qualityAnalysis.match_count === 0 && (
+            <>
+              <span className="text-[#333] font-mono text-[10px]">·</span>
+              <span className="font-mono text-[10px] text-[#5a7a5a]">Engine OK</span>
+            </>
+          )}
         </div>
 
         {/* Post Result Status */}
-        {postResult && (
+        {postResult && postResult.success && (
           <div
-            className={`w-full max-w-2xl mb-6 p-4 rounded-lg border ${
-              postResult.success
-                ? 'bg-green-900/20 border-green-600'
-                : 'bg-red-900/20 border-red-600'
-            }`}
-              style={{ padding: '0.5rem 1.5rem' }}
-
+            style={{
+              width: '100%',
+              maxWidth: '42rem',
+              marginBottom: '24px',
+              padding: '8px 24px',
+              borderRadius: '8px',
+              border: '1px solid #16a34a',
+              background: 'rgba(20,83,45,0.2)',
+            }}
           >
             <div className="flex items-center gap-3">
               <FontAwesomeIcon
@@ -1561,7 +2332,7 @@ const handleDownload = async () => {
                 </p>
                 {!postResult.success && (
                   <button
-                    onClick={onOpenSettings}
+                    onClick={() => onOpenSettings(postResult.platform)}
                     className="text-[#777] hover:text-[#AC8E66] transition-colors"
                     title="Social Media API konfigurieren"
                   >
@@ -1600,26 +2371,6 @@ const handleDownload = async () => {
               onClick={() => setShowPlannerModal(true)}
               variant="default"
             />
-          </div>
-        )}
-
-        {/* Multi-Post Results */}
-        {multiPostResults.length > 0 && (
-          <div className="w-full max-w-2xl mb-6 p-4 rounded-lg border border-[#AC8E66] bg-[#2A2A2A]">
-            <h4 className="font-mono text-sm text-[#AC8E66] mb-3">Posting-Ergebnisse:</h4>
-            {multiPostResults.map((result, index) => (
-              <div key={index} className={`flex items-center gap-2 mb-2 ${result.success ? 'text-green-400' : 'text-red-400'}`}>
-                <FontAwesomeIcon icon={result.success ? faCheck : faCog} className="text-xs" />
-                <span className="font-mono text-xs">
-                  {result.platform}: {result.success ? 'Erfolgreich' : result.error}
-                </span>
-                {result.success && result.url && (
-                  <a href={result.url} target="_blank" rel="noopener noreferrer" className="text-blue-400 text-xs hover:underline ml-2">
-                    Öffnen →
-                  </a>
-                )}
-              </div>
-            ))}
           </div>
         )}
 

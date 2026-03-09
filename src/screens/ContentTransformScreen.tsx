@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
-import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
+import { isTauri, invoke } from '@tauri-apps/api/core';
+import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
+import { join } from '@tauri-apps/api/path';
 import {
   faLinkedin,
   faDev,
@@ -27,6 +28,7 @@ import {
   type ContentAudience,
   type TargetLanguage,
 } from '../services/aiService';
+import { applySteuerFormatConfig } from '../config/formatConfigTrans';
 import { loadArticle } from '../services/publishingService';
 import {
   postToSocialMedia,
@@ -46,10 +48,12 @@ import {
   loadDraftAutosave,
   type EditorSettings,
 } from '../services/editorSettingsService';
+import { useOpenExternal } from '../hooks/useOpenExternal';
 import {
   loadZenStudioSettings,
   type ZenStudioSettings,
 } from '../services/zenStudioSettingsService';
+import ZenEngine from '../services/zenEngineService';
 
 interface PlatformOption {
   value: ContentPlatform;
@@ -153,7 +157,7 @@ interface ContentTransformScreenProps {
   onFileRequestHandled?: () => void;
   metadata?: ProjectMetadata;
   onMetadataChange?: (metadata: ProjectMetadata) => void;
-  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "save_server" | "transform" | "goto_platforms" | null;
+  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "post_all" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "save_server" | "transform" | "format_only" | "goto_platforms" | null;
   onHeaderActionHandled?: () => void;
   onStep1BackToPostingChange?: (visible: boolean) => void;
   onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
@@ -185,10 +189,34 @@ type ContentDocTab = {
   kind: 'draft' | 'file' | 'article' | 'derived';
   filePath?: string;
   articleId?: string;
+  platform?: ContentPlatform;
 };
+
+type ContentTransformSessionCache = {
+  openDocTabs: ContentDocTab[];
+  activeDocTabId: string | null;
+  docTabContents: Record<string, string>;
+  dirtyDocTabs: Record<string, boolean>;
+  step1ComparisonBaseByTab: Record<string, string>;
+  step1ComparisonSelectionByTab: Record<string, string>;
+  sourceContent: string;
+  fileName: string;
+  postMeta: { title: string; subtitle: string; imageUrl: string; date: string };
+};
+
+let contentTransformSessionCache: ContentTransformSessionCache | null = null;
 
 const isPlaceholderDraftTab = (tab: ContentDocTab) =>
   tab.kind === 'draft' && tab.title === 'Entwurf';
+
+const DERIVED_TAB_ID_PATTERN =
+  /^derived:(.+):(linkedin|devto|twitter|medium|reddit|github-discussion|github-blog|youtube|blog-post|single):\d+$/;
+
+const parseDerivedTabId = (tabId: string): { sourceKey: string; platform: string } | null => {
+  const match = tabId.match(DERIVED_TAB_ID_PATTERN);
+  if (!match) return null;
+  return { sourceKey: match[1], platform: match[2] };
+};
 
 const EMPTY_POST_META = { title: '', subtitle: '', imageUrl: '', date: '' };
 
@@ -258,6 +286,13 @@ const isInlineOrBlobImageUrl = (value?: string): boolean => {
   return /^data:image\//i.test(candidate) || /^blob:/i.test(candidate);
 };
 
+const normalizeServerUrlValue = (url: string): string => (
+  String(url ?? '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+);
+
 const toAbsoluteEndpointUrl = (apiBaseUrl: string, endpoint: string): string => (
   /^https?:\/\//i.test(endpoint)
     ? endpoint
@@ -285,29 +320,65 @@ const blobUrlToDataImageUrl = async (blobUrl: string): Promise<string> => {
   });
 };
 
+/** ZenEngine-Optimierung vor dem Server-Upload: JPEG, max 1920px, Qualität 85 */
+const optimizeDataUrlForUpload = async (dataUrl: string): Promise<string> => {
+  try {
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx < 0) return dataUrl;
+    const base64 = dataUrl.slice(commaIdx + 1);
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const optimized = await ZenEngine.imageOptimize(bytes, {
+      max_width: 1920,
+      max_height: 1920,
+      output_format: 'jpeg',
+      quality: 85,
+    });
+    return optimized.data_url;
+  } catch {
+    return dataUrl; // Fallback: Original verwenden
+  }
+};
+
 const uploadImageDataUrlToServer = async (
   dataUrl: string,
   uploadUrl: string,
   apiKey: string,
   fileNameHint: string
 ): Promise<string> => {
+  // ZenEngine-Optimierung vor dem Upload (kleinere Payload, schnellerer Transfer)
+  const optimizedDataUrl = await optimizeDataUrlForUpload(dataUrl);
+
   const payload = {
-    imageData: normalizeDataImageUrl(dataUrl),
-    fileName: fileNameHint,
+    imageData: normalizeDataImageUrl(optimizedDataUrl),
+    fileName: fileNameHint.replace(/\.[^.]+$/, '') + '.jpg',
   };
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(body || `Upload fehlgeschlagen (HTTP ${response.status})`);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+  };
+
+  let responseStatus: number;
+  let responseText: string;
+
+  if (isTauri()) {
+    const res = await invoke<{ status: number; body: string }>('http_fetch', {
+      request: { url: uploadUrl, method: 'POST', headers, body: JSON.stringify(payload) },
+    });
+    responseStatus = res.status;
+    responseText = res.body;
+  } else {
+    const response = await fetch(uploadUrl, { method: 'POST', headers, body: JSON.stringify(payload) });
+    responseStatus = response.status;
+    responseText = await response.text().catch(() => '');
   }
-  const result = await response.json() as {
+
+  if (responseStatus < 200 || responseStatus >= 300) {
+    throw new Error(responseText || `Upload fehlgeschlagen (HTTP ${responseStatus})`);
+  }
+  const result = JSON.parse(responseText) as {
     success?: boolean;
     url?: string;
     imageUrl?: string;
@@ -365,10 +436,120 @@ const buildServerBlocksFromMarkdown = (
       continue;
     }
 
+    const delimiterMatch = trimmed.match(/^(-{3,}|\*{3,}|_{3,})$/);
+    if (delimiterMatch) {
+      blocks.push({
+        type: 'delimiter',
+        data: {},
+      });
+      index += 1;
+      continue;
+    }
+
+    if (trimmed.startsWith('>')) {
+      const quoteLines: string[] = [];
+      while (index < lines.length) {
+        const current = lines[index].trim();
+        if (!current.startsWith('>')) break;
+        quoteLines.push(current.replace(/^>\s?/, ''));
+        index += 1;
+      }
+      const quoteText = quoteLines.join('\n').trim();
+      if (quoteText) {
+        blocks.push({
+          type: 'quote',
+          data: {
+            text: quoteText,
+            caption: '',
+            alignment: 'left',
+          },
+        });
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('```')) {
+      const language = trimmed.slice(3).trim();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      if (index < lines.length && lines[index].trim().startsWith('```')) {
+        index += 1;
+      }
+      blocks.push({
+        type: 'code',
+        data: {
+          code: codeLines.join('\n'),
+          language,
+        },
+      });
+      continue;
+    }
+
+    const unorderedMatch = trimmed.match(/^[-*+]\s+(.+)$/);
+    const orderedMatch = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (unorderedMatch || orderedMatch) {
+      const style: 'unordered' | 'ordered' = orderedMatch ? 'ordered' : 'unordered';
+      const items: Array<{ content: string; meta: unknown[]; items: unknown[] }> = [];
+      while (index < lines.length) {
+        const current = lines[index].trim();
+        const unordered = current.match(/^[-*+]\s+(.+)$/);
+        const ordered = current.match(/^\d+\.\s+(.+)$/);
+        if (style === 'unordered' && unordered) {
+          items.push({ content: unordered[1].trim(), meta: [], items: [] });
+          index += 1;
+          continue;
+        }
+        if (style === 'ordered' && ordered) {
+          items.push({ content: ordered[1].trim(), meta: [], items: [] });
+          index += 1;
+          continue;
+        }
+        break;
+      }
+      if (items.length > 0) {
+        blocks.push({
+          type: 'list',
+          data: {
+            style,
+            meta: [],
+            items,
+          },
+        });
+      }
+      continue;
+    }
+
+    if (trimmed.startsWith('|')) {
+      const tableLines: string[] = [];
+      while (index < lines.length && lines[index].trim().startsWith('|')) {
+        tableLines.push(lines[index].trim());
+        index += 1;
+      }
+      const rows = tableLines
+        .map((row) => row.replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim()))
+        .filter((row) => row.length > 0);
+      if (rows.length > 0) {
+        const hasSeparator = rows.length > 1 && rows[1].every((cell) => /^:?-{3,}:?$/.test(cell));
+        const contentRows = hasSeparator ? [rows[0], ...rows.slice(2)] : rows;
+        blocks.push({
+          type: 'table',
+          data: {
+            withHeadings: hasSeparator,
+            content: contentRows,
+          },
+        });
+      }
+      continue;
+    }
+
     const markdownImageMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (markdownImageMatch) {
       const alt = markdownImageMatch[1]?.trim() ?? '';
-      const rawUrl = markdownImageMatch[2]?.trim() ?? '';
+      const rawUrl = normalizeServerUrlValue(markdownImageMatch[2] ?? '');
       const url = isServerUsableImageUrl(rawUrl) ? rawUrl : fallbackUrl;
       if (url) {
         blocks.push({
@@ -378,6 +559,73 @@ const buildServerBlocksFromMarkdown = (
             src: url,
             caption: alt,
             alt,
+          },
+        });
+      }
+      index += 1;
+      continue;
+    }
+
+    const ctaMatch = trimmed.match(/^\[CTA:\s*(.+?)\]\((.+?)\)\s*$/i);
+    if (ctaMatch) {
+      const text = String(ctaMatch[1] ?? '').trim();
+      const url = normalizeServerUrlValue(ctaMatch[2] ?? '');
+      if (url) {
+        blocks.push({
+          type: 'cta',
+          data: {
+            mode: 'url',
+            text,
+            url,
+          },
+        });
+      }
+      index += 1;
+      continue;
+    }
+
+    const markdownLinkMatch = trimmed.match(/^\[(.+?)\]\((.+?)\)\s*$/);
+    if (markdownLinkMatch) {
+      const text = String(markdownLinkMatch[1] ?? '').trim();
+      const url = normalizeServerUrlValue(markdownLinkMatch[2] ?? '');
+      if (url) {
+        const lowerText = text.toLowerCase();
+        if (lowerText.startsWith('youtube:') || /(?:youtube\.com|youtu\.be)/i.test(url)) {
+          blocks.push({
+            type: 'youtube',
+            data: {
+              title: text.replace(/^youtube:\s*/i, '').trim() || text,
+              url,
+              embed: url,
+              src: url,
+            },
+          });
+        } else {
+          blocks.push({
+            type: 'cta',
+            data: {
+              mode: 'url',
+              text,
+              url,
+            },
+          });
+        }
+      }
+      index += 1;
+      continue;
+    }
+
+    const bareYoutubeMatch = trimmed.match(/^(?:youtube:\s*)?(https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be)\/\S+)\s*$/i);
+    if (bareYoutubeMatch) {
+      const url = normalizeServerUrlValue(bareYoutubeMatch[1] ?? '');
+      if (url) {
+        blocks.push({
+          type: 'youtube',
+          data: {
+            title: '',
+            url,
+            embed: url,
+            src: url,
           },
         });
       }
@@ -562,18 +810,30 @@ export const ContentTransformScreen = ({
   // Step 1: Source Input
   const STEP1_SAVED_COMPARISON_ID = '__saved__';
   const STEP1_TAB_COMPARISON_PREFIX = 'tab:';
-  const [sourceContent, setSourceContent] = useState<string>('');
+  const [sourceContent, setSourceContent] = useState<string>(() => contentTransformSessionCache?.sourceContent ?? '');
   const sourceContentRef = useRef<string>('');
   const liveContentGetterRef = useRef<(() => Promise<string>) | null>(null);
-  const [fileName, setFileName] = useState<string>('');
-  const [postMeta, setPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string }>(EMPTY_POST_META);
-  const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>([]);
-  const [activeDocTabId, setActiveDocTabId] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string>(() => contentTransformSessionCache?.fileName ?? '');
+  const [postMeta, setPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string }>(
+    () => contentTransformSessionCache?.postMeta ?? EMPTY_POST_META
+  );
+  const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>(() => contentTransformSessionCache?.openDocTabs ?? []);
+  const [activeDocTabId, setActiveDocTabId] = useState<string | null>(
+    () => contentTransformSessionCache?.activeDocTabId ?? null
+  );
   const activeDocTabIdRef = useRef<string | null>(null);
-  const [docTabContents, setDocTabContents] = useState<Record<string, string>>({});
-  const [dirtyDocTabs, setDirtyDocTabs] = useState<Record<string, boolean>>({});
-  const [step1ComparisonBaseByTab, setStep1ComparisonBaseByTab] = useState<Record<string, string>>({});
-  const [step1ComparisonSelectionByTab, setStep1ComparisonSelectionByTab] = useState<Record<string, string>>({});
+  const [docTabContents, setDocTabContents] = useState<Record<string, string>>(
+    () => contentTransformSessionCache?.docTabContents ?? {}
+  );
+  const [dirtyDocTabs, setDirtyDocTabs] = useState<Record<string, boolean>>(
+    () => contentTransformSessionCache?.dirtyDocTabs ?? {}
+  );
+  const [step1ComparisonBaseByTab, setStep1ComparisonBaseByTab] = useState<Record<string, string>>(
+    () => contentTransformSessionCache?.step1ComparisonBaseByTab ?? {}
+  );
+  const [step1ComparisonSelectionByTab, setStep1ComparisonSelectionByTab] = useState<Record<string, string>>(
+    () => contentTransformSessionCache?.step1ComparisonSelectionByTab ?? {}
+  );
   const [editorSettings, setEditorSettings] = useState<EditorSettings>({
     ...defaultEditorSettings,
   });
@@ -606,6 +866,30 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     sourceContentRef.current = sourceContent;
   }, [sourceContent]);
+
+  useEffect(() => {
+    contentTransformSessionCache = {
+      openDocTabs,
+      activeDocTabId,
+      docTabContents,
+      dirtyDocTabs,
+      step1ComparisonBaseByTab,
+      step1ComparisonSelectionByTab,
+      sourceContent,
+      fileName,
+      postMeta,
+    };
+  }, [
+    openDocTabs,
+    activeDocTabId,
+    docTabContents,
+    dirtyDocTabs,
+    step1ComparisonBaseByTab,
+    step1ComparisonSelectionByTab,
+    sourceContent,
+    fileName,
+    postMeta,
+  ]);
 
   useEffect(() => {
     if (!activeDocTabId) return;
@@ -854,6 +1138,11 @@ export const ContentTransformScreen = ({
     }
     setSavedFileName(savedName);
     setSavedFilePath(filePath);
+    setSavedFilePaths(filePath ? [filePath] : undefined);
+    setSaveSuccessMessage(undefined);
+    setSaveSuccessPathsLabel(undefined);
+    setSaveSuccessPrimaryActionLabel(undefined);
+    setSaveSuccessPrimaryActionUrl(null);
     setShowSaveSuccess(true);
     if (filePath) {
       onFileSaved?.(filePath, content, savedName);
@@ -934,14 +1223,18 @@ export const ContentTransformScreen = ({
         return;
       }
 
-      let apiBaseUrl = (zenStudioSettings.contentServerApiUrl ?? '').trim();
+      // Always resolve latest settings from storage to avoid stale in-memory state.
+      const currentZenSettings = loadZenStudioSettings();
+      setZenStudioSettings(currentZenSettings);
+
+      let apiBaseUrl = (currentZenSettings.contentServerApiUrl ?? '').trim();
       // Ensure absolute URL – add https:// if user forgot the protocol
       if (apiBaseUrl && !/^https?:\/\//i.test(apiBaseUrl)) {
         apiBaseUrl = `https://${apiBaseUrl}`;
       }
-      const endpoint = (zenStudioSettings.contentServerApiEndpoint ?? '').trim() || '/save_articles.php';
-      const uploadEndpoint = (zenStudioSettings.contentServerImageUploadEndpoint ?? '').trim() || '/upload_images.php';
-      const apiKey = (zenStudioSettings.contentServerApiKey ?? '').trim();
+      const endpoint = (currentZenSettings.contentServerApiEndpoint ?? '').trim() || '/save_articles.php';
+      const uploadEndpoint = (currentZenSettings.contentServerImageUploadEndpoint ?? '').trim() || '/upload_images.php';
+      const apiKey = (currentZenSettings.contentServerApiKey ?? '').trim();
 
       if (!apiBaseUrl && !/^https?:\/\//i.test(endpoint)) {
         setSettingsDefaultTab('api');
@@ -1018,7 +1311,7 @@ export const ContentTransformScreen = ({
         || /<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*\/?>/i.test(markdownPrepared)) {
         throw new Error('Es sind noch nicht ersetzte data:image Inhalte im Markdown vorhanden.');
       }
-      const metaImage = resolveServerImageUrl(normalizedPreferredImage, zenStudioSettings.contentServerImageBaseUrl);
+      const metaImage = resolveServerImageUrl(normalizedPreferredImage, currentZenSettings.contentServerImageBaseUrl);
       if (metaImage && /^https?:\/\//i.test(metaImage)) {
         const filePart = metaImage.split('?')[0].split('#')[0].split('/').pop() ?? '';
         if (filePart && !/\.(png|jpe?g|webp|gif|svg)$/i.test(filePart)) {
@@ -1050,24 +1343,134 @@ export const ContentTransformScreen = ({
         markdown: markdownForServer,
       };
 
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
+      let localCacheFilePath: string | null = null;
+      let localSyncIndexPath: string | null = null;
+      const upsertLocalSyncIndex = async (status: 'pending' | 'synced', remoteUrl?: string) => {
+        if (!localSyncIndexPath) return;
+        type SyncEntry = {
+          slug: string;
+          localPath: string;
+          serverApiUrl: string;
+          status: 'pending' | 'synced';
+          updatedAt: string;
+          remoteUrl?: string;
+        };
+        let entries: SyncEntry[] = [];
+        try {
+          if (await exists(localSyncIndexPath)) {
+            const raw = await readTextFile(localSyncIndexPath);
+            const parsed = JSON.parse(raw) as SyncEntry[];
+            if (Array.isArray(parsed)) entries = parsed;
+          }
+        } catch {
+          entries = [];
+        }
 
-      if (!response.ok) {
-        const errorBody = await response.text().catch(() => '');
-        throw new Error(errorBody || `HTTP ${response.status}`);
+        const nextEntry: SyncEntry = {
+          slug: metaSlug,
+          localPath: localCacheFilePath ?? '',
+          serverApiUrl: apiBaseUrl,
+          status,
+          updatedAt: new Date().toISOString(),
+          ...(remoteUrl ? { remoteUrl } : {}),
+        };
+        const withoutCurrent = entries.filter((entry) => entry.slug !== metaSlug);
+        await writeTextFile(localSyncIndexPath, JSON.stringify([...withoutCurrent, nextEntry], null, 2));
+      };
+
+      if (isTauri()) {
+        const activeServerIdx = Math.max(0, Math.min(currentZenSettings.activeServerIndex ?? 0, (currentZenSettings.servers ?? []).length - 1));
+        const activeServer = (currentZenSettings.servers ?? [])[activeServerIdx];
+        const localCacheBasePath = (
+          activeServer?.contentServerLocalCachePath
+          ?? currentZenSettings.contentServerLocalCachePath
+          ?? ''
+        ).trim();
+
+        if (!localCacheBasePath) {
+          setSettingsDefaultTab('api');
+          setShowSettings(true);
+          alert('Bitte in Einstellungen > API pro Server einen lokalen Cache-Pfad setzen.');
+          return;
+        }
+
+        await mkdir(localCacheBasePath, { recursive: true });
+        localCacheFilePath = await join(localCacheBasePath, `${metaSlug}.md`);
+        localSyncIndexPath = await join(localCacheBasePath, 'server-sync-index.json');
+        await writeTextFile(localCacheFilePath, markdownForServer);
+        await upsertLocalSyncIndex('pending');
+      }
+
+      const articleHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      };
+
+      let articleResponseStatus: number;
+      let responseText: string;
+
+      if (isTauri()) {
+        const res = await invoke<{ status: number; body: string }>('http_fetch', {
+          request: { url: targetUrl, method: 'POST', headers: articleHeaders, body: JSON.stringify(payload) },
+        });
+        articleResponseStatus = res.status;
+        responseText = res.body;
+      } else {
+        const response = await fetch(targetUrl, { method: 'POST', headers: articleHeaders, body: JSON.stringify(payload) });
+        articleResponseStatus = response.status;
+        responseText = await response.text().catch(() => '');
+      }
+
+      if (articleResponseStatus < 200 || articleResponseStatus >= 300) {
+        throw new Error(responseText || `HTTP ${articleResponseStatus}`);
+      }
+      const responseJson = (() => {
+        if (!responseText) return null;
+        try {
+          return JSON.parse(responseText) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })();
+      const responseUrl = typeof responseJson?.url === 'string' ? responseJson.url.trim() : '';
+      const responsePath = typeof responseJson?.path === 'string' ? responseJson.path.trim() : '';
+      const apiOrigin = (() => {
+        if (!apiBaseUrl) return '';
+        try {
+          return new URL(apiBaseUrl).origin;
+        } catch {
+          return '';
+        }
+      })();
+      const slugViewUrl = apiOrigin ? `${apiOrigin}/post/${encodeURIComponent(metaSlug)}` : '';
+      const serverViewUrl = slugViewUrl || responseUrl;
+
+      if (localCacheFilePath) {
+        await upsertLocalSyncIndex('synced', serverViewUrl || undefined);
       }
 
       const uploadInfo = (inlineUploadCompleted > 0 || metaUploadCompleted > 0)
         ? ` (Bilder hochgeladen: ${inlineUploadCompleted + metaUploadCompleted})`
         : '';
-      alert(`✓ Artikel erfolgreich auf Server exportiert${uploadInfo}.`);
+      const serverDetails = [
+        `Slug: ${metaSlug}`,
+        localCacheFilePath ? `Local Cache: ${localCacheFilePath}` : '',
+        `API Endpoint: ${targetUrl}`,
+        serverViewUrl ? `Ansicht: ${serverViewUrl}` : '',
+        responsePath ? `Server-Pfad: ${responsePath}` : '',
+        (inlineUploadCompleted > 0 || metaUploadCompleted > 0)
+          ? `Uploads: ${inlineUploadCompleted + metaUploadCompleted}`
+          : '',
+      ].filter(Boolean);
+
+      setSavedFileName(`${metaSlug}.md`);
+      setSavedFilePath(serverViewUrl || targetUrl);
+      setSavedFilePaths(serverDetails);
+      setSaveSuccessMessage(`Artikel erfolgreich auf Server exportiert${uploadInfo}.`);
+      setSaveSuccessPathsLabel('Server-Details:');
+      setSaveSuccessPrimaryActionLabel(serverViewUrl ? 'Auf Server anschauen' : undefined);
+      setSaveSuccessPrimaryActionUrl(serverViewUrl || null);
+      setShowSaveSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unbekannter Fehler beim Server-Export.';
       alert(`Server-Export fehlgeschlagen: ${message}`);
@@ -1396,6 +1799,12 @@ export const ContentTransformScreen = ({
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedFileName, setSavedFileName] = useState('');
   const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
+  const [savedFilePaths, setSavedFilePaths] = useState<string[] | undefined>(undefined);
+  const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | undefined>(undefined);
+  const [saveSuccessPathsLabel, setSaveSuccessPathsLabel] = useState<string | undefined>(undefined);
+  const [saveSuccessPrimaryActionLabel, setSaveSuccessPrimaryActionLabel] = useState<string | undefined>(undefined);
+  const [saveSuccessPrimaryActionUrl, setSaveSuccessPrimaryActionUrl] = useState<string | null>(null);
+  const { openExternal } = useOpenExternal();
   const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>(createDefaultProjectMetadata());
   const metadata = externalMetadata ?? localMetadata;
   const handleMetadataSave = (newMetadata: ProjectMetadata) => {
@@ -1491,6 +1900,32 @@ export const ContentTransformScreen = ({
     }
   };
 
+  const getSocialTabForSocialPlatform = (platform?: SocialPlatform) => {
+    if (!platform) return undefined;
+    switch (platform) {
+      case 'twitter':
+      case 'reddit':
+      case 'linkedin':
+      case 'devto':
+      case 'medium':
+      case 'github':
+        return platform;
+      default:
+        return undefined;
+    }
+  };
+
+  const openPlatformSelectionFromStep4 = () => {
+    setPreviewMode(false);
+    setError(null);
+    if (!multiPlatformMode) {
+      onMultiPlatformModeChange?.(true);
+    }
+    setSelectedPlatforms([]);
+    setActiveResultTab(null);
+    setStep(2);
+  };
+
   const captureStep4Original = (contentSnapshot?: string) => {
     setStep4OriginalContent(getLatestSourceContent(contentSnapshot));
     setStep4SourceTabId(activeDocTabIdRef.current);
@@ -1506,17 +1941,52 @@ export const ContentTransformScreen = ({
     setStep(4);
   };
 
-  const upsertResultVersionTab = (nextContent: string, source: 'ai' | 'translator' | 'manual') => {
-    const sourceKey = step4SourceTabId ?? '__draft__';
-    const sourceTab = step4SourceTabId ? openDocTabs.find((tab) => tab.id === step4SourceTabId) : null;
+  const upsertResultVersionTab = (
+    nextContent: string,
+    source: 'ai' | 'translator' | 'manual',
+    platformHint?: ContentPlatform,
+    options: { activate?: boolean } = {}
+  ) => {
+    const { activate = true } = options;
+    const rawSourceKey = step4SourceTabId ?? '__draft__';
+    const normalizedSourceKey = parseDerivedTabId(rawSourceKey)?.sourceKey ?? rawSourceKey;
+    const sourceTab = openDocTabs.find((tab) => tab.id === normalizedSourceKey)
+      ?? (step4SourceTabId ? openDocTabs.find((tab) => tab.id === step4SourceTabId) : null);
     const baseTitleRaw = sourceTab?.title || fileName || 'Entwurf';
-    const baseTitle = baseTitleRaw.replace(/\s·\s(Neu|AI|AI Überarbeitung|Übersetzt)$/i, '');
-    const suffix = source === 'translator' ? 'Übersetzt' : source === 'ai' ? 'AI Überarbeitung' : 'Neu';
-    const nextTitle = `${baseTitle} · ${suffix}`;
+    const baseTitle = baseTitleRaw.replace(/\s·\s(Neu|AI|AI Überarbeitung|Übersetzt|LinkedIn Post|dev\.to Article|Twitter Thread|Medium Blog|Reddit Post|GitHub Discussion|GitHub Blog Post|YouTube Description|Blog Post)$/i, '');
+    const tabPlatformSuffix = platformHint
+      ? ({
+          linkedin: 'LinkedIn',
+          devto: 'dev.to',
+          twitter: 'Twitter',
+          medium: 'Medium',
+          reddit: 'Reddit',
+          'github-discussion': 'GitHub',
+          'github-blog': 'GitHub Blog',
+          youtube: 'YouTube',
+          'blog-post': 'Blog',
+        } as Record<ContentPlatform, string>)[platformHint]
+      : null;
+    const compactBaseTitle = baseTitle.length > 12 ? `${baseTitle.slice(0, 8)}...` : baseTitle;
+    const suffix = platformHint
+      ? tabPlatformSuffix
+      : source === 'translator'
+        ? 'Übersetzt'
+        : source === 'ai'
+          ? 'AI Überarbeitung'
+          : 'Neu';
+    const nextTitle = `${platformHint ? compactBaseTitle : baseTitle} · ${suffix}`;
 
-    const mappedId = resultTabBySource[sourceKey];
+    const mappingKey = `${normalizedSourceKey}:${platformHint ?? 'single'}`;
+    const existingDerivedForSourceAndPlatform = openDocTabs.find((tab) => {
+      if (tab.kind !== 'derived') return false;
+      if ((platformHint ?? undefined) !== (tab.platform ?? undefined)) return false;
+      const parsed = parseDerivedTabId(tab.id);
+      return parsed?.sourceKey === normalizedSourceKey;
+    });
+    const mappedId = resultTabBySource[mappingKey] ?? existingDerivedForSourceAndPlatform?.id;
     const mappedTabExists = mappedId ? openDocTabs.some((tab) => tab.id === mappedId) : false;
-    const resultTabId = mappedTabExists ? mappedId : `derived:${sourceKey}:${Date.now()}`;
+    const resultTabId = mappedTabExists ? mappedId : `derived:${normalizedSourceKey}:${platformHint ?? 'single'}:${Date.now()}`;
 
     if (!mappedTabExists) {
       setOpenDocTabs((prev) => [
@@ -1525,21 +1995,28 @@ export const ContentTransformScreen = ({
           id: resultTabId,
           title: nextTitle,
           kind: 'derived',
+          platform: platformHint,
         },
       ]);
-      setResultTabBySource((prev) => ({ ...prev, [sourceKey]: resultTabId }));
+      setResultTabBySource((prev) => ({ ...prev, [mappingKey]: resultTabId }));
     } else {
       setOpenDocTabs((prev) =>
-        prev.map((tab) => (tab.id === resultTabId ? { ...tab, title: nextTitle } : tab))
+        prev.map((tab) => (tab.id === resultTabId ? { ...tab, title: nextTitle, platform: platformHint } : tab))
       );
     }
 
     setDocTabContents((prev) => ({ ...prev, [resultTabId]: nextContent }));
     setDirtyDocTabs((prev) => ({ ...prev, [resultTabId]: true }));
-    activeDocTabIdRef.current = resultTabId;
-    setActiveDocTabId(resultTabId);
-    setSourceContent(nextContent);
-    setFileName(nextTitle);
+    if (activate) {
+      activeDocTabIdRef.current = resultTabId;
+      setActiveDocTabId(resultTabId);
+      setSourceContent(nextContent);
+      setFileName(nextTitle);
+      if (platformHint) {
+        setActiveResultTab(platformHint);
+      }
+    }
+    return { tabId: resultTabId, title: nextTitle };
   };
 
   const handleNextFromStep1 = () => {
@@ -1606,7 +2083,11 @@ export const ContentTransformScreen = ({
     const nextContent = docTabContents[tabId] ?? '';
     setSourceContent(nextContent);
     emitExternalContentChange(nextContent, 'step1', tabId);
-    const nextTitle = openDocTabs.find((tab) => tab.id === tabId)?.title ?? '';
+    const selectedTab = openDocTabs.find((tab) => tab.id === tabId);
+    if (selectedTab?.platform) {
+      setActiveResultTab(selectedTab.platform);
+    }
+    const nextTitle = selectedTab?.title ?? '';
     setFileName(nextTitle);
   };
 
@@ -1686,6 +2167,11 @@ export const ContentTransformScreen = ({
       setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
       setSavedFileName(tab.title);
       setSavedFilePath(tab.filePath);
+      setSavedFilePaths([tab.filePath]);
+      setSaveSuccessMessage(undefined);
+      setSaveSuccessPathsLabel(undefined);
+      setSaveSuccessPrimaryActionLabel(undefined);
+      setSaveSuccessPrimaryActionUrl(null);
       setShowSaveSuccess(true);
       return true;
     }
@@ -1709,6 +2195,11 @@ export const ContentTransformScreen = ({
       setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
       setSavedFileName(filePath.split(/[\\/]/).pop() || fallbackName);
       setSavedFilePath(filePath);
+      setSavedFilePaths([filePath]);
+      setSaveSuccessMessage(undefined);
+      setSaveSuccessPathsLabel(undefined);
+      setSaveSuccessPrimaryActionLabel(undefined);
+      setSaveSuccessPrimaryActionUrl(null);
       setShowSaveSuccess(true);
       return true;
     }
@@ -1727,6 +2218,11 @@ export const ContentTransformScreen = ({
     setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
     setSavedFileName(finalFileName);
     setSavedFilePath(undefined);
+    setSavedFilePaths(undefined);
+    setSaveSuccessMessage(undefined);
+    setSaveSuccessPathsLabel(undefined);
+    setSaveSuccessPrimaryActionLabel(undefined);
+    setSaveSuccessPrimaryActionUrl(null);
     setShowSaveSuccess(true);
     return true;
   };
@@ -1876,8 +2372,7 @@ export const ContentTransformScreen = ({
                 finalContent = translateResult.data;
               }
             }
-
-            results[platform] = finalContent;
+            results[platform] = applySteuerFormatConfig(finalContent, platform);
           } else {
             failedPlatforms.push({
               platform,
@@ -1935,7 +2430,7 @@ export const ContentTransformScreen = ({
             }
           }
 
-          setTransformedContent(finalContent);
+          setTransformedContent(applySteuerFormatConfig(finalContent, selectedPlatform));
           captureStep4Original();
           setStep4LastChangeSource('ai');
           setStep(4);
@@ -1976,6 +2471,36 @@ export const ContentTransformScreen = ({
       setIsTransforming(false);
       transformInFlightRef.current = false;
     }
+  };
+
+  const handleFormatOnly = () => {
+    setPreviewMode(false);
+    setError(null);
+    setAutoSelectedModel(null);
+
+    const processedContent = replacePlaceholders(sourceContent);
+
+    if (multiPlatformMode && selectedPlatforms.length > 0) {
+      const results: Record<ContentPlatform, string> = {} as Record<ContentPlatform, string>;
+
+      for (const platform of selectedPlatforms) {
+        results[platform] = applySteuerFormatConfig(processedContent, platform);
+      }
+
+      setTransformedContents(results);
+      const firstPlatform = selectedPlatforms[0];
+      setActiveResultTab(firstPlatform);
+      setTransformedContent(results[firstPlatform] || '');
+      captureStep4Original();
+      setStep4LastChangeSource('manual');
+      setStep(4);
+      return;
+    }
+
+    setTransformedContent(applySteuerFormatConfig(processedContent, selectedPlatform));
+    captureStep4Original();
+    setStep4LastChangeSource('manual');
+    setStep(4);
   };
 
   const handleReset = () => {
@@ -2181,17 +2706,18 @@ export const ContentTransformScreen = ({
       onHeaderActionHandled?.();
       return;
     }
+    if (headerAction === "format_only" && effectiveStep === 3) {
+      handleFormatOnly();
+      onHeaderActionHandled?.();
+      return;
+    }
     if (headerAction === "post_direct" && effectiveStep === 3) {
-      if (!isPosting) {
-        void handlePostDirectly();
-      }
+      handleFormatOnly();
       onHeaderActionHandled?.();
       return;
     }
     if (headerAction === "goto_platforms" && effectiveStep === 4) {
-      setPreviewMode(false);
-      setError(null);
-      setStep(2);
+      openPlatformSelectionFromStep4();
       onHeaderActionHandled?.();
       return;
     }
@@ -2220,6 +2746,7 @@ export const ContentTransformScreen = ({
     effectiveStep,
     headerAction,
     handleNextFromStep1,
+    handleFormatOnly,
     handlePostDirectly,
     handleTransform,
     isPosting,
@@ -2475,6 +3002,7 @@ export const ContentTransformScreen = ({
           headerAction === "reset" ||
           headerAction === "post" ||
           headerAction === "posten" ||
+          headerAction === "post_all" ||
           headerAction === "back_doc" ||
           headerAction === "back_dashboard"
             ? headerAction
@@ -2499,33 +3027,56 @@ export const ContentTransformScreen = ({
               onBack={() => {
                 // Nachbearbeiten: Zum Editor mit transformiertem Content
                 setPreviewMode(false);
-                const nextContent = multiPlatformMode
-                  ? (() => {
-                      const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
-                      setActiveEditTab(nextTab);
-                      if (nextTab && Object.prototype.hasOwnProperty.call(transformedContents, nextTab)) {
-                        return transformedContents[nextTab] || '';
-                      }
-                      return '';
-                    })()
-                  : transformedContent;
-
-                if (nextContent !== step4OriginalContent) {
-                  upsertResultVersionTab(nextContent, step4LastChangeSource);
-                } else {
-                  setSourceContent(nextContent);
-                }
-
                 if (multiPlatformMode) {
-                  const nextTab = activeResultTab ?? selectedPlatforms[0] ?? null;
-                  setActiveEditTab(nextTab);
+                  const preferredPlatform = activeResultTab ?? selectedPlatforms[0] ?? null;
+                  let preferredTabId: string | null = null;
+                  let preferredTabTitle = '';
+                  selectedPlatforms.forEach((platform) => {
+                    const platformContent = transformedContents[platform] ?? '';
+                    const upserted = upsertResultVersionTab(
+                      platformContent,
+                      step4LastChangeSource,
+                      platform,
+                      { activate: false }
+                    );
+                    if (platform === preferredPlatform || (!preferredTabId && platformContent)) {
+                      preferredTabId = upserted.tabId;
+                      preferredTabTitle = upserted.title;
+                    }
+                  });
+
+                  if (preferredPlatform) {
+                    setActiveEditTab(preferredPlatform);
+                    setActiveResultTab(preferredPlatform);
+                  }
+                  if (preferredTabId) {
+                    activeDocTabIdRef.current = preferredTabId;
+                    setActiveDocTabId(preferredTabId);
+                    setFileName(preferredTabTitle);
+                    if (preferredPlatform && Object.prototype.hasOwnProperty.call(transformedContents, preferredPlatform)) {
+                      setSourceContent(transformedContents[preferredPlatform] || '');
+                    }
+                  }
+                } else {
+                  const nextContent = transformedContent;
+                  if (nextContent !== step4OriginalContent) {
+                    upsertResultVersionTab(nextContent, step4LastChangeSource, selectedPlatform);
+                  } else {
+                    setSourceContent(nextContent);
+                  }
                 }
                 setCameFromEdit(true); // Mark that user came from edit
                 setStep(1);
               }}
-              onOpenSettings={() => {
-                setSettingsDefaultTab('ai');
-                setSettingsSocialTab(undefined);
+              onOpenSettings={(targetSocialPlatform?: SocialPlatform) => {
+                const socialTab = getSocialTabForSocialPlatform(targetSocialPlatform);
+                if (socialTab) {
+                  setSettingsDefaultTab('social');
+                  setSettingsSocialTab(socialTab);
+                } else {
+                  setSettingsDefaultTab('ai');
+                  setSettingsSocialTab(undefined);
+                }
                 setSettingsMissingSocialHint(false);
                 setSettingsMissingSocialLabel(undefined);
                 setShowSettings(true);
@@ -2545,6 +3096,7 @@ export const ContentTransformScreen = ({
               onHeaderActionHandled={onHeaderActionHandled}
               onBackToDocStudio={() => onBackToDocStudio?.(transformedContent)}
               onBackToDashboard={() => onBackToDashboard?.(transformedContent)}
+              onOpenPlatformSelection={openPlatformSelectionFromStep4}
               onGoToTransform={(targetPlatform) => {
                 // Navigate to Step 2 with the selected platform, then to Step 3
                 setSelectedPlatform(targetPlatform);
@@ -2590,7 +3142,7 @@ export const ContentTransformScreen = ({
       {/* Main Content */}
       <div
         className="flex-1 overflow-y-auto"
-        style={{ paddingTop: effectiveStep === 2 || effectiveStep === 3 ? '70px' : '0' }}
+        style={{ paddingTop: effectiveStep === 2 || effectiveStep === 3 ? '70px' : '22px' }}
       >
         {renderStepContent()}
       </div>
@@ -2630,16 +3182,28 @@ export const ContentTransformScreen = ({
       {/* Generating Modal */}
       <ZenGeneratingModal
         isOpen={isTransforming}
-        templateName={`${selectedPlatform} Content`}
+        templateName={`${getPlatformLabel(selectedPlatform)} Content`}
         onClose={() => setIsTransforming(false)}
       />
 
       {/* Save Success Modal */}
       <ZenSaveSuccessModal
         isOpen={showSaveSuccess}
-        onClose={() => setShowSaveSuccess(false)}
+        onClose={() => {
+          setShowSaveSuccess(false);
+          setSaveSuccessMessage(undefined);
+          setSaveSuccessPathsLabel(undefined);
+          setSaveSuccessPrimaryActionLabel(undefined);
+          setSaveSuccessPrimaryActionUrl(null);
+        }}
         fileName={savedFileName}
         filePath={savedFilePath}
+        filePaths={savedFilePaths}
+        message={saveSuccessMessage}
+        pathsLabel={saveSuccessPathsLabel}
+        primaryActionLabel={saveSuccessPrimaryActionLabel}
+        onPrimaryAction={saveSuccessPrimaryActionUrl ? () => void openExternal(saveSuccessPrimaryActionUrl) : undefined}
+        showFileExplorerButton={!saveSuccessPrimaryActionUrl}
       />
 
       <ZenModal

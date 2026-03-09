@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
@@ -19,6 +19,7 @@ import {
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
 import { ZenThoughtLine } from '../components/ZenThoughtLine';
 import { loadZenStudioSettings } from '../services/zenStudioSettingsService';
+import * as QRCode from 'qrcode';
 
 import type { ScheduledPost } from '../types/scheduling';
 
@@ -47,7 +48,7 @@ interface GettingStartedScreenProps {
 
 type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile';
 const MOBILE_APP_DOWNLOAD_URL = 'https://zenpost.studio';
-const MOBILE_APP_QR_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
+const MOBILE_APP_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
 
 interface StudioDef {
   id: StudioId;
@@ -83,7 +84,7 @@ export function GettingStartedScreen({
   });
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
-  const [activeStudio, setActiveStudio] = useState<StudioId>('doc-studio');
+  const [activeStudio, setActiveStudio] = useState<StudioId>('content-ai');
   const [mobileDrafts, setMobileDrafts] = useState<MobileDraft[]>([]);
   const [serverArticles, setServerArticles] = useState<ServerSlugItem[] | null>(null);
   const [serverLoading, setServerLoading] = useState(false);
@@ -91,6 +92,7 @@ export function GettingStartedScreen({
   const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
+  const [mobileAppQrSrc, setMobileAppQrSrc] = useState(MOBILE_APP_QR_FALLBACK_SRC);
 
   const getFriendlyServerError = (rawError: string | null): string => {
     if (!rawError) return '';
@@ -118,8 +120,23 @@ export function GettingStartedScreen({
 
   const loadServerArticles = async () => {
     const settings = loadZenStudioSettings();
+    const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
+    const localCachePath = (
+      activeServer?.contentServerLocalCachePath
+      ?? settings.contentServerLocalCachePath
+      ?? ''
+    ).trim();
+    if (!localCachePath) {
+      setServerError('Lokaler Server-Cache-Pfad fehlt. Bitte in Einstellungen → API setzen.');
+      setServerArticles([]);
+      return;
+    }
     let base = (settings.contentServerApiUrl ?? '').trim();
-    if (!base) { setServerError('Keine Server-URL konfiguriert. Bitte in Einstellungen → API eintragen.'); return; }
+    if (!base) {
+      setServerError('Keine Server-URL konfiguriert. Bitte in Einstellungen → API eintragen.');
+      setServerArticles([]);
+      return;
+    }
     if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
     const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
     const url = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
@@ -128,9 +145,21 @@ export function GettingStartedScreen({
     try {
       const headers: Record<string, string> = {};
       if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-      const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json() as unknown;
+      let listText: string;
+      let listStatus: number;
+      if (isTauri()) {
+        const res = await invoke<{ status: number; body: string }>('http_fetch', {
+          request: { url, method: 'GET', headers, body: null },
+        });
+        listStatus = res.status;
+        listText = res.body;
+      } else {
+        const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
+        listStatus = res.status;
+        listText = await res.text();
+      }
+      if (listStatus < 200 || listStatus >= 300) throw new Error(`HTTP ${listStatus}`);
+      const data = JSON.parse(listText) as unknown;
       if (!Array.isArray(data)) throw new Error('Unerwartetes Antwortformat');
       setServerArticles(data as ServerSlugItem[]);
     } catch (e) {
@@ -153,8 +182,17 @@ export function GettingStartedScreen({
     try {
       const headers: Record<string, string> = {};
       if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-      const res = await fetch(url, { method: 'DELETE', headers });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      let deleteStatus: number;
+      if (isTauri()) {
+        const res = await invoke<{ status: number; body: string }>('http_fetch', {
+          request: { url, method: 'DELETE', headers, body: null },
+        });
+        deleteStatus = res.status;
+      } else {
+        const res = await fetch(url, { method: 'DELETE', headers });
+        deleteStatus = res.status;
+      }
+      if (deleteStatus < 200 || deleteStatus >= 300) throw new Error(`HTTP ${deleteStatus}`);
       setDeleteToast('Artikel erfolgreich gelöscht');
       setTimeout(() => setDeleteToast(null), 3000);
       void loadServerArticles();
@@ -170,32 +208,30 @@ export function GettingStartedScreen({
     refreshMobileDrafts();
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    void QRCode.toDataURL(MOBILE_APP_DOWNLOAD_URL, {
+      margin: 1,
+      width: 240,
+      color: { dark: '#000000', light: '#0000' },
+    })
+      .then((dataUrl) => {
+        if (isMounted) setMobileAppQrSrc(dataUrl);
+      })
+      .catch(() => {
+        if (isMounted) setMobileAppQrSrc(MOBILE_APP_QR_FALLBACK_SRC);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleOpenMobileDownload = () => {
     if (typeof window === 'undefined') return;
     window.open(MOBILE_APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
   };
 
   const studios: StudioDef[] = [
-    {
-      id: 'doc-studio',
-      label: 'Doc Studio',
-      shortLabel: 'Doc Studio',
-      description: 'Technische Dokumentation, README und Code-Doku erstellen',
-      useCases: [
-        {
-          title: 'Code dokumentieren',
-          description: 'README, API-Docs, Changelog und technische Doku erstellen',
-          icon: faBook,
-          action: () => onOpenDocStudio?.(),
-        },
-        {
-          title: 'Dokumente verwalten',
-          description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
-          icon: faFolderOpen,
-          action: () => onOpenDocStudio?.(),
-        },
-      ],
-    },
     {
       id: 'content-ai',
       label: 'Content AI',
@@ -219,6 +255,26 @@ export function GettingStartedScreen({
           description: 'Kalender, Scheduling und Veröffentlichungen vorbereiten',
           icon: faCalendarDays,
           action: () => setShowPlannerModal(true),
+        },
+      ],
+    },
+    {
+      id: 'doc-studio',
+      label: 'Doc Studio',
+      shortLabel: 'Doc Studio',
+      description: 'Technische Dokumentation, README und Code-Doku erstellen',
+      useCases: [
+        {
+          title: 'Code dokumentieren',
+          description: 'README, API-Docs, Changelog und technische Doku erstellen',
+          icon: faBook,
+          action: () => onOpenDocStudio?.(),
+        },
+        {
+          title: 'Dokumente verwalten',
+          description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
+          icon: faFolderOpen,
+          action: () => onOpenDocStudio?.(),
         },
       ],
     },
@@ -525,14 +581,14 @@ export function GettingStartedScreen({
                         height: 96,
                         border: '1px solid rgba(172,142,102,0.35)',
                         borderRadius: 8,
-                        backgroundColor: '#fff',
+                        backgroundColor: 'transparent',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         overflow: 'hidden',
                       }}
                     >
-                      <img src={MOBILE_APP_QR_SRC} alt="QR-Code App Download" style={{ width: '100%', height: '100%' }} />
+                      <img src={mobileAppQrSrc} alt="QR-Code App Download" style={{ width: '100%', height: '100%' }} />
                     </div>
                   </button>
 

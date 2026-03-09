@@ -16,6 +16,11 @@ interface ZenSaveSuccessModalProps {
   filePaths?: string[]; // Optional: list of files (preferred over filePath for multi-save)
   onGoToCalendar?: () => void; // Optional: callback to go to calendar
   showCalendarButton?: boolean; // Optional: show calendar button
+  message?: string;
+  pathsLabel?: string;
+  primaryActionLabel?: string;
+  onPrimaryAction?: () => void;
+  showFileExplorerButton?: boolean;
 }
 
 export const ZenSaveSuccessModal = ({
@@ -26,6 +31,11 @@ export const ZenSaveSuccessModal = ({
   filePaths,
   onGoToCalendar,
   showCalendarButton = false,
+  message,
+  pathsLabel,
+  primaryActionLabel,
+  onPrimaryAction,
+  showFileExplorerButton = true,
 }: ZenSaveSuccessModalProps) => {
   const preset = getModalPreset('save-success');
   const aggregatedPaths = filePaths?.filter((path): path is string => Boolean(path)) ?? [];
@@ -41,7 +51,18 @@ export const ZenSaveSuccessModal = ({
   const isBrowserDownloadPath =
     !!primaryPath &&
     (primaryPath.toLowerCase().includes('browser-download') || primaryPath.startsWith('web:'));
+  const isHttpPrimaryPath = !!primaryPath && /^https?:\/\//i.test(primaryPath);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+
+  const defaultMessage = hasMultipleFiles
+    ? (webRuntime || isBrowserDownloadPath)
+      ? 'Die Dateien wurden als Browser-Downloads gespeichert.'
+      : 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
+    : (webRuntime || isBrowserDownloadPath)
+      ? 'Die Datei wurde als Browser-Download gespeichert.'
+      : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.';
+  const resolvedMessage = message ?? defaultMessage;
+  const resolvedPathsLabel = pathsLabel ?? ((webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:');
 
   // Debug: Log filePath to see if it's being passed - only when modal is open
   if (isOpen) {
@@ -152,13 +173,7 @@ export const ZenSaveSuccessModal = ({
             maxWidth: '400px',
           }}
         >
-          {hasMultipleFiles
-            ? (webRuntime || isBrowserDownloadPath)
-              ? 'Die Dateien wurden als Browser-Downloads gespeichert.'
-              : 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
-            : (webRuntime || isBrowserDownloadPath)
-              ? 'Die Datei wurde als Browser-Download gespeichert.'
-              : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.'}
+          {resolvedMessage}
         </p>
 
         {normalizedPaths.length > 0 && (
@@ -182,7 +197,7 @@ export const ZenSaveSuccessModal = ({
                 color: '#dbd9d5',
               }}
             >
-              {(webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:'}
+              {resolvedPathsLabel}
             </div>
             {normalizedPaths.map((path, index) => (
               <code
@@ -223,7 +238,15 @@ export const ZenSaveSuccessModal = ({
             flexWrap: 'wrap',
           }}
         >
-          {primaryPath && desktopRuntime && !isBrowserDownloadPath && (
+          {primaryActionLabel && onPrimaryAction && (
+            <ZenRoughButton
+              label={primaryActionLabel}
+              icon={<FontAwesomeIcon icon={faFolderOpen} />}
+              onClick={onPrimaryAction}
+              variant="default"
+            />
+          )}
+          {showFileExplorerButton && primaryPath && desktopRuntime && !isBrowserDownloadPath && !isHttpPrimaryPath && (
             <ZenRoughButton
               label="Im Finder anzeigen"
               icon={<FontAwesomeIcon icon={faFolderOpen} />}

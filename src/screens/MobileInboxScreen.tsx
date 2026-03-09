@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { loadMobileDrafts, type MobileDraft } from "../services/mobileInboxService";
+import { loadMobileDrafts, optimizeMobileDraftPhoto, type MobileDraft } from "../services/mobileInboxService";
 import { join } from "@tauri-apps/api/path";
 import { readFile } from "@tauri-apps/plugin-fs";
 import { isTauri } from "@tauri-apps/api/core";
@@ -27,10 +27,11 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
   const [basePath, setBasePath] = useState("");
   const [loading, setLoading] = useState(true);
   const [photoPaths, setPhotoPaths] = useState<Record<string, string>>({});
-  // Rohe Dateipfade für das Übergeben an Content AI (readFile braucht nativen Pfad)
-  const [photoFilePaths, setPhotoFilePaths] = useState<Record<string, string>>({});
+  // Rohe Dateipfade — nur noch intern für Thumbnail-Fallback genutzt
+  const [_photoFilePaths, setPhotoFilePaths] = useState<Record<string, string>>({});
   const [failedImages, setFailedImages] = useState<Set<string>>(new Set());
   const [importedPackagesNotice, setImportedPackagesNotice] = useState<string | null>(null);
+  const [optimizingDraftId, setOptimizingDraftId] = useState<string | null>(null);
   // Blob URLs für Thumbnails — müssen beim Refresh/Unmount revoked werden
   const blobUrlsRef = useRef<string[]>([]);
   const importNoticeTimeoutRef = useRef<number | null>(null);
@@ -129,6 +130,20 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
     setFailedImages((prev) => new Set(prev).add(draftId));
   }
 
+  const handleOpenInContentAI = useCallback(async (draft: MobileDraft) => {
+    if (!onOpenInContentAI) return;
+    setOptimizingDraftId(draft.id);
+    try {
+      const optimizedPhotoUrl = await optimizeMobileDraftPhoto(draft, basePath);
+      onOpenInContentAI(draft, optimizedPhotoUrl);
+    } catch {
+      // Fallback: ohne Foto öffnen
+      onOpenInContentAI(draft, null);
+    } finally {
+      setOptimizingDraftId(null);
+    }
+  }, [onOpenInContentAI, basePath]);
+
   return (
     <div style={styles.root}>
       {/* Header */}
@@ -226,11 +241,17 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
 
                 {/* Action: In Content AI öffnen */}
                 <button
-                  style={styles.openBtn}
-                  onClick={() => onOpenInContentAI?.(draft, photoFilePaths[draft.id] ?? draft.photoUri ?? null)}
+                  style={{
+                    ...styles.openBtn,
+                    ...(optimizingDraftId === draft.id ? styles.openBtnLoading : {}),
+                  }}
+                  onClick={() => handleOpenInContentAI(draft)}
+                  disabled={optimizingDraftId === draft.id}
                   title="In Content AI öffnen"
                 >
-                  <span style={styles.openBtnLabel}>In Content AI öffnen</span>
+                  <span style={styles.openBtnLabel}>
+                    {optimizingDraftId === draft.id ? "Optimiert…" : "In Content AI öffnen"}
+                  </span>
                   <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: 10 }} />
                 </button>
               </div>
@@ -435,5 +456,9 @@ const styles = {
     fontSize: 9,
     letterSpacing: 0.5,
     whiteSpace: "nowrap" as const,
+  },
+  openBtnLoading: {
+    opacity: 0.6,
+    cursor: "not-allowed" as const,
   },
 };

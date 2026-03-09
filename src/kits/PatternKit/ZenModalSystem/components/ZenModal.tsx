@@ -2,6 +2,9 @@ import React, { useEffect } from "react";
 import ReactDOM from "react-dom";
 import { ZenCloseButton } from "../../../DesignKit/ZenCloseButton";
 
+// Global counter — blur only cleared when ALL modals are closed
+let _openModalCount = 0;
+
 interface ZenModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -20,6 +23,8 @@ interface ZenModalProps {
   footer?: React.ReactNode;
   fullscreen?: boolean;
   theme?: "dark" | "paper";
+  /** Erhöhter z-Index wenn Modal über einem anderen Modal liegt */
+  zIndex?: number;
 }
 
 export const ZenModal = ({
@@ -35,25 +40,31 @@ export const ZenModal = ({
   header,
   footer,
   theme = "paper",
+  zIndex,
 }: ZenModalProps) => {
   const modalRoot = document.getElementById("zen-modal-root");
 
   useEffect(() => {
+    if (!isOpen) return;
+
     const appRoot = document.getElementById("root");
-    if (isOpen) {
-      if (appRoot) {
-        appRoot.style.filter = "blur(4px)";
-        appRoot.style.transition = "filter 0.2s ease-in-out";
-      }
-      document.body.style.overflow = "hidden";
-    } else {
-      if (appRoot) appRoot.style.filter = "";
-      document.body.style.overflow = "";
+    _openModalCount++;
+
+    if (appRoot) {
+      appRoot.style.filter = "blur(6px) brightness(0.75)";
+      appRoot.style.transition = "filter 0.2s ease-in-out";
     }
+    document.body.style.overflow = "hidden";
 
     return () => {
-      if (appRoot) appRoot.style.filter = "";
-      document.body.style.overflow = "";
+      _openModalCount = Math.max(0, _openModalCount - 1);
+      if (_openModalCount === 0) {
+        if (appRoot) {
+          appRoot.style.filter = "";
+          appRoot.style.transition = "";
+        }
+        document.body.style.overflow = "";
+      }
     };
   }, [isOpen]);
 
@@ -101,13 +112,16 @@ export const ZenModal = ({
   const titleColor = theme === "paper" ? "#AC8E66" : "#AC8E66";
   const subtitleColor = theme === "paper" ? "#7a6a52" : "#777";
 
-  const backdropOpacity = theme === "paper" ? "bg-black/20" : "bg-black/0";
+  const backdropOpacity = zIndex && zIndex > 10000
+    ? "bg-black/60"
+    : theme === "paper" ? "bg-black/40" : "bg-black/10";
 
   const modalContent = (
     <div
-      className={`fixed inset-0 z-[10000] flex ${
+      className={`fixed inset-0 flex ${
         fullscreen ? "items-stretch justify-stretch" : "items-center justify-center"
       }`}
+      style={{ zIndex: zIndex ?? 10000 }}
       role="dialog"
       aria-modal="true"
     >

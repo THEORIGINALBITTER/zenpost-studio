@@ -31,6 +31,7 @@ import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutM
 import { ZenBugReportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBugReportModal";
 import { ZenMailSuccessModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenMailSuccessModal";
 import { ZenContentStudioModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenContentStudioModal";
+import { ZenWebProjectPickerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenWebProjectPickerModal";
 import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal";
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
 import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgradeModal";
@@ -52,6 +53,11 @@ import { useOpenExternal } from "./hooks/useOpenExternal";
 import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
 import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath } from "./utils/projectHistory";
+import {
+  encodeWebProjectPath, isWebProjectPath,
+  getDirectoryHandle, readMarkdownFiles,
+  type WebProject,
+} from "./services/webProjectService";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 
@@ -59,7 +65,12 @@ import ZenCursor from "./components/ZenCursor";
 
 const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unknown> }>, title?: string): string => {
   const lines: string[] = [];
-  if (title) lines.push(`# ${title}`, '');
+  const hasH1 = blocks.some((block) => {
+    if (block.type !== 'header') return false;
+    const level = typeof block.data.level === 'number' ? block.data.level : 2;
+    return level === 1;
+  });
+  if (title && !hasH1) lines.push(`# ${title}`, '');
   for (const block of blocks) {
     switch (block.type) {
       case 'header': {
@@ -274,12 +285,14 @@ function AppContent() {
   const [contentStudioServerArticlesLoading, setContentStudioServerArticlesLoading] = useState(false);
   const [contentStudioServerArticlesError, setContentStudioServerArticlesError] = useState<string | null>(null);
   const [activeServerArticleSlug, setActiveServerArticleSlug] = useState<string | null>(null);
+  const [contentStudioServerCachePath, setContentStudioServerCachePath] = useState<string | null>(null);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
   const [docStudioRequestedFilePath, setDocStudioRequestedFilePath] = useState<string | null>(null);
   const [docStudioRequestedWebDocument, setDocStudioRequestedWebDocument] = useState<{ fileName: string; content: string } | null>(null);
   const [showContentStudioModal, setShowContentStudioModal] = useState(false);
   const [contentStudioModalTab, setContentStudioModalTab] = useState<"project" | "all">("project");
+  const [showWebProjectPicker, setShowWebProjectPicker] = useState(false);
   const [contentTransformHeaderAction, setContentTransformHeaderAction] = useState<
     "preview"
     | "next"
@@ -297,6 +310,8 @@ function AppContent() {
     | "save_as"
     | "save_server"
     | "transform"
+    | "format_only"
+    | "post_all"
     | "goto_platforms"
     | null
   >(null);
@@ -371,9 +386,20 @@ function AppContent() {
 
   const refetchContentStudioServerArticles = () => {
     const settings = loadZenStudioSettings();
+    const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
+    const localCachePath = (
+      activeServer?.contentServerLocalCachePath
+      ?? settings.contentServerLocalCachePath
+      ?? ''
+    ).trim();
+    if (!localCachePath) {
+      setContentStudioServerArticles([]);
+      setContentStudioServerArticlesError('Lokaler Server-Cache-Pfad fehlt. Bitte in API-Einstellungen setzen.');
+      return;
+    }
     let base = (settings.contentServerApiUrl ?? '').trim();
     if (!base) {
-      setContentStudioServerArticles(undefined);
+      setContentStudioServerArticles([]);
       setContentStudioServerArticlesError('Keine Verbindung. Stelle Deine Verbindung im Zahnrad unter API ein.');
       return;
     }
@@ -542,6 +568,8 @@ function AppContent() {
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
     setIsEditingZenThoughts(false);
+    setActiveServerArticleSlug(null);
+    setContentStudioServerCachePath(null);
     setContentStudioDashboardView("dashboard");
     setContentTransformStep(0);
     setCurrentScreen("content-transform");
@@ -615,6 +643,7 @@ function AppContent() {
     setTransferFileName(safeName);
     setTransferPostMeta(null);
     setActiveServerArticleSlug(null);
+    setContentStudioServerCachePath(null);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
@@ -1157,12 +1186,13 @@ function AppContent() {
     setCurrentScreen("content-transform");
   };
 
-  // Return to Getting Started from Content AI
+  // Return to Content AI Studio Dashboard from editor
   const handleBackToGettingStarted = (_generatedContent?: string) => {
     setIsEditingZenThoughts(false);
     setCameFromDashboard(false);
-    setCurrentScreen("getting-started");
-    // Could save the generated content here if needed
+    setContentStudioDashboardView("dashboard");
+    setContentTransformStep(0);
+    setCurrentScreen("content-transform");
   };
 
   const handleBackToWelcome = () => {
@@ -1465,6 +1495,13 @@ function AppContent() {
       imageUrl: (((data.image ?? data.imageUrl) ?? imageFromBlocks) ?? '').trim(),
       date: ((data.date ?? data.publishDate) ?? '').trim(),
     });
+    const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
+    const resolvedServerCachePath = (
+      activeServer?.contentServerLocalCachePath
+      ?? settings.contentServerLocalCachePath
+      ?? null
+    );
+    setContentStudioServerCachePath(resolvedServerCachePath);
     setActiveServerArticleSlug(slug);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
@@ -1493,6 +1530,8 @@ function AppContent() {
 
   const handleContinueRecentItem = (item: GettingStartedRecentItem) => {
     if (item.source === "content-ai") {
+      setActiveServerArticleSlug(null);
+      setContentStudioServerCachePath(null);
       if (item.articleId) {
         setContentStudioRequestedArticleId(item.articleId);
       } else if (item.filePath) {
@@ -1670,7 +1709,40 @@ function AppContent() {
     if (isTauri()) {
       await updateLastProjectPath(path);
     }
-    await refreshContentStudioData(path);
+    if (!isWebProjectPath(path)) {
+      await refreshContentStudioData(path);
+    }
+  };
+
+  const handleWebProjectCreated = async (project: WebProject) => {
+    const path = encodeWebProjectPath(project.id);
+    rememberProjectPath(path);
+    setContentStudioRecentProjectPaths(getRecentProjectPaths());
+    setContentStudioProjectPath(path);
+    // For directory projects: read markdown files and add to webDocuments
+    if (project.type === 'directory') {
+      try {
+        const handle = await getDirectoryHandle(project.id);
+        if (handle) {
+          const files = await readMarkdownFiles(handle);
+          if (files.length > 0) {
+            const now = Date.now();
+            setWebDocuments((prev) => {
+              const newDocs = files.map((f, i) => ({
+                id: `webdir_${project.id}_${i}`,
+                name: f.name,
+                content: f.content,
+                updatedAt: now,
+              }));
+              const existingIds = new Set(newDocs.map((d) => d.id));
+              return [...newDocs, ...prev.filter((d) => !existingIds.has(d.id))].slice(0, 40);
+            });
+          }
+        }
+      } catch {
+        /* ignore read errors */
+      }
+    }
   };
 
   // Hilfefunktion für Header-Text
@@ -1850,13 +1922,19 @@ function AppContent() {
               <StudioBarButton
                 label="Dashboard"
                 icon={<FontAwesomeIcon icon={faTableList} />}
-                onClick={() => setContentStudioDashboardView("dashboard")}
+                onClick={() => {
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(0);
+                }}
                 active={contentStudioDashboardView === "dashboard"}
               />
               <StudioBarButton
                 label="Projektmappe"
                 icon={<FontAwesomeIcon icon={faFolderOpen} />}
-                onClick={() => setContentStudioDashboardView("project-map")}
+                onClick={() => {
+                  setContentStudioDashboardView("project-map");
+                  setContentTransformStep(0);
+                }}
                 active={contentStudioDashboardView === "project-map"}
               />
 
@@ -2022,9 +2100,9 @@ function AppContent() {
                     active
                   />
                   <StudioBarButton
-                    label="Direkt Posten"
-                    icon={<FontAwesomeIcon icon={faPaperPlane} />}
-                    onClick={() => setContentTransformHeaderAction("post_direct")}
+                    label="Formatieren für Plattform"
+                    icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
+                    onClick={() => setContentTransformHeaderAction("format_only")}
                   />
                 </>
               )}
@@ -2068,10 +2146,17 @@ function AppContent() {
               {/* Rechts: Posten, Export & Planen */}
               <div className="flex flex-wrap gap-2 ml-auto">
                 <StudioBarButton
-                  label="Posten"
+                  label={multiPlatformMode ? "Alles posten" : "Plattform wählen"}
                   icon={<FontAwesomeIcon icon={faPaperPlane} />}
-                  onClick={() => setContentTransformHeaderAction("goto_platforms")}
+                  onClick={() => setContentTransformHeaderAction(multiPlatformMode ? "post_all" : "goto_platforms")}
                 />
+                {multiPlatformMode && (
+                  <StudioBarButton
+                    label="Plattformen"
+                    icon={<FontAwesomeIcon icon={faTableList} />}
+                    onClick={() => setContentTransformHeaderAction("goto_platforms")}
+                  />
+                )}
                 <StudioBarButton
                   label="Export"
                   icon={<FontAwesomeIcon icon={faFileExport} />}
@@ -2351,7 +2436,7 @@ function AppContent() {
       />
 
       {/* Scrollable Content Area */}
-      <div style={{ flex: 1, overflow: currentScreen === "content-transform" && contentTransformStep !== 0 ? 'hidden' : 'auto' }}>
+      <div style={{ flex: 1, overflow: 'auto' }}>
         {/* Screens */}
         {currentScreen === "welcome" && (
           <WelcomeScreen
@@ -2429,14 +2514,17 @@ function AppContent() {
                     void handleSelectContentStudioProject();
                     return;
                   }
-                  setContentStudioModalTab("project");
-                  setShowContentStudioModal(true);
+                  setShowWebProjectPicker(true);
                 }}
                 onStartWriting={() => {
+                  setActiveServerArticleSlug(null);
+                  setContentStudioServerCachePath(null);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
                 onOpenDashboardDocument={(doc) => {
+                  setActiveServerArticleSlug(null);
+                  setContentStudioServerCachePath(null);
                   if (doc.id.startsWith("file:")) {
                     const filePath = doc.id.replace(/^file:/, "");
                     if (filePath) {
@@ -2469,6 +2557,11 @@ function AppContent() {
                 serverArticlesLoading={contentStudioServerArticlesLoading}
                 serverError={contentStudioServerArticlesError}
                 serverName={(() => { const s = loadZenStudioSettings(); return s.servers?.[s.activeServerIndex ?? 0]?.name ?? undefined; })()}
+                serverLocalCachePath={(() => {
+                  const s = loadZenStudioSettings();
+                  const activeServer = s.servers?.[s.activeServerIndex ?? 0];
+                  return activeServer?.contentServerLocalCachePath ?? s.contentServerLocalCachePath ?? null;
+                })()}
                 onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
                 onDeleteServerArticle={handleDeleteServerArticle}
                 onOpenApiSettings={() => {
@@ -2497,7 +2590,7 @@ function AppContent() {
                 setCurrentScreen("converter");
                 setConverterStep(1);
               }}
-              projectPath={contentStudioProjectPath}
+              projectPath={activeServerArticleSlug ? (contentStudioServerCachePath ?? contentStudioProjectPath) : contentStudioProjectPath}
               requestedArticleId={contentStudioRequestedArticleId}
               onArticleRequestHandled={() => setContentStudioRequestedArticleId(null)}
               requestedFilePath={contentStudioRequestedFilePath}
@@ -2651,6 +2744,12 @@ function AppContent() {
       <ZenMailSuccessModal
         isOpen={showMailSuccessModal}
         onClose={() => setShowMailSuccessModal(false)}
+      />
+
+      <ZenWebProjectPickerModal
+        isOpen={showWebProjectPicker}
+        onClose={() => setShowWebProjectPicker(false)}
+        onCreated={(project) => { void handleWebProjectCreated(project); }}
       />
 
       <ZenContentStudioModal

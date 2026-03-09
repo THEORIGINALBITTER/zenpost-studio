@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faMugHot, faCode, faToggleOn, faToggleOff,
-  faTrash, faChartBar, faRotateLeft, faGraduationCap,
+  faTrash, faChartBar, faRotateLeft, faGraduationCap, faCircleInfo,
 } from '@fortawesome/free-solid-svg-icons';
+import { ZenEngineAboutModal } from '../ZenEngineAboutModal';
 import {
   getEngineProfile, saveEngineProfile, applyStylePreset,
   type ZenEngineProfile, type WritingStyle, type RuleGroupSettings,
@@ -23,7 +24,7 @@ const RULE_GROUPS: Array<{ id: keyof RuleGroupSettings; label: string; desc: str
   { id: 'exclamation_overuse', label: 'Ausrufezeichen',        desc: '!! Mehrfach-Ausrufezeichen' },
 ];
 
-const STYLE_OPTIONS: Array<{ id: WritingStyle; label: string; desc: string; icon: typeof faBriefcase }> = [
+const STYLE_OPTIONS: Array<{ id: WritingStyle; label: string; desc: string; icon: typeof faMugHot }> = [
   { id: 'formal',    label: 'Formal',    desc: 'Alle Regeln aktiv',                    icon: faGraduationCap },
   { id: 'casual',    label: 'Casual',    desc: 'Füllwörter & schwache Wörter toleriert', icon: faMugHot },
   { id: 'technical', label: 'Technical', desc: 'Nominalstil toleriert',                 icon: faCode },
@@ -33,6 +34,7 @@ export function ZenEngineSettingsContent() {
   const [profile, setProfile] = useState<ZenEngineProfile>(getEngineProfile);
   const [userRules, setUserRules] = useState(getUserRules);
   const [feedbackStats, setFeedbackStats] = useState(() => getFeedbackStats(getFeedback()));
+  const [showAbout, setShowAbout] = useState(false);
 
   function updateProfile(next: ZenEngineProfile) {
     setProfile(next);
@@ -76,13 +78,32 @@ export function ZenEngineSettingsContent() {
       <div className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl rounded-[10px]" style={{ overflow: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ padding: '20px 28px 18px', borderBottom: '1px solid rgba(172,142,102,0.25)', background: 'rgba(172,142,102,0.06)' }}>
-          <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: '#222', letterSpacing: 0.3 }}>
-            ZenEngine
+        <div style={{ padding: '20px 28px 18px', borderBottom: '1px solid rgba(172,142,102,0.25)', background: 'rgba(172,142,102,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: '#222', letterSpacing: 0.3 }}>
+              ZenEngine
+            </div>
+            <div style={{ fontFamily: mono, fontSize: 10, color: '#888', marginTop: 3 }}>
+              Regeln · Stil · Lernhistorie
+            </div>
           </div>
-          <div style={{ fontFamily: mono, fontSize: 10, color: '#888', marginTop: 3 }}>
-            Regeln · Stil · Lernhistorie
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowAbout(true)}
+            title="ZenEngine Details"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              fontFamily: mono, fontSize: 9, color: gold,
+              background: 'rgba(172,142,102,0.1)', border: `1px solid rgba(172,142,102,0.35)`,
+              borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.1)'; }}
+          >
+            <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: 10 }} />
+            Details
+          </button>
         </div>
 
         <div style={{ padding: '24px 28px' }}>
@@ -259,6 +280,8 @@ export function ZenEngineSettingsContent() {
 
         </div>
       </div>
+
+      <ZenEngineAboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
     </div>
   );
 }

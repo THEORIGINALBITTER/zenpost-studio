@@ -5,9 +5,11 @@ import {
   faClock,
   faFileLines,
   faFolderOpen,
+  faGlobe,
   faPlus,
   faPenNib,
 } from '@fortawesome/free-solid-svg-icons';
+import { isWebProjectPath, getWebProjectName, getWebProjectType } from '../../services/webProjectService';
 
 type DashboardDocument = {
   id: string;
@@ -33,6 +35,7 @@ type ContentStudioDashboardScreenProps = {
   serverArticlesLoading?: boolean;
   serverError?: string | null;
   serverName?: string;
+  serverLocalCachePath?: string | null;
   onOpenServerArticle?: (slug: string) => void;
   onDeleteServerArticle?: (slug: string) => Promise<void>;
   onOpenApiSettings?: () => void;
@@ -90,6 +93,7 @@ export function ContentStudioDashboardScreen({
   serverArticlesLoading,
   serverError,
   serverName,
+  serverLocalCachePath,
   onOpenServerArticle,
   onDeleteServerArticle,
   onOpenApiSettings,
@@ -108,6 +112,7 @@ export function ContentStudioDashboardScreen({
   const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ msg: string; ok: boolean } | null>(null);
+  const hasServerCachePath = !!(serverLocalCachePath && serverLocalCachePath.trim().length > 0);
 
   const handleDelete = (slug: string) => {
     if (!onDeleteServerArticle) return;
@@ -125,7 +130,13 @@ export function ContentStudioDashboardScreen({
   };
   const [cardHovered, setCardHovered] = useState(false);
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
-  const activeProjectName = activeProjectPath?.split(/[\\/]/).filter(Boolean).pop() || 'Projekt';
+  const activeProjectName = activeProjectPath
+    ? (isWebProjectPath(activeProjectPath)
+        ? (getWebProjectName(activeProjectPath) ?? 'Web-Projekt')
+        : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Projekt')
+    : 'Projekt';
+  const activeProjectIsWeb = activeProjectPath ? isWebProjectPath(activeProjectPath) : false;
+  const activeProjectWebType = activeProjectPath ? getWebProjectType(activeProjectPath) : null;
 
   const recent = documents
     .slice()
@@ -198,7 +209,9 @@ export function ContentStudioDashboardScreen({
               }}
             >
               {allProjects.map((path) => {
-                const tabName = path.split(/[\\/]/).filter(Boolean).pop() || path;
+                const tabName = isWebProjectPath(path)
+                  ? (getWebProjectName(path) ?? 'Web')
+                  : (path.split(/[\\/]/).filter(Boolean).pop() || path);
                 const tabLabel = tabName.length > 6 ? tabName.slice(0, 5) + '…' : tabName;
                 const isActive = selectedTab !== 'server' && path === activeProjectPath;
                 return (
@@ -325,6 +338,64 @@ export function ContentStudioDashboardScreen({
                     Server Artikel{serverName ? ` · ${serverName}` : ''}
                     {serverArticlesLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
                   </p>
+                  <div
+                    style={{
+                      margin: '0 0 8px 0',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      flexWrap: 'wrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: '7px',
+                        height: '7px',
+                        borderRadius: '50%',
+                        backgroundColor: hasServerCachePath ? '#1F8A41' : '#B3261E',
+                        boxShadow: hasServerCachePath
+                          ? '0 0 0 2px rgba(31,138,65,0.18)'
+                          : '0 0 0 2px rgba(179,38,30,0.18)',
+                      }}
+                    />
+                    <span
+                      title={hasServerCachePath ? (serverLocalCachePath ?? '') : 'Nicht gesetzt'}
+                      style={{
+                        fontSize: '8px',
+                        color: hasServerCachePath ? '#5f6f5f' : '#8f1d16',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        maxWidth: '208px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {hasServerCachePath
+                        ? `Lokaler Cache: ${serverLocalCachePath}`
+                        : 'Lokaler Cache fehlt'}
+                    </span>
+                    {!hasServerCachePath && (
+                      <button
+                        onClick={() => onOpenApiSettings?.()}
+                        style={{
+                          border: '0.5px solid rgba(179,38,30,0.45)',
+                          borderRadius: '6px',
+                          background: 'rgba(179,38,30,0.08)',
+                          color: '#8f1d16',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '8px',
+                          padding: '3px 7px',
+                          cursor: onOpenApiSettings ? 'pointer' : 'not-allowed',
+                          opacity: onOpenApiSettings ? 1 : 0.6,
+                          whiteSpace: 'nowrap',
+                        }}
+                        disabled={!onOpenApiSettings}
+                      >
+                        API öffnen
+                      </button>
+                    )}
+                  </div>
                   {serverError && (
                     <div
                       style={{
@@ -470,7 +541,10 @@ export function ContentStudioDashboardScreen({
                     Aktuelles Projekt
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                    <FontAwesomeIcon icon={faFolderOpen} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                    <FontAwesomeIcon
+                      icon={activeProjectIsWeb ? faGlobe : faFolderOpen}
+                      style={{ color: '#AC8E66', fontSize: '16px' }}
+                    />
                     <span
                       style={{
                         fontSize: '15px',
@@ -497,7 +571,9 @@ export function ContentStudioDashboardScreen({
                       wordBreak: 'break-all',
                     }}
                   >
-                    {activeProjectPath || 'Noch kein Projekt ausgewählt'}
+                    {activeProjectIsWeb
+                      ? (activeProjectWebType === 'directory' ? 'Ordner-Projekt (Browser)' : 'Virtuelles Projekt (Browser)')
+                      : (activeProjectPath || 'Noch kein Projekt ausgewählt')}
                   </p>
                 </div>
                 <div
@@ -707,6 +783,62 @@ export function ContentStudioDashboardScreen({
               Server Artikel{serverName ? ` · ${serverName}` : ''}
               {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '8px' }}>Lädt…</span>}
             </p>
+            <div
+              style={{
+                margin: '-4px 0 10px 0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '7px',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span
+                style={{
+                  width: '8px',
+                  height: '8px',
+                  borderRadius: '50%',
+                  backgroundColor: hasServerCachePath ? '#1F8A41' : '#B3261E',
+                  boxShadow: hasServerCachePath
+                    ? '0 0 0 2px rgba(31,138,65,0.14)'
+                    : '0 0 0 2px rgba(179,38,30,0.14)',
+                }}
+              />
+              <span
+                title={hasServerCachePath ? (serverLocalCachePath ?? '') : 'Nicht gesetzt'}
+                style={{
+                  fontSize: '9px',
+                  color: hasServerCachePath ? '#8E8E8E' : '#cf6679',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  maxWidth: '620px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {hasServerCachePath
+                  ? `Lokaler Cache: ${serverLocalCachePath}`
+                  : 'Lokaler Cache fehlt – bitte in API-Einstellungen setzen.'}
+              </span>
+              {!hasServerCachePath && (
+                <button
+                  onClick={() => onOpenApiSettings?.()}
+                  style={{
+                    border: '0.5px solid rgba(179,38,30,0.45)',
+                    borderRadius: '8px',
+                    background: 'rgba(179,38,30,0.08)',
+                    color: '#cf6679',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    padding: '4px 8px',
+                    cursor: onOpenApiSettings ? 'pointer' : 'not-allowed',
+                    opacity: onOpenApiSettings ? 1 : 0.6,
+                  }}
+                  disabled={!onOpenApiSettings}
+                >
+                  API öffnen
+                </button>
+              )}
+            </div>
             {serverError && (
               <div
                 style={{

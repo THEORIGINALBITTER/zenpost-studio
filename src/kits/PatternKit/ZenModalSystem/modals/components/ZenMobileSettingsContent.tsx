@@ -4,16 +4,36 @@ import { faDownload, faFolderOpen, faMobileScreen, faQrcode } from '@fortawesome
 import { open } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
 import { getMobileInboxPath, saveMobileInboxPath, saveWebMobileInboxFiles } from '../../../../../services/mobileInboxService';
+import * as QRCode from 'qrcode';
 
 const MOBILE_APP_DOWNLOAD_URL = 'https://zenpost.studio';
-const MOBILE_APP_QR_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
+const MOBILE_APP_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
 
 export const ZenMobileSettingsContent = () => {
   const [mobileInboxPath, setMobileInboxPath] = useState('');
   const [webInputKey, setWebInputKey] = useState(0);
+  const [mobileAppQrSrc, setMobileAppQrSrc] = useState(MOBILE_APP_QR_FALLBACK_SRC);
 
   useEffect(() => {
     getMobileInboxPath().then(setMobileInboxPath).catch(() => setMobileInboxPath(''));
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    void QRCode.toDataURL(MOBILE_APP_DOWNLOAD_URL, {
+      margin: 1,
+      width: 260,
+      color: { dark: '#000000', light: '#0000' },
+    })
+      .then((dataUrl) => {
+        if (isMounted) setMobileAppQrSrc(dataUrl);
+      })
+      .catch(() => {
+        if (isMounted) setMobileAppQrSrc(MOBILE_APP_QR_FALLBACK_SRC);
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleChangeMobileFolder = async () => {
@@ -109,14 +129,14 @@ export const ZenMobileSettingsContent = () => {
                   height: 132,
                   borderRadius: 10,
                   border: '1px solid rgba(172,142,102,0.45)',
-                  background: '#fff',
+                  background: 'transparent',
                   overflow: 'hidden',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}
               >
-                <img src={MOBILE_APP_QR_SRC} alt="QR-Code fuer Mobile App Download" style={{ width: '100%', height: '100%' }} />
+                <img src={mobileAppQrSrc} alt="QR-Code fuer Mobile App Download" style={{ width: '100%', height: '100%' }} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
                 <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666', lineHeight: 1.5 }}>

@@ -354,6 +354,7 @@ export const Step1SourceInput = ({
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
   const [blockHeadingRequest, setBlockHeadingRequest] = useState<{ level: number; token: number } | null>(null);
   const [activeCursorLine, setActiveCursorLine] = useState<number>(0);
+  const hasDerivedDocTabs = docTabs.some((tab) => tab.kind === 'derived');
   const currentMetaImageUrl = (postMeta?.imageUrl ?? '').trim();
   const metaImageIsInlineData = /^data:image\//i.test(currentMetaImageUrl);
   const metaImageIsBlob = /^blob:/i.test(currentMetaImageUrl);
@@ -845,6 +846,7 @@ export const Step1SourceInput = ({
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center pt-[50px]">
+      <div style={{ height: '18px', width: '100%', flexShrink: 0 }} />
       <div className="flex flex-col items-center w-3/4 max-w-3xl">
         <div
           style={{
@@ -855,16 +857,19 @@ export const Step1SourceInput = ({
         >
           {/* Document Title Header - like Doc Studio */}
           {showTitleHeader && (
-            <div className="w-full pl-[8px] pb-[10px]" style={{ position: 'relative' }}>
+            <div
+              className="w-full pl-[8px] pb-[10px]"
+              style={{
+                position: 'relative',
+                paddingTop: 0,
+              }}
+            >
               <ZenThoughtLine
                 thoughts={zenThoughts}
                 visible={showZenThoughtInHeader}
                 containerStyle={{
-                  position: 'absolute',
-                  top: '-20px',
-                  left: '10px',
-                  marginTop: 0,
-                  paddingLeft: 0,
+                  marginBottom: '6px',
+                  paddingLeft: '2px',
                 }}
               />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
@@ -1167,7 +1172,7 @@ export const Step1SourceInput = ({
               </div>
             </div>
           )}
-          {editTabs.length > 1 && (
+          {editTabs.length > 1 && !hasDerivedDocTabs && (
             <div className="mb-4 w-full max-w-4xl">
               <div
                 style={{
