@@ -238,6 +238,8 @@ Frontend:
 - React
 - TypeScript
 - TailwindCSS
+- Rust
+- C++
 
 Desktop:
 - Tauri (Rust backend)
