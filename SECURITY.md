@@ -8,7 +8,7 @@ ZenPost Studio supports both cloud and local AI providers.
 
 If you discover a vulnerability, please contact:
 
-denis@theoriginalbitter.de
+saghallo@denisbitter.de
 
 Do not open public issues for security problems.
 
