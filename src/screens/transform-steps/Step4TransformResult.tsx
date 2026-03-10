@@ -1315,7 +1315,7 @@ const handleDownload = async () => {
 
           {/* Left vertical panel buttons */}
           {currentContent && currentContent.trim() && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '48px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '48px', marginLeft:'25px', flexShrink: 0 }}>
               {hasComparison && (
                 <button
                   onClick={() => togglePanel('vergleich')}
@@ -1323,12 +1323,12 @@ const handleDownload = async () => {
                     padding: '10px 7px',
                     backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#151515',
                     border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                    borderRadius: '6px',
+                    borderRadius: '0 6px 6px 0',
                     cursor: 'pointer',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '8px',
                     fontWeight: activePanel === 'vergleich' ? 200 : 400,
-                    color: activePanel === 'vergleich' ? '#151515' : '#333',
+                    color: activePanel === 'vergleich' ? '#151515' : '#888',
                     transition: 'all 0.2s',
                     writingMode: 'vertical-rl',
                     transform: 'rotate(180deg)',
@@ -1343,7 +1343,7 @@ const handleDownload = async () => {
                   }}
                   onMouseLeave={(e) => {
                     if (activePanel !== 'vergleich') {
-                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.color = '#888';
                       e.currentTarget.style.borderColor = '#3A3A3A';
                     }
                   }}
@@ -1357,12 +1357,12 @@ const handleDownload = async () => {
                   padding: '10px 7px',
                   backgroundColor: activePanel === 'engine' ? '#d9d4c5' : '#151515',
                   border: activePanel === 'engine' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                  borderRadius: '6px',
+                  borderRadius: '0 6px 6px 0',
                   cursor: 'pointer',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '8px',
                   fontWeight: activePanel === 'engine' ? 200 : 400,
-                  color: activePanel === 'engine' ? '#151515' : '#333',
+                  color: activePanel === 'engine' ? '#151515' : '#888',
                   transition: 'all 0.2s',
                   writingMode: 'vertical-rl',
                   transform: 'rotate(180deg)',
@@ -1377,7 +1377,7 @@ const handleDownload = async () => {
                 }}
                 onMouseLeave={(e) => {
                   if (activePanel !== 'engine') {
-                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.color = '#888';
                     e.currentTarget.style.borderColor = '#3A3A3A';
                   }
                 }}
@@ -1388,15 +1388,15 @@ const handleDownload = async () => {
                 <button
                   onClick={() => togglePanel('qa')}
                   style={{
-                    padding: '10px 7px',
+                    padding: '20px 7px',
                     backgroundColor: activePanel === 'qa' ? '#d9d4c5' : '#151515',
                     border: activePanel === 'qa' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                    borderRadius: '6px',
+                     borderRadius: '0 6px 6px 0',
                     cursor: 'pointer',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '8px',
                     fontWeight: activePanel === 'qa' ? 200 : 400,
-                    color: activePanel === 'qa' ? '#151515' : '#333',
+                    color: activePanel === 'qa' ? '#151515' : '#888',
                     transition: 'all 0.2s',
                     writingMode: 'vertical-rl',
                     transform: 'rotate(180deg)',
@@ -1411,7 +1411,7 @@ const handleDownload = async () => {
                   }}
                   onMouseLeave={(e) => {
                     if (activePanel !== 'qa') {
-                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.color = '#888';
                       e.currentTarget.style.borderColor = '#3A3A3A';
                     }
                   }}
@@ -1431,7 +1431,7 @@ const handleDownload = async () => {
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '8px',
                     fontWeight: activePanel === 'thumbnail' ? 200 : 400,
-                    color: activePanel === 'thumbnail' ? '#151515' : '#333',
+                    color: activePanel === 'thumbnail' ? '#151515' : '#888',
                     transition: 'all 0.2s',
                     writingMode: 'vertical-rl',
                     transform: 'rotate(180deg)',
@@ -1446,7 +1446,7 @@ const handleDownload = async () => {
                   }}
                   onMouseLeave={(e) => {
                     if (activePanel !== 'thumbnail') {
-                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.color = '#888';
                       e.currentTarget.style.borderColor = '#3A3A3A';
                     }
                   }}
@@ -2005,7 +2005,7 @@ const handleDownload = async () => {
                       }}
                       onMouseLeave={(e) => {
                         if (!isActive) {
-                          e.currentTarget.style.color = '#333';
+                          e.currentTarget.style.color = '#888';
                           e.currentTarget.style.borderColor = '#3A3A3A';
                         }
                       }}

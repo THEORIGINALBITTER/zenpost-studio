@@ -2193,7 +2193,7 @@ function AppContent() {
             alignItems: "center",
             justifyContent: "center",
             padding: "24px",
-            background: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
+            background: "#1a1a1a",
             color: "#EFE7DC",
             textAlign: "center",
             fontFamily: "IBM Plex Mono, monospace",
@@ -2418,7 +2418,7 @@ function AppContent() {
         height: '100vh',
         overflow: 'hidden',
         minWidth: '1200px',
-        background: 'linear-gradient(180deg, #0B0B0B 0%, #151515 100%)',
+        background: '#1a1a1a',
       }}
     >
       <ZenCursor />

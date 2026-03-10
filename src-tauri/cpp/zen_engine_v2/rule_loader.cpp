@@ -455,11 +455,13 @@ bool BuiltinRuleLoader::Load(RuleSet& out_rules, std::string* error) {
     str_rule("anglicism", "Pipeline",     "'Prozesskette' oder 'Verbindung' erwägen",0.65f, true),
 
     // ── Klammern-Missbrauch (Regex) ─────────────────────────────────────────
+    // (?!https?://) und (?!\!) schließen Markdown-Bild/Link-URLs aus:
+    //   ![alt](https://...) und [text](https://...) werden nicht geflaggt
     re_rule("bracket_overuse",
-            "\\([^)]{40,}\\)",
+            "\\((?!https?://|www\\.|!)[^)]{40,}\\)",
             "Langer Einschub in Klammern — als eigenen Satz formulieren", 0.75f),
     re_rule("bracket_overuse",
-            "\\([^)]+\\)[^.!?\\n]{0,30}\\([^)]+\\)",
+            "\\((?!https?://|www\\.)[^)]+\\)[^.!?\\n]{0,30}\\((?!https?://|www\\.)[^)]+\\)",
             "Mehrere Klammerzusätze im Satz — vereinfachen", 0.70f),
 
     // ── Zu lange Sätze (Regex) ──────────────────────────────────────────────

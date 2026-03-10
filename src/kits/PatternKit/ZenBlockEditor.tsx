@@ -1022,13 +1022,24 @@ interface ZenLearnFormProps {
   theme: 'dark' | 'light';
   colors: { border: string; placeholder: string; text: string; background: string };
   onSave: (pattern: string, suggestion: string, replacements: string[]) => void;
+  /** Wird gesetzt wenn ein Hinweis-"+" angeklickt wird — öffnet und vorbefüllt das Formular. */
+  prefill?: { pattern: string; suggestion: string; _key: number } | null;
 }
 
-function ZenLearnForm({ theme, colors, onSave }: ZenLearnFormProps) {
+function ZenLearnForm({ theme, colors, onSave, prefill }: ZenLearnFormProps) {
   const [open, setOpen] = useState(false);
   const [pattern, setPattern] = useState('');
   const [suggestion, setSuggestion] = useState('');
   const [repsRaw, setRepsRaw] = useState('');
+
+  // Öffnet das Formular und füllt es vor, wenn prefill gesetzt wird
+  useEffect(() => {
+    if (!prefill) return;
+    setPattern(prefill.pattern);
+    setSuggestion(prefill.suggestion);
+    setRepsRaw('');
+    setOpen(true);
+  }, [prefill?._key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = () => {
     const p = pattern.trim();
@@ -1189,6 +1200,8 @@ export const ZenBlockEditor = ({
   // ZenEngine Analyse (Füllwörter, Passive Voice, etc.) — debounced, separater Timer
   const [analyzeResult, setAnalyzeResult] = useState<RuleAnalysisResult | null>(null);
   const [showHintsPanel, setShowHintsPanel] = useState(false);
+  const [learnPrefill, setLearnPrefill] = useState<{ pattern: string; suggestion: string; ruleId: string; _key: number } | null>(null);
+  const learnPrefillKeyRef = useRef(0);
   const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const totalHintCount = analyzeResult?.suggestions.length ?? 0;
 
@@ -1360,7 +1373,23 @@ export const ZenBlockEditor = ({
 
   const runAnalysis = useCallback(async (text: string) => {
     try {
-      const result = adaptV2ToV1(await ZenEngine.analyzeTextV2(text, getOrUpdateUserRulesJson()));
+      const cleanText = text.replace(/<\/?mark\b[^>]*>/gi, '');
+      const userRules = getUserRules();
+      const rulesJson = userRules.length > 0 ? JSON.stringify(userRules) : '';
+      const raw = adaptV2ToV1(await ZenEngine.analyzeTextV2(cleanText, rulesJson));
+
+      // Enrich user_rule matches with full replacement data from localStorage
+      // (V2 only stores the first replacement; localStorage has the full array)
+      const userRuleMap = new Map(userRules.map(r => [r.pattern.trim().toLowerCase(), r]));
+      const result = {
+        ...raw,
+        suggestions: raw.suggestions.map(s => {
+          if (!s.is_user_rule) return s;
+          const ur = userRuleMap.get(s.matched_text.trim().toLowerCase());
+          return ur ? { ...s, replacements: ur.replacements, suggestion: ur.suggestion || s.suggestion } : s;
+        }),
+      };
+
       // Profil + Feedback Filter: deaktivierte Regelgruppen und supprimierte Regeln ausblenden
       const profile = getEngineProfile();
       const feedback = getFeedback();
@@ -1389,6 +1418,17 @@ export const ZenBlockEditor = ({
     if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current);
     analyzeDebounceRef.current = setTimeout(() => runAnalysis(text), 1200);
   }, [runAnalysis]);
+
+  const handleAutofix = useCallback(async () => {
+    const cleanText = value.replace(/<mark[^>]*zen-inline-marker[^>]*>([\s\S]*?)<\/mark>/g, '$1');
+    try {
+      const result = await ZenEngine.autofixTextV2(cleanText, getOrUpdateUserRulesJson());
+      if (result.fix_count > 0) {
+        onChange(result.text);
+        runAnalysis(result.text);
+      }
+    } catch { /* ignore */ }
+  }, [value, onChange, getOrUpdateUserRulesJson, runAnalysis]);
   useEffect(() => {
     updateAnalysis(value);
     return () => { if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current); };
@@ -4068,9 +4108,43 @@ export const ZenBlockEditor = ({
           overflowY: 'auto',
           padding: '6px 0',
         }}>
-          {analyzeResult.suggestions.map((s, i) => {
+          {/* Panel header: hint count + Auto-Fix */}
+          {(() => {
+            const hasReplacements = analyzeResult.suggestions.some(s => s.replacements && s.replacements.length > 0);
+            return (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '3px 14px 5px', borderBottom: `1px solid ${colors.border}`, marginBottom: 2 }}>
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder }}>
+                  {totalHintCount} Hinweis{totalHintCount !== 1 ? 'e' : ''}
+                </span>
+                {hasReplacements && (
+                  <button
+                    type="button"
+                    onClick={handleAutofix}
+                    title="Alle sicheren Korrekturen automatisch anwenden"
+                    style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, padding: '2px 8px', borderRadius: 4, border: '1px solid rgba(172,142,102,0.5)', background: 'transparent', color: '#AC8E66', cursor: 'pointer' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                  >
+                    Auto-Fix
+                  </button>
+                )}
+              </div>
+            );
+          })()}
+          {(() => {
+            // User-Regeln haben Vorrang: Builtin-Matches für denselben Text ausblenden
+            const userTexts = new Set(
+              analyzeResult.suggestions
+                .filter(s => s.is_user_rule)
+                .map(s => s.matched_text.trim().toLowerCase())
+            );
+            return analyzeResult.suggestions.filter(s =>
+              s.is_user_rule || !userTexts.has(s.matched_text.trim().toLowerCase())
+            );
+          })().map((s, i) => {
             const isUser = !!s.is_user_rule;
-            const displayText = s.matched_text.trim();
+            const rawText = s.matched_text.trim();
+            const displayText = rawText.length > 55 ? rawText.slice(0, 52) + '…' : rawText;
             const chips = isUser ? s.replacements : getChips(s.matched_text, s.suggestion);
             const occurrenceIndex = analyzeResult.suggestions.slice(0, i).filter(x => x.matched_text === s.matched_text).length;
             const chipColor = isUser ? '#AC8E66' : '#C0633A';
@@ -4102,6 +4176,22 @@ export const ZenBlockEditor = ({
                   <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: colors.placeholder, lineHeight: 1.4, flex: 1 }}>
                     {s.suggestion || s.rule.replace(/_/g, ' ')}
                   </span>
+                  {!isUser && (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        learnPrefillKeyRef.current += 1;
+                        setLearnPrefill({ pattern: s.matched_text.trim(), suggestion: s.suggestion || '', ruleId: s.rule, _key: learnPrefillKeyRef.current });
+                      }}
+                      title="Als eigene Regel speichern"
+                      style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, background: 'transparent', border: 'none', color: 'rgba(172,142,102,0.6)', cursor: 'pointer', padding: '0 2px', flexShrink: 0 }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'rgba(172,142,102,0.6)'; }}
+                    >
+                      +
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={e => {
@@ -4144,11 +4234,16 @@ export const ZenBlockEditor = ({
           })}
 
           {/* "Wort lernen" inline form */}
+
           <ZenLearnForm
             theme={theme}
             colors={colors}
+            prefill={learnPrefill}
             onSave={(pattern, suggestion, replacements) => {
               addUserRule({ pattern, suggestion, replacements, confidence: 0.85 });
+              // Builtin-Hinweis für dieses Pattern sofort supprimieren
+              if (learnPrefill?.ruleId) recordIgnored(learnPrefill.ruleId, pattern);
+              setLearnPrefill(null);
               runAnalysis(value);
             }}
           />
@@ -4186,6 +4281,20 @@ export const ZenBlockEditor = ({
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder, marginTop: 2 }}>
                 Ø {contentIntel.avgSentenceLen} Wörter/Satz
               </div>
+              {analyzeResult && (() => {
+                const longCount = analyzeResult.suggestions.filter(s => s.rule === 'sentence_too_long').length;
+                if (longCount === 0) return null;
+                return (
+                  <div
+                    role="button" tabIndex={0}
+                    onClick={() => setShowHintsPanel(true)}
+                    onKeyDown={e => e.key === 'Enter' && setShowHintsPanel(true)}
+                    style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#C0633A', marginTop: 3, cursor: 'pointer', textDecoration: 'underline dotted' }}
+                  >
+                    {longCount} zu lang{longCount !== 1 ? 'e' : 'er'} Satz
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: colors.placeholder, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 1 }}>Lesedauer</div>

@@ -1,7 +1,7 @@
 /**
  * ZenEngine Feedback — Engine lernt vom Nutzer.
  * Trackt accept/ignore pro Regel+Pattern in localStorage.
- * Suppression: ignoriert > 70% bei mind. 2 Samples → Hinweis wird ausgeblendet.
+ * Suppression: einmal ignoriert und öfter ignoriert als akzeptiert → Hinweis wird ausgeblendet.
  */
 
 const STORAGE_KEY = 'zen_rule_feedback_v1';
@@ -47,20 +47,16 @@ export function recordIgnored(ruleId: string, pattern: string): void {
   saveFeedback(store);
 }
 
-/** true → Hinweis ausblenden: mind. 2 Samples, >70% ignoriert */
+/** true → Hinweis ausblenden: einmal ignoriert und mehr ignoriert als akzeptiert */
 export function isSuppressed(ruleId: string, pattern: string, store: FeedbackStore): boolean {
   const f = store[feedbackKey(ruleId, pattern)];
   if (!f) return false;
-  const total = f.accepted + f.ignored;
-  return total >= 2 && f.ignored / total > 0.70;
+  return f.ignored >= 1 && f.ignored > f.accepted;
 }
 
 /** Anzahl suppressierter Patterns (für About-Modal) */
 export function getSuppressedCount(store: FeedbackStore): number {
-  return Object.values(store).filter(f => {
-    const total = f.accepted + f.ignored;
-    return total >= 2 && f.ignored / total > 0.70;
-  }).length;
+  return Object.values(store).filter(f => f.ignored >= 1 && f.ignored > f.accepted).length;
 }
 
 /** Gesamtstatistik */

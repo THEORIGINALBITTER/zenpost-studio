@@ -137,6 +137,7 @@ export function adaptV2ToV1(v2: AnalysisResultV2): RuleAnalysisResult {
       start:        m.start,
       end:          m.end,
       replacements: m.replacement ? [m.replacement] : [],
+      is_user_rule: m.rule_id === 'user_rule',
     })),
     match_count: v2.match_count,
   };
