@@ -3,7 +3,12 @@ mod engine;
 use tauri::Emitter;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Mutex;
 use engine::{markdown, image_proc, rules};
+
+/// Persistenter ZenEngine-V2-Handle — einmal beim App-Start erzeugt,
+/// wird als Tauri-State gehalten. Rules werden nur bei Änderung neu geladen.
+pub struct ZenEngineState(pub Mutex<rules::EngineHandleV2>);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HttpResponse {
@@ -121,11 +126,44 @@ fn engine_analyze_text(
     rules::analyze_text(&text, rules_json.as_deref())
 }
 
+#[tauri::command]
+fn engine_autofix_text(
+    text: String,
+    rules_json: Option<String>,
+) -> Result<rules::AutofixResult, String> {
+    rules::autofix_text(&text, rules_json.as_deref())
+}
+
+#[tauri::command]
+fn engine_analyze_text_v2(
+    state: tauri::State<ZenEngineState>,
+    text: String,
+    rules_json: Option<String>,
+) -> Result<rules::AnalysisResultV2, String> {
+    let mut handle = state.0.lock().map_err(|_| "ZenEngine state poisoned".to_string())?;
+    handle.analyze(&text, rules_json.as_deref().unwrap_or("[]"))
+}
+
+#[tauri::command]
+fn engine_autofix_text_v2(
+    state: tauri::State<ZenEngineState>,
+    text: String,
+    rules_json: Option<String>,
+) -> Result<rules::AutofixResultV2, String> {
+    let mut handle = state.0.lock().map_err(|_| "ZenEngine state poisoned".to_string())?;
+    handle.autocorrect(&text, rules_json.as_deref().unwrap_or("[]"))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // Persistenten V2-Engine-Handle einmalig erzeugen (lädt Builtin-Rules)
+  let zen_engine = rules::EngineHandleV2::new()
+      .expect("ZenEngine V2 init failed");
+
   tauri::Builder::default()
+    .manage(ZenEngineState(Mutex::new(zen_engine)))
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_http::init())
@@ -143,6 +181,9 @@ pub fn run() {
         engine_image_convert,
         engine_image_optimize,
         engine_analyze_text,
+        engine_autofix_text,
+        engine_analyze_text_v2,
+        engine_autofix_text_v2,
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

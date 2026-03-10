@@ -10,6 +10,7 @@ interface RoughCircleProps {
   bowing?: number;
   goldTone?: boolean;
   children?: ReactNode;
+  blueTone ?: boolean;
 }
 
 const RoughCircle = ({
@@ -19,6 +20,7 @@ const RoughCircle = ({
   roughness = 0.5,
   bowing = 1,
   goldTone = true,
+  blueTone = false,
   children,
 }: RoughCircleProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,7 +29,8 @@ const RoughCircle = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rc = rough.canvas(canvas);
-    const strokeColor = goldTone ? "#AC8E66" : stroke;
+    const strokeColor = goldTone ? "#AC8E66" : blueTone ? "#4A90E2" : stroke;
+
 
     const centerX = size / 2;
     const centerY = size / 2;
@@ -37,9 +40,10 @@ const RoughCircle = ({
       roughness,
       bowing,
       stroke: strokeColor,
+     
       strokeWidth,
     });
-  }, [size, stroke, strokeWidth, roughness, bowing, goldTone]);
+  }, [size, stroke, strokeWidth, roughness, bowing, goldTone, blueTone]);
 
   return (
     <div

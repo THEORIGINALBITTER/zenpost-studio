@@ -1337,11 +1337,11 @@ export async function improveText(
   let analysisHints = '';
   if (isTauri()) {
     try {
-      const analysis = await ZenEngine.analyzeText(content);
+      const analysis = await ZenEngine.analyzeTextV2(content);
       if (analysis.suggestions.length > 0) {
         const hints = analysis.suggestions
           .slice(0, 5)
-          .map(s => `- ${s.suggestion}`)
+          .map(s => `- ${s.text}`)
           .join('\n');
         analysisHints = `\nKonkrete Schwachstellen (automatisch erkannt):\n${hints}\n`;
       }

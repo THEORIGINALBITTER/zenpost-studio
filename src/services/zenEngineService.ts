@@ -80,6 +80,68 @@ export interface RuleAnalysisResult {
   match_count: number;
 }
 
+export interface AutofixResult {
+  text: string;
+  fix_count: number;
+}
+
+// ─── V2 Types ─────────────────────────────────────────────────────────────────
+
+/** Ein einzelner Match aus der V2-Engine (typisiert, mit snippet + score) */
+export interface MatchV2 {
+  rule_id:     string;
+  snippet:     string;
+  start:       number;
+  end:         number;
+  score:       number;
+  replacement: string;
+}
+
+/** Eine deduplizierte Suggestion (eine pro unique rule_id) */
+export interface SuggestionV2 {
+  rule_id: string;
+  text:    string;
+  score:   number;
+}
+
+/** Vollständiges Analyse-Ergebnis der V2-Engine */
+export interface AnalysisResultV2 {
+  matches:     MatchV2[];
+  suggestions: SuggestionV2[];
+  warnings:    string[];
+  match_count: number;
+}
+
+// ─── V2 → V1 Adapter ─────────────────────────────────────────────────────────
+//
+// Wandelt AnalysisResultV2 in die V1-kompatible RuleAnalysisResult-Form um,
+// damit bestehende Caller ohne Type-Änderung auf V2 migriert werden können.
+// Je Match im V2-Array wird ein RuleSuggestion-Objekt erzeugt;
+// der Message-Text kommt aus dem deduplizierten suggestions[]-Array.
+
+export function adaptV2ToV1(v2: AnalysisResultV2): RuleAnalysisResult {
+  const msgMap = new Map(v2.suggestions.map(s => [s.rule_id, s.text]));
+  return {
+    matches: v2.matches.map(m => ({
+      rule_id:      m.rule_id,
+      matched_text: m.snippet,
+      start:        m.start,
+      end:          m.end,
+      confidence:   m.score,
+    })),
+    suggestions: v2.matches.map(m => ({
+      rule:         m.rule_id,
+      matched_text: m.snippet,
+      suggestion:   msgMap.get(m.rule_id) ?? '',
+      confidence:   m.score,
+      start:        m.start,
+      end:          m.end,
+      replacements: m.replacement ? [m.replacement] : [],
+    })),
+    match_count: v2.match_count,
+  };
+}
+
 // ─── Engine API ───────────────────────────────────────────────────────────────
 
 export const ZenEngine = {
@@ -141,6 +203,47 @@ export const ZenEngine = {
   /** Text regelbasiert analysieren (Füllwörter, Passive Voice, etc.) */
   analyzeText(text: string, rulesJson?: string): Promise<RuleAnalysisResult> {
     return invoke<RuleAnalysisResult>('engine_analyze_text', {
+      text,
+      rules_json: rulesJson,
+    });
+  },
+
+  /**
+   * Auto-Korrektur: wendet alle sicheren regelbasierten Fixes an
+   * (Leerzeichen, Doppelwörter, Zeichensetzung, etc.)
+   * Gibt korrigierten Text + Anzahl angewendeter Fixes zurück.
+   */
+  autofixText(text: string, rulesJson?: string): Promise<AutofixResult> {
+    return invoke<AutofixResult>('engine_autofix_text', {
+      text,
+      rules_json: rulesJson,
+    });
+  },
+
+  // ── Rule Engine V2 ────────────────────────────────────────────────────────
+
+  /**
+   * Text mit der V2-Engine analysieren.
+   *
+   * `rulesJson` akzeptiert beide Formate:
+   *   - V1: `[{"pattern":"...","suggestion":"...","confidence":0.8}]`
+   *   - V2: `{"version":"2","rules":[{"id":"...","pattern":"...","message":"..."}]}`
+   *
+   * Gibt typisierte `AnalysisResultV2` zurück (matches + suggestions + warnings).
+   */
+  analyzeTextV2(text: string, rulesJson?: string): Promise<AnalysisResultV2> {
+    return invoke<AnalysisResultV2>('engine_analyze_text_v2', {
+      text,
+      rules_json: rulesJson,
+    });
+  },
+
+  /**
+   * Auto-Korrektur V2: wendet alle Matches mit replacement-Feld an.
+   * Gibt korrigierten Text + fix_count zurück.
+   */
+  autofixTextV2(text: string, rulesJson?: string): Promise<{ text: string; fix_count: number }> {
+    return invoke<{ text: string; fix_count: number }>('engine_autofix_text_v2', {
       text,
       rules_json: rulesJson,
     });

@@ -19,11 +19,21 @@ typedef struct ZenRuleResult {
     ZenRuleMatch* matches;
     uint32_t      count;
     char*         suggestions;  // JSON string
+    
 } ZenRuleResult;
 
 // Regelbasierte Analyse: Gibt Matches + Vorschläge zurück
 ZenRuleResult* zen_rules_analyze(const char* text, const char* rules_json);
 void           zen_rules_result_free(ZenRuleResult* result);
+
+// Auto-Korrektur: wendet alle sicheren Korrekturen an, gibt korrigierten Text zurück
+typedef struct ZenAutofixResult {
+    char*    text;       // korrigierter Text (heap-allocated)
+    uint32_t fix_count;  // Anzahl angewendeter Korrekturen
+} ZenAutofixResult;
+
+ZenAutofixResult* zen_rules_autofix(const char* text, const char* rules_json);
+void              zen_rules_autofix_free(ZenAutofixResult* result);
 
 // ─── Image Processing ─────────────────────────────────────────────────────────
 

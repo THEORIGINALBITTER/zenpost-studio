@@ -393,7 +393,7 @@ export function DocStudioScreen({
     if (!content.trim()) return;
     const autosaveKey = getDocStudioAutosaveKey();
     if (!autosaveKey) return;
-    const debounceMs = 1200;
+    const debounceMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
     const timeout = setTimeout(() => {
       const trimmed = content.trim();
       if (lastAutosaveByKeyRef.current[autosaveKey] === trimmed) return;
@@ -410,7 +410,7 @@ export function DocStudioScreen({
         });
     }, debounceMs);
     return () => clearTimeout(timeout);
-  }, [ds.projectPath, editorSettings.autoSaveEnabled, activeTab?.id, ds.tabContents]);
+  }, [ds.projectPath, editorSettings.autoSaveEnabled, editorSettings.autoSaveIntervalSec, activeTab?.id, ds.tabContents]);
 
   const handleSave = async () => {
     if (!activeTab) return;

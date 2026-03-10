@@ -74,10 +74,18 @@ interface Step1SourceInputProps {
   onAdoptCurrentAsComparisonBase?: () => void;
   autosaveStatusText?: string | null;
   onOpenEditorSettings?: () => void;
+  autosaveRestoreBanner?: import('../../services/editorSettingsService').DraftAutosaveRecord | null;
+  onAutosaveBannerRestore?: () => void;
+  onAutosaveBannerDismiss?: () => void;
+  autosaveHistory?: import('../../services/editorSettingsService').DraftAutosaveRecord[];
+  onAutosaveHistoryRestore?: (record: import('../../services/editorSettingsService').DraftAutosaveRecord) => void;
+  onAutosaveHistoryCompare?: (record: import('../../services/editorSettingsService').DraftAutosaveRecord) => void;
   zenThoughts?: string[];
   showZenThoughtInHeader?: boolean;
-  postMeta?: { title: string; subtitle: string; imageUrl: string; date: string };
-  onMetaChange?: (meta: { title: string; subtitle: string; imageUrl: string; date: string }) => void;
+  postMeta?: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] };
+  onMetaChange?: (meta: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] }) => void;
+  analysisKeywords?: string[];
+  onAnalysisKeywordsChange?: (keywords: string[]) => void;
 }
 
 type LineDiffRow = {
@@ -86,33 +94,7 @@ type LineDiffRow = {
   status: 'same' | 'added' | 'removed' | 'modified';
 };
 
-function levenshteinDistance(a: string, b: string): number {
-  const n = a.length;
-  const m = b.length;
-  if (n === 0) return m;
-  if (m === 0) return n;
-  const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-  for (let i = 0; i <= n; i += 1) dp[i][0] = i;
-  for (let j = 0; j <= m; j += 1) dp[0][j] = j;
-  for (let i = 1; i <= n; i += 1) {
-    for (let j = 1; j <= m; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost
-      );
-    }
-  }
-  return dp[n][m];
-}
 
-function lineSimilarity(a: string, b: string): number {
-  const maxLen = Math.max(a.length, b.length);
-  if (maxLen === 0) return 1;
-  const distance = levenshteinDistance(a, b);
-  return 1 - distance / maxLen;
-}
 
 const EXTERNAL_DOCS_URL =
   "https://theoriginalbitter.github.io/zenpost-studio/#/pages-export";
@@ -293,18 +275,28 @@ export const Step1SourceInput = ({
   onAdoptCurrentAsComparisonBase,
   autosaveStatusText,
   onOpenEditorSettings,
+  autosaveRestoreBanner = null,
+  onAutosaveBannerRestore,
+  onAutosaveBannerDismiss,
+  autosaveHistory = [],
+  onAutosaveHistoryRestore,
+  onAutosaveHistoryCompare,
   zenThoughts = [],
   showZenThoughtInHeader = false,
   postMeta,
   onMetaChange,
+  analysisKeywords = [],
+  onAnalysisKeywordsChange,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
   const [isImageDragActive, setIsImageDragActive] = useState(false);
   const [isMetaImageDragActive, setIsMetaImageDragActive] = useState(false);
+  const blockImageInserterRef = useRef<((images: Array<{ url: string; alt?: string }>) => void) | null>(null);
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
+  const [newTagInput, setNewTagInput] = useState('');
   const [showComparison, setShowComparison] = useState(false);
   const latestContentRef = useRef(sourceContent);
   const editorSnapshotGetterRef = useRef<(() => Promise<string>) | null>(null);
@@ -350,6 +342,8 @@ export const Step1SourceInput = ({
 
   const [showOutline, setShowOutline] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
+  const [showAutosaveHistory, setShowAutosaveHistory] = useState(false);
+  const autosaveHistoryRef = useRef<HTMLDivElement>(null);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
   const [blockHeadingRequest, setBlockHeadingRequest] = useState<{ level: number; token: number } | null>(null);
@@ -394,6 +388,18 @@ export const Step1SourceInput = ({
       return next;
     });
   };
+
+  // Autosave History Panel außen schließen
+  useEffect(() => {
+    if (!showAutosaveHistory) return;
+    const handler = (e: MouseEvent) => {
+      if (autosaveHistoryRef.current && !autosaveHistoryRef.current.contains(e.target as Node)) {
+        setShowAutosaveHistory(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showAutosaveHistory]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -541,11 +547,22 @@ export const Step1SourceInput = ({
     setIsConverting(true);
     try {
       const markdownImageLines: string[] = [];
+      const blockImages: Array<{ url: string; alt?: string }> = [];
 
       for (const imageFile of limitedFiles) {
         const safeStem = sanitizeFileStem(imageFile.name);
         const dataUrl = await fileToDataUrl(imageFile);
-        markdownImageLines.push(`![${safeStem}](${dataUrl})`);
+        if (editorType === 'block' && blockImageInserterRef.current) {
+          blockImages.push({ url: dataUrl, alt: safeStem });
+        } else {
+          markdownImageLines.push(`![${safeStem}](${dataUrl})`);
+        }
+      }
+
+      if (editorType === 'block' && blockImageInserterRef.current && blockImages.length > 0) {
+        blockImageInserterRef.current(blockImages);
+        onError?.('');
+        return true;
       }
 
       const current = await resolveLiveContent();
@@ -577,6 +594,7 @@ export const Step1SourceInput = ({
     setIsConverting(true);
     try {
       const markdownImageLines: string[] = [];
+      const blockImages: Array<{ url: string; alt?: string }> = [];
 
       if (isTauri()) {
         const { readFile } = await import('@tauri-apps/plugin-fs');
@@ -588,17 +606,36 @@ export const Step1SourceInput = ({
             const bytes = await readFile(sourcePath);
             const b64 = btoa(String.fromCharCode(...bytes));
             const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-            markdownImageLines.push(`![${safeStem}](data:${mime};base64,${b64})`);
+            const dataUrl = `data:${mime};base64,${b64}`;
+            if (editorType === 'block' && blockImageInserterRef.current) {
+              blockImages.push({ url: dataUrl, alt: safeStem });
+            } else {
+              markdownImageLines.push(`![${safeStem}](${dataUrl})`);
+            }
           } catch {
-            markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+            if (editorType === 'block' && blockImageInserterRef.current) {
+              blockImages.push({ url: sourcePath, alt: safeStem });
+            } else {
+              markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+            }
           }
         }
       } else {
         for (const sourcePath of normalized) {
           const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
           const safeStem = sanitizeFileStem(sourceName);
-          markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+          if (editorType === 'block' && blockImageInserterRef.current) {
+            blockImages.push({ url: sourcePath, alt: safeStem });
+          } else {
+            markdownImageLines.push(`![${safeStem}](${sourcePath})`);
+          }
         }
+      }
+
+      if (editorType === 'block' && blockImageInserterRef.current && blockImages.length > 0) {
+        blockImageInserterRef.current(blockImages);
+        onError?.('');
+        return true;
       }
 
       const current = await resolveLiveContent();
@@ -617,7 +654,7 @@ export const Step1SourceInput = ({
     }
 
     return true;
-  }, [onError, projectPath, resolveLiveContent]);
+  }, [editorType, onError, projectPath, resolveLiveContent]);
 
   const dragContainsImages = (event: DragEvent<HTMLElement>) => {
     const dataTransfer = event.dataTransfer;
@@ -653,11 +690,14 @@ export const Step1SourceInput = ({
     return candidates.map(normalizeDroppedPath).filter(isImagePath);
   };
 
+  const EMPTY_META = { title: '', subtitle: '', imageUrl: '', date: '', tags: [] as string[] };
+
   const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date', value: string) => {
-    onMetaChange?.({
-      ...(postMeta ?? { title: '', subtitle: '', imageUrl: '', date: '' }),
-      [field]: value,
-    });
+    onMetaChange?.({ ...(postMeta ?? EMPTY_META), [field]: value });
+  }, [onMetaChange, postMeta]);
+
+  const updatePostMetaTags = useCallback((tags: string[]) => {
+    onMetaChange?.({ ...(postMeta ?? EMPTY_META), tags });
   }, [onMetaChange, postMeta]);
 
   const extractDroppedImageUrl = (event: DragEvent<HTMLElement>): string => {
@@ -767,24 +807,39 @@ export const Step1SourceInput = ({
       rows.push({ left: '', right: rightLines[j], status: 'added' });
       j += 1;
     }
+    // GitHub-style: pair consecutive removed/added blocks side-by-side
     const mergedRows: LineDiffRow[] = [];
     let idx = 0;
     while (idx < rows.length) {
       const current = rows[idx];
-      const next = rows[idx + 1];
-      if (
-        current?.status === 'removed' &&
-        next?.status === 'added' &&
-        current.left.trim().length > 0 &&
-        next.right.trim().length > 0 &&
-        lineSimilarity(current.left, next.right) >= 0.7
-      ) {
-        mergedRows.push({ left: current.left, right: next.right, status: 'modified' });
-        idx += 2;
+      if (current.status === 'same') {
+        mergedRows.push(current);
+        idx += 1;
         continue;
       }
-      mergedRows.push(current);
-      idx += 1;
+      // Collect the full block of consecutive removed + added lines
+      const removed: string[] = [];
+      const added: string[] = [];
+      let k = idx;
+      while (k < rows.length && (rows[k].status === 'removed' || rows[k].status === 'added')) {
+        if (rows[k].status === 'removed') removed.push(rows[k].left);
+        else added.push(rows[k].right);
+        k += 1;
+      }
+      // Pair them side-by-side
+      const pairCount = Math.max(removed.length, added.length);
+      for (let p = 0; p < pairCount; p += 1) {
+        const l = removed[p] ?? '';
+        const r = added[p] ?? '';
+        if (l && r) {
+          mergedRows.push({ left: l, right: r, status: 'modified' });
+        } else if (l) {
+          mergedRows.push({ left: l, right: '', status: 'removed' });
+        } else {
+          mergedRows.push({ left: '', right: r, status: 'added' });
+        }
+      }
+      idx = k;
     }
 
     return mergedRows;
@@ -884,7 +939,7 @@ export const Step1SourceInput = ({
                    {projectPath ? `${projectPath}/` : ''}{displayFileName}
                 </p>
                 {autosaveStatusText ? (
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '20px' }}>
+                  <div ref={autosaveHistoryRef} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '20px', position: 'relative' }}>
                     <button
                       onClick={onOpenEditorSettings}
                       onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.2)'; }}
@@ -907,9 +962,80 @@ export const Step1SourceInput = ({
                     >
                       <FontAwesomeIcon icon={faGear} style={{ fontSize: '9px' }} />
                     </button>
-                    <span className="font-mono text-[10px] text-[#AC8E66]" style={{ whiteSpace: 'nowrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => autosaveHistory.length > 0 && setShowAutosaveHistory((p) => !p)}
+                      title={autosaveHistory.length > 0 ? `${autosaveHistory.length} Autosave-Versionen` : autosaveStatusText}
+                      style={{
+                        background: 'transparent', border: 'none', padding: 0,
+                        cursor: autosaveHistory.length > 0 ? 'pointer' : 'default',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                        color: '#AC8E66', whiteSpace: 'nowrap',
+                        textDecoration: autosaveHistory.length > 0 && showAutosaveHistory ? 'underline' : 'none',
+                      }}
+                    >
                       {autosaveStatusText}
-                    </span>
+                    </button>
+
+                    {/* History Dropdown */}
+                    {showAutosaveHistory && autosaveHistory.length > 0 && (
+                      <div style={{
+                        position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+                        width: 290,
+                        background: '#111', border: '1px solid #AC8E66',
+                        borderRadius: 8, padding: '6px 0',
+                        zIndex: 300, boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                      }}>
+                        <div style={{ padding: '3px 12px 7px', fontSize: 9, color: '#666', borderBottom: '1px solid #222', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                          Autosave-Verlauf
+                        </div>
+                        {autosaveHistory.map((record, idx) => (
+                          <div key={record.meta.updatedAt} style={{
+                            display: 'flex', alignItems: 'center', gap: 8,
+                            padding: '6px 12px',
+                            borderBottom: idx < autosaveHistory.length - 1 ? '1px solid #1C1C1C' : 'none',
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: '#D4C5A9' }}>
+                                {new Date(record.meta.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </div>
+                              <div style={{ fontSize: 9, color: '#555', marginTop: 1 }}>
+                                {record.meta.contentLength.toLocaleString('de-DE')} Zeichen
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <button
+                                type="button"
+                                onClick={() => { onAutosaveHistoryRestore?.(record); setShowAutosaveHistory(false); }}
+                                style={{
+                                  background: 'transparent', border: '1px solid #AC8E66',
+                                  borderRadius: 4, color: '#AC8E66', fontSize: 9,
+                                  padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                              >
+                                Laden
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => { onAutosaveHistoryCompare?.(record); setShowComparison(true); setShowAutosaveHistory(false); }}
+                                style={{
+                                  background: 'transparent', border: '1px solid #444',
+                                  borderRadius: 4, color: '#888', fontSize: 9,
+                                  padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
+                                }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#444'; (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
+                              >
+                                Diff
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -1091,8 +1217,8 @@ export const Step1SourceInput = ({
                   {onAdoptCurrentAsComparisonBase ? (
                     <button
                       onClick={onAdoptCurrentAsComparisonBase}
-                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] 
-                      hover:bg-[#d0cbb8] transition-colors 
+                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66]
+                      hover:bg-[#d0cbb8] transition-colors
                       hover:text-[#1a1a1a]
                       hover:border-[#AC8E66] focus:outline-none focus:ring-2 focus:ring-[#AC8E66]/50"
                       title="Aktuelle Version als neue Vergleichs-Basis übernehmen"
@@ -1100,6 +1226,30 @@ export const Step1SourceInput = ({
                       Änderungen übernehmen
                     </button>
                   ) : null}
+                  <button
+                    onClick={() => setShowComparison(false)}
+                    title="Vergleich schließen"
+                    style={{
+                      background: 'transparent',
+                      border: '1px solid #3A3A3A',
+                      borderRadius: '4px',
+                      color: '#666',
+                      width: '22px',
+                      height: '22px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      padding: 0,
+                      fontSize: '12px',
+                      lineHeight: 1,
+                      transition: 'border-color 0.15s, color 0.15s',
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#AC8E66'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3A3A3A'; e.currentTarget.style.color = '#666'; }}
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
               <div
@@ -1332,6 +1482,109 @@ export const Step1SourceInput = ({
                 <div className="font-mono text-[9px] leading-[12px] text-[#999]" style={{ marginBottom: 4 }}>
                   Geladene Artikel werden vorgefuellt · Leer = auto aus Inhalt
                 </div>
+                {/* Tags section */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div className="font-mono text-[9px] text-[#999]">Tags / Keywords</div>
+                    {analysisKeywords.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const current = postMeta?.tags ?? [];
+                          const merged = Array.from(new Set([...current, ...analysisKeywords]));
+                          updatePostMetaTags(merged);
+                        }}
+                        style={{
+                          background: 'transparent',
+                          border: '1px solid #AC8E66',
+                          borderRadius: 4,
+                          color: '#AC8E66',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: 8,
+                          padding: '2px 6px',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                        title="Top-Keywords aus Analyse als Tags übernehmen"
+                      >
+                        Aus Analyse übernehmen
+                      </button>
+                    )}
+                  </div>
+                  {/* Chip list */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, minHeight: 24 }}>
+                    {(postMeta?.tags ?? []).map((tag) => (
+                      <span
+                        key={tag}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          background: 'rgba(172, 142, 102, 0.12)',
+                          border: '1px solid rgba(172, 142, 102, 0.35)',
+                          borderRadius: 999,
+                          padding: '2px 7px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: 9,
+                          color: '#D4C5A9',
+                        }}
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => updatePostMetaTags((postMeta?.tags ?? []).filter(t => t !== tag))}
+                          style={{ background: 'transparent', border: 'none', color: '#777', cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}
+                          title={`"${tag}" entfernen`}
+                        >×</button>
+                      </span>
+                    ))}
+                    {(postMeta?.tags ?? []).length === 0 && (
+                      <div className="font-mono text-[9px] text-[#555]">Noch keine Tags</div>
+                    )}
+                  </div>
+                  {/* Add tag input */}
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <input
+                      type="text"
+                      value={newTagInput}
+                      onChange={(e) => setNewTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ',') && newTagInput.trim()) {
+                          e.preventDefault();
+                          const tag = newTagInput.trim().replace(/^,+|,+$/g, '');
+                          if (tag && !(postMeta?.tags ?? []).includes(tag)) {
+                            updatePostMetaTags([...(postMeta?.tags ?? []), tag]);
+                          }
+                          setNewTagInput('');
+                        }
+                      }}
+                      placeholder="Tag hinzufügen…"
+                      style={{
+                        flex: 1,
+                        background: '#0f0f0f', border: '1px solid #3A3A3A', borderRadius: 6,
+                        padding: '4px 7px', fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: 9, color: '#D9D4C5', outline: 'none',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tag = newTagInput.trim();
+                        if (tag && !(postMeta?.tags ?? []).includes(tag)) {
+                          updatePostMetaTags([...(postMeta?.tags ?? []), tag]);
+                        }
+                        setNewTagInput('');
+                      }}
+                      style={{
+                        background: 'transparent', border: '1px solid #3A3A3A', borderRadius: 6,
+                        color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
+                        padding: '4px 8px', cursor: 'pointer',
+                      }}
+                    >+</button>
+                  </div>
+                  <div className="font-mono text-[8px] text-[#555]" style={{ lineHeight: '11px' }}>
+                    Enter oder Komma zum Hinzufügen · Wird als YAML tags + keywords gespeichert
+                  </div>
+                </div>
+
                 {(['title', 'subtitle', 'imageUrl', 'date'] as const).map((field) => (
                   <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div className="font-mono text-[9px] text-[#999]">
@@ -1577,6 +1830,35 @@ export const Step1SourceInput = ({
               </div>
             )}
 </div>
+            {/* Autosave Restore Banner */}
+            {autosaveRestoreBanner && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '7px 14px',
+                background: 'rgba(172,142,102,0.10)',
+                borderBottom: '1px solid rgba(172,142,102,0.35)',
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: 11,
+                color: '#D4C5A9', flexShrink: 0,
+              }}>
+                <FontAwesomeIcon icon={faSave} style={{ color: '#AC8E66', fontSize: 10, flexShrink: 0 }} />
+                <span style={{ flex: 1 }}>
+                  Autosave von {new Date(autosaveRestoreBanner.meta.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} gefunden ({(autosaveRestoreBanner.meta.contentLength / 1000).toFixed(1)} KB)
+                </span>
+                <button
+                  type="button" onClick={onAutosaveBannerRestore}
+                  style={{ background: '#AC8E66', border: 'none', borderRadius: 4, color: '#fff', fontSize: 10, padding: '3px 10px', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontWeight: 600 }}
+                >
+                  Wiederherstellen
+                </button>
+                <button
+                  type="button" onClick={onAutosaveBannerDismiss}
+                  style={{ background: 'transparent', border: '1px solid #3A3A3A', borderRadius: 4, color: '#888', fontSize: 10, padding: '3px 8px', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace' }}
+                >
+                  Verwerfen
+                </button>
+              </div>
+            )}
+
             <div
               style={{
                 position: 'relative',
@@ -1651,6 +1933,9 @@ export const Step1SourceInput = ({
                   onRegisterContentSnapshotGetter={(getter) => {
                     editorSnapshotGetterRef.current = getter;
                   }}
+                  onRegisterImageInserter={(inserter) => {
+                    blockImageInserterRef.current = inserter;
+                  }}
                   headingRequest={blockHeadingRequest}
                   focusHeadingRequest={outlineBlockFocusRequest}
                   onActiveHeadingChange={handleActiveBlockHeadingChange}
@@ -1660,6 +1945,7 @@ export const Step1SourceInput = ({
                   wrapLines={editorSettings?.wrapLines}
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  onKeywordsChange={onAnalysisKeywordsChange}
                 />
               ) : (
                 <ZenMarkdownEditor

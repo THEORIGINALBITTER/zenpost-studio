@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -46,7 +46,9 @@ import {
   loadEditorSettings,
   saveDraftAutosave,
   loadDraftAutosave,
+  listDraftAutosaves,
   type EditorSettings,
+  type DraftAutosaveRecord,
 } from '../services/editorSettingsService';
 import { useOpenExternal } from '../hooks/useOpenExternal';
 import {
@@ -170,6 +172,7 @@ interface ContentTransformScreenProps {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      tags?: string[];
     }
   ) => void;
   editorType?: "block" | "markdown";
@@ -201,7 +204,8 @@ type ContentTransformSessionCache = {
   step1ComparisonSelectionByTab: Record<string, string>;
   sourceContent: string;
   fileName: string;
-  postMeta: { title: string; subtitle: string; imageUrl: string; date: string };
+  postMeta: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] };
+  postMetaByTab: Record<string, { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] }>;
 };
 
 let contentTransformSessionCache: ContentTransformSessionCache | null = null;
@@ -218,7 +222,8 @@ const parseDerivedTabId = (tabId: string): { sourceKey: string; platform: string
   return { sourceKey: match[1], platform: match[2] };
 };
 
-const EMPTY_POST_META = { title: '', subtitle: '', imageUrl: '', date: '' };
+const EMPTY_POST_META = { title: '', subtitle: '', imageUrl: '', date: '', tags: [] as string[] };
+type PostMeta = typeof EMPTY_POST_META;
 
 const normalizeDateForInput = (rawDate?: string): string => {
   const trimmed = (rawDate ?? '').trim();
@@ -233,12 +238,19 @@ const normalizeDateForInput = (rawDate?: string): string => {
 const extractPostMetaFromContent = (
   content: string,
   fallbackTitle?: string
-): { title: string; subtitle: string; imageUrl: string; date: string } => {
+): PostMeta => {
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
   const frontmatterDateMatch = content.match(
     /^---[\s\S]*?\n(?:publishDate|date):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}).*?\n[\s\S]*?---/m
   );
-  const h1Title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
-  const h2Subtitle = content.match(/^##\s+(.+)$/m)?.[1]?.trim() ?? '';
+  // Parse tags: [a, b, c] or tags: a, b, c
+  const tagsRaw = frontmatter.match(/^tags:\s*(.+)$/m)?.[1]?.trim() ?? '';
+  const tags = tagsRaw
+    ? tagsRaw.replace(/^\[|\]$/g, '').split(',').map(t => t.trim()).filter(Boolean)
+    : [];
+  const stripHtml = (s: string) => s.replace(/<[^>]+>/g, '').trim();
+  const h1Title = stripHtml(content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '');
+  const h2Subtitle = stripHtml(content.match(/^##\s+(.+)$/m)?.[1]?.trim() ?? '');
   const imageUrl = content.match(/!\[[^\]]*\]\(([^)]+)\)/)?.[1]?.trim() ?? '';
   const fallbackClean = (fallbackTitle ?? '').replace(/\.[^.]+$/, '').trim();
   return {
@@ -246,7 +258,33 @@ const extractPostMetaFromContent = (
     subtitle: h2Subtitle,
     imageUrl,
     date: normalizeDateForInput(frontmatterDateMatch?.[1] ?? ''),
+    tags,
   };
+};
+
+const postMetaEquals = (a: PostMeta, b: PostMeta): boolean =>
+  a.title === b.title &&
+  a.subtitle === b.subtitle &&
+  a.imageUrl === b.imageUrl &&
+  a.date === b.date &&
+  JSON.stringify(a.tags) === JSON.stringify(b.tags);
+
+/** Adds or updates tags/keywords in YAML frontmatter of content */
+const upsertFrontmatterTags = (content: string, tags: string[]): string => {
+  const tagsLine = `tags: [${tags.join(', ')}]`;
+  const keywordsLine = `keywords: ${tags.join(', ')}`;
+  const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+  if (fmMatch) {
+    let fm = fmMatch[1]
+      .replace(/^tags:.*$/m, '')
+      .replace(/^keywords:.*$/m, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/^\n+/, '');
+    const newFm = tags.length > 0 ? `${tagsLine}\n${keywordsLine}\n${fm ? fm : ''}` : fm;
+    return content.replace(/^---\n[\s\S]*?\n---/, `---\n${newFm.trimEnd()}\n---`);
+  }
+  if (tags.length === 0) return content;
+  return `---\n${tagsLine}\n${keywordsLine}\n---\n\n${content}`;
 };
 
 type ServerBlock = { type: string; data: Record<string, unknown> };
@@ -814,9 +852,30 @@ export const ContentTransformScreen = ({
   const sourceContentRef = useRef<string>('');
   const liveContentGetterRef = useRef<(() => Promise<string>) | null>(null);
   const [fileName, setFileName] = useState<string>(() => contentTransformSessionCache?.fileName ?? '');
-  const [postMeta, setPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string }>(
+  const [postMeta, setPostMeta] = useState<PostMeta>(
     () => contentTransformSessionCache?.postMeta ?? EMPTY_POST_META
   );
+  const [postMetaByTab, setPostMetaByTab] = useState<Record<string, PostMeta>>(
+    () => contentTransformSessionCache?.postMetaByTab ?? {}
+  );
+  const [analysisKeywords, setAnalysisKeywords] = useState<string[]>([]);
+
+  const handleMetaChange = useCallback((newMeta: PostMeta) => {
+    setPostMeta(prev => {
+      if (JSON.stringify(prev.tags) !== JSON.stringify(newMeta.tags)) {
+        setSourceContent(sc => upsertFrontmatterTags(sc, newMeta.tags));
+      }
+      return newMeta;
+    });
+    const tabId = activeDocTabIdRef.current;
+    if (tabId) {
+      setPostMetaByTab(prev => {
+        const existing = prev[tabId];
+        if (existing && postMetaEquals(existing, newMeta)) return prev;
+        return { ...prev, [tabId]: newMeta };
+      });
+    }
+  }, []);
   const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>(() => contentTransformSessionCache?.openDocTabs ?? []);
   const [activeDocTabId, setActiveDocTabId] = useState<string | null>(
     () => contentTransformSessionCache?.activeDocTabId ?? null
@@ -841,6 +900,8 @@ export const ContentTransformScreen = ({
   const [step1AutosaveStatus, setStep1AutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [step1AutosaveAt, setStep1AutosaveAt] = useState<string | null>(null);
   const restoredAutosaveKeysRef = useRef<Record<string, boolean>>({});
+  const [autosaveRestoreBanner, setAutosaveRestoreBanner] = useState<DraftAutosaveRecord | null>(null);
+  const [autosaveHistory, setAutosaveHistory] = useState<DraftAutosaveRecord[]>([]);
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
 
   const emitExternalContentChange = (
@@ -856,12 +917,29 @@ export const ContentTransformScreen = ({
       activeTabKind: resolvedTab?.kind,
       activeTabFilePath: resolvedTab?.filePath,
       activeTabTitle: resolvedTab?.title,
+      tags: postMeta.tags,
     });
   };
 
   useEffect(() => {
     activeDocTabIdRef.current = activeDocTabId;
   }, [activeDocTabId]);
+
+  useEffect(() => {
+    if (!activeDocTabId) return;
+    const stored = postMetaByTab[activeDocTabId];
+    if (stored) {
+      if (!postMetaEquals(stored, postMeta)) {
+        setPostMeta(stored);
+      }
+      return;
+    }
+    const content = docTabContents[activeDocTabId] ?? '';
+    const tabTitle = openDocTabs.find((tab) => tab.id === activeDocTabId)?.title ?? '';
+    const inferred = extractPostMetaFromContent(content, tabTitle);
+    setPostMeta(inferred);
+    setPostMetaByTab(prev => ({ ...prev, [activeDocTabId]: inferred }));
+  }, [activeDocTabId, docTabContents, openDocTabs, postMeta, postMetaByTab]);
 
   useEffect(() => {
     sourceContentRef.current = sourceContent;
@@ -878,6 +956,7 @@ export const ContentTransformScreen = ({
       sourceContent,
       fileName,
       postMeta,
+      postMetaByTab,
     };
   }, [
     openDocTabs,
@@ -889,6 +968,7 @@ export const ContentTransformScreen = ({
     sourceContent,
     fileName,
     postMeta,
+    postMetaByTab,
   ]);
 
   useEffect(() => {
@@ -965,6 +1045,7 @@ export const ContentTransformScreen = ({
       setActiveDocTabId(draftTabId);
       setFileName('Entwurf');
       setPostMeta(EMPTY_POST_META);
+      setPostMetaByTab((prev) => ({ ...prev, [draftTabId]: EMPTY_POST_META }));
       emitExternalContentChange(currentContent, 'step1', draftTabId);
       return;
     }
@@ -1518,12 +1599,15 @@ export const ContentTransformScreen = ({
       setFileName(tabTitle);
       const extractedMeta = extractPostMetaFromContent(initialContent, tabTitle);
       const incomingMeta = normalizeIncomingPostMeta(initialPostMeta);
-      setPostMeta({
+      const nextMeta = {
         title: incomingMeta.title || extractedMeta.title,
         subtitle: incomingMeta.subtitle || extractedMeta.subtitle,
         imageUrl: incomingMeta.imageUrl || extractedMeta.imageUrl,
         date: incomingMeta.date || extractedMeta.date,
-      });
+        tags: extractedMeta.tags,
+      };
+      setPostMeta(nextMeta);
+      setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
       loadedInitialKeyRef.current = initialKey;
     }
   }, [initialContent, initialFileName, initialPostMeta, openDocTabs]);
@@ -1578,18 +1662,7 @@ export const ContentTransformScreen = ({
       .then((draft) => {
         if (!draft?.content) return;
         if (draft.content === sourceContent) return;
-        const shouldRestore = window.confirm(
-          `Entwurf gefunden (${new Date(draft.meta.updatedAt).toLocaleString('de-DE')}). Wiederherstellen?`
-        );
-        if (!shouldRestore) return;
-        const restored = draft.content;
-        sourceContentRef.current = restored;
-        setSourceContent(restored);
-        emitExternalContentChange(restored, 'step1');
-        if (activeDocTabId) {
-          setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: restored }));
-          setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
-        }
+        setAutosaveRestoreBanner(draft);
       })
       .catch((error) => {
         console.error('[ContentTransform] Restore Autosave fehlgeschlagen:', error);
@@ -1600,7 +1673,7 @@ export const ContentTransformScreen = ({
     if (!projectPath || !editorSettings.autoSaveEnabled) return;
     if (!sourceContent.trim()) return;
     const autosaveKey = getStep1AutosaveKey();
-    const debounceMs = 1200;
+    const debounceMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
     const timeout = setTimeout(() => {
       const trimmed = sourceContent.trim();
       if (lastAutosaveRef.current[autosaveKey] === trimmed) return;
@@ -1617,7 +1690,49 @@ export const ContentTransformScreen = ({
         });
     }, debounceMs);
     return () => clearTimeout(timeout);
-  }, [projectPath, editorSettings.autoSaveEnabled, sourceContent, activeDocTabId, openDocTabs]);
+  }, [projectPath, editorSettings.autoSaveEnabled, editorSettings.autoSaveIntervalSec, sourceContent, activeDocTabId, openDocTabs]);
+
+  // Autosave-History laden (nach jedem Save + Tab-Wechsel)
+  useEffect(() => {
+    if (!projectPath || !editorSettings.autoSaveEnabled) { setAutosaveHistory([]); return; }
+    const autosaveKey = getStep1AutosaveKey();
+    listDraftAutosaves(projectPath, autosaveKey)
+      .then((records) => setAutosaveHistory(records))
+      .catch(() => setAutosaveHistory([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectPath, editorSettings.autoSaveEnabled, activeDocTabId, openDocTabs, step1AutosaveAt]);
+
+  const handleAutosaveBannerRestore = () => {
+    if (!autosaveRestoreBanner) return;
+    const restored = autosaveRestoreBanner.content;
+    sourceContentRef.current = restored;
+    setSourceContent(restored);
+    emitExternalContentChange(restored, 'step1');
+    if (activeDocTabId) {
+      setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: restored }));
+      setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
+    }
+    setAutosaveRestoreBanner(null);
+  };
+
+  const handleAutosaveBannerDismiss = () => setAutosaveRestoreBanner(null);
+
+  const handleAutosaveHistoryRestore = (record: DraftAutosaveRecord) => {
+    const restored = record.content;
+    sourceContentRef.current = restored;
+    setSourceContent(restored);
+    emitExternalContentChange(restored, 'step1');
+    if (activeDocTabId) {
+      setDocTabContents((prev) => ({ ...prev, [activeDocTabId]: restored }));
+      setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: true }));
+    }
+  };
+
+  const handleAutosaveHistoryCompare = (record: DraftAutosaveRecord) => {
+    if (!activeDocTabId) return;
+    setStep1ComparisonBaseByTab((prev) => ({ ...prev, [activeDocTabId]: record.content }));
+    setStep1ComparisonSelectionByTab((prev) => ({ ...prev, [activeDocTabId]: STEP1_SAVED_COMPARISON_ID }));
+  };
 
   useEffect(() => {
     if (!requestedArticleId || !projectPath) return;
@@ -1640,12 +1755,15 @@ export const ContentTransformScreen = ({
       setActiveDocTabId(tabId);
       setSourceContent(content);
       setFileName(title);
-      setPostMeta({
+      const nextMeta = {
         title: (article.title ?? '').trim() || inferredMeta.title,
         subtitle: (article.subtitle ?? '').trim() || inferredMeta.subtitle,
         imageUrl: (article.coverImageUrl ?? '').trim() || inferredMeta.imageUrl,
         date: normalizeDateForInput(article.publishDate) || inferredMeta.date,
-      });
+        tags: inferredMeta.tags,
+      };
+      setPostMeta(nextMeta);
+      setPostMetaByTab((prev) => ({ ...prev, [tabId]: nextMeta }));
       setError(null);
       setStep(1);
       lastRequestedArticleIdRef.current = requestedArticleId;
@@ -1670,7 +1788,9 @@ export const ContentTransformScreen = ({
       setSourceContent(content);
       const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
-      setPostMeta(extractPostMetaFromContent(content, fileNameFromPath));
+      const nextMeta = extractPostMetaFromContent(content, fileNameFromPath);
+      setPostMeta(nextMeta);
+      setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
       setError(null);
       setStep(1);
       onFileRequestHandled?.();
@@ -1707,7 +1827,9 @@ export const ContentTransformScreen = ({
         setActiveDocTabId(resolvedTabId);
         setSourceContent(content);
         setFileName(fileNameFromPath);
-        setPostMeta(extractPostMetaFromContent(content, fileNameFromPath));
+        const nextMeta = extractPostMetaFromContent(content, fileNameFromPath);
+        setPostMeta(nextMeta);
+        setPostMetaByTab((prev) => ({ ...prev, [resolvedTabId]: nextMeta }));
         setError(null);
         setStep(1);
         lastRequestedFilePathRef.current = requestedFilePath;
@@ -2101,6 +2223,8 @@ export const ContentTransformScreen = ({
     setSourceContent('');
     emitExternalContentChange('', 'step1', draftTabId);
     setFileName('Entwurf');
+    setPostMeta(EMPTY_POST_META);
+    setPostMetaByTab((prev) => ({ ...prev, [draftTabId]: EMPTY_POST_META }));
   };
 
   const closeDocTab = (tabId: string, force = false) => {
@@ -2133,6 +2257,11 @@ export const ContentTransformScreen = ({
           next[key] = STEP1_SAVED_COMPARISON_ID;
         }
       });
+      return next;
+    });
+    setPostMetaByTab((prev) => {
+      const next = { ...prev };
+      delete next[tabId];
       return next;
     });
     if (activeDocTabId === tabId || remainingTabs.length === 0) {
@@ -2508,6 +2637,7 @@ export const ContentTransformScreen = ({
     setSourceContent('');
     setFileName('');
     setPostMeta(EMPTY_POST_META);
+    setPostMetaByTab({});
     setTransformedContent('');
     setError(null);
     setPreviewMode(false);
@@ -2888,10 +3018,18 @@ export const ContentTransformScreen = ({
                 setSettingsDefaultTab('editor');
                 setShowSettings(true);
               }}
+              autosaveRestoreBanner={autosaveRestoreBanner}
+              onAutosaveBannerRestore={handleAutosaveBannerRestore}
+              onAutosaveBannerDismiss={handleAutosaveBannerDismiss}
+              autosaveHistory={autosaveHistory}
+              onAutosaveHistoryRestore={handleAutosaveHistoryRestore}
+              onAutosaveHistoryCompare={handleAutosaveHistoryCompare}
               zenThoughts={zenStudioSettings.thoughts}
               showZenThoughtInHeader={zenStudioSettings.showInContentAIStudio}
               postMeta={postMeta}
-              onMetaChange={setPostMeta}
+              onMetaChange={handleMetaChange}
+              analysisKeywords={analysisKeywords}
+              onAnalysisKeywordsChange={setAnalysisKeywords}
             />
           </>
         );

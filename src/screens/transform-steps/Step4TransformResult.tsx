@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, generatePlatformThumbnail, type PlatformThumbnailResult } from '../../services/zenEngineService';
+import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, type AutofixResult, generatePlatformThumbnail, type PlatformThumbnailResult, adaptV2ToV1 } from '../../services/zenEngineService';
+import { recordAnalysisRun } from '../../services/zenEngineStatsService';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { downloadDir, join } from '@tauri-apps/api/path';
@@ -94,7 +95,15 @@ type ImproveOption = {
 type LineDiffRow = {
   left: string;
   right: string;
-  status: 'same' | 'added' | 'removed';
+  status: 'same' | 'added' | 'removed' | 'modified';
+};
+
+const PLATFORM_CHAR_LIMITS: Partial<Record<ContentPlatform, number>> = {
+  twitter: 280,
+  linkedin: 3000,
+  reddit: 40000,
+  devto: 100000,
+  medium: 100000,
 };
 
 
@@ -280,10 +289,19 @@ export const Step4TransformResult = ({
   const [customInstruction, setCustomInstruction] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
+  // File save feedback (replaces alert())
+  const [downloadFeedback, setDownloadFeedback] = useState<{ ok: boolean; msg: string } | null>(null);
+  const showDownloadFeedback = (ok: boolean, msg: string) => {
+    setDownloadFeedback({ ok, msg });
+    setTimeout(() => setDownloadFeedback(null), 3000);
+  };
+
   // ZenEngine Stats + Quality Analysis
   const [engineStats, setEngineStats] = useState<MarkdownResult | null>(null);
   const [qualityAnalysis, setQualityAnalysis] = useState<RuleAnalysisResult | null>(null);
   const engineDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [autofixRunning, setAutofixRunning] = useState(false);
+  const [lastAutofix, setLastAutofix] = useState<AutofixResult | null>(null);
 
   const stripBase64Images = useCallback(
     (text: string) =>
@@ -301,12 +319,15 @@ export const Step4TransformResult = ({
       // char_count and confuse the rule engine with binary-like character sequences.
       const textForEngine = stripBase64Images(text);
       try {
-        const [stats, quality] = await Promise.all([
+        const [stats, qualityV2] = await Promise.all([
           ZenEngine.renderMarkdown(textForEngine),
-          ZenEngine.analyzeText(textForEngine),
+          ZenEngine.analyzeTextV2(textForEngine),
         ]);
         setEngineStats(stats);
-        setQualityAnalysis(quality);
+        setQualityAnalysis(adaptV2ToV1(qualityV2));
+        const hitMap: Record<string, number> = {};
+        for (const m of qualityV2.matches) hitMap[m.rule_id] = (hitMap[m.rule_id] ?? 0) + 1;
+        recordAnalysisRun(hitMap);
       } catch {
         // Engine nicht verfügbar (z.B. Web-Build) — graceful degradation
       }
@@ -396,7 +417,6 @@ export const Step4TransformResult = ({
   }, [activeDocTabId, activeResultTab, multiPlatformMode]);
 
   const activePreviewTheme = previewThemeByKey[previewContextKey] ?? previewThemeByKey.default ?? 'mono-clean';
-  const previewStyleMode: 'mono' | 'color' = activePreviewTheme.startsWith('mono') ? 'mono' : 'color';
   const failedMultiPostResults = useMemo(
     () => multiPostResults.filter((result) => !result.success),
     [multiPostResults]
@@ -536,31 +556,54 @@ export const Step4TransformResult = ({
       }
     }
 
-    const rows: LineDiffRow[] = [];
+    const rawRows: LineDiffRow[] = [];
     let i = 0;
     let j = 0;
     while (i < n && j < m) {
       if (leftLines[i] === rightLines[j]) {
-        rows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
+        rawRows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
         i += 1;
         j += 1;
       } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-        rows.push({ left: leftLines[i], right: '', status: 'removed' });
+        rawRows.push({ left: leftLines[i], right: '', status: 'removed' });
         i += 1;
       } else {
-        rows.push({ left: '', right: rightLines[j], status: 'added' });
+        rawRows.push({ left: '', right: rightLines[j], status: 'added' });
         j += 1;
       }
     }
-    while (i < n) {
-      rows.push({ left: leftLines[i], right: '', status: 'removed' });
-      i += 1;
+    while (i < n) { rawRows.push({ left: leftLines[i], right: '', status: 'removed' }); i += 1; }
+    while (j < m) { rawRows.push({ left: '', right: rightLines[j], status: 'added' }); j += 1; }
+
+    // Block-pairing: pair consecutive removed+added lines side-by-side (GitHub-style)
+    const mergedRows: LineDiffRow[] = [];
+    let idx = 0;
+    while (idx < rawRows.length) {
+      const row = rawRows[idx];
+      if (row.status === 'same') {
+        mergedRows.push(row);
+        idx += 1;
+      } else {
+        const removed: string[] = [];
+        const added: string[] = [];
+        let k = idx;
+        while (k < rawRows.length && (rawRows[k].status === 'removed' || rawRows[k].status === 'added')) {
+          if (rawRows[k].status === 'removed') removed.push(rawRows[k].left);
+          else added.push(rawRows[k].right);
+          k += 1;
+        }
+        const pairCount = Math.max(removed.length, added.length);
+        for (let p = 0; p < pairCount; p += 1) {
+          const l = removed[p] ?? '';
+          const r = added[p] ?? '';
+          if (l && r) mergedRows.push({ left: l, right: r, status: 'modified' });
+          else if (l) mergedRows.push({ left: l, right: '', status: 'removed' });
+          else mergedRows.push({ left: '', right: r, status: 'added' });
+        }
+        idx = k;
+      }
     }
-    while (j < m) {
-      rows.push({ left: '', right: rightLines[j], status: 'added' });
-      j += 1;
-    }
-    return rows;
+    return mergedRows;
   }, [hasComparison, activeComparisonContent, currentContent]);
 
   useEffect(() => {
@@ -573,10 +616,6 @@ export const Step4TransformResult = ({
 
   // Text-AI Handler
   const handleTextAI = async (action: 'improve' | 'continue' | 'summarize' | 'markdown', improveStyle?: ImprovementStyle) => {
-    console.log('[Text-AI] Starting action:', action, 'style:', improveStyle);
-    console.log('[Text-AI] Current content length:', currentContent.length);
-    console.log('[Text-AI] Current content preview:', currentContent.substring(0, 100));
-
     setIsAIProcessing(true);
     setAiError(null);
 
@@ -584,12 +623,10 @@ export const Step4TransformResult = ({
       let result;
       switch (action) {
         case 'improve':
-          console.log('[Text-AI] Calling improveText with style:', improveStyle || 'general');
           result = await improveText(currentContent, {
             style: improveStyle || 'general',
             customInstruction: improveStyle === 'custom' ? customInstruction : undefined,
           });
-          console.log('[Text-AI] improveText result:', result);
           break;
         case 'continue':
           result = await continueText(currentContent);
@@ -603,11 +640,6 @@ export const Step4TransformResult = ({
       }
 
       if (result.success && result.data) {
-        const contentChanged = result.data !== currentContent;
-        console.log('[Text-AI] Success! New content length:', result.data.length);
-        console.log('[Text-AI] New content preview:', result.data.substring(0, 200));
-        console.log('[Text-AI] Content changed:', contentChanged);
-
         // Show success feedback
         const actionLabels: Record<string, string> = {
           improve: improveStyle === 'charming' ? 'Mehr Charme hinzugefügt' :
@@ -630,17 +662,10 @@ export const Step4TransformResult = ({
         setShowImproveOptions(false);
         setShowCustomInput(false);
         setCustomInstruction('');
-
-        // Alert if content didn't change (debugging)
-        if (!contentChanged) {
-          console.warn('[Text-AI] WARNING: AI returned the same content! This might be an Ollama issue.');
-        }
       } else {
-        console.log('[Text-AI] Failed:', result.error);
         setAiError(result.error || 'AI-Verarbeitung fehlgeschlagen');
       }
     } catch (error) {
-      console.error('[Text-AI] Exception:', error);
       setAiError(error instanceof Error ? error.message : 'Unbekannter Fehler');
     } finally {
       setIsAIProcessing(false);
@@ -669,8 +694,8 @@ export const Step4TransformResult = ({
       await navigator.clipboard.writeText(currentContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    } catch {
+      // clipboard not available
     }
   };
 
@@ -700,10 +725,9 @@ const handleDownload = async () => {
     }
 
     await writeTextFile(path, contentToSave);
-    alert(`Datei gespeichert:\n${path}${statsMsg}`);
-  } catch (error) {
-    console.error("Error saving file:", error);
-    alert("Fehler beim Speichern der Datei");
+    showDownloadFeedback(true, `Gespeichert${statsMsg}`);
+  } catch {
+    showDownloadFeedback(false, 'Fehler beim Speichern');
   }
 };
   const handlePost = async () => {
@@ -1076,21 +1100,12 @@ const handleDownload = async () => {
   ]);
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-6  "
-        style={{ padding: '0.5rem 1.5rem', }}
-  
+    <div className="flex-1 flex flex-col items-center"
+        style={{ padding: '0.5rem 1.5rem' }}
     >
 
 
-        <div className="flex flex-col items-center w-full max-w-4xl bg-[#fff]"></div>
-
       <div className="flex flex-col items-center w-full max-w-4xl">
-        {/* Title */}
-        <div className="mb-4">
-        
-        </div>
-
-        <div style={{ height: '48px' }} />
 
    
        
@@ -1210,7 +1225,7 @@ const handleDownload = async () => {
             style={{
               width: '90vw',
               marginBottom: '24px',
-              paddingTop: '50px',
+              paddingTop: '12px',
               boxSizing: 'border-box',
             }}
           >
@@ -1273,7 +1288,7 @@ const handleDownload = async () => {
                 ))}
               </div>
 
-              <div style={{ marginTop: 10 }}>
+              <div style={{ marginTop: 10, marginLeft: 10 }}>
                 <button
                   type="button"
                   onClick={() => onOpenSettings(preferredSettingsPlatform)}
@@ -1295,183 +1310,243 @@ const handleDownload = async () => {
           </div>
         )}
 
-        {currentContent && currentContent.trim() ? (
+        {/* Outer layout: left vertical panel buttons + result container */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', width: '90vw', marginTop: '14px', gap: '2px' }}>
+
+          {/* Left vertical panel buttons */}
+          {currentContent && currentContent.trim() && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '48px', flexShrink: 0 }}>
+              {hasComparison && (
+                <button
+                  onClick={() => togglePanel('vergleich')}
+                  style={{
+                    padding: '10px 7px',
+                    backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#151515',
+                    border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '8px',
+                    fontWeight: activePanel === 'vergleich' ? 200 : 400,
+                    color: activePanel === 'vergleich' ? '#151515' : '#333',
+                    transition: 'all 0.2s',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap',
+                    letterSpacing: '0.05em',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activePanel !== 'vergleich') {
+                      e.currentTarget.style.color = '#AC8E66';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activePanel !== 'vergleich') {
+                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.borderColor = '#3A3A3A';
+                    }
+                  }}
+                >
+                  Vergleich
+                </button>
+              )}
+              <button
+                onClick={() => togglePanel('engine')}
+                style={{
+                  padding: '10px 7px',
+                  backgroundColor: activePanel === 'engine' ? '#d9d4c5' : '#151515',
+                  border: activePanel === 'engine' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '8px',
+                  fontWeight: activePanel === 'engine' ? 200 : 400,
+                  color: activePanel === 'engine' ? '#151515' : '#333',
+                  transition: 'all 0.2s',
+                  writingMode: 'vertical-rl',
+                  transform: 'rotate(180deg)',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.05em',
+                }}
+                onMouseEnter={(e) => {
+                  if (activePanel !== 'engine') {
+                    e.currentTarget.style.color = '#AC8E66';
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activePanel !== 'engine') {
+                    e.currentTarget.style.color = '#333';
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                  }
+                }}
+              >
+                Engine{qualityAnalysis && qualityAnalysis.match_count > 0 ? ` · ${qualityAnalysis.match_count}` : ''}
+              </button>
+              {(qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
+                <button
+                  onClick={() => togglePanel('qa')}
+                  style={{
+                    padding: '10px 7px',
+                    backgroundColor: activePanel === 'qa' ? '#d9d4c5' : '#151515',
+                    border: activePanel === 'qa' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '8px',
+                    fontWeight: activePanel === 'qa' ? 200 : 400,
+                    color: activePanel === 'qa' ? '#151515' : '#333',
+                    transition: 'all 0.2s',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap',
+                    letterSpacing: '0.05em',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activePanel !== 'qa') {
+                      e.currentTarget.style.color = '#AC8E66';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activePanel !== 'qa') {
+                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.borderColor = '#3A3A3A';
+                    }
+                  }}
+                >
+                  QA
+                </button>
+              )}
+              {platformThumbnail && (
+                <button
+                  onClick={() => togglePanel('thumbnail')}
+                  style={{
+                    padding: '10px 7px',
+                    backgroundColor: activePanel === 'thumbnail' ? '#d9d4c5' : '#151515',
+                    border: activePanel === 'thumbnail' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '8px',
+                    fontWeight: activePanel === 'thumbnail' ? 200 : 400,
+                    color: activePanel === 'thumbnail' ? '#151515' : '#333',
+                    transition: 'all 0.2s',
+                    writingMode: 'vertical-rl',
+                    transform: 'rotate(180deg)',
+                    whiteSpace: 'nowrap',
+                    letterSpacing: '0.05em',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (activePanel !== 'thumbnail') {
+                      e.currentTarget.style.color = '#AC8E66';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (activePanel !== 'thumbnail') {
+                      e.currentTarget.style.color = '#333';
+                      e.currentTarget.style.borderColor = '#3A3A3A';
+                    }
+                  }}
+                >
+                  Thumbnail
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Result Container */}
           <div
-            className="flex items-center gap-1.5"
             style={{
-              width: '90vw',
-              padding: '6px 2rem 0.35rem 4.75rem',
-              marginTop: '14px',
-              marginBottom: '-6px',
+              flex: 1,
+              minWidth: 0,
+              backgroundColor: "#151515",
+              border: "0.5px solid #AC8E66",
+              borderRadius: "1.5rem",
+              padding: '0.9rem 0',
             }}
           >
-            {hasComparison && (
-              <button
-                onClick={() => togglePanel('vergleich')}
-                style={{
-                  padding: '8px 12px',
-                  backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#151515',
-                  border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                  borderRadius: '8px 8px 0px 0px',
-                  borderBottom: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  fontWeight: activePanel === 'vergleich' ? 200 : 400,
-                  color: activePanel === 'vergleich' ? '#151515' : '#333',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (activePanel !== 'vergleich') {
-                    e.currentTarget.style.color = '#AC8E66';
-                    e.currentTarget.style.borderColor = '#AC8E66';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (activePanel !== 'vergleich') {
-                    e.currentTarget.style.color = '#333';
-                    e.currentTarget.style.borderColor = '#3A3A3A';
-                  }
-                }}
-              >
-                Vergleich
-              </button>
-            )}
-            <button
-              onClick={() => togglePanel('engine')}
-              style={{
-                padding: '8px 12px',
-                backgroundColor: activePanel === 'engine' ? '#d9d4c5' : '#151515',
-                border: activePanel === 'engine' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                borderRadius: '8px 8px 0px 0px',
-                borderBottom: 'none',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '9px',
-                fontWeight: activePanel === 'engine' ? 200 : 400,
-                color: activePanel === 'engine' ? '#151515' : '#333',
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={(e) => {
-                if (activePanel !== 'engine') {
-                  e.currentTarget.style.color = '#AC8E66';
-                  e.currentTarget.style.borderColor = '#AC8E66';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (activePanel !== 'engine') {
-                  e.currentTarget.style.color = '#333';
-                  e.currentTarget.style.borderColor = '#3A3A3A';
-                }
-              }}
-            >
-              Engine{qualityAnalysis && qualityAnalysis.match_count > 0 ? (
-                <span style={{ color: qualityAnalysis.match_count > 3 ? '#c97a3a' : '#8a8a6a' }}>
-                  {' '}· {qualityAnalysis.match_count}
-                </span>
-              ) : null}
-            </button>
-            {(qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
-              <button
-                onClick={() => togglePanel('qa')}
-                style={{
-                  padding: '8px 12px',
-                  backgroundColor: activePanel === 'qa' ? '#d9d4c5' : '#151515',
-                  border: activePanel === 'qa' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                  borderRadius: '8px 8px 0px 0px',
-                  borderBottom: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  fontWeight: activePanel === 'qa' ? 200 : 400,
-                  color: activePanel === 'qa' ? '#151515' : '#333',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (activePanel !== 'qa') {
-                    e.currentTarget.style.color = '#AC8E66';
-                    e.currentTarget.style.borderColor = '#AC8E66';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (activePanel !== 'qa') {
-                    e.currentTarget.style.color = '#333';
-                    e.currentTarget.style.borderColor = '#3A3A3A';
-                  }
-                }}
-              >
-                QA
-              </button>
-            )}
-            {platformThumbnail && (
-              <button
-                onClick={() => togglePanel('thumbnail')}
-                style={{
-                  padding: '8px 12px',
-                  backgroundColor: activePanel === 'thumbnail' ? '#d9d4c5' : '#151515',
-                  border: activePanel === 'thumbnail' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                  borderRadius: '8px 8px 0px 0px',
-                  borderBottom: 'none',
-                  cursor: 'pointer',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  fontWeight: activePanel === 'thumbnail' ? 200 : 400,
-                  color: activePanel === 'thumbnail' ? '#151515' : '#333',
-                  transition: 'all 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (activePanel !== 'thumbnail') {
-                    e.currentTarget.style.color = '#AC8E66';
-                    e.currentTarget.style.borderColor = '#AC8E66';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (activePanel !== 'thumbnail') {
-                    e.currentTarget.style.color = '#333';
-                    e.currentTarget.style.borderColor = '#3A3A3A';
-                  }
-                }}
-              >
-                Thumbnail
-              </button>
-            )}
-          </div>
-        ) : null}
-
-        {/* Result Container */}
-        <div className=" border-[10px] border-[#AC8E66] "
-          style={{
-            width: "90vw",
-            backgroundColor: "#151515",
-            border: "0.5px solid #AC8E66",
-            borderRadius: "1.5rem",
-            padding: '0.9rem 0',
-  }}
-        >
-          <div className="flex justify-between items-center mb-4"
-             style={{ padding: '0.5rem 2rem' }}
+          <div className="flex justify-between items-center"
+             style={{ padding: '0.5rem 2rem 0.25rem 2rem' }}
           >
             {currentContent && currentContent.trim() ? (
-              <div className="flex items-center gap-4 py-[10px]">
-                <div className="font-mono text-[12px] text-[#AC8E66] px-1 py-1 rounded">
-                  Preview-Modus
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
+                <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 4 }}>
+                  <span className="font-mono text-[11px] text-[#AC8E66]">{platformLabels[activeQaPlatform]}</span>
+                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
+                  <span className="font-mono text-[9px] text-[#999]">
+                    {(engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length).toLocaleString('de-DE')} Wörter
+                  </span>
+                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
+                  {(() => {
+                    const words = engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length;
+                    const mins = Math.max(1, Math.ceil(words / 200));
+                    return (
+                      <span className="font-mono text-[9px] text-[#D4C5A9]">
+                        {mins} Min. Lesezeit
+                      </span>
+                    );
+                  })()}
+                  {engineStats?.line_count ? (
+                    <>
+                      <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
+                      <span className="font-mono text-[9px] text-[#999]">
+                        {engineStats.line_count} Zeilen
+                      </span>
+                    </>
+                  ) : null}
+                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
+                  {(() => {
+                    const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
+                    const chars = engineStats?.char_count ?? currentContent.length;
+                    const over = limit ? chars > limit : false;
+                    return (
+                      <span className="font-mono text-[9px]" style={{ color: over ? '#c97a3a' : '#D4C5A9' }}>
+                        {chars.toLocaleString('de-DE')} Zeichen{limit ? ` / ${limit.toLocaleString('de-DE')}` : ''}
+                      </span>
+                    );
+                  })()}
+                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
+                  <span className="font-mono text-[9px] text-[#777]">
+                    {PREVIEW_THEME_LABELS[activePreviewTheme]}
+                  </span>
+                  {comparisonSourceOptions.length > 1 && (
+                    <div style={{ width: '220px', marginLeft: 8 }}>
+                      <ZenDropdown
+                        value={comparisonSource}
+                        onChange={setComparisonSource}
+                        options={comparisonSourceOptions}
+                        variant="compact"
+                      />
+                    </div>
+                  )}
                 </div>
-                <div className="
-                font-mono 
-                text-[10px] 
-                text-[#e3d4bf] 
-                px-1 py-1 rounded mt-[0px] ml-[5px]">
-                  im Style: {previewStyleMode === 'color' ? 'Color' : 'Mono'} · {PREVIEW_THEME_LABELS[activePreviewTheme]}
-                </div>
-                {comparisonSourceOptions.length > 1 && (
-                  <div style={{ width: '320px', marginLeft: '20px' }}>
-                    <ZenDropdown
-                      value={comparisonSource}
-                      onChange={setComparisonSource}
-                      options={comparisonSourceOptions}
-                      variant="compact"
-                    />
-                  </div>
+                {/* Character limit progress bar */}
+                {(() => {
+                  const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
+                  if (!limit) return null;
+                  const chars = engineStats?.char_count ?? currentContent.length;
+                  const pct = Math.min(100, (chars / limit) * 100);
+                  const over = chars > limit;
+                  return (
+                    <div style={{ height: 2, background: '#2a2a2a', borderRadius: 1, overflow: 'hidden', width: '100%', maxWidth: 320 }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${pct}%`,
+                        background: over ? '#c97a3a' : pct > 80 ? '#8a7a3a' : '#3a5a3a',
+                        borderRadius: 1,
+                        transition: 'width 0.3s ease, background 0.3s ease',
+                      }} />
+                    </div>
+                  );
+                })()}
+                {/* File save feedback */}
+                {downloadFeedback && (
+                  <span className="font-mono text-[9px]" style={{ color: downloadFeedback.ok ? '#4caf50' : '#c97a3a' }}>
+                    {downloadFeedback.ok ? '✓ ' : '✗ '}{downloadFeedback.msg}
+                  </span>
                 )}
               </div>
             ) : <div />}
@@ -1842,7 +1917,7 @@ const handleDownload = async () => {
                     animation: 'fadeIn 0.3s ease-out',
                   }}
                 >
-                  ✓ {lastAction}! Der Text wurde aktualisiert.
+                  <FontAwesomeIcon icon={faCheck} style={{ marginRight: 6 }} />{lastAction}! Der Text wurde aktualisiert.
                 </div>
               )}
 
@@ -1887,9 +1962,6 @@ const handleDownload = async () => {
                   display: 'flex',
                   width: '100%',
                   gap: 8,
-                  borderRadius: '12px 12px 0 0',
-                  border: '2',
-                  borderBottom: 'none',
                   flexWrap: 'nowrap',
                   overflowX: 'auto',
                   marginTop: '10px',
@@ -1908,7 +1980,6 @@ const handleDownload = async () => {
                       }}
                       onClick={() => onDocTabChange?.(tab.id)}
                       style={{
-                        transform: 'translateY(12px)',
                         flex: '0 0 auto',
                         padding: '12px 16px',
                         backgroundColor: isActive ? '#d9d4c5' : '#151515',
@@ -2003,7 +2074,7 @@ const handleDownload = async () => {
                     display: 'grid',
                     gridTemplateColumns: '1fr 1fr',
                     gap: '8px',
-                    maxHeight: '260px',
+                    maxHeight: '340px',
                     overflow: 'auto',
                   }}
                 >
@@ -2015,8 +2086,8 @@ const handleDownload = async () => {
                           padding: '3px 8px',
                           minHeight: '18px',
                           borderBottom: '0.5px solid #202020',
-                          backgroundColor: row.status === 'removed' ? 'rgba(239,68,68,0.12)' : '#171717',
-                          color: row.status === 'removed' ? '#fca5a5' : '#888',
+                          backgroundColor: (row.status === 'removed' || row.status === 'modified') ? 'rgba(239,68,68,0.12)' : '#171717',
+                          color: (row.status === 'removed' || row.status === 'modified') ? '#fca5a5' : '#888',
                           fontFamily: 'monospace',
                           fontSize: '10px',
                           whiteSpace: 'pre-wrap',
@@ -2034,8 +2105,8 @@ const handleDownload = async () => {
                           padding: '3px 8px',
                           minHeight: '18px',
                           borderBottom: '0.5px solid #202020',
-                          backgroundColor: row.status === 'added' ? 'rgba(34,197,94,0.12)' : '#171717',
-                          color: row.status === 'added' ? '#86efac' : '#d9d4c5',
+                          backgroundColor: (row.status === 'added' || row.status === 'modified') ? 'rgba(34,197,94,0.12)' : '#171717',
+                          color: (row.status === 'added' || row.status === 'modified') ? '#86efac' : '#d9d4c5',
                           fontFamily: 'monospace',
                           fontSize: '10px',
                           whiteSpace: 'pre-wrap',
@@ -2238,7 +2309,7 @@ const handleDownload = async () => {
             {currentContent && currentContent.trim() ? (
               <ZenMarkdownPreview
                 content={highlightedPreviewContent}
-                height="500px"
+                height="calc(100vh - 320px)"
                 projectPath={projectPath}
                 onContentChange={handleContentUpdate}
                 showTextAI={showTextAI}
@@ -2282,25 +2353,7 @@ const handleDownload = async () => {
             )}
           </div>
         </div>
-
-        {/* ZenEngine Stats Row — immer sichtbar */}
-        <div className="mb-3 w-full flex items-center gap-3 flex-wrap mt-[5px]" style={{ maxWidth: '42rem' }}>
-          {[
-            { label: 'Wörter', value: engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length },
-            { label: 'Zeichen', value: engineStats?.char_count ?? currentContent.length },
-            { label: 'Zeilen', value: engineStats?.line_count ?? currentContent.split('\n').length },
-          ].map(({ label, value }) => (
-            <span key={label} className="font-mono text-[10px] text-[#555]">
-              <span className="text-[#888]">{value.toLocaleString('de-DE')}</span> {label}
-            </span>
-          ))}
-          {qualityAnalysis && qualityAnalysis.match_count === 0 && (
-            <>
-              <span className="text-[#333] font-mono text-[10px]">·</span>
-              <span className="font-mono text-[10px] text-[#5a7a5a]">Engine OK</span>
-            </>
-          )}
-        </div>
+        </div>{/* end outer flex row */}
 
         {/* Post Result Status */}
         {postResult && postResult.success && (
@@ -2374,13 +2427,6 @@ const handleDownload = async () => {
           </div>
         )}
 
-        {/* Info Text */}
-        <div className="text-center max-w-2xl space-y-2">
-      
-
-          
-          
-        </div>
       </div>
 
       {/* Planner Modal */}

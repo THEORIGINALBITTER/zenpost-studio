@@ -1,4 +1,4 @@
-import { exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, readTextFile, remove, writeTextFile } from '@tauri-apps/plugin-fs';
 import { getProjectDataDir } from './appConfigService';
 
 export type EditorTheme = 'dark' | 'light';
@@ -122,13 +122,36 @@ const ensureDraftAutosavesDir = async (projectPath: string): Promise<string> => 
   return autosavesRoot;
 };
 
-const getDraftAutosavePaths = async (projectPath: string, key: string) => {
-  const autosavesRoot = await ensureDraftAutosavesDir(projectPath);
-  const safeKey = sanitizeKey(key);
-  return {
-    contentPath: `${autosavesRoot}/${safeKey}.md`,
-    metaPath: `${autosavesRoot}/${safeKey}.json`,
-  };
+const MAX_AUTOSAVE_VERSIONS = 5;
+
+const getDraftAutosavesDirPath = async (projectPath: string): Promise<string> => {
+  const editorRoot = await getEditorRoot(projectPath);
+  return `${editorRoot}/${AUTOSAVES_DIR}`;
+};
+
+/** Entfernt ältere Versionen über maxVersions hinaus */
+const pruneOldVersions = async (
+  autosavesRoot: string,
+  safeKey: string,
+  maxVersions: number
+): Promise<void> => {
+  try {
+    const entries = await readDir(autosavesRoot);
+    const pattern = new RegExp(`^${safeKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+\\.md$`);
+    const versions = entries
+      .filter((e) => e.name && pattern.test(e.name))
+      .map((e) => e.name!)
+      .sort()
+      .reverse(); // neueste zuerst
+    const toDelete = versions.slice(maxVersions);
+    for (const name of toDelete) {
+      const base = name.replace(/\.md$/, '');
+      try { await remove(`${autosavesRoot}/${name}`); } catch { /* no-op */ }
+      try { await remove(`${autosavesRoot}/${base}.json`); } catch { /* no-op */ }
+    }
+  } catch {
+    // pruning ist best-effort
+  }
 };
 
 export const saveDraftAutosave = async (
@@ -136,16 +159,67 @@ export const saveDraftAutosave = async (
   key: string,
   content: string
 ): Promise<DraftAutosaveRecord> => {
-  const paths = await getDraftAutosavePaths(projectPath, key);
+  const autosavesRoot = await ensureDraftAutosavesDir(projectPath);
+  const safeKey = sanitizeKey(key);
+  const timestamp = Date.now();
+  const base = `${safeKey}_${timestamp}`;
   const meta: DraftAutosaveMeta = {
     key,
     updatedAt: new Date().toISOString(),
     checksum: quickChecksum(content),
     contentLength: content.length,
   };
-  await writeTextFile(paths.contentPath, content);
-  await writeTextFile(paths.metaPath, JSON.stringify(meta, null, 2));
+  await writeTextFile(`${autosavesRoot}/${base}.md`, content);
+  await writeTextFile(`${autosavesRoot}/${base}.json`, JSON.stringify(meta, null, 2));
+  await pruneOldVersions(autosavesRoot, safeKey, MAX_AUTOSAVE_VERSIONS);
   return { content, meta };
+};
+
+export const listDraftAutosaves = async (
+  projectPath: string,
+  key: string
+): Promise<DraftAutosaveRecord[]> => {
+  try {
+    const autosavesRoot = await getDraftAutosavesDirPath(projectPath);
+    if (!(await exists(autosavesRoot))) return [];
+    const entries = await readDir(autosavesRoot);
+    const safeKey = sanitizeKey(key);
+    const pattern = new RegExp(`^${safeKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+\\.md$`);
+    const mdFiles = entries
+      .filter((e) => e.name && pattern.test(e.name))
+      .map((e) => e.name!)
+      .sort()
+      .reverse() // neueste zuerst
+      .slice(0, MAX_AUTOSAVE_VERSIONS);
+
+    const records: DraftAutosaveRecord[] = [];
+    for (const name of mdFiles) {
+      try {
+        const base = name.replace(/\.md$/, '');
+        const content = await readTextFile(`${autosavesRoot}/${name}`);
+        // Timestamp aus Dateiname extrahieren
+        const tsMatch = base.match(/_(\d+)$/);
+        const fallbackDate = tsMatch ? new Date(Number(tsMatch[1])).toISOString() : new Date(0).toISOString();
+        let meta: DraftAutosaveMeta = {
+          key,
+          updatedAt: fallbackDate,
+          checksum: quickChecksum(content),
+          contentLength: content.length,
+        };
+        const metaPath = `${autosavesRoot}/${base}.json`;
+        if (await exists(metaPath)) {
+          try {
+            const raw = await readTextFile(metaPath);
+            meta = { ...meta, ...(JSON.parse(raw) as Partial<DraftAutosaveMeta>) };
+          } catch { /* broken meta — fallback above */ }
+        }
+        records.push({ content, meta });
+      } catch { /* unlesbare Datei überspringen */ }
+    }
+    return records;
+  } catch {
+    return [];
+  }
 };
 
 export const loadDraftAutosave = async (
@@ -153,22 +227,27 @@ export const loadDraftAutosave = async (
   key: string
 ): Promise<DraftAutosaveRecord | null> => {
   try {
-    const paths = await getDraftAutosavePaths(projectPath, key);
-    if (!(await exists(paths.contentPath))) return null;
-    const content = await readTextFile(paths.contentPath);
+    // Zuerst neue versionierte Dateien prüfen
+    const versions = await listDraftAutosaves(projectPath, key);
+    if (versions.length > 0) return versions[0];
+
+    // Fallback: altes Format {safeKey}.md
+    const autosavesRoot = await getDraftAutosavesDirPath(projectPath);
+    const safeKey = sanitizeKey(key);
+    const legacyContent = `${autosavesRoot}/${safeKey}.md`;
+    const legacyMeta = `${autosavesRoot}/${safeKey}.json`;
+    if (!(await exists(legacyContent))) return null;
+    const content = await readTextFile(legacyContent);
     let meta: DraftAutosaveMeta = {
       key,
       updatedAt: new Date(0).toISOString(),
       checksum: quickChecksum(content),
       contentLength: content.length,
     };
-    if (await exists(paths.metaPath)) {
+    if (await exists(legacyMeta)) {
       try {
-        const rawMeta = await readTextFile(paths.metaPath);
-        meta = { ...meta, ...(JSON.parse(rawMeta) as Partial<DraftAutosaveMeta>) };
-      } catch {
-        // ignore broken meta, content still usable
-      }
+        meta = { ...meta, ...(JSON.parse(await readTextFile(legacyMeta)) as Partial<DraftAutosaveMeta>) };
+      } catch { /* ignore */ }
     }
     return { content, meta };
   } catch (error) {

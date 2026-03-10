@@ -354,6 +354,7 @@ function AppContent() {
   // Export Modal State
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportContent, setExportContent] = useState<string>("");
+  const [exportTags, setExportTags] = useState<string[]>([]);
   const [isEditingZenThoughts, setIsEditingZenThoughts] = useState(false);
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | "rescan" | null>(null);
@@ -1241,9 +1242,11 @@ function AppContent() {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      tags?: string[];
     }
   ) => {
     setExportContent(content);
+    if (meta?.tags) setExportTags(meta.tags);
     if (!isEditingZenThoughts && meta?.source === 'step1' && meta.activeTabId) {
       const trimmed = content.trim();
       if (trimmed.length >= 20) {
@@ -2837,6 +2840,7 @@ function AppContent() {
         onClose={() => setShowExportModal(false)}
         content={exportContent}
         documentName={exportDocumentName}
+        tags={exportTags}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
       />
 

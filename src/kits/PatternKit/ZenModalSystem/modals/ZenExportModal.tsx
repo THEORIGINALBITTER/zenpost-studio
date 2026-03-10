@@ -46,8 +46,9 @@ interface ZenExportModalProps {
   onClose: () => void;
   content: string;
   platform?: string;
-  documentName?: string; // Name of the document being exported (e.g., "README", "API Docs")
-  onNavigateToTransform?: () => void; // Navigate to Content AI Studio for multi-platform transform
+  documentName?: string;
+  tags?: string[];
+  onNavigateToTransform?: () => void;
 }
 
 const sanitizeBaseName = (value: string): string =>
@@ -225,7 +226,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
 ];
 
-export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
+export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -264,6 +265,10 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
     const pdfDoc = await PDFDocument.create();
+    if (tags.length > 0) pdfDoc.setKeywords(tags);
+    const pdfTitle = text.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? documentName ?? '';
+    if (pdfTitle) pdfDoc.setTitle(pdfTitle);
+    pdfDoc.setCreator('ZenPost Studio');
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const fontItalic = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
@@ -793,7 +798,11 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       paragraphs.push(new Paragraph({ text: cleanInline(line) }));
     }
 
+    const docxTitle = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? documentName ?? '';
     const doc = new DocxDocument({
+      ...(docxTitle && { title: docxTitle }),
+      ...(tags.length > 0 && { keywords: tags.join(', ') }),
+      creator: 'ZenPost Studio',
       sections: [{ properties: {}, children: paragraphs }],
     });
     const blob = await Packer.toBlob(doc);
@@ -829,9 +838,11 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
     };
 
     const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+    const rtfKeywords = tags.length > 0 ? `{\\info{\\keywords ${escapeRtf(tags.join(', '))}}}` : '';
     const parts: string[] = [
       '{\\rtf1\\ansi\\deff0',
       '{\\fonttbl{\\f0 Arial;}{\\f1 Courier New;}}',
+      ...(rtfKeywords ? [rtfKeywords] : []),
       '\\viewkind4\\uc1\\pard',
     ];
     let inCodeBlock = false;
@@ -1001,9 +1012,15 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   <office:styles/>
 </office:document-styles>`;
 
+    const odtKeyword = tags.length > 0
+      ? `<meta:keyword>${escapeXml(tags.join('; '))}</meta:keyword>`
+      : '';
     const metaXml = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-meta xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" office:version="1.2">
-  <office:meta/>
+<office:document-meta
+  xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+  xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"
+  office:version="1.2">
+  <office:meta>${odtKeyword ? `\n    ${odtKeyword}\n  ` : ''}</office:meta>
 </office:document-meta>`;
 
     const settingsXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -1079,6 +1096,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
     <dc:title>${escapeXml(title)}</dc:title>
     <dc:language>de</dc:language>
     <dc:creator>ZenPost Studio</dc:creator>
+    ${tags.map(t => `<dc:subject>${escapeXml(t)}</dc:subject>`).join('\n    ')}
   </metadata>
   <manifest>
     <item id="content" href="content.xhtml" media-type="application/xhtml+xml"/>
@@ -1141,12 +1159,14 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
             gfm: true,
             breaks: true,
           });
+          const htmlTitle = normalizedContent.match(/^#\s+(.+)$/m)?.[1]?.trim()
+            ?? deriveExportBaseName(documentName, normalizedContent);
           fileContent = `<!DOCTYPE html>
 <html lang="de">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Export</title>
+  <title>${htmlTitle.replace(/"/g, '&quot;')}</title>${tags.length > 0 ? `\n  <meta name="keywords" content="${tags.join(', ').replace(/"/g, '&quot;')}">` : ''}
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 860px; margin: 0 auto; padding: 2rem; line-height: 1.65; color: #171717; }
     h1, h2, h3, h4, h5, h6 { line-height: 1.25; margin-top: 1.35em; margin-bottom: 0.55em; }
@@ -1175,14 +1195,18 @@ ${renderedHtml}
         case 'pdf':
           extension = 'pdf';
           break;
-        case 'text':
+        case 'text': {
           try {
             fileContent = isTauri() ? await ZenEngine.markdownToPlain(normalizedContent) : markdownToPlainText(normalizedContent);
           } catch {
             fileContent = markdownToPlainText(normalizedContent);
           }
+          if (tags.length > 0) {
+            fileContent = `Tags: ${tags.join(', ')}\n${'─'.repeat(40)}\n\n${fileContent}`;
+          }
           extension = 'txt';
           break;
+        }
         case 'docx':
           binaryContent = await createDocxBytes(normalizedContent);
           extension = 'docx';
@@ -1200,9 +1224,17 @@ ${renderedHtml}
           extension = 'epub';
           break;
         case 'markdown':
-        default:
+        default: {
+          if (tags.length > 0 && !normalizedContent.trimStart().startsWith('---')) {
+            const mdTitle = normalizedContent.match(/^#\s+(.+)$/m)?.[1]?.trim()
+              ?? deriveExportBaseName(documentName, normalizedContent);
+            const dateStr = new Date().toISOString().slice(0, 10);
+            const tagList = tags.map(t => `  - ${t}`).join('\n');
+            fileContent = `---\ntitle: "${mdTitle}"\ndate: ${dateStr}\ntags:\n${tagList}\n---\n\n${normalizedContent}`;
+          }
           extension = 'md';
           break;
+        }
       }
 
       const inTauri = isTauri();
@@ -1307,14 +1339,19 @@ ${renderedHtml}
         const title = documentName || 'Untitled';
         let result: { success: boolean; url?: string; error?: string };
 
+        // DEV.to: max 4 tags, must be lowercase alphanumeric + hyphens
+        const devtoTags = tags
+          .slice(0, 4)
+          .map(t => t.toLowerCase().replace(/[^a-z0-9]/g, ''));
+
         if (option.id === 'devto') {
           result = await postToDevTo(
-            { title, body_markdown: content, published: false, tags: [] },
+            { title, body_markdown: content, published: false, tags: devtoTags },
             socialConfig.devto!,
           );
         } else if (option.id === 'medium') {
           result = await postToMedium(
-            { title, content, contentFormat: 'markdown', publishStatus: 'draft' },
+            { title, content, contentFormat: 'markdown', publishStatus: 'draft', tags },
             socialConfig.medium!,
           );
         } else if (option.id === 'linkedin') {

@@ -11,17 +11,27 @@ import {
 } from '../../../../../services/zenEngineProfileService';
 import { getUserRules, deleteUserRule } from '../../../../../services/userRulesService';
 import { getFeedback, getFeedbackStats, resetFeedback } from '../../../../../services/userFeedbackService';
+import {
+  getRuleStats, resetRuleStats, getTotalHits, formatLastSeen,
+  type RuleStatsStore,
+} from '../../../../../services/zenEngineStatsService';
 
 const mono = 'IBM Plex Mono, monospace';
 const gold = '#AC8E66';
 
-const RULE_GROUPS: Array<{ id: keyof RuleGroupSettings; label: string; desc: string }> = [
-  { id: 'passive_voice',      label: 'Passive Voice',          desc: 'wird, wurde, wurden, werden …' },
-  { id: 'filler_word',        label: 'Füllwörter',             desc: 'eigentlich, halt, irgendwie …' },
-  { id: 'weak_word',          label: 'Schwache Wörter',        desc: 'sehr, wirklich, tatsächlich …' },
-  { id: 'nominal_style',      label: 'Nominalstil',            desc: 'Durchführung, Verwendung …' },
-  { id: 'double_space',       label: 'Doppelte Leerzeichen',   desc: 'Formatierungs-Check' },
-  { id: 'exclamation_overuse', label: 'Ausrufezeichen',        desc: '!! Mehrfach-Ausrufezeichen' },
+const RULE_GROUPS: Array<{ id: keyof RuleGroupSettings; label: string; desc: string; badge?: string }> = [
+  { id: 'passive_voice',       label: 'Passive Voice',          desc: 'wird, wurde, wurden, werden …' },
+  { id: 'filler_word',         label: 'Füllwörter',             desc: 'eigentlich, halt, irgendwie …' },
+  { id: 'weak_word',           label: 'Schwache Wörter',        desc: 'sehr, wirklich, tatsächlich …' },
+  { id: 'nominal_style',       label: 'Nominalstil',            desc: 'Durchführung, Verwendung …' },
+  { id: 'double_space',        label: 'Doppelte Leerzeichen',   desc: 'Formatierungs-Check' },
+  { id: 'exclamation_overuse', label: 'Ausrufezeichen',         desc: '!! Mehrfach-Ausrufezeichen' },
+  { id: 'anglicism',           label: 'Anglizismen',            desc: 'Deadline, Meeting, Feedback …',        badge: 'neu' },
+  { id: 'bracket_overuse',     label: 'Klammern-Missbrauch',    desc: 'zu viele (Einschübe) im Text',         badge: 'neu' },
+  { id: 'sentence_too_long',   label: 'Zu lange Sätze',         desc: 'Sätze über 180 Zeichen',               badge: 'neu' },
+  { id: 'cliche',              label: 'Klischees',              desc: 'Mehrwert, proaktiv, win-win …',         badge: 'neu' },
+  { id: 'redundancy',          label: 'Redundanzen',            desc: 'bereits schon, völlig kostenlos …',    badge: 'neu' },
+  { id: 'word_repetition',     label: 'Wortwiederholung',       desc: 'gleiches Wort zu nah wiederholt',      badge: 'neu' },
 ];
 
 const STYLE_OPTIONS: Array<{ id: WritingStyle; label: string; desc: string; icon: typeof faMugHot }> = [
@@ -34,6 +44,7 @@ export function ZenEngineSettingsContent() {
   const [profile, setProfile] = useState<ZenEngineProfile>(getEngineProfile);
   const [userRules, setUserRules] = useState(getUserRules);
   const [feedbackStats, setFeedbackStats] = useState(() => getFeedbackStats(getFeedback()));
+  const [ruleStats, setRuleStats] = useState<RuleStatsStore>(getRuleStats);
   const [showAbout, setShowAbout] = useState(false);
 
   function updateProfile(next: ZenEngineProfile) {
@@ -161,11 +172,21 @@ export function ZenEngineSettingsContent() {
                     icon={active ? faToggleOn : faToggleOff}
                     style={{ color: active ? gold : '#ccc', fontSize: 16, flexShrink: 0 }}
                   />
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: mono, fontSize: 10, color: active ? '#333' : '#aaa', fontWeight: 500 }}>
                       {rg.label}
                     </span>
-                    <span style={{ fontFamily: mono, fontSize: 9, color: '#bbb', marginLeft: 10 }}>
+                    {rg.badge && (
+                      <span style={{
+                        fontFamily: mono, fontSize: 7, padding: '1px 5px', borderRadius: 3,
+                        background: 'rgba(172,142,102,0.15)', color: gold,
+                        border: '1px solid rgba(172,142,102,0.35)', letterSpacing: 0.5,
+                        textTransform: 'uppercase',
+                      }}>
+                        {rg.badge}
+                      </span>
+                    )}
+                    <span style={{ fontFamily: mono, fontSize: 9, color: '#bbb' }}>
                       {rg.desc}
                     </span>
                   </div>
@@ -277,6 +298,67 @@ export function ZenEngineSettingsContent() {
               Noch kein Feedback gespeichert — Hinweise annehmen oder ignorieren um zu starten.
             </p>
           )}
+
+          {divider()}
+
+          {/* ── Regel-Statistik ── */}
+          {(() => {
+            const total = getTotalHits(ruleStats);
+            const sorted = Object.entries(ruleStats)
+              .sort((a, b) => b[1].hits - a[1].hits);
+            const maxHits = sorted[0]?.[1].hits ?? 1;
+
+            return (
+              <>
+                {sectionLabel(`Regel-Statistik · ${total} Treffer gesamt`)}
+                {sorted.length === 0 ? (
+                  <p style={{ fontFamily: mono, fontSize: 10, color: '#bbb', margin: 0 }}>
+                    Noch keine Daten — öffne den Editor und schreibe etwas.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {sorted.map(([ruleId, stat]) => {
+                      const barPct = Math.round((stat.hits / maxHits) * 100);
+                      const label = RULE_GROUPS.find(r => r.id === ruleId)?.label ?? ruleId.replace(/_/g, ' ');
+                      return (
+                        <div key={ruleId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontFamily: mono, fontSize: 9, color: '#888', width: 140, flexShrink: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            {label}
+                          </span>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'rgba(172,142,102,0.12)', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${barPct}%`, borderRadius: 3, background: barPct > 60 ? '#C0633A' : gold, transition: 'width 0.3s ease' }} />
+                          </div>
+                          <span style={{ fontFamily: mono, fontSize: 9, color: gold, width: 28, textAlign: 'right', flexShrink: 0 }}>
+                            {stat.hits}
+                          </span>
+                          <span style={{ fontFamily: mono, fontSize: 8, color: '#666', width: 90, flexShrink: 0 }}>
+                            {formatLastSeen(stat.lastSeen)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {sorted.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { resetRuleStats(); setRuleStats({}); }}
+                    style={{
+                      marginTop: 14, fontFamily: mono, fontSize: 9,
+                      display: 'flex', alignItems: 'center', gap: 7,
+                      background: 'transparent', border: '1px solid rgba(172,142,102,0.3)',
+                      borderRadius: 5, color: `${gold}aa`, padding: '5px 12px', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = gold; (e.currentTarget as HTMLButtonElement).style.color = gold; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.3)'; (e.currentTarget as HTMLButtonElement).style.color = `${gold}aa`; }}
+                  >
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ fontSize: 9 }} />
+                    Statistik zurücksetzen
+                  </button>
+                )}
+              </>
+            );
+          })()}
 
         </div>
       </div>

@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import ZenEngine, { type RuleAnalysisResult } from '../../services/zenEngineService';
+import ZenEngine, { type RuleAnalysisResult, adaptV2ToV1 } from '../../services/zenEngineService';
 import { getUserRules, addUserRule, deleteUserRule } from '../../services/userRulesService';
 import { getFeedback, recordAccepted, recordIgnored, isSuppressed } from '../../services/userFeedbackService';
 import { getEngineProfile, isRuleGroupActive } from '../../services/zenEngineProfileService';
+import { recordAnalysisRun } from '../../services/zenEngineStatsService';
 import { ZenEngineAboutModal } from './ZenModalSystem/modals/ZenEngineAboutModal';
 import { createRoot, Root } from 'react-dom/client';
 import { createPortal } from 'react-dom';
@@ -19,6 +20,7 @@ import {
   faArrowDown,
   faClone,
   faTrash,
+  faRotateLeft,
 } from '@fortawesome/free-solid-svg-icons';
 import Header from '@editorjs/header';
 import List from '@editorjs/list';
@@ -133,6 +135,8 @@ function toBlobUrl(dataUrl: string): string {
 class ZenImageBlockTool {
   private data: { url: string; alt: string; width: number };
   private _wrapper: HTMLDivElement | null = null;
+  private _outer: HTMLDivElement | null = null;
+  private api: any;
 
   static get toolbox() {
     return {
@@ -141,35 +145,41 @@ class ZenImageBlockTool {
     };
   }
 
-  constructor({ data }: { data: { url?: string; alt?: string; width?: number } }) {
+  constructor({ data, api }: { data: { url?: string; alt?: string; width?: number }; api: any }) {
     this.data = { url: data?.url ?? '', alt: data?.alt ?? '', width: data?.width ?? 100 };
+    this.api = api;
   }
 
   render() {
     const outer = document.createElement('div');
     outer.className = 'zen-image-block-tool';
+    this._outer = outer;
 
     if (!this.data.url) {
       // Leeres Block — URL-Input anzeigen
-      const urlInput = document.createElement('input');
-      urlInput.className = 'cdx-input zen-image-block-tool__input';
-      urlInput.placeholder = 'Image URL (https://...)';
-      urlInput.value = '';
-      urlInput.type = 'url';
-      urlInput.addEventListener('change', async () => {
-        const raw = urlInput.value.trim();
-        this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
-        if (this.data.url) {
-          outer.innerHTML = '';
-          outer.appendChild(this._buildPreview(outer));
-        }
-      });
-      outer.appendChild(urlInput);
+      outer.appendChild(this._buildUrlInput(outer));
       return outer;
     }
 
     outer.appendChild(this._buildPreview(outer));
     return outer;
+  }
+
+  private _buildUrlInput(outer: HTMLDivElement): HTMLInputElement {
+    const urlInput = document.createElement('input');
+    urlInput.className = 'cdx-input zen-image-block-tool__input';
+    urlInput.placeholder = 'Image URL (https://...)';
+    urlInput.value = '';
+    urlInput.type = 'url';
+    urlInput.addEventListener('change', async () => {
+      const raw = urlInput.value.trim();
+      this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
+      if (this.data.url) {
+        outer.innerHTML = '';
+        outer.appendChild(this._buildPreview(outer));
+      }
+    });
+    return urlInput;
   }
 
   private _buildPreview(_outer: HTMLDivElement): HTMLDivElement {
@@ -184,6 +194,77 @@ class ZenImageBlockTool {
     wrapper.dataset.sourceType = this.data.url.startsWith('data:image/') ? 'data-url' : 'external-url';
     wrapper.dataset.sourceUrlLength = String(this.data.url.length);
     this._wrapper = wrapper;
+
+    // URL-Editor (per Button ein-/ausblenden)
+    const urlOverlay = document.createElement('div');
+    urlOverlay.className = 'zen-image-block-url';
+    const urlInput = document.createElement('input');
+    urlInput.className = 'zen-image-block-url-input';
+    urlInput.type = 'url';
+    urlInput.value = this.data.url;
+    urlInput.placeholder = 'Image URL (https://...)';
+    urlInput.addEventListener('change', async () => {
+      const raw = urlInput.value.trim();
+      this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
+      if (this._outer) {
+        this._outer.innerHTML = '';
+        this._outer.appendChild(this._buildPreview(this._outer));
+      }
+    });
+    urlOverlay.appendChild(urlInput);
+
+    // Actions row (Link / Delete)
+    const actions = document.createElement('div');
+    actions.className = 'zen-image-block-actions';
+
+    const urlToggleBtn = document.createElement('button');
+    urlToggleBtn.type = 'button';
+    urlToggleBtn.className = 'zen-image-block-action-btn zen-image-block-url-toggle';
+    urlToggleBtn.setAttribute('aria-label', 'Bild-URL bearbeiten');
+    urlToggleBtn.textContent = 'Link ändern';
+    urlToggleBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      container.classList.toggle('zen-image-block-show-url');
+      if (container.classList.contains('zen-image-block-show-url')) {
+        urlInput.focus({ preventScroll: true });
+        urlInput.select();
+      }
+    });
+
+    // Delete-Button (X)
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'zen-image-block-action-btn zen-image-block-delete';
+    deleteBtn.setAttribute('aria-label', 'Bild entfernen');
+    deleteBtn.textContent = 'Bild löschen';
+    deleteBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const blockEl = this._outer?.closest('.ce-block') as HTMLElement | null;
+      const parent = blockEl?.parentElement ?? null;
+
+      if (this.api?.blocks?.delete) {
+        let index = -1;
+        if (parent && blockEl) {
+          const blocks = parent.querySelectorAll<HTMLElement>('.ce-block');
+          index = Array.from(blocks).indexOf(blockEl);
+        }
+        if (index >= 0) {
+          this.api.blocks.delete(index);
+          return;
+        }
+        const currentIndex = this.api.blocks.getCurrentBlockIndex?.();
+        if (typeof currentIndex === 'number' && currentIndex >= 0) {
+          this.api.blocks.delete(currentIndex);
+          return;
+        }
+      }
+
+      if (parent && blockEl) {
+        parent.removeChild(blockEl);
+      }
+    });
 
     // Canvas statt <img> — Bitmap wird einmal gezeichnet, Resize = reiner CSS/GPU-Scale
     // → kein WebKit-Pixel-Repaint bei Größenänderung → kein Cursor-Reset
@@ -238,6 +319,7 @@ class ZenImageBlockTool {
     }
 
     wrapper.appendChild(canvas);
+    wrapper.appendChild(urlOverlay);
 
     // Größen-Badge auf dem Bild (nur Anzeige, kein Klick)
     const badge = document.createElement('span');
@@ -246,6 +328,10 @@ class ZenImageBlockTool {
     wrapper.appendChild(badge);
 
     container.appendChild(wrapper);
+    actions.appendChild(urlToggleBtn);
+    actions.appendChild(deleteBtn);
+    container.appendChild(actions);
+    container.appendChild(urlOverlay);
 
     // Alt-Text (kein Cursor-Konflikt — nur Text-Input)
     const altInput = document.createElement('input');
@@ -917,6 +1003,7 @@ interface ZenBlockEditorProps {
   value: string; // Markdown input
   onChange: (value: string) => void; // Markdown output
   onRegisterContentSnapshotGetter?: (getter: (() => Promise<string>) | null) => void;
+  onRegisterImageInserter?: (inserter: ((images: Array<{ url: string; alt?: string }>) => void) | null) => void;
   headingRequest?: { level: number; token: number } | null;
   placeholder?: string;
   height?: string;
@@ -926,6 +1013,7 @@ interface ZenBlockEditorProps {
   theme?: EditorTheme;
   focusHeadingRequest?: { headingIndex: number; token: number } | null;
   onActiveHeadingChange?: (headingIndex: number) => void;
+  onKeywordsChange?: (keywords: string[]) => void;
 }
 
 // ─── ZenLearnForm ─────────────────────────────────────────────────────────────
@@ -1060,6 +1148,7 @@ export const ZenBlockEditor = ({
   value,
   onChange,
   onRegisterContentSnapshotGetter,
+  onRegisterImageInserter,
   headingRequest = null,
   placeholder = 'Schreibe  was du denkst...',
   height = '400px',
@@ -1069,6 +1158,7 @@ export const ZenBlockEditor = ({
   theme = 'light',
   focusHeadingRequest = null,
   onActiveHeadingChange,
+  onKeywordsChange,
 }: ZenBlockEditorProps) => {
   const LARGE_INLINE_IMAGE_SAFE_MODE_LENGTH = 900_000;
   const LINE_GUTTER_WIDTH = 56;
@@ -1094,32 +1184,7 @@ export const ZenBlockEditor = ({
   const blockTypeObserverRef = useRef<MutationObserver | null>(null);
   const lastLocalMarkdownRef = useRef<string>(value);
 
-  // ZenEngine Stats (word/char count) — debounced
-  const [editorStats, setEditorStats] = useState({ word_count: 0, char_count: 0 });
-  const statsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const updateStats = useCallback((text: string) => {
-    if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
-    statsDebounceRef.current = setTimeout(async () => {
-      // Strip base64 image data before counting — otherwise embedded images
-      // inflate char_count by hundreds of thousands of characters.
-      // Keep the alt text (e.g. "![foto]") so word count stays meaningful.
-      const textForStats = text.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
-      try {
-        const stats = await ZenEngine.renderMarkdown(textForStats);
-        setEditorStats({ word_count: stats.word_count, char_count: stats.char_count });
-      } catch {
-        // Graceful degradation: local fallback
-        setEditorStats({
-          word_count: textForStats.split(/\s+/).filter(Boolean).length,
-          char_count: textForStats.length,
-        });
-      }
-    }, 800);
-  }, []);
-  useEffect(() => {
-    updateStats(value);
-    return () => { if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current); };
-  }, [value, updateStats]);
+  // Stats sind jetzt Teil von contentIntel — kein separater IPC-Call mehr nötig
 
   // ZenEngine Analyse (Füllwörter, Passive Voice, etc.) — debounced, separater Timer
   const [analyzeResult, setAnalyzeResult] = useState<RuleAnalysisResult | null>(null);
@@ -1127,9 +1192,175 @@ export const ZenBlockEditor = ({
   const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const totalHintCount = analyzeResult?.suggestions.length ?? 0;
 
+  // Undo-Stack — generell für alle Editor-Änderungen (Tippen, Löschen, Einfügen, …)
+  const undoStackRef = useRef<string[]>([]);
+  const [undoCount, setUndoCount] = useState(0);
+  const typingStartSnapshotRef = useRef<string | null>(null); // Zustand VOR der aktuellen Tipp-Session
+  const undoCommitDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Find & Replace (Cmd+F / Ctrl+F) ───────────────────────────────────────
+  const [showSearch, setShowSearch] = useState(false);
+  const [showReplace, setShowReplace] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replaceQuery, setReplaceQuery] = useState('');
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const [searchIndex, setSearchIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const searchMatchRangesRef = useRef<Range[]>([]);
+
+  const clearSearchHighlight = useCallback(() => {
+    if (typeof CSS !== 'undefined' && CSS.highlights) {
+      CSS.highlights.delete('zen-search');
+      CSS.highlights.delete('zen-search-active');
+    }
+  }, []);
+
+  const buildSearchRanges = useCallback((query: string): Range[] => {
+    if (!holderRef.current || !query) return [];
+    const ranges: Range[] = [];
+    const needle = query.toLowerCase();
+    const walker = document.createTreeWalker(holderRef.current, NodeFilter.SHOW_TEXT);
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null) !== null) {
+      const text = node.textContent ?? '';
+      const lower = text.toLowerCase();
+      let pos = 0;
+      while (true) {
+        const idx = lower.indexOf(needle, pos);
+        if (idx === -1) break;
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, idx + needle.length);
+        ranges.push(range);
+        pos = idx + needle.length;
+      }
+    }
+    return ranges;
+  }, []);
+
+  const applySearchHighlight = useCallback((ranges: Range[], activeIndex: number) => {
+    if (typeof CSS === 'undefined' || !CSS.highlights) return;
+    if (ranges.length === 0) {
+      CSS.highlights.delete('zen-search');
+      CSS.highlights.delete('zen-search-active');
+      return;
+    }
+    CSS.highlights.set('zen-search', new Highlight(...ranges));
+    if (ranges[activeIndex]) {
+      CSS.highlights.set('zen-search-active', new Highlight(ranges[activeIndex]));
+      ranges[activeIndex].startContainer.parentElement?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
+
+  const runSearch = useCallback((query: string, newIndex?: number) => {
+    const ranges = buildSearchRanges(query);
+    searchMatchRangesRef.current = ranges;
+    const idx = newIndex !== undefined ? newIndex : 0;
+    setSearchMatchCount(ranges.length);
+    setSearchIndex(idx);
+    applySearchHighlight(ranges, idx);
+  }, [buildSearchRanges, applySearchHighlight]);
+
+  const closeSearch = useCallback(() => {
+    setShowSearch(false);
+    setShowReplace(false);
+    setSearchQuery('');
+    setReplaceQuery('');
+    setSearchMatchCount(0);
+    setSearchIndex(0);
+    clearSearchHighlight();
+    searchMatchRangesRef.current = [];
+  }, [clearSearchHighlight]);
+
+  const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const replaceCurrentMatch = useCallback(() => {
+    const ranges = searchMatchRangesRef.current;
+    if (ranges.length === 0) return;
+    const target = ranges[searchIndex];
+    if (!target) return;
+    const sel = window.getSelection();
+    if (!sel) return;
+    sel.removeAllRanges();
+    sel.addRange(target.cloneRange());
+    document.execCommand('insertText', false, replaceQuery);
+    setTimeout(() => {
+      runSearch(searchQuery, Math.min(searchIndex, Math.max(0, searchMatchRangesRef.current.length - 1)));
+    }, 80);
+  }, [searchIndex, replaceQuery, searchQuery, runSearch]);
+
+  const replaceAllMatches = useCallback(async () => {
+    if (searchMatchCount === 0 || !searchQuery || !editorRef.current) return;
+    const currentMarkdown = lastLocalMarkdownRef.current ?? '';
+    const regex = new RegExp(escapeRegex(searchQuery), 'gi');
+    const newMarkdown = currentMarkdown.replace(regex, replaceQuery);
+    if (newMarkdown === currentMarkdown) return;
+    const stack = undoStackRef.current;
+    if (stack.length === 0 || stack[stack.length - 1] !== currentMarkdown) {
+      stack.push(currentMarkdown);
+      if (stack.length > 50) stack.shift();
+      setUndoCount(stack.length);
+    }
+    try {
+      await editorRef.current.render(markdownToEditorJS(newMarkdown));
+      lastLocalMarkdownRef.current = newMarkdown;
+      onChangeRef.current(newMarkdown);
+      setTimeout(() => runSearch(searchQuery, 0), 80);
+    } catch { /* no-op */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMatchCount, searchQuery, replaceQuery, runSearch]);
+
+  const searchNext = useCallback(() => {
+    const count = searchMatchRangesRef.current.length;
+    if (count === 0) return;
+    const next = (searchIndex + 1) % count;
+    setSearchIndex(next);
+    applySearchHighlight(searchMatchRangesRef.current, next);
+  }, [searchIndex, applySearchHighlight]);
+
+  const searchPrev = useCallback(() => {
+    const count = searchMatchRangesRef.current.length;
+    if (count === 0) return;
+    const prev = (searchIndex - 1 + count) % count;
+    setSearchIndex(prev);
+    applySearchHighlight(searchMatchRangesRef.current, prev);
+  }, [searchIndex, applySearchHighlight]);
+
+  // Cmd+F / Ctrl+F → open search; Escape → close
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const isMac = /mac/i.test(navigator.platform);
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && e.key === 'f') {
+        e.preventDefault();
+        e.stopPropagation();
+        setShowSearch(true);
+        setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
+      }
+      if (e.key === 'Escape' && showSearch) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSearch();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [showSearch, closeSearch]);
+
+  // Cache user rules JSON — only re-serialize when rules actually change
+  const userRulesJsonRef = useRef<string>('');
+  const getOrUpdateUserRulesJson = useCallback(() => {
+    const rules = getUserRules();
+    const json = rules.length > 0 ? JSON.stringify(rules) : '';
+    userRulesJsonRef.current = json;
+    return json;
+  }, []);
+
   const runAnalysis = useCallback(async (text: string) => {
     try {
-      const result = await ZenEngine.analyzeText(text, JSON.stringify(getUserRules()));
+      const result = adaptV2ToV1(await ZenEngine.analyzeTextV2(text, getOrUpdateUserRulesJson()));
       // Profil + Feedback Filter: deaktivierte Regelgruppen und supprimierte Regeln ausblenden
       const profile = getEngineProfile();
       const feedback = getFeedback();
@@ -1142,6 +1373,12 @@ export const ZenBlockEditor = ({
       };
       setAnalyzeResult(filtered);
       if (filtered.suggestions.length === 0) setShowHintsPanel(false);
+      // Regel-Statistik aufzeichnen (alle Treffer vor dem Filter, damit auch stille Regeln gezählt werden)
+      const hitMap: Record<string, number> = {};
+      for (const s of result.suggestions) {
+        hitMap[s.rule] = (hitMap[s.rule] ?? 0) + 1;
+      }
+      recordAnalysisRun(hitMap);
     } catch {
       setAnalyzeResult(null);
       setShowHintsPanel(false);
@@ -1168,56 +1405,67 @@ export const ZenBlockEditor = ({
     missingAltCount: number;   // images without alt text
     headlineCount: number;
     multipleH1: boolean;
+    wordCount: number;
+    charCount: number;
   }
   const [contentIntel, setContentIntel] = useState<ContentIntel | null>(null);
   const [showIntelPanel, setShowIntelPanel] = useState(false);
   const [showEngineAbout, setShowEngineAbout] = useState(false);
+  const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Stop words as module-level constant — not recreated on every render
+  const STOP_WORDS = useRef(new Set(['der', 'die', 'das', 'und', 'in', 'ist', 'ein', 'eine', 'auf', 'mit', 'für', 'von', 'zu', 'an', 'im', 'den', 'dem', 'des', 'als', 'auch', 'es', 'sich', 'er', 'sie', 'wir', 'ich', 'du', 'man', 'hat', 'haben', 'sein', 'wird', 'werden', 'sind', 'war', 'nicht', 'noch', 'aber', 'oder', 'wenn', 'dann', 'so', 'wie', 'dass', 'bei', 'nach', 'aus', 'vor', 'über', 'mehr', 'the', 'and', 'or', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'a', 'an', 'this', 'that', 'it', 'by', 'at', 'we', 'can', 'have', 'has', 'from', 'your', 'you', 'will', 'all', 'one', 'which', 'their', 'there', 'been', 'they', 'than', 'its', 'were', 'each', 'use', 'how', 'about', 'would', 'make', 'our', 'into', 'than', 'then', 'these', 'those', 'some', 'such']));
 
   useEffect(() => {
+    if (intelDebounceRef.current) clearTimeout(intelDebounceRef.current);
     if (!value) { setContentIntel(null); return; }
 
-    // Strip HTML tags first (EditorJS inline tools emit e.g. <mark class="zen-inline-marker">)
-    // to prevent class names leaking into keyword analysis, then strip markdown syntax
-    const plain = value
-      .replace(/<[^>]+>/g, ' ')                    // HTML tags → space (removes class names etc.)
-      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')  // images → alt text only
-      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')    // links → text only
-      .replace(/#{1,6}\s/g, '')                    // headings
-      .replace(/[*_`~]/g, '')                      // emphasis/code
-      .replace(/^\s*[-*+]\s/gm, '')               // lists
-      .replace(/^\s*\d+\.\s/gm, '');              // numbered lists
+    intelDebounceRef.current = setTimeout(() => {
+      // Strip base64 images for char count (otherwise inflated by MB of data)
+      const valueForCount = value.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
+      const charCount = valueForCount.replace(/^---\n[\s\S]*?\n---\n?/, '').length;
 
-    const words = plain.split(/\s+/).filter(Boolean);
-    const sentences = plain.split(/[.!?]+/).filter(s => s.trim().length > 2);
-    const wc = words.length;
-    const sc = Math.max(sentences.length, 1);
-    const avgSentenceLen = Math.round(wc / sc);
-    const longWords = words.filter(w => w.replace(/[^a-zA-ZäöüÄÖÜß]/g, '').length > 6).length;
-    const lix = Math.round(avgSentenceLen + (longWords * 100 / Math.max(wc, 1)));
-    const lixLabel = lix < 30 ? 'Sehr leicht' : lix < 40 ? 'Leicht' : lix < 50 ? 'Mittel' : lix < 60 ? 'Schwer' : 'Sehr schwer';
-    const readingTime = Math.max(1, Math.ceil(wc / 200));
+      // Strip HTML + markdown syntax for text analysis
+      const plain = valueForCount
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/#{1,6}\s/g, '')
+        .replace(/[*_`~]/g, '')
+        .replace(/^\s*[-*+]\s/gm, '')
+        .replace(/^\s*\d+\.\s/gm, '');
 
-    // Top keywords (German + English stop words filtered)
-    const stopWords = new Set(['der', 'die', 'das', 'und', 'in', 'ist', 'ein', 'eine', 'auf', 'mit', 'für', 'von', 'zu', 'an', 'im', 'den', 'dem', 'des', 'als', 'auch', 'es', 'sich', 'er', 'sie', 'wir', 'ich', 'du', 'man', 'hat', 'haben', 'sein', 'wird', 'werden', 'sind', 'war', 'nicht', 'noch', 'aber', 'oder', 'wenn', 'dann', 'so', 'wie', 'dass', 'bei', 'nach', 'aus', 'vor', 'über', 'mehr', 'the', 'and', 'or', 'is', 'are', 'was', 'be', 'to', 'of', 'in', 'for', 'on', 'with', 'a', 'an', 'this', 'that', 'it', 'by', 'at', 'we', 'can', 'have', 'has', 'from', 'your', 'you', 'will', 'all', 'one', 'which', 'their', 'there', 'been', 'they', 'than', 'its', 'were', 'each', 'use', 'how', 'about', 'would', 'make', 'our', 'into', 'than', 'then', 'these', 'those', 'some', 'such']);
-    const freq = new Map<string, number>();
-    for (const w of words) {
-      const clean = w.toLowerCase().replace(/[^a-zA-ZäöüÄÖÜß]/g, '');
-      if (clean.length > 3 && !stopWords.has(clean)) freq.set(clean, (freq.get(clean) ?? 0) + 1);
-    }
-    const keywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([word, f]) => ({ word, freq: f }));
+      const words = plain.split(/\s+/).filter(Boolean);
+      const sentences = plain.split(/[.!?]+/).filter(s => s.trim().length > 2);
+      const wc = words.length;
+      const sc = Math.max(sentences.length, 1);
+      const avgSentenceLen = Math.round(wc / sc);
+      const longWords = words.filter(w => w.replace(/[^a-zA-ZäöüÄÖÜß]/g, '').length > 6).length;
+      const lix = Math.round(avgSentenceLen + (longWords * 100 / Math.max(wc, 1)));
+      const lixLabel = lix < 30 ? 'Sehr leicht' : lix < 40 ? 'Leicht' : lix < 50 ? 'Mittel' : lix < 60 ? 'Schwer' : 'Sehr schwer';
+      const readingTime = Math.max(1, Math.ceil(wc / 200));
 
-    // Image + alt-text check
-    const imageMatches = [...value.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)];
-    const imageCount = imageMatches.length;
-    const missingAltCount = imageMatches.filter(m => !m[1].trim()).length;
+      const freq = new Map<string, number>();
+      for (const w of words) {
+        const clean = w.toLowerCase().replace(/[^a-zA-ZäöüÄÖÜß]/g, '');
+        if (clean.length > 3 && !STOP_WORDS.current.has(clean)) freq.set(clean, (freq.get(clean) ?? 0) + 1);
+      }
+      const keywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([word, f]) => ({ word, freq: f }));
 
-    // Headline structure
-    const headlineMatches = value.match(/^#{1,6}\s.+/gm) ?? [];
-    const headlineCount = headlineMatches.length;
-    const multipleH1 = headlineMatches.filter(h => h.startsWith('# ')).length > 1;
+      const imageMatches = [...value.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)];
+      const imageCount = imageMatches.length;
+      const missingAltCount = imageMatches.filter(m => !m[1].trim()).length;
 
-    setContentIntel({ readingTime, lix, lixLabel, avgSentenceLen, keywords, imageCount, missingAltCount, headlineCount, multipleH1 });
-  }, [value]);
+      const headlineMatches = value.match(/^#{1,6}\s.+/gm) ?? [];
+      const headlineCount = headlineMatches.length;
+      const multipleH1 = headlineMatches.filter(h => h.startsWith('# ')).length > 1;
+
+      setContentIntel({ readingTime, lix, lixLabel, avgSentenceLen, keywords, imageCount, missingAltCount, headlineCount, multipleH1, wordCount: wc, charCount });
+      onKeywordsChange?.(keywords.map(k => k.word));
+    }, 400);
+
+    return () => { if (intelDebounceRef.current) clearTimeout(intelDebounceRef.current); };
+  }, [value, onKeywordsChange]);
 
   // Clear highlights when content changes or panel closes
   useEffect(() => {
@@ -1272,6 +1520,44 @@ export const ZenBlockEditor = ({
     if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete('zen-hint');
   }, [findRangesInEditor]);
 
+  /** Wird bei jedem EditorJS onChange aufgerufen — gruppiert Tipp-Sessions zu Undo-Punkten */
+  const trackUndoOnChange = useCallback((newMarkdown: string) => {
+    // Ersten Snapshot der Session festhalten (Zustand VOR dem Tippen)
+    if (typingStartSnapshotRef.current === null) {
+      typingStartSnapshotRef.current = lastLocalMarkdownRef.current;
+    }
+    if (undoCommitDebounceRef.current) clearTimeout(undoCommitDebounceRef.current);
+    undoCommitDebounceRef.current = setTimeout(() => {
+      const snapshot = typingStartSnapshotRef.current;
+      typingStartSnapshotRef.current = null;
+      if (snapshot === null || snapshot === newMarkdown) return;
+      // Duplikat vermeiden
+      const stack = undoStackRef.current;
+      if (stack.length > 0 && stack[stack.length - 1] === snapshot) return;
+      stack.push(snapshot);
+      if (stack.length > 50) stack.shift();
+      setUndoCount(stack.length);
+    }, 1500);
+  }, []);
+
+  /** Letzten Undo-Punkt wiederherstellen */
+  const handleUndo = useCallback(async () => {
+    const snapshot = undoStackRef.current.pop();
+    if (snapshot === undefined || !editorRef.current) return;
+    setUndoCount(undoStackRef.current.length);
+    // Laufende Tipp-Session verwerfen — kein neuer Undo-Punkt für das Restore
+    typingStartSnapshotRef.current = null;
+    if (undoCommitDebounceRef.current) clearTimeout(undoCommitDebounceRef.current);
+    try {
+      await editorRef.current.render(markdownToEditorJS(snapshot));
+      lastLocalMarkdownRef.current = snapshot;
+      onChangeRef.current(snapshot);
+    } catch {
+      // no-op
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   /** Parse quoted replacement words out of suggestion text, e.g. "Aktiv formulieren: 'durchführen'" */
   const parseReplacements = (suggestion: string): string[] => {
     const found = suggestion.match(/'([^']+)'/g) ?? [];
@@ -1303,6 +1589,14 @@ export const ZenBlockEditor = ({
     'somehow':   ['specifically', 'concretely'],
     'just':      [],
     'very':      [],
+    // Anglizismen (DE-Ersetzungen)
+    'deadline':      ['Frist', 'Termin', 'Abgabedatum'],
+    'meeting':       ['Besprechung', 'Treffen', 'Zusammenkunft'],
+    'feedback':      ['Rückmeldung', 'Rückkopplung', 'Bewertung'],
+    'workflow':      ['Arbeitsablauf', 'Prozess', 'Ablauf'],
+    'brainstorming': ['Ideensammlung', 'Gedankensturm'],
+    'roadmap':       ['Fahrplan', 'Zeitplan', 'Planung'],
+    'rollout':       ['Einführung', 'Auslieferung', 'Lancierung'],
   };
 
   const getChips = (matchedText: string, suggestion: string): string[] => {
@@ -1435,7 +1729,9 @@ export const ZenBlockEditor = ({
   }, [isReady]);
 
   // Convert Markdown to EditorJS format
-  const markdownToEditorJS = (markdown: string): OutputData => {
+  const markdownToEditorJS = (rawMarkdown: string): OutputData => {
+    // Strip YAML frontmatter (---...---) before rendering so it doesn't appear as text blocks
+    const markdown = rawMarkdown.replace(/^---\n[\s\S]*?\n---\n?/, '');
     if (!markdown.trim()) {
       return {
         time: Date.now(),
@@ -1985,6 +2281,7 @@ export const ZenBlockEditor = ({
         try {
           const outputData = await editorRef.current.save();
           const markdown = editorJSToMarkdown(outputData);
+          trackUndoOnChange(markdown);
           lastLocalMarkdownRef.current = markdown;
           // Use ref to always call the latest onChange callback
           onChangeRef.current(markdown);
@@ -2727,7 +3024,7 @@ export const ZenBlockEditor = ({
     const editor = editorRef.current as any;
     if (!editor?.blocks) return;
 
-    const currentInfo = getCurrentBlockInfo();
+    const currentInfo = getCurrentBlockInfo(toolbarActionBlockIndexRef.current);
     let insertIndex: number | undefined;
     const shouldReplaceCurrent =
       !!options?.replaceCurrentIfEmpty && !!currentInfo && !currentInfo.hasContent;
@@ -2739,6 +3036,8 @@ export const ZenBlockEditor = ({
       } catch {
         // fallback to regular insert below
       }
+    } else if (currentInfo) {
+      insertIndex = currentInfo.index + 1;
     } else {
       const currentIndex = editor.blocks.getCurrentBlockIndex?.();
       insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
@@ -2750,8 +3049,61 @@ export const ZenBlockEditor = ({
         ? insertIndex
         : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
     focusBlockByIndex(targetIndex, type === 'header' ? 'start' : 'end');
+    toolbarActionBlockIndexRef.current = targetIndex;
     setMenuOpen(false);
   };
+
+  useEffect(() => {
+    if (!onRegisterImageInserter) return;
+    if (!isReady) {
+      onRegisterImageInserter(null);
+      return;
+    }
+
+    const insertImagesAtCursor = (images: Array<{ url: string; alt?: string }>) => {
+      if (!images.length) return;
+      const editor = editorRef.current as any;
+      if (!editor?.blocks) return;
+
+      const info = getCurrentBlockInfo(toolbarActionBlockIndexRef.current);
+      let insertIndex: number | undefined;
+      const shouldReplaceCurrent = !!info && !info.hasContent;
+
+      if (shouldReplaceCurrent && info) {
+        insertIndex = info.index;
+        try {
+          editor.blocks.delete(info.index);
+        } catch {
+          // fallback to regular insert below
+        }
+      } else if (info) {
+        insertIndex = info.index + 1;
+      } else {
+        const currentIndex = editor.blocks.getCurrentBlockIndex?.();
+        insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
+      }
+
+      images.forEach((image, offset) => {
+        editor.blocks.insert(
+          'imageBlock',
+          { url: image.url, alt: image.alt ?? '' },
+          undefined,
+          typeof insertIndex === 'number' ? insertIndex + offset : undefined,
+          true
+        );
+      });
+
+      const targetIndex =
+        typeof insertIndex === 'number'
+          ? insertIndex + images.length - 1
+          : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
+      toolbarActionBlockIndexRef.current = targetIndex;
+      focusBlockByIndex(targetIndex, 'end');
+    };
+
+    onRegisterImageInserter(insertImagesAtCursor);
+    return () => onRegisterImageInserter(null);
+  }, [onRegisterImageInserter, isReady]);
 
   const keepSelection = (event: React.MouseEvent) => {
     event.preventDefault();
@@ -3451,6 +3803,23 @@ export const ZenBlockEditor = ({
     return () => document.removeEventListener('keydown', onKeyDown, true);
   }, [menuOpen]);
 
+  // Cmd+Z / Ctrl+Z → ZenEngine Undo (wenn Stack nicht leer)
+  useEffect(() => {
+    if (undoCount === 0) return;
+
+    const onUndoKey = (event: KeyboardEvent) => {
+      const isMac = /mac/i.test(navigator.platform);
+      const trigger = isMac ? event.metaKey && !event.shiftKey : event.ctrlKey && !event.shiftKey;
+      if (!trigger || event.key !== 'z') return;
+      event.preventDefault();
+      event.stopPropagation();
+      handleUndo();
+    };
+
+    document.addEventListener('keydown', onUndoKey, true);
+    return () => document.removeEventListener('keydown', onUndoKey, true);
+  }, [undoCount, handleUndo]);
+
   useEffect(() => {
     if (!menuOpen) return;
     const node = overlayMenuRef.current;
@@ -3492,6 +3861,190 @@ export const ZenBlockEditor = ({
         ['--zen-line-gutter' as any]: `${LINE_GUTTER_WIDTH}px`,
       }}
     >
+      {/* Find & Replace Bar (Cmd+F / Ctrl+F) */}
+      {showSearch && (
+        <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 140,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 4,
+            padding: '5px 10px',
+            background: theme === 'dark' ? 'rgba(18,18,18,0.97)' : 'rgba(237,230,216,0.97)',
+            borderBottom: `1px solid ${colors.border}`,
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          {/* Row 1: search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowReplace(r => !r);
+                setTimeout(() => replaceInputRef.current?.focus(), 0);
+              }}
+              title={showReplace ? 'Ersetzen ausblenden' : 'Ersetzen einblenden'}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 10,
+                background: showReplace ? (theme === 'dark' ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.18)') : 'transparent',
+                border: `1px solid ${showReplace ? gold : colors.border}`,
+                borderRadius: 4,
+                color: showReplace ? gold : colors.placeholder,
+                cursor: 'pointer',
+                padding: '2px 6px',
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+            >
+              ⇄
+            </button>
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              placeholder="Suchen …"
+              onChange={e => {
+                const q = e.target.value;
+                setSearchQuery(q);
+                runSearch(q, 0);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (e.shiftKey) searchPrev(); else searchNext();
+                } else if (e.key === 'Tab' && showReplace) {
+                  e.preventDefault();
+                  replaceInputRef.current?.focus();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  closeSearch();
+                }
+              }}
+              style={{
+                flex: 1,
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 11,
+                background: theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                border: `1px solid ${colors.border}`,
+                borderRadius: 4,
+                color: colors.text,
+                padding: '3px 8px',
+                outline: 'none',
+                minWidth: 0,
+              }}
+            />
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: colors.placeholder, whiteSpace: 'nowrap', minWidth: 48 }}>
+              {searchQuery ? (searchMatchCount === 0 ? 'Kein Treffer' : `${searchIndex + 1} / ${searchMatchCount}`) : ''}
+            </span>
+            <button
+              type="button"
+              onClick={searchPrev}
+              disabled={searchMatchCount === 0}
+              title="Vorheriger Treffer (Shift+Enter)"
+              style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.placeholder, cursor: 'pointer', padding: '2px 7px', lineHeight: 1 }}
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={searchNext}
+              disabled={searchMatchCount === 0}
+              title="Nächster Treffer (Enter)"
+              style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, background: 'transparent', border: `1px solid ${colors.border}`, borderRadius: 4, color: colors.placeholder, cursor: 'pointer', padding: '2px 7px', lineHeight: 1 }}
+            >
+              ↓
+            </button>
+            <button
+              type="button"
+              onClick={closeSearch}
+              title="Schließen (Escape)"
+              style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13, background: 'transparent', border: 'none', color: colors.placeholder, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Row 2: replace (collapsible) */}
+          {showReplace && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 28 }}>
+              <input
+                ref={replaceInputRef}
+                type="text"
+                value={replaceQuery}
+                placeholder="Ersetzen durch …"
+                onChange={e => setReplaceQuery(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    replaceCurrentMatch();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    closeSearch();
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: 11,
+                  background: theme === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 4,
+                  color: colors.text,
+                  padding: '3px 8px',
+                  outline: 'none',
+                  minWidth: 0,
+                }}
+              />
+              <button
+                type="button"
+                onClick={replaceCurrentMatch}
+                disabled={searchMatchCount === 0}
+                title="Aktuellen Treffer ersetzen (Enter)"
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: 10,
+                  background: 'transparent',
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 4,
+                  color: colors.placeholder,
+                  cursor: searchMatchCount === 0 ? 'not-allowed' : 'pointer',
+                  padding: '2px 8px',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.4,
+                  opacity: searchMatchCount === 0 ? 0.4 : 1,
+                }}
+              >
+                Ersetzen
+              </button>
+              <button
+                type="button"
+                onClick={replaceAllMatches}
+                disabled={searchMatchCount === 0}
+                title="Alle Treffer ersetzen"
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: 10,
+                  background: searchMatchCount > 0 ? (theme === 'dark' ? 'rgba(172,142,102,0.18)' : 'rgba(172,142,102,0.14)') : 'transparent',
+                  border: `1px solid ${searchMatchCount > 0 ? gold : colors.border}`,
+                  borderRadius: 4,
+                  color: searchMatchCount > 0 ? gold : colors.placeholder,
+                  cursor: searchMatchCount === 0 ? 'not-allowed' : 'pointer',
+                  padding: '2px 8px',
+                  whiteSpace: 'nowrap',
+                  lineHeight: 1.4,
+                  opacity: searchMatchCount === 0 ? 0.4 : 1,
+                }}
+              >
+                Alle ersetzen
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       <div
         ref={holderRef}
         style={{
@@ -3733,11 +4286,11 @@ export const ZenBlockEditor = ({
             }
           }}
         >
-          {editorStats.word_count.toLocaleString('de-DE')} Wörter
+          {(contentIntel?.wordCount ?? 0).toLocaleString('de-DE')} Wörter
         </button>
         <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
         <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.placeholder, pointerEvents: 'none' }}>
-          {editorStats.char_count.toLocaleString('de-DE')} Zeichen
+          {(contentIntel?.charCount ?? 0).toLocaleString('de-DE')} Zeichen
         </span>
         {contentIntel && (
           <>
@@ -3778,6 +4331,41 @@ export const ZenBlockEditor = ({
             </button>
           </>
         )}
+        {undoCount > 0 && (
+          <>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, pointerEvents: 'none' }}>·</span>
+            <button
+              type="button"
+              onClick={handleUndo}
+              title={`ZenEngine Undo (${undoCount} ${undoCount === 1 ? 'Schritt' : 'Schritte'})`}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 9,
+                color: colors.placeholder,
+                background: 'transparent',
+                border: `1px solid ${colors.border}`,
+                borderRadius: 4,
+                padding: '1px 6px',
+                cursor: 'pointer',
+                lineHeight: 1.4,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66';
+                (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.5)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.color = colors.placeholder;
+                (e.currentTarget as HTMLButtonElement).style.borderColor = colors.border;
+              }}
+            >
+              <FontAwesomeIcon icon={faRotateLeft} style={{ fontSize: 8 }} />
+              Undo {undoCount > 1 ? `(${undoCount})` : ''}
+            </button>
+          </>
+        )}
         <span
           role="button"
           tabIndex={0}
@@ -3802,6 +4390,7 @@ export const ZenBlockEditor = ({
         style={{ left: dotPosition.x, top: dotPosition.y }}
         onMouseDown={(e) => e.preventDefault()}
         onClick={() => {
+          rememberToolbarBlock();
           setMenuPosition({ x: MENU_LEFT_OFFSET, y: dotPosition.y + 20 });
           setMenuOpen((prev) => {
             const next = !prev;

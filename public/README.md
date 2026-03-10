@@ -1,4 +1,5 @@
-<img width="1200" height="630" alt="github-preview-1200x630_2" src="https://github.com/user-attachments/assets/2cf2676e-b2e5-470b-8215-b2176767f555" />
+<img width="1200" height="630" alt="github-preview-1200x630_2" src="https://github.com/user-attachments/assets/141111cd-c00c-4acc-bd06-6ec237c6c939" >
+
 # ZenPost Studio
 
 
@@ -42,12 +43,12 @@ Normalize and structure content formats.
 
 - Markdown cleaning & normalization
 - Editor.js JSON → Markdown
-- Export: Markdown, HTML, Plain Text
+- Export: Markdown, HTML, Plain Text, Docx, EPub
 
 ---
 
 ### Content AI Studio
-Transform content across platforms with architectural consistency.
+Transform content across 9+ platforms with architectural consistency.
 
 - LinkedIn
 - dev.to
@@ -97,10 +98,23 @@ Supports:
 - Anthropic
 - Ollama (local models)
 - Custom APIs
+- ZenEngine AI
 
 Desktop version supports full local-first AI workflows.
 
 ---
+
+## ZenEngine
+
+Native C++17-Engine, eingebettet via Rust FFI in Tauri - läuft lokal, kein Netzwerk, kein Overhead. Übernimmt Markdown-Rendering, Bildverarbeitung und regelbasierte Textanalyse.
+
+### Features 
+
+
+- Markdown → HTML cmark-kompatibel via comrak (Rust)
+- Image Processing Resize, Convert, Optimize (JPEG/PNG/WebP)
+- User Rules Lernfähig - eigene Wörter & Phrases
+- 
 
 ## Platform
 
@@ -108,6 +122,7 @@ Desktop version supports full local-first AI workflows.
 - Desktop (Tauri-based)
 - Offline capable
 - Native file system access
+- Mobile Ideen Sammlung
 
 ---
 
@@ -116,6 +131,7 @@ Desktop version supports full local-first AI workflows.
 - Windows 10/11 (64-bit)
 - macOS 12+ (Intel & Apple Silicon)
 - Linux (Ubuntu 20.04+, Fedora 36+)
+- iOS
 
 ---
 
@@ -124,7 +140,8 @@ Desktop version supports full local-first AI workflows.
 1. Download the installer
 2. Launch ZenPost Studio
 3. Configure your AI provider
-4. Start building structured content
+4. COnfigure your Server API
+5. Start building structured content
 
 ---
 
