@@ -6,7 +6,7 @@ export const PaperBG = ({ children }: { children?: ReactNode }) => (
     className="min-h-screen flex items-center justify-center text-[#1A1A1A] font-mono"
     style={{
     
-        background: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
+        background: "#1a1a1a",
       backgroundImage: `
         radial-gradient(rgba(0,0,0,0.05) 1px, transparent 1px)
       `,

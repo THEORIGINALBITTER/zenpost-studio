@@ -108,6 +108,14 @@ export type DocStudioScreenProps = {
   onOpenEditorSettings?: () => void;
   /** Called when a file is saved successfully with the new path and content */
   onFileSaved?: (filePath: string, content: string, fileName: string) => void;
+  onPushDocsToGitHub?: () => Promise<import('../../services/githubDocsService').DocsPushSummary>;
+  githubDocsFileCount?: number;
+  onOpenGitHubSettings?: () => void;
+  generatedTemplates?: import('../../services/githubDocsService').GeneratedTemplate[];
+  onPushTemplatesToGitHub?: (templates: import('../../services/githubDocsService').GeneratedTemplate[]) => Promise<import('../../services/githubDocsService').DocsPushSummary>;
+  onSaveDocsSiteLocally?: (config: import('../../services/docsSiteService').DocsSiteConfig) => Promise<void>;
+  onPushDocsSiteToGitHub?: (config: import('../../services/docsSiteService').DocsSiteConfig) => Promise<import('../../services/githubDocsService').DocsPushSummary>;
+  initialWizard?: 'github' | 'docs-site';
 };
 
 export type DocStudioRuntime = 'tauri' | 'web';

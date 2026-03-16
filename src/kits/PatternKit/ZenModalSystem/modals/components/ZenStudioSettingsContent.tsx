@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck, faFolder, faServer, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faGlobe, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
 import { open } from '@tauri-apps/plugin-dialog';
 import { exists, readTextFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
@@ -21,80 +21,6 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
   const [settings, setSettings] = useState<ZenStudioSettings>(() => loadZenStudioSettings());
   const [isThoughtsFileLoaded, setIsThoughtsFileLoaded] = useState(false);
   const [thoughtsFileStatusMessage, setThoughtsFileStatusMessage] = useState('Datei wird geprueft...');
-
-  const [serverUrlInput, setServerUrlInput] = useState(settings.contentServerApiUrl ?? '');
-  const [serverKeyInput, setServerKeyInput] = useState(settings.contentServerApiKey ?? '');
-  const [pingStatus, setPingStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
-  const [syncStatus, setSyncStatus] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
-  const [syncMessage, setSyncMessage] = useState('');
-
-  const saveServerSettings = () => {
-    const next = update({
-      contentServerApiUrl: serverUrlInput.trim() || null,
-      contentServerApiKey: serverKeyInput.trim() || null,
-    });
-    return next;
-  };
-
-  const handlePing = async () => {
-    saveServerSettings();
-    const base = serverUrlInput.trim().replace(/\/$/, '');
-    if (!base) return;
-    setPingStatus('checking');
-    try {
-      const res = await fetch(`${base}${settings.contentServerPingEndpoint}`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(8000),
-      });
-      setPingStatus(res.ok ? 'ok' : 'error');
-    } catch {
-      setPingStatus('error');
-    }
-  };
-
-  const handleSyncThoughts = async () => {
-    saveServerSettings();
-    const base = serverUrlInput.trim().replace(/\/$/, '');
-    if (!base) { setSyncMessage('Keine Server-URL eingetragen.'); return; }
-    setSyncStatus('sending');
-    setSyncMessage('');
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (serverKeyInput.trim()) headers['Authorization'] = `Bearer ${serverKeyInput.trim()}`;
-
-      // Payload passend zu save_articles.php:
-      // ZEN Gedanken als Paragraph-Blocks, slug = "zen-thoughts" als fester Schlüssel
-      const blocks = settings.thoughts.map((thought) => ({
-        type: 'paragraph',
-        data: { text: thought },
-      }));
-      const payload = {
-        slug: 'zen-thoughts',
-        title: 'ZEN Gedanken',
-        subtitle: 'Automatisch synchronisiert von ZenPost Studio',
-        date: new Date().toISOString().slice(0, 10),
-        image: '',
-        blocks,
-      };
-
-      const res = await fetch(`${base}${settings.contentServerApiEndpoint}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(12000),
-      });
-      if (res.ok) {
-        setSyncStatus('ok');
-        setSyncMessage(`${settings.thoughts.length} Gedanken erfolgreich gesendet.`);
-      } else {
-        setSyncStatus('error');
-        setSyncMessage(`Server antwortete mit Status ${res.status}.`);
-      }
-    } catch (e) {
-      setSyncStatus('error');
-      setSyncMessage(e instanceof Error ? e.message : 'Verbindung fehlgeschlagen.');
-    }
-  };
 
   const update = (patch: Partial<ZenStudioSettings>): ZenStudioSettings => {
     const next = patchZenStudioSettings(patch);
@@ -164,6 +90,17 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
     }
   };
 
+  const handleSelectBlogFolder = async () => {
+    if (!isTauri()) return;
+    try {
+      const result = await open({ directory: true, multiple: false, title: 'zenpostmobil Ordner wählen' });
+      if (typeof result !== 'string') return;
+      update({ zenpostmobilPath: result });
+    } catch (error) {
+      console.error('[ZenStudioSettings] Ordnerauswahl fehlgeschlagen:', error);
+    }
+  };
+
   return (
     <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
       <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
@@ -173,31 +110,25 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
           </div>
 
           <label style={toggleStyle}>
-            <input
-              type="checkbox"
+            <ZenCheckbox
               checked={settings.showInGettingStarted}
-              onChange={(e) => update({ showInGettingStarted: e.target.checked })}
-              style={checkboxStyle}
+              onChange={(val) => update({ showInGettingStarted: val })}
             />
             Getting Started
           </label>
 
           <label style={toggleStyle}>
-            <input
-              type="checkbox"
+            <ZenCheckbox
               checked={settings.showInDocStudio}
-              onChange={(e) => update({ showInDocStudio: e.target.checked })}
-              style={checkboxStyle}
+              onChange={(val) => update({ showInDocStudio: val })}
             />
             Doc Studio
           </label>
 
           <label style={toggleStyle}>
-            <input
-              type="checkbox"
+            <ZenCheckbox
               checked={settings.showInContentAIStudio}
-              onChange={(e) => update({ showInContentAIStudio: e.target.checked })}
-              style={checkboxStyle}
+              onChange={(val) => update({ showInContentAIStudio: val })}
             />
             Content AI Studio
           </label>
@@ -221,7 +152,8 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
               title="Datei auswaehlen"
               style={pathButtonStyle}
             >
-              <FontAwesomeIcon icon={faFolder} />
+             
+              Gedanken auswaehlen
             </button>
           </div>
 
@@ -252,101 +184,39 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
               borderRadius: '8px',
               padding: '10px 14px',
               fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
+              fontSize: '9px',
               color: '#AC8E66',
-              backgroundColor: '#151515',
+              backgroundColor: 'transparent',
               cursor: 'pointer',
             }}
           >
             ZEN Gedanken oeffnen
           </button>
 
-          {/* ── Server Sync ─────────────────────────────────── */}
           <div className="border-b border-[0.7px] border-[#AC8E66]" />
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#AC8E66' }}>
-            <FontAwesomeIcon icon={faServer} />
-            Server Sync
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
+            <FontAwesomeIcon icon={faGlobe} style={{ color: '#AC8E66', fontSize: '11px' }} />
+            zenpostmobil Blog-Ordner:
           </div>
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777', lineHeight: 1.5 }}>
-            PHP-Script URL auf deinem Server. ZEN Gedanken werden per POST als JSON gesendet.
-          </div>
-
-          {/* URL */}
           <div style={pathRowStyle}>
-            <input
-              type="url"
-              value={serverUrlInput}
-              onChange={(e) => setServerUrlInput(e.target.value)}
-              onBlur={saveServerSettings}
-              placeholder="https://deinserver.de"
-              style={{ ...pathTextStyle, background: 'transparent', border: 'none', outline: 'none', flex: 1 }}
-            />
-            {/* Ping-Status-Indikator */}
-            {pingStatus !== 'idle' && (
-              <FontAwesomeIcon
-                icon={pingStatus === 'checking' ? faSpinner : pingStatus === 'ok' ? faCheck : faTriangleExclamation}
-                spin={pingStatus === 'checking'}
-                style={{ color: pingStatus === 'ok' ? '#1F8A41' : pingStatus === 'error' ? '#B3261E' : '#AC8E66', fontSize: 11 }}
-              />
-            )}
-            <button type="button" onClick={handlePing} 
-            title="Verbindung testen" 
-            style={pathButtonStyle}>
-              Ping
-            </button>
-          </div>
-
-          {/* API Key */}
-          <div style={pathRowStyle}>
-            <input
-              type="password"
-              value={serverKeyInput}
-              onChange={(e) => setServerKeyInput(e.target.value)}
-              onBlur={saveServerSettings}
-              placeholder="API Key (optional)"
-              style={{ ...pathTextStyle, background: 'transparent', border: 'none', outline: 'none', flex: 1 }}
-            />
-          </div>
-
-          {/* Sync Button + Status */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button
-              type="button"
-              onClick={handleSyncThoughts}
-              disabled={syncStatus === 'sending' || !serverUrlInput.trim()}
-              style={{
-                border: '1px solid #3A3A3A',
-                borderRadius: '8px',
-                padding: '10px 14px',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                color: syncStatus === 'sending' ? '#666' : '#AC8E66',
-                backgroundColor: '#151515',
-                cursor: syncStatus === 'sending' || !serverUrlInput.trim() ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-              }}
-            >
-              {syncStatus === 'sending' && <FontAwesomeIcon icon={faSpinner} spin />}
-              ZEN Gedanken senden
-            </button>
-            {syncMessage && (
-              <span style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                color: syncStatus === 'ok' ? '#1F8A41' : '#B3261E',
-              }}>
-                {syncMessage}
-              </span>
+            <div style={pathTextStyle}>
+              {settings.zenpostmobilPath ?? 'Kein Ordner konfiguriert'}
+            </div>
+            {isTauri() && (
+              <button
+                type="button"
+                onClick={handleSelectBlogFolder}
+                title="Ordner auswählen"
+                style={pathButtonStyle}
+              >
+                <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                Ordner wählen
+              </button>
             )}
           </div>
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#555', lineHeight: 1.5 }}>
-            Endpunkt: <span style={{ color: '#AC8E66' }}>{(serverUrlInput || '…') + settings.contentServerApiEndpoint}</span>
-          </div>
         </div>
       </div>
     </div>
@@ -367,12 +237,33 @@ const toggleStyle: React.CSSProperties = {
   color: '#555',
 };
 
-const checkboxStyle: React.CSSProperties = {
-  width: '16px',
-  height: '16px',
-  cursor: 'pointer',
-  accentColor: '#AC8E66',
-};
+
+const ZenCheckbox = ({ checked, onChange }: { checked: boolean; onChange: (val: boolean) => void }) => (
+  <div
+    role="checkbox"
+    aria-checked={checked}
+    tabIndex={0}
+    onClick={() => onChange(!checked)}
+    onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && onChange(!checked)}
+    style={{
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      border: checked ? '1.5px solid #AC8E66' : '1.5px solid #4A4A4A',
+      backgroundColor: checked ? 'rgba(172,142,102,0.18)' : 'transparent',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      flexShrink: 0,
+      transition: 'border-color 0.15s, background-color 0.15s',
+    }}
+  >
+    {checked && (
+      <FontAwesomeIcon icon={faCheck} style={{ fontSize: 8, color: '#AC8E66' }} />
+    )}
+  </div>
+);
 
 const pathRowStyle: React.CSSProperties = {
   display: 'flex',
@@ -398,9 +289,9 @@ const pathTextStyle: React.CSSProperties = {
 const pathButtonStyle: React.CSSProperties = {
   border: '1px solid #3A3A3A',
   borderRadius: '6px',
-  width: '32px',
+  width: 'auto',
   height: '28px',
-  background: '#151515',
+  background: 'transparent',
   color: '#AC8E66',
   cursor: 'pointer',
   display: 'flex',

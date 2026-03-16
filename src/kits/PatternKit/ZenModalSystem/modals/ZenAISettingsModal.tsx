@@ -111,26 +111,47 @@ export const ZenAISettingsModal = ({ isOpen, onClose }: ZenAISettingsModalProps)
               </div>
             )}
 
-            {/* Base URL */}
-            {(aiConfig.provider === "ollama" || aiConfig.provider === "custom") && (
-              <div className="pt-1">
-                <label className="block text-[#999] text-[11px] mb-2 font-mono text-center">
-                  Base URL:
-                </label>
-                <input
-                  type="text"
-                  value={aiConfig.baseUrl || ""}
-                  onChange={(e) => setAiConfig({ ...aiConfig, baseUrl: e.target.value })}
-                  placeholder={aiConfig.provider === "ollama" ? "http://127.0.0.1:11434" : "https://your-api.com"}
-                  className="
-                    w-full text-[#e5e5e5] bg-transparent
-                    border border-[#AC8E66] rounded-lg
-                    px-4 py-2 font-mono text-[10px] text-center
-                    focus:outline-none focus:border-[#D4AF78]
-                  "
-                />
-              </div>
-            )}
+          {/* Base URL */}
+{(aiConfig.provider === "ollama" || aiConfig.provider === "custom") && (
+  <div className="pt-1">
+    <label className="block text-[#999] text-[11px] mb-2 font-mono text-center">
+      Base URL deiner AI:
+    </label>
+
+    <input
+      type="url"
+      value={aiConfig.baseUrl ?? ""}
+      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+        setAiConfig({
+          ...aiConfig,
+          baseUrl: e.target.value,
+        })
+      }
+      placeholder={
+        aiConfig.provider === "ollama"
+          ? "http://127.0.0.1:11434"
+          : "https://your-api.com"
+      }
+      className="
+        w-full text-[#e5e5e5] bg-transparent
+        border border-[#AC8E66] rounded-lg
+        px-4 py-2 font-mono text-[10px] text-center
+        focus:outline-none focus:border-[#D4AF78]
+      "
+    />
+
+    {aiConfig.baseUrl && (
+      <a
+        href={aiConfig.baseUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block text-center mt-2 text-[#AC8E66] text-[10px] font-mono hover:underline"
+      >
+        Open Base URL
+      </a>
+    )}
+  </div>
+)}
           </div>
         </div>
       </div>

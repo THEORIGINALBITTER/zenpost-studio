@@ -34,7 +34,7 @@ export const ZenInfoBox = ({
   // Type-basierte Farben für style={{}}
   const colorStyles = {
     info: {
-      bg: "linear-gradient(180deg, #0B0B0B 0%, #151515 100%)",
+      bg: "transparent",
       border: 'rgba(11, 11, 11, 0.3)',
       text: '#555',
       hover: '#AC8E66',
@@ -84,7 +84,7 @@ export const ZenInfoBox = ({
         <div
           style={{
             color: colorStyle.text,
-            fontSize: '13px',
+            fontSize: '11px',
             lineHeight: '1.6',
             textAlign: 'center',
           }}

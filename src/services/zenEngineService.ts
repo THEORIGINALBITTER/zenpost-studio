@@ -2,7 +2,8 @@
  * ZenEngine Service — TypeScript Interface zur nativen C++ / Rust Engine
  * Alle Calls gehen über Tauri IPC → Rust → C++ zen_engine
  */
-import { invoke } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { analyzeTextWeb, autofixTextWeb } from './zenEngineWebFallback';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -148,6 +149,7 @@ export function adaptV2ToV1(v2: AnalysisResultV2): RuleAnalysisResult {
 export const ZenEngine = {
   /** Engine-Version abfragen (z.B. "ZenEngine/1.0.0-cpp17") */
   version(): Promise<string> {
+    if (!isTauri()) return Promise.resolve('ZenEngine/web-ts');
     return invoke<string>('engine_version');
   },
 
@@ -233,6 +235,7 @@ export const ZenEngine = {
    * Gibt typisierte `AnalysisResultV2` zurück (matches + suggestions + warnings).
    */
   analyzeTextV2(text: string, rulesJson?: string): Promise<AnalysisResultV2> {
+    if (!isTauri()) return Promise.resolve(analyzeTextWeb(text, rulesJson));
     return invoke<AnalysisResultV2>('engine_analyze_text_v2', {
       text,
       rules_json: rulesJson,
@@ -244,6 +247,7 @@ export const ZenEngine = {
    * Gibt korrigierten Text + fix_count zurück.
    */
   autofixTextV2(text: string, rulesJson?: string): Promise<{ text: string; fix_count: number }> {
+    if (!isTauri()) return Promise.resolve(autofixTextWeb(text));
     return invoke<{ text: string; fix_count: number }>('engine_autofix_text_v2', {
       text,
       rules_json: rulesJson,

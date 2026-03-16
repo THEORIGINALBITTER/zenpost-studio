@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useOpenExternal } from '../hooks/useOpenExternal';
 import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -6,7 +7,8 @@ import {
   faArrowRight,
   faBook,
   faCalendarDays,
-  faDownload,
+  faCloudArrowUp,
+  faCode,
   faFileLines,
   faFolderOpen,
   faMobileScreen,
@@ -36,6 +38,7 @@ export type GettingStartedRecentItem = {
 interface GettingStartedScreenProps {
   onBack: () => void;
   onOpenDocStudio?: () => void;
+  onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site') => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
   onOpenMobileInbox?: () => void;
@@ -47,8 +50,8 @@ interface GettingStartedScreenProps {
 }
 
 type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile';
-const MOBILE_APP_DOWNLOAD_URL = 'https://zenpost.studio';
-const MOBILE_APP_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
+const MOBILE_DEV_BLOG_URL = 'https://zenpostapp.denisbitter.de';
+const MOBILE_DEV_BLOG_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_DEV_BLOG_URL)}`;
 
 interface StudioDef {
   id: StudioId;
@@ -68,6 +71,7 @@ type ServerSlugItem = { slug: string; title?: string; date?: string };
 export function GettingStartedScreen({
   onBack: _onBack,
   onOpenDocStudio,
+  onOpenDocStudioWizard,
   onOpenContentAI,
   onOpenConverter,
   onOpenMobileInbox,
@@ -77,6 +81,7 @@ export function GettingStartedScreen({
   onContinueRecent,
   onOpenServerArticle,
 }: GettingStartedScreenProps) {
+  const { openExternal } = useOpenExternal();
   const [zenStudioSettings] = useState(() => loadZenStudioSettings());
   const [projectPath] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -92,7 +97,7 @@ export function GettingStartedScreen({
   const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
-  const [mobileAppQrSrc, setMobileAppQrSrc] = useState(MOBILE_APP_QR_FALLBACK_SRC);
+  const [devBlogQrSrc, setDevBlogQrSrc] = useState(MOBILE_DEV_BLOG_QR_FALLBACK_SRC);
 
   const getFriendlyServerError = (rawError: string | null): string => {
     if (!rawError) return '';
@@ -210,25 +215,24 @@ export function GettingStartedScreen({
 
   useEffect(() => {
     let isMounted = true;
-    void QRCode.toDataURL(MOBILE_APP_DOWNLOAD_URL, {
+    void QRCode.toDataURL(MOBILE_DEV_BLOG_URL, {
       margin: 1,
       width: 240,
       color: { dark: '#000000', light: '#0000' },
     })
       .then((dataUrl) => {
-        if (isMounted) setMobileAppQrSrc(dataUrl);
+        if (isMounted) setDevBlogQrSrc(dataUrl);
       })
       .catch(() => {
-        if (isMounted) setMobileAppQrSrc(MOBILE_APP_QR_FALLBACK_SRC);
+        if (isMounted) setDevBlogQrSrc(MOBILE_DEV_BLOG_QR_FALLBACK_SRC);
       });
     return () => {
       isMounted = false;
     };
   }, []);
 
-  const handleOpenMobileDownload = () => {
-    if (typeof window === 'undefined') return;
-    window.open(MOBILE_APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+  const handleOpenDevBlog = () => {
+    void openExternal(MOBILE_DEV_BLOG_URL);
   };
 
   const studios: StudioDef[] = [
@@ -275,6 +279,12 @@ export function GettingStartedScreen({
           description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
           icon: faFolderOpen,
           action: () => onOpenDocStudio?.(),
+        },
+        {
+          title: 'Docs Wizard',
+          description: 'GitHub Pages, Templates und Docs-Website aus Markdown generieren',
+          icon: faCloudArrowUp,
+          action: () => onOpenDocStudioWizard?.('docs-site'),
         },
       ],
     },
@@ -331,6 +341,18 @@ export function GettingStartedScreen({
           }}
         >
           Was möchtest du heute machen?
+        </p>
+
+        <p style={{
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '11px',
+          fontWeight: 400,
+          color: '#AC8E66',
+          letterSpacing: '0.3px',
+          margin: '0 0 0 15px',
+          padding: 0,
+        }}>
+          1× schreiben · 9× transformieren · lokal · deine KI
         </p>
 
         <ZenThoughtLine
@@ -537,7 +559,7 @@ export function GettingStartedScreen({
                   </button>
 
                   <button
-                    onClick={handleOpenMobileDownload}
+                    onClick={handleOpenDevBlog}
                     style={{
                       borderRadius: '12px',
                       border: '0.5px solid rgba(172,142,102,0.35)',
@@ -563,15 +585,15 @@ export function GettingStartedScreen({
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <FontAwesomeIcon icon={faDownload} style={{ fontSize: '16px', color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={faCode} style={{ fontSize: '16px', color: '#AC8E66' }} />
                       <FontAwesomeIcon icon={faQrcode} style={{ fontSize: '12px', color: '#AC8E66', opacity: 0.8 }} />
                     </div>
                     <div>
                       <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                        App herunterladen
+                        App in Entwicklung
                       </p>
                       <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                        QR-Code scannen oder Download-Seite direkt öffnen.
+                        Scan &amp; folge dem Prozess auf zenpostapp.denisbitter.de
                       </p>
                     </div>
                     <div
@@ -588,7 +610,7 @@ export function GettingStartedScreen({
                         overflow: 'hidden',
                       }}
                     >
-                      <img src={mobileAppQrSrc} alt="QR-Code App Download" style={{ width: '100%', height: '100%' }} />
+                      <img src={devBlogQrSrc} alt="QR-Code Dev Blog" style={{ width: '100%', height: '100%' }} />
                     </div>
                   </button>
 

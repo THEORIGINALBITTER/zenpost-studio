@@ -130,8 +130,10 @@ export const ZenPlusMenu = ({
   const positionStyles = {
     'top-left': { top: 16, left: 16 },
     'top-right': { top: 16, right: 16 },
+    'top-center': { top: 16, left: '50%', transform: 'translateX(-5%)' },
     'bottom-left': { bottom: 16, left: 16 },
     'bottom-right': { bottom: 16, right: 16 },
+    'bottom-center': { bottom: 16, left: '50%', transform: 'translateX(-5%)' },
     'center': { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' },
   };
 

@@ -64,7 +64,7 @@ const createScheduledDate = (dateStr: string, timeStr: string): Date => {
  * Generate a unique UID for the calendar event
  */
 const generateUID = (post: ScheduledPost): string => {
-  return `${post.id}@zenpost.studio`;
+  return `${post.id}@zenpostapp.denisbitter.de`;
 };
 
 /**

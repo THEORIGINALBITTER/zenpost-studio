@@ -44,15 +44,19 @@ import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
-import { readDir, readFile, readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
+import { exists as fsExists, mkdir as fsMkdir, readDir, readFile, readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
+import { ZenPublishingBanner } from "./components/ZenPublishingBanner";
+import { usePublishingEngine } from "./services/publishingEngine";
+import { pushDocsToGitHub } from "./services/githubDocsService";
+import { loadSocialConfig } from "./services/socialMediaService";
 import { CornerRibbon } from "./components/CornerRibbon";
 import { isTauri } from "@tauri-apps/api/core";
 import { useOpenExternal } from "./hooks/useOpenExternal";
 import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
-import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath } from "./utils/projectHistory";
+import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath, removeProjectPath } from "./utils/projectHistory";
 import {
   encodeWebProjectPath, isWebProjectPath,
   getDirectoryHandle, readMarkdownFiles,
@@ -265,6 +269,7 @@ function AppContent() {
   const [contentTransformStep, setContentTransformStep] = useState(1);
   const [contentStudioDashboardView, setContentStudioDashboardView] = useState<"dashboard" | "project-map">("dashboard");
   const [docStudioStep, setDocStudioStep] = useState(0);
+  const [docStudioInitialWizard, setDocStudioInitialWizard] = useState<'github' | 'docs-site' | undefined>(undefined);
 
   // Content transfer between Doc Studio and Content AI Studio
   const [transferContent, setTransferContent] = useState<string | null>(null);
@@ -285,6 +290,7 @@ function AppContent() {
   const [contentStudioServerArticlesLoading, setContentStudioServerArticlesLoading] = useState(false);
   const [contentStudioServerArticlesError, setContentStudioServerArticlesError] = useState<string | null>(null);
   const [activeServerArticleSlug, setActiveServerArticleSlug] = useState<string | null>(null);
+  const [activeBlogForEditor, setActiveBlogForEditor] = useState<import('./services/zenStudioSettingsService').BlogConfig | null>(null);
   const [contentStudioServerCachePath, setContentStudioServerCachePath] = useState<string | null>(null);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
@@ -345,6 +351,8 @@ function AppContent() {
     key: string;
     tabId: string;
     title: string;
+    subtitle?: string;
+    imageUrl?: string;
     content: string;
     platform?: string;
   } | null>(null);
@@ -357,6 +365,8 @@ function AppContent() {
   const [exportTags, setExportTags] = useState<string[]>([]);
   const [isEditingZenThoughts, setIsEditingZenThoughts] = useState(false);
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
+  const [exportSubtitle, setExportSubtitle] = useState<string>("");
+  const [exportImageUrl, setExportImageUrl] = useState<string>("");
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | "rescan" | null>(null);
   const [docStudioPreviewMode, setDocStudioPreviewMode] = useState(false);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
@@ -664,7 +674,14 @@ function AppContent() {
       setContentStudioRequestedFilePath(post.savedFilePath);
       setTransferContent(null);
       setTransferFileName(null);
-      setTransferPostMeta(null);
+      setTransferPostMeta({
+        title: post.title || '',
+        subtitle: post.subtitle || '',
+        imageUrl: post.imageUrl || '',
+        date: post.scheduledDate
+          ? (post.scheduledDate instanceof Date ? post.scheduledDate : new Date(post.scheduledDate)).toISOString().split('T')[0]
+          : '',
+      });
       setEditingScheduledPostId(post.id);
       setCameFromDocStudio(false);
       setCameFromDashboard(false);
@@ -689,7 +706,14 @@ function AppContent() {
     setEditingScheduledPostId(post.id);
     setTransferContent(fullContent.trim());
     setTransferFileName(post.title || post.platform);
-    setTransferPostMeta(null);
+    setTransferPostMeta({
+      title: post.title || '',
+      subtitle: post.subtitle || '',
+      imageUrl: post.imageUrl || '',
+      date: post.scheduledDate
+        ? (post.scheduledDate instanceof Date ? post.scheduledDate : new Date(post.scheduledDate)).toISOString().split('T')[0]
+        : '',
+    });
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setShowPlannerModal(false);
@@ -710,6 +734,200 @@ function AppContent() {
       console.error('[PublishingService] Failed to save scheduled posts:', error);
     }
   };
+
+  // Publishing Engine — detects due posts and exposes publish/skip actions
+  const publishingEngine = usePublishingEngine(scheduledPosts, persistScheduledPosts);
+
+  // GitHub Docs Push
+  const [docStudioGithubDocsFileCount, setDocStudioGithubDocsFileCount] = useState(0);
+
+  const scanDocsForGitHub = async (rootPath: string): Promise<Array<{ path: string; name: string }>> => {
+    const results: Array<{ path: string; name: string }> = [];
+    // All text-based file types worth syncing to GitHub docs
+    const allowedExtensions = new Set(['md', 'mdx', 'txt', 'html', 'php', 'js', 'css', 'json', 'yaml', 'yml', 'example', 'nojekyll']);
+    // Folders to never include
+    const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.zenpost', 'src-tauri', '.vite', 'fixtures']);
+    // Specific filenames to always skip
+    const skipFiles = new Set(['.DS_Store', 'Thumbs.db', '.gitignore', 'package-lock.json', 'yarn.lock']);
+    const maxDepth = 6;
+
+    const scan = async (dirPath: string, depth: number) => {
+      if (depth > maxDepth) return;
+      let entries: Awaited<ReturnType<typeof readDir>>;
+      try {
+        entries = await readDir(dirPath);
+      } catch {
+        return;
+      }
+
+      for (const entry of entries) {
+        const name = entry.name || '';
+        if (entry.isDirectory) {
+          if (name.startsWith('.') || skipDirs.has(name)) continue;
+          await scan(`${dirPath}/${name}`, depth + 1);
+        } else if (entry.isFile) {
+          if (skipFiles.has(name) || name.startsWith('.DS_')) continue;
+          const ext = name.split('.').pop()?.toLowerCase() || '';
+          // Allow extensionless files like ".nojekyll" by checking the full name too
+          const isAllowed = allowedExtensions.has(ext) || allowedExtensions.has(name.replace(/^\./, ''));
+          if (!isAllowed) continue;
+          const fullPath = `${dirPath}/${name}`;
+          const repoName = fullPath
+            .replace(rootPath, '')
+            .replace(/^[/\\]/, '')
+            .replace(/\\/g, '/');
+          results.push({ path: fullPath, name: repoName || name });
+        }
+      }
+    };
+
+    await scan(rootPath, 0);
+    return results;
+  };
+
+
+
+  const handlePushDocsToGitHubFromDocStudio = async () => {
+    const config = loadSocialConfig();
+    if (!config.github?.docsRepo) {
+      throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → Social Media → GitHub)');
+    }
+    if (!config.github?.accessToken) throw new Error('GitHub Access Token fehlt');
+    if (!config.github?.username) throw new Error('GitHub Username fehlt');
+
+    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
+    if (!projectPath || isWebProjectPath(projectPath)) {
+      throw new Error('Kein lokaler Projektordner gewählt');
+    }
+
+    const docs = await scanDocsForGitHub(projectPath);
+    if (docs.length === 0) {
+      throw new Error('Keine Markdown-Dateien im Projekt gefunden');
+    }
+
+    const files = await Promise.all(
+      docs.map(async (file) => ({
+        name: file.name,
+        content: await readTextFile(file.path),
+      })),
+    );
+
+    return pushDocsToGitHub(files, config.github);
+  };
+
+  const handlePushTemplatesToGitHubFromDocStudio = async (templates: import('./services/githubDocsService').GeneratedTemplate[]) => {
+    const config = loadSocialConfig();
+    if (!config.github?.docsRepo) {
+      throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → Social Media → GitHub)');
+    }
+    if (!config.github?.accessToken) throw new Error('GitHub Access Token fehlt');
+    if (!config.github?.username) throw new Error('GitHub Username fehlt');
+
+    if (templates.length === 0) {
+      throw new Error('Keine generierten Templates vorhanden');
+    }
+
+    const files = templates.map((tpl) => ({ name: tpl.name, content: tpl.content }));
+    // docsPath: '' — template paths are repo-absolute (README.md, DataRoom/DATA_ROOM.md, etc.)
+    return pushDocsToGitHub(files, { ...config.github, docsPath: '' });
+  };
+
+  const handleSaveDocsSiteLocally = async (config: import('./services/docsSiteService').DocsSiteConfig) => {
+    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
+    if (!projectPath || isWebProjectPath(projectPath)) throw new Error('Kein lokaler Projektordner gewählt');
+
+    // Ensure docs/ folder exists
+    const docsDir = `${projectPath}/docs`;
+    if (!(await fsExists(docsDir).catch(() => false))) {
+      await fsMkdir(docsDir, { recursive: true });
+    }
+
+    // Create stub files for new pages (don't overwrite existing)
+    for (const newPage of config.newPages ?? []) {
+      const filePath = `${projectPath}/${newPage.relPath}`;
+      const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+      if (!(await fsExists(parentDir).catch(() => false))) {
+        await fsMkdir(parentDir, { recursive: true });
+      }
+      if (!(await fsExists(filePath).catch(() => false))) {
+        await writeTextFile(filePath, `# ${newPage.title}\n\nInhalt hier einfügen.\n`);
+      }
+    }
+
+    // Read all page content (new stubs now exist)
+    const markdownFiles = await Promise.all(
+      config.pages.map(async (page) => {
+        try {
+          const content = await readTextFile(`${projectPath}/${page.file}`);
+          return { name: page.file, content };
+        } catch {
+          return { name: page.file, content: `# ${page.label}\n\nInhalt hier einfügen.\n` };
+        }
+      }),
+    );
+
+    const { generateDocsSite } = await import('./services/docsSiteService');
+    const files = generateDocsSite(config, markdownFiles);
+    for (const file of files) {
+      // Skip dotfiles (e.g. .nojekyll) — only needed for GitHub Pages, not local
+      const basename = file.name.split('/').pop() ?? '';
+      if (basename.startsWith('.')) continue;
+      await writeTextFile(`${projectPath}/${file.name}`, file.content);
+    }
+  };
+
+  const handlePushDocsSiteToGitHub = async (config: import('./services/docsSiteService').DocsSiteConfig) => {
+    const socialConfig = loadSocialConfig();
+    if (!socialConfig.github?.docsRepo) throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → GitHub)');
+    if (!socialConfig.github?.accessToken) throw new Error('GitHub Access Token fehlt');
+    if (!socialConfig.github?.username) throw new Error('GitHub Username fehlt');
+
+    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
+    if (!projectPath || isWebProjectPath(projectPath)) throw new Error('Kein lokaler Projektordner gewählt');
+
+    // Stub content for new pages (not yet on disk)
+    const stubContent: Record<string, string> = {};
+    for (const newPage of config.newPages ?? []) {
+      stubContent[newPage.relPath] = `# ${newPage.title}\n\nInhalt hier einfügen.\n`;
+    }
+
+    const markdownFiles = await Promise.all(
+      config.pages.map(async (page) => {
+        try {
+          const content = await readTextFile(`${projectPath}/${page.file}`);
+          return { name: page.file, content };
+        } catch {
+          return { name: page.file, content: stubContent[page.file] ?? `# ${page.label}\n\nInhalt nicht verfügbar.` };
+        }
+      }),
+    );
+
+    const { generateDocsSite } = await import('./services/docsSiteService');
+    const files = generateDocsSite(config, markdownFiles);
+
+    // docsPath: '' — paths in generateDocsSite are already absolute (docs/index.html, etc.)
+    return pushDocsToGitHub(files, { ...socialConfig.github, docsPath: '' });
+  };
+
+  useEffect(() => {
+    if (currentScreen !== 'doc-studio') return;
+    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
+    if (!projectPath || isWebProjectPath(projectPath)) {
+      setDocStudioGithubDocsFileCount(0);
+      return;
+    }
+    let cancelled = false;
+    scanDocsForGitHub(projectPath)
+      .then((files) => {
+        if (!cancelled) setDocStudioGithubDocsFileCount(files.length);
+      })
+      .catch(() => {
+        if (!cancelled) setDocStudioGithubDocsFileCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentScreen, docStudioState?.projectPath]);
 
   // Handle file saved from Doc Studio/Content AI Studio - update scheduled post if one is being edited
   const handleFileSavedWhileEditing = async (filePath: string, content: string, fileName: string) => {
@@ -777,7 +995,7 @@ function AppContent() {
     }
 
     // Check if there's a saved project path in localStorage
-    const savedProjectPath = getLastProjectPath();
+    const savedProjectPath = getLastProjectPath('doc');
     if (savedProjectPath) {
       setDocStudioState((prev) => ({
         projectPath: prev?.projectPath ?? savedProjectPath,
@@ -806,7 +1024,7 @@ function AppContent() {
   };
 
   const handleOpenDocStudioForPosting = (content: string) => {
-    const storedProjectPath = getLastProjectPath();
+    const storedProjectPath = getLastProjectPath('doc');
     setDocStudioState((prev) => ({
       projectPath: storedProjectPath ?? prev?.projectPath ?? null,
       projectInfo: prev?.projectInfo ?? null,
@@ -1242,20 +1460,28 @@ function AppContent() {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      activeTabSubtitle?: string;
+      activeTabImageUrl?: string;
       tags?: string[];
     }
   ) => {
     setExportContent(content);
     if (meta?.tags) setExportTags(meta.tags);
+    if (meta?.activeTabSubtitle !== undefined) setExportSubtitle(meta.activeTabSubtitle ?? '');
+    if (meta?.activeTabImageUrl !== undefined) setExportImageUrl(meta.activeTabImageUrl ?? '');
     if (!isEditingZenThoughts && meta?.source === 'step1' && meta.activeTabId) {
       const trimmed = content.trim();
       if (trimmed.length >= 20) {
         const title = (meta.activeTabTitle || 'Entwurf').trim() || 'Entwurf';
+        const subtitle = meta.activeTabSubtitle?.trim() || undefined;
+        const imageUrl = meta.activeTabImageUrl?.trim() || undefined;
         const key = `${meta.activeTabId}:${trimmed.slice(0, 140)}`;
         setContentPlannerSuggestion({
           key,
           tabId: meta.activeTabId,
           title,
+          subtitle,
+          imageUrl,
           content: content,
         });
       } else {
@@ -1651,7 +1877,7 @@ function AppContent() {
   useEffect(() => {
     if (!isTauri()) return;
     if (!docStudioState?.projectPath) return;
-    rememberProjectPath(docStudioState.projectPath);
+    rememberProjectPath(docStudioState.projectPath, 8, 'doc');
     void updateLastProjectPath(docStudioState.projectPath);
   }, [docStudioState?.projectPath]);
 
@@ -1708,6 +1934,12 @@ function AppContent() {
     if (!path) return;
     rememberProjectPath(path);
     setContentStudioRecentProjectPaths(getRecentProjectPaths());
+    // Clear stale file lists immediately so the dashboard doesn't show
+    // the previous project's documents tagged under the new project path
+    setContentStudioAllFiles([]);
+    if (!isWebProjectPath(path)) {
+      setWebDocuments([]);
+    }
     setContentStudioProjectPath(path);
     if (isTauri()) {
       await updateLastProjectPath(path);
@@ -1965,7 +2197,7 @@ function AppContent() {
                 label="Dashboard"
                 icon={<FontAwesomeIcon icon={faFolderOpen} />}
                 onClick={() => {
-                  setContentStudioDashboardView("project-map");
+                  setContentStudioDashboardView("dashboard");
                   setContentTransformStep(0);
                 }}
               />
@@ -2501,13 +2733,14 @@ function AppContent() {
                     subtitle: file.path,
                     updatedAt: file.modifiedAt,
                   })),
-                  ...webDocuments.map((doc) => ({
+                  // Web-Dokumente nur anzeigen wenn das aktive Projekt ein Web-Projekt ist
+                  ...(isWebProjectPath(contentStudioProjectPath ?? '') ? webDocuments.map((doc) => ({
                     id: `web:${doc.id}`,
                     name: doc.name,
                     projectPath: contentStudioProjectPath ?? undefined,
                     subtitle: 'Web-Dokument',
                     updatedAt: doc.updatedAt,
-                  })),
+                  })) : []),
                 ]}
                 onSelectProjectPath={(path) => {
                   void handleSwitchContentStudioProject(path);
@@ -2522,6 +2755,22 @@ function AppContent() {
                 onStartWriting={() => {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
+                  setActiveBlogForEditor(null);
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onStartWritingToBlog={(blog) => {
+                  setActiveServerArticleSlug(null);
+                  setContentStudioServerCachePath(null);
+                  setActiveBlogForEditor(blog);
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onOpenBlogPost={(filePath, blog) => {
+                  setActiveServerArticleSlug(null);
+                  setContentStudioServerCachePath(null);
+                  setActiveBlogForEditor(blog);
+                  setContentStudioRequestedFilePath(filePath);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
@@ -2571,6 +2820,15 @@ function AppContent() {
                   setSettingsDefaultTab('api');
                   setShowAISettingsModal(true);
                 }}
+                onRemoveProject={(path) => {
+                  removeProjectPath(path);
+                  setContentStudioRecentProjectPaths(getRecentProjectPaths());
+                  if (contentStudioProjectPath === path) {
+                    const remaining = getRecentProjectPaths();
+                    setContentStudioProjectPath(remaining[0] ?? null);
+                  }
+                }}
+                blogs={loadZenStudioSettings().blogs ?? []}
               />
             )
           ) : (
@@ -2593,7 +2851,7 @@ function AppContent() {
                 setCurrentScreen("converter");
                 setConverterStep(1);
               }}
-              projectPath={activeServerArticleSlug ? (contentStudioServerCachePath ?? contentStudioProjectPath) : contentStudioProjectPath}
+              projectPath={activeServerArticleSlug ? (contentStudioServerCachePath ?? contentStudioProjectPath) : activeBlogForEditor ? `${activeBlogForEditor.path}/posts` : contentStudioProjectPath}
               requestedArticleId={contentStudioRequestedArticleId}
               onArticleRequestHandled={() => setContentStudioRequestedArticleId(null)}
               requestedFilePath={contentStudioRequestedFilePath}
@@ -2616,6 +2874,8 @@ function AppContent() {
               onFileSaved={handleFileSavedWhileEditing}
               onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
               serverArticleSlug={activeServerArticleSlug}
+              blogSaveTarget={activeBlogForEditor}
+              onBlogPostSaved={() => setActiveBlogForEditor(null)}
             />
           )
         )}
@@ -2624,8 +2884,9 @@ function AppContent() {
             <DocStudioScreen
               onBack={handleDocStudioBack}
               onTransferToContentStudio={handleTransferToContentStudio}
-              onStepChange={setDocStudioStep}
+              onStepChange={(step) => { setDocStudioStep(step); if (step !== 0) setDocStudioInitialWizard(undefined); }}
               initialStep={docStudioStep}
+              initialWizard={docStudioInitialWizard}
               savedState={docStudioState}
               onStateChange={handleSaveDocStudioState}
               onGeneratedContentChange={setDocStudioGeneratedContent}
@@ -2663,6 +2924,31 @@ function AppContent() {
                 setShowAISettingsModal(true);
               }}
               onFileSaved={handleFileSavedWhileEditing}
+              onPushDocsToGitHub={
+                !isWebProjectPath(docStudioState?.projectPath ?? '')
+                  ? () => handlePushDocsToGitHubFromDocStudio()
+                  : undefined
+              }
+              githubDocsFileCount={docStudioGithubDocsFileCount}
+              onPushTemplatesToGitHub={
+                !isWebProjectPath(docStudioState?.projectPath ?? '')
+                  ? handlePushTemplatesToGitHubFromDocStudio
+                  : undefined
+              }
+              onOpenGitHubSettings={() => {
+                setSettingsDefaultTab('social');
+                setShowAISettingsModal(true);
+              }}
+              onSaveDocsSiteLocally={
+                !isWebProjectPath(docStudioState?.projectPath ?? '')
+                  ? handleSaveDocsSiteLocally
+                  : undefined
+              }
+              onPushDocsSiteToGitHub={
+                !isWebProjectPath(docStudioState?.projectPath ?? '')
+                  ? handlePushDocsSiteToGitHub
+                  : undefined
+              }
             />
           </FeatureGate>
         )}
@@ -2670,6 +2956,10 @@ function AppContent() {
           <GettingStartedScreen
             onBack={handleBackToWelcome}
             onOpenDocStudio={handleSelectDocStudio}
+            onOpenDocStudioWizard={(wizard) => {
+              setDocStudioInitialWizard(wizard);
+              handleSelectDocStudio();
+            }}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
             onOpenMobileInbox={handleSelectMobileInbox}
@@ -2841,11 +3131,23 @@ function AppContent() {
         content={exportContent}
         documentName={exportDocumentName}
         tags={exportTags}
+        subtitle={exportSubtitle || undefined}
+        imageUrl={exportImageUrl || undefined}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
       />
 
       {/* Upgrade Modal - triggered by FeatureGate or manual */}
       <UpgradeModalWrapper />
+
+
+      {/* Publishing Engine Banner */}
+      <ZenPublishingBanner
+        duePosts={publishingEngine.duePosts}
+        publishing={publishingEngine.publishing}
+        results={publishingEngine.results}
+        onPublish={publishingEngine.publish}
+        onSkip={publishingEngine.skip}
+      />
       </div>
     </>
   );

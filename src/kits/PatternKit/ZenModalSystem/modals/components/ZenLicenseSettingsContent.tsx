@@ -286,7 +286,7 @@ export const ZenLicenseSettingsContent = () => {
             <ZenRoughButton
               label="Jetzt upgraden - PRO kaufen"
               icon={<FontAwesomeIcon icon={faShoppingCart} />}
-              onClick={() => window.open('https://zenpost.studio/pricing', '_blank')}
+              onClick={() => window.open('https://zenpostapp.denisbitter.de', '_blank')}
               variant="default"
             />
           )}

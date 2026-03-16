@@ -1,237 +1,130 @@
 import { useState, useEffect } from 'react';
-import { LottiePlayer } from './LottiePlayer';
-import { StepController } from './StepController';
-import { WalkthroughStep } from '../config/walkthroughSteps';
+
+export interface WalkthroughStep {
+  title: string;
+  description: string;
+  icon?: string;
+}
 
 interface WalkthroughOverlayProps {
   steps: WalkthroughStep[];
-  onComplete?: () => void;
+  onComplete: () => void;
   autoStart?: boolean;
 }
 
-/**
- * Haupt-Komponente für den interaktiven Walkthrough
- * Zeigt Animation, Beschreibung und Steuerung
- */
-export const WalkthroughOverlay = ({
-  steps,
-  onComplete,
-  autoStart = false,
-}: WalkthroughOverlayProps) => {
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(autoStart);
-  const [hasCompleted, setHasCompleted] = useState(false);
+export const WalkthroughOverlay = ({ steps, onComplete, autoStart: _autoStart }: WalkthroughOverlayProps) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-  const currentStep = steps[currentStepIndex];
-
-  // Auto-advance to next step
   useEffect(() => {
-    if (!isPlaying || !currentStep.duration || hasCompleted) return;
+    setCurrentIndex(0);
+  }, [steps]);
 
-    const timer = setTimeout(() => {
-      if (currentStepIndex < steps.length - 1) {
-        setCurrentStepIndex((prev) => prev + 1);
-      } else {
-        setIsPlaying(false);
-        setHasCompleted(true);
-        if (onComplete) {
-          onComplete();
-        }
-      }
-    }, currentStep.duration);
+  if (!steps || steps.length === 0) {
+    onComplete();
+    return null;
+  }
 
-    return () => clearTimeout(timer);
-  }, [isPlaying, currentStepIndex, currentStep.duration, steps.length, hasCompleted, onComplete]);
-
-  const handlePlay = () => {
-    setIsPlaying(true);
-    setHasCompleted(false);
-  };
-
-  const handlePause = () => {
-    setIsPlaying(false);
-  };
-
-  const handleRestart = () => {
-    setCurrentStepIndex(0);
-    setIsPlaying(true);
-    setHasCompleted(false);
-  };
-
-  const handleNext = () => {
-    if (currentStepIndex < steps.length - 1) {
-      setCurrentStepIndex((prev) => prev + 1);
-      setIsPlaying(false);
-    }
-  };
-
-  const handlePrevious = () => {
-    if (currentStepIndex > 0) {
-      setCurrentStepIndex((prev) => prev - 1);
-      setIsPlaying(false);
-    }
-  };
+  const step = steps[currentIndex];
+  const isLast = currentIndex === steps.length - 1;
+  const progress = ((currentIndex + 1) / steps.length) * 100;
 
   return (
     <div
       style={{
+        flex: 1,
         display: 'flex',
         flexDirection: 'column',
-        height: '100%',
-        width: '100%',
+        padding: '32px',
+        fontFamily: 'IBM Plex Mono, monospace',
+        gap: '24px',
+        overflow: 'hidden',
       }}
     >
-      {/* Animation Area */}
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '32px',
-          gap: '24px',
-          minHeight: '400px',
-        }}
-      >
-        {/* Lottie Animation */}
+      {/* Progress bar */}
+      <div style={{ height: '2px', background: '#2a2a2a', borderRadius: '1px', overflow: 'hidden' }}>
         <div
           style={{
-            width: '100%',
-            maxWidth: '500px',
-            height: '300px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            height: '100%',
+            width: `${progress}%`,
+            background: '#AC8E66',
+            borderRadius: '1px',
+            transition: 'width 0.3s ease',
           }}
-        >
-          {currentStep.animationData ? (
-            <LottiePlayer
-              animationData={currentStep.animationData}
-              loop={true}
-              autoplay={isPlaying}
-              speed={0.5}
-            />
-          ) : (
-            // Placeholder wenn keine Animation vorhanden
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: '#0A0A0A',
-                border: '2px dashed #3A3A3A',
-                borderRadius: '12px',
-                fontFamily: 'monospace',
-                fontSize: '14px',
-                color: '#666',
-                textAlign: 'center',
-                padding: '20px',
-              }}
-            >
-              <div>
-                <div style={{ fontSize: '48px', marginBottom: '16px' }}>
-                  {currentStepIndex === 0 && '🎬'}
-                  {currentStepIndex === 1 && '📝'}
-                  {currentStepIndex === 2 && '🤖'}
-                  {currentStepIndex === 3 && '✨'}
-                  {currentStepIndex === 4 && '💾'}
-                </div>
-                <div>Animation Placeholder</div>
-                <div style={{ fontSize: '11px', color: '#444', marginTop: '8px' }}>
-                
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Step Content */}
-        <div
-          style={{
-            textAlign: 'center',
-            maxWidth: '600px',
-          }}
-        >
-          {/* Title */}
-          <h3
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '20px',
-              fontWeight: 'bold',
-              color: '#AC8E66',
-              marginBottom: '12px',
-            }}
-          >
-            {currentStep.title}
-          </h3>
-
-          {/* Description */}
-          <p
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '13px',
-              color: '#ccc',
-              lineHeight: '1.6',
-              marginBottom: '16px',
-            }}
-          >
-            {currentStep.description}
-          </p>
-
-          {/* Tip */}
-          {currentStep.tip && (
-            <div
-              style={{
-                display: 'inline-block',
-                backgroundColor: '#0A0A0A',
-                border: '1px solid #3A3A3A',
-                borderRadius: '8px',
-                padding: '12px 16px',
-                fontFamily: 'monospace',
-                fontSize: '11px',
-                color: '#999',
-                lineHeight: '1.5',
-              }}
-            >
-              💡 Tipp: {currentStep.tip}
-            </div>
-          )}
-        </div>
-
-        {/* Completion Message */}
-        {hasCompleted && (
-          <div
-            style={{
-              backgroundColor: '#0A0A0A',
-              border: '2px solid #AC8E66',
-              borderRadius: '12px',
-              padding: '16px 24px',
-              fontFamily: 'monospace',
-              fontSize: '13px',
-              color: '#AC8E66',
-              textAlign: 'center',
-            }}
-          >
-            ✓ Tutorial abgeschlossen! Du kannst jetzt loslegen.
-          </div>
-        )}
+        />
       </div>
 
-      {/* Step Controller */}
-      <StepController
-        currentStep={currentStepIndex}
-        totalSteps={steps.length}
-        isPlaying={isPlaying}
-        onPlay={handlePlay}
-        onPause={handlePause}
-        onRestart={handleRestart}
-        onNext={handleNext}
-        onPrevious={handlePrevious}
-        step={currentStep}
-      />
+      {/* Step counter */}
+      <div style={{ fontSize: '9px', color: '#AC8E66', letterSpacing: '1.5px', textTransform: 'uppercase' }}>
+        Schritt {currentIndex + 1} von {steps.length}
+      </div>
+
+      {/* Icon */}
+      {step.icon && (
+        <div style={{ fontSize: '40px', textAlign: 'center', lineHeight: 1 }}>
+          {step.icon}
+        </div>
+      )}
+
+      {/* Content */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '14px', justifyContent: 'center' }}>
+        <h2
+          style={{
+            fontSize: '18px',
+            fontWeight: 300,
+            color: '#E8E8E8',
+            margin: 0,
+            lineHeight: 1.3,
+          }}
+        >
+          {step.title}
+        </h2>
+        <p
+          style={{
+            fontSize: '12px',
+            color: '#9A9A9A',
+            margin: 0,
+            lineHeight: 1.7,
+            fontWeight: 300,
+          }}
+        >
+          {step.description}
+        </p>
+      </div>
+
+      {/* Navigation */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '16px', borderTop: '0.5px solid #2a2a2a' }}>
+        <button
+          onClick={() => currentIndex > 0 ? setCurrentIndex(i => i - 1) : onComplete()}
+          style={{
+            background: 'none',
+            border: '0.5px solid #3a3a3a',
+            borderRadius: '6px',
+            padding: '8px 14px',
+            color: '#777',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          {currentIndex > 0 ? '← Zurück' : 'Abbrechen'}
+        </button>
+
+        <button
+          onClick={() => isLast ? onComplete() : setCurrentIndex(i => i + 1)}
+          style={{
+            background: '#AC8E66',
+            border: 'none',
+            borderRadius: '6px',
+            padding: '8px 18px',
+            color: '#fff',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          {isLast ? 'Fertig' : 'Weiter →'}
+        </button>
+      </div>
     </div>
   );
 };

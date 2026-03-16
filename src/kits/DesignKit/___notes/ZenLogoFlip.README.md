@@ -243,4 +243,5 @@ interface ZenLogoFlipProps {
 **Erstellt von:** Denis Bitter
 **Version:** 1.0.0
 
-Made with 🧡 by Denis Bitter - Fullstack Developer
+Made with <3 by Denis Bitter - Fullstack Develop
+ 

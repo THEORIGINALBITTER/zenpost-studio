@@ -143,28 +143,43 @@ return (
             )}
 
             {/* Base URL */}
-            {(aiConfig.provider === "ollama" || aiConfig.provider === "custom") && (
-              <div className="w-full">
-                <label
-                  className="block font-mono text-[11px] text-[#6b5a3e] text-center"
-                  style={{ marginBottom: 8 }}
-                >
-                  Base URL
-                </label>
-                <input
-                  type="text"
-                  value={aiConfig.baseUrl || ""}
-                  onChange={(e) => setAiConfig({ ...aiConfig, baseUrl: e.target.value })}
-                  placeholder={
-                    aiConfig.provider === "ollama"
-                      ? "http://127.0.0.1:11434"
-                      : "https://your-api.com"
-                  }
-                  className="bg-transparent border border-[#AC8E66]/70 rounded-lg font-mono text-[10px] text-[#3a3a3a] text-center focus:outline-none focus:border-[#AC8E66] placeholder:text-[#7a6a52]/70"
-                  style={{ padding: "8px 16px" }}
-                />
-              </div>
-            )}
+        {/* Base URL */}
+{(aiConfig.provider === "ollama" || aiConfig.provider === "custom") && (
+  <div className="w-full">
+    <label
+      className="block font-mono text-[11px] text-[#6b5a3e] text-center"
+      style={{ marginBottom: 8 }}
+    >
+      Base URL:
+    </label>
+
+    <input
+      type="url"
+      value={aiConfig.baseUrl ?? ""}
+      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+        setAiConfig({
+          ...aiConfig,
+          baseUrl: e.target.value,
+        })
+      }
+      placeholder={
+        aiConfig.provider === "ollama"
+          ? "http://127.0.0.1:11434"
+          : "https://your-api.com"
+      }
+      className="
+        w-full
+        bg-transparent border
+        border-[#AC8E66]/70 rounded-lg
+        font-mono text-[10px] text-[#3a3a3a] text-center
+        focus:outline-none focus:border-[#AC8E66]
+        placeholder:text-[#7a6a52]/70
+      "
+      style={{ padding: "8px 16px" }}
+    />
+
+  </div>
+)}
           </div>
 
           {/* Web-Modus: Info-Box wenn Ollama noch ausgewählt ist (z.B. alte Config) */}

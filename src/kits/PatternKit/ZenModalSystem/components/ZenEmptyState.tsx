@@ -48,7 +48,7 @@ export function ZenEmptyState({
         style={{
           width: '100%',
           maxWidth,
-          background: 'linear-gradient(180deg, #0B0B0B 0%, #171717 100%)',
+          background: '#1a1a1a',
           border: '.5px dotted #AC8E66',
           borderRadius: '12px',
           padding: '48px 32px',

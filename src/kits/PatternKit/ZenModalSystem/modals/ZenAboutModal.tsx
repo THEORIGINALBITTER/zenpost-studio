@@ -127,7 +127,9 @@ export const ZenAboutModal = ({ isOpen, onClose, onOpenBugReport }: ZenAboutModa
           </div>
 
           {/* Footer */}
-          <ZenModalFooter />
+          <ZenModalFooter 
+         
+          />
         </div>
       </ZenModal>
     </>

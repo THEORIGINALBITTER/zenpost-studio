@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { exists, readDir, readTextFile, stat } from '@tauri-apps/plugin-fs';
+import { exists, mkdir, readDir, readTextFile, stat } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFileLines } from '@fortawesome/free-solid-svg-icons';
@@ -17,6 +17,7 @@ import { defaultEditorSettings, loadEditorSettings, loadDraftAutosave, saveDraft
 import { getRecentProjectPaths, rememberProjectPath, removeProjectPath } from '../../utils/projectHistory';
 import { loadZenStudioSettings, type ZenStudioSettings } from '../../services/zenStudioSettingsService';
 import type { ScanArtifacts, ScanSummary } from '../../services/projectScanService';
+import { canUseDirectoryPicker, readMarkdownFiles } from '../../services/webProjectService';
 
 function stepFromIndex(index?: number): DocStudioStep {
   if (index === undefined || index === null) return 'project';
@@ -89,10 +90,16 @@ export function DocStudioScreen({
   onWebDocumentRequestHandled,
   scheduledPosts = [],
   onOpenProjectDocuments,
-  availableProjectDocuments = [],
   availableWebDocuments = [],
   onOpenEditorSettings,
   onFileSaved,
+  onPushDocsToGitHub,
+  githubDocsFileCount,
+  onOpenGitHubSettings,
+  onPushTemplatesToGitHub,
+  onSaveDocsSiteLocally,
+  onPushDocsSiteToGitHub,
+  initialWizard,
 }: DocStudioScreenProps) {
   const SAVED_COMPARISON_ID = '__saved__';
   const TAB_COMPARISON_PREFIX = 'tab:';
@@ -161,8 +168,10 @@ export function DocStudioScreen({
   const [showReturnToEditor, setShowReturnToEditor] = useState(false);
   const [isRescanning, setIsRescanning] = useState(false);
   const [rescanError, setRescanError] = useState<string | null>(null);
-  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths());
+  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths(8, 'doc'));
   const [recentDocuments, setRecentDocuments] = useState<RecentDocumentItem[]>([]);
+  const [docProjectFiles, setDocProjectFiles] = useState<Array<{ path: string; name: string; modifiedAt?: number }>>([]);
+  const [webPickedDocuments, setWebPickedDocuments] = useState<Array<{ path: string; name: string; content: string; modifiedAt: number }>>([]);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>({ ...defaultEditorSettings });
   const [zenStudioSettings, setZenStudioSettings] = useState<ZenStudioSettings>(() =>
     loadZenStudioSettings()
@@ -184,8 +193,30 @@ export function DocStudioScreen({
     draft: 'Entwurf',
   };
 
+  // Absolute paths in the repo — root files stay at root, DataRoom gets its own folder
+  const templateFilenames: Record<DocTemplate, string> = {
+    readme: 'README.md',
+    changelog: 'CHANGELOG.md',
+    contributing: 'CONTRIBUTING.md',
+    'api-docs': 'docs/API.md',
+    bug: 'docs/BUG_REPORT.md',
+    draft: 'docs/DRAFT.md',
+    'data-room': 'DataRoom/DATA_ROOM.md',
+  };
+
+  const generatedTemplates = ds.selectedTemplates
+    .filter((tpl) => {
+      const content = ds.tabContents[templateTabId(tpl)];
+      return content && content.trim().length > 0;
+    })
+    .map((tpl) => ({
+      name: templateFilenames[tpl],
+      label: templateLabels[tpl],
+      content: ds.tabContents[templateTabId(tpl)],
+    }));
+
   useEffect(() => {
-    setRecentProjectPaths(getRecentProjectPaths());
+    setRecentProjectPaths(getRecentProjectPaths(8, 'doc'));
   }, [ds.step, ds.projectPath]);
 
   useEffect(() => {
@@ -205,6 +236,38 @@ export function DocStudioScreen({
       cancelled = true;
     };
   }, [ds.runtime, ds.projectPath, ds.step]);
+
+  // Ensure docs/ folder exists in project — create silently if missing
+  useEffect(() => {
+    if (ds.runtime !== 'tauri' || !ds.projectPath) return;
+    const docsFolder = `${ds.projectPath}/docs`;
+    exists(docsFolder)
+      .then((alreadyExists) => {
+        if (!alreadyExists) return mkdir(docsFolder, { recursive: true });
+      })
+      .catch(() => {
+        // Non-critical — ignore if creation fails (e.g. read-only FS)
+      });
+  }, [ds.runtime, ds.projectPath]);
+
+  // Scan the Doc Studio project for all its documents (independent of Content Studio project)
+  useEffect(() => {
+    if (ds.runtime !== 'tauri' || !ds.projectPath) {
+      setDocProjectFiles([]);
+      return;
+    }
+    let cancelled = false;
+    scanRecentDocuments(ds.projectPath, 500)
+      .then((documents) => {
+        if (!cancelled) setDocProjectFiles(documents);
+      })
+      .catch(() => {
+        if (!cancelled) setDocProjectFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ds.runtime, ds.projectPath]);
 
   const templateTabs: DocTab[] = ds.selectedTemplates.map((template) => ({
     id: templateTabId(template),
@@ -626,6 +689,55 @@ export function DocStudioScreen({
     }
   };
 
+  const handleWebFolderPick = async () => {
+    const applyDocs = (docs: Array<{ path: string; name: string; content: string; modifiedAt: number }>, folderName: string) => {
+      const projectPath = `@web-folder:${folderName}`;
+      setWebPickedDocuments(docs);
+      ds.setProjectPath(projectPath);
+      emitStateChange({ projectPath });
+    };
+
+    // Chrome / Edge: File System Access API
+    if (canUseDirectoryPicker()) {
+      try {
+        const handle = await (window as any).showDirectoryPicker({ mode: 'read' });
+        const files = await readMarkdownFiles(handle);
+        applyDocs(
+          files.map((f) => ({ path: `web:${f.path || f.name}`, name: f.name, content: f.content, modifiedAt: Date.now() })),
+          handle.name || 'Browser-Ordner',
+        );
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') console.error('[DocStudio] Web folder pick failed', err);
+      }
+      return;
+    }
+
+    // Safari / Firefox fallback: <input webkitdirectory>
+    const input = document.createElement('input');
+    input.type = 'file';
+    (input as any).webkitdirectory = true;
+    input.multiple = true;
+    input.onchange = async () => {
+      const fileList = input.files;
+      if (!fileList || fileList.length === 0) return;
+      const allowed = new Set(['md', 'txt', 'markdown', 'mdx']);
+      const folderName = (fileList[0] as any).webkitRelativePath?.split('/')?.[0] || 'Browser-Ordner';
+      const docs: Array<{ path: string; name: string; content: string; modifiedAt: number }> = [];
+      for (let i = 0; i < fileList.length; i++) {
+        const file = fileList[i];
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+        if (!allowed.has(ext)) continue;
+        try {
+          const content = await file.text();
+          const relPath = (file as any).webkitRelativePath || file.name;
+          docs.push({ path: `web:${relPath}`, name: file.name, content, modifiedAt: file.lastModified });
+        } catch { /* skip unreadable */ }
+      }
+      if (docs.length > 0) applyDocs(docs, folderName);
+    };
+    input.click();
+  };
+
   useEffect(() => {
     if (!headerAction) return;
     if (headerAction === 'save') {
@@ -795,6 +907,21 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
   }, [requestedWebDocument, onWebDocumentRequestHandled]);
 
   const handleOpenRecentDocument = async (targetPath: string) => {
+    if (targetPath.startsWith('web:')) {
+      const doc = webPickedDocuments.find((d) => d.path === targetPath);
+      if (!doc) return;
+      const tabId = fileTabId(targetPath);
+      ds.setOpenFileTabs((prev) => {
+        if (prev.some((tab) => tab.id === tabId)) return prev;
+        return [...prev, { id: tabId, title: doc.name, kind: 'file' as const, filePath: targetPath }];
+      });
+      ds.setTabContents((prev) => ({ ...prev, [tabId]: doc.content }));
+      ds.setDirtyTabs((prev) => ({ ...prev, [tabId]: false }));
+      ds.setActiveTabId(tabId);
+      ds.setGeneratedContent(doc.content);
+      ds.setStep('edit');
+      return;
+    }
     if (ds.runtime !== 'tauri') return;
     const tabId = fileTabId(targetPath);
     const fileName = targetPath.split(/[\\/]/).pop() || 'Dokument';
@@ -885,18 +1012,22 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
   };
 
   return (
-    <DocStudioShell>
+    <DocStudioShell noPadding={ds.step === 'edit'}>
       <div className="relative min-h-full">
       {ds.step === 'project' && (
         <StepSelectProject
           runtime={ds.runtime}
           projectPath={ds.projectPath}
           recentProjectPaths={recentProjectPaths}
-          recentDocuments={recentDocuments}
+          recentDocuments={
+            ds.runtime === 'web'
+              ? webPickedDocuments.map((d) => ({ path: d.path, name: d.name, modifiedAt: d.modifiedAt, projectPath: ds.projectPath ?? '' }))
+              : recentDocuments
+          }
           hasExistingAnalysis={hasExistingAnalysis}
           onSelect={(path) => {
-            rememberProjectPath(path);
-            setRecentProjectPaths(getRecentProjectPaths());
+            rememberProjectPath(path, 8, 'doc');
+            setRecentProjectPaths(getRecentProjectPaths(8, 'doc'));
             ds.setProjectPath(path);
             ds.setScanSummary(null);
             ds.setScanArtifacts(null);
@@ -936,11 +1067,21 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
             setShowReturnToEditor(false);
             ds.setStep('templates');
           }}
+          onWebFolderPick={handleWebFolderPick}
           onOpenRecentDocument={handleOpenRecentDocument}
           onRemoveProject={(path) => {
-            removeProjectPath(path);
-            setRecentProjectPaths(getRecentProjectPaths());
+            removeProjectPath(path, 'doc');
+            setRecentProjectPaths(getRecentProjectPaths(8, 'doc'));
           }}
+          onPushDocsToGitHub={onPushDocsToGitHub}
+          githubDocsFileCount={githubDocsFileCount}
+          onOpenGitHubSettings={onOpenGitHubSettings}
+          generatedTemplates={generatedTemplates}
+          onPushTemplates={onPushTemplatesToGitHub}
+          docFiles={docProjectFiles.filter((f) => /\.(md|mdx)$/i.test(f.name))}
+          onSaveDocsSiteLocally={onSaveDocsSiteLocally}
+          onPushDocsSiteToGitHub={onPushDocsSiteToGitHub}
+          initialWizard={initialWizard}
         />
       )}
 
@@ -972,12 +1113,14 @@ createdAt: ${matchingPost.createdAt || new Date().toISOString()}
           }}
           projectDocuments={
             ds.runtime === 'tauri'
-              ? availableProjectDocuments
-              : availableWebDocuments.map((doc) => ({
-                  path: `web:${doc.name}`,
-                  name: doc.name,
-                  modifiedAt: doc.updatedAt,
-                }))
+              ? docProjectFiles
+              : webPickedDocuments.length > 0
+                ? webPickedDocuments.map((d) => ({ path: d.path, name: d.name, modifiedAt: d.modifiedAt }))
+                : availableWebDocuments.map((doc) => ({
+                    path: `web:${doc.name}`,
+                    name: doc.name,
+                    modifiedAt: doc.updatedAt,
+                  }))
           }
           webDocuments={availableWebDocuments}
           onOpenDocument={(path) => {

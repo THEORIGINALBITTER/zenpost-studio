@@ -12,9 +12,9 @@ import {
   faGithub,
   faYoutube,
 } from '@fortawesome/free-brands-svg-icons';
-import { faNewspaper } from '@fortawesome/free-solid-svg-icons';
+import { faNewspaper, faCircleExclamation } from '@fortawesome/free-solid-svg-icons';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { ZenSettingsModal, ZenMetadataModal, ZenGeneratingModal, ZenSaveSuccessModal, ZenModal, ZenModalHeader, ZenRoughButton, createDefaultProjectMetadata, type ProjectMetadata } from '../kits/PatternKit/ZenModalSystem';
-import { ZenFooterText } from '../kits/PatternKit/ZenModalSystem';
 import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
 import { Step3StyleOptions } from './transform-steps/Step3StyleOptions';
@@ -55,6 +55,8 @@ import {
   loadZenStudioSettings,
   type ZenStudioSettings,
 } from '../services/zenStudioSettingsService';
+import { ftpUpload } from '../services/ftpService';
+import { phpBlogUpload } from '../services/phpBlogService';
 import ZenEngine from '../services/zenEngineService';
 
 interface PlatformOption {
@@ -172,6 +174,8 @@ interface ContentTransformScreenProps {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      activeTabSubtitle?: string;
+      activeTabImageUrl?: string;
       tags?: string[];
     }
   ) => void;
@@ -184,6 +188,9 @@ interface ContentTransformScreenProps {
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
   /** Original server slug if this content was loaded from server — used to overwrite the correct article */
   serverArticleSlug?: string | null;
+  /** When set, Speichern writes to the blog's posts/ folder and updates manifest.json */
+  blogSaveTarget?: import('../services/zenStudioSettingsService').BlogConfig | null;
+  onBlogPostSaved?: (slug: string) => void;
 }
 
 type ContentDocTab = {
@@ -832,6 +839,8 @@ export const ContentTransformScreen = ({
   onFileSaved,
   onOpenZenThoughtsEditor,
   serverArticleSlug,
+  blogSaveTarget,
+  onBlogPostSaved,
 }: ContentTransformScreenProps) => {
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
@@ -917,6 +926,8 @@ export const ContentTransformScreen = ({
       activeTabKind: resolvedTab?.kind,
       activeTabFilePath: resolvedTab?.filePath,
       activeTabTitle: resolvedTab?.title,
+      activeTabSubtitle: postMeta.subtitle || undefined,
+      activeTabImageUrl: postMeta.imageUrl || undefined,
       tags: postMeta.tags,
     });
   };
@@ -1277,7 +1288,7 @@ export const ContentTransformScreen = ({
     finalizeSavedSource(undefined, finalFileName, contentToSave);
   };
 
-  const handleSaveSourceToProject = async (contentOverride?: string) => {
+  const handleSaveSourceToProject = async (contentOverride?: string, triggerFtp = false) => {
     const contentToSave = await resolveLatestSourceContent(contentOverride);
     if (!contentToSave.trim()) {
       alert('Kein Inhalt zum Speichern.');
@@ -1286,9 +1297,291 @@ export const ContentTransformScreen = ({
 
     const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
 
+    // Blog-aware save: write to posts/ + update manifest.json
+    if (isTauri() && blogSaveTarget && (!activeTab || activeTab.kind !== 'file')) {
+      // Check if post meta is sparse — title can come from heading, but tags + subtitle missing is worth a nudge
+      const metaSparse = !postMeta.subtitle.trim() && postMeta.tags.length === 0;
+      if (metaSparse && !contentOverride) {
+        // contentOverride = "force save" signal from the hint banner
+        pendingBlogSaveRef.current = () => handleSaveSourceToProject('__force__');
+        setShowBlogMetaHint(true);
+        return;
+      }
+      const actualContent = contentOverride === '__force__' ? await resolveLatestSourceContent() : contentToSave;
+      try {
+        const date = new Date().toISOString().split('T')[0];
+        const titleFromMeta = postMeta.title.trim();
+        const firstHeading = actualContent.match(/^#+\s+(.+)/m)?.[1] ?? (fileName || 'Blog Post');
+        const titleText = (titleFromMeta || firstHeading).trim().slice(0, 80);
+        const slug = `${date}-${titleText.toLowerCase()
+          .replace(/[äöüß]/g, (c: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
+          .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+        const wordCount = actualContent.trim().split(/\s+/).length;
+        const readingTime = Math.max(1, Math.round(wordCount / 220));
+        const fmLines = [
+          '---',
+          `title: "${titleText.replace(/"/g, '\\"')}"`,
+          postMeta.subtitle.trim() ? `subtitle: "${postMeta.subtitle.trim().replace(/"/g, '\\"')}"` : null,
+          `date: "${date}"`,
+          postMeta.tags.length > 0 ? `tags: [${postMeta.tags.join(', ')}]` : null,
+          `readingTime: ${readingTime}`,
+          postMeta.imageUrl.trim() ? `coverImage: "${postMeta.imageUrl.trim()}"` : null,
+          '---', '', '',
+        ].filter((l): l is string => l !== null).join('\n');
+        const postsDir = await join(blogSaveTarget.path, 'posts');
+        if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
+        const filePath = await join(postsDir, `${slug}.md`);
+        await writeTextFile(filePath, fmLines + actualContent);
+        // Update manifest.json
+        const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
+        let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
+          site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
+          posts: [],
+        };
+        try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new */ }
+        // Fetch server manifest as authoritative source to avoid losing posts
+        if (blogSaveTarget.siteUrl) {
+          try {
+            const siteBase = (blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '');
+            const res = await fetch(`${siteBase}/manifest.json`);
+            if (res.ok) {
+              const serverManifest = await res.json() as typeof manifest;
+              if (Array.isArray(serverManifest?.posts) && serverManifest.posts.length >= manifest.posts.length) {
+                manifest = serverManifest;
+              }
+            }
+          } catch { /* server fetch non-fatal */ }
+        }
+        const entry: Record<string, unknown> = { slug, title: titleText, date, readingTime };
+        if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
+        if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
+        if (postMeta.imageUrl.trim()) entry.coverImage = postMeta.imageUrl.trim();
+        const idx = manifest.posts.findIndex((p) => p.slug === slug);
+        if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
+        await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+        // FTP/SFTP Upload wenn konfiguriert
+        if (blogSaveTarget.deployType === 'ftp' && blogSaveTarget.ftpHost && blogSaveTarget.ftpUser && blogSaveTarget.ftpPassword) {
+          const blogRoot = (blogSaveTarget.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
+          const ftpConfig = {
+            host: blogSaveTarget.ftpHost,
+            user: blogSaveTarget.ftpUser,
+            password: blogSaveTarget.ftpPassword,
+            remotePath: blogRoot + '/posts/',
+            protocol: blogSaveTarget.ftpProtocol ?? 'ftp',
+          };
+          const ftpErr = await ftpUpload(filePath, `${slug}.md`, ftpConfig);
+          // Also upload manifest.json so server stays in sync
+          if (!ftpErr) {
+            await ftpUpload(manifestPath, 'manifest.json', {
+              ...ftpConfig,
+              remotePath: blogRoot + '/',
+            }).catch(() => {}); // non-fatal
+          }
+          if (ftpErr) {
+            setSavedFileName(`${slug}.md`);
+            setSavedFilePath(filePath);
+            setSavedFilePaths([filePath]);
+            setSaveSuccessMessage(`Lokal gespeichert. FTP-Upload fehlgeschlagen: ${ftpErr}`);
+            setSaveSuccessPathsLabel(undefined);
+            setSaveSuccessPrimaryActionLabel(undefined);
+            setSaveSuccessPrimaryActionUrl(null);
+            setShowSaveSuccess(true);
+          } else {
+            const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/#/post/${slug}` : undefined;
+            setSavedFileName(`${slug}.md`);
+            setSavedFilePath(filePath);
+            setSavedFilePaths([
+              `Blog: ${blogSaveTarget.name}`,
+              `FTP: ${blogSaveTarget.ftpHost}${blogRoot}/posts/${slug}.md`,
+              ...(viewUrl ? [`Ansicht: ${viewUrl}`] : []),
+            ]);
+            setSaveSuccessMessage('Artikel lokal gespeichert und per FTP hochgeladen.');
+            setSaveSuccessPathsLabel('Details:');
+            setSaveSuccessPrimaryActionLabel(viewUrl ? 'Im Blog anschauen' : undefined);
+            setSaveSuccessPrimaryActionUrl(viewUrl ?? null);
+            setShowSaveSuccess(true);
+          }
+          onBlogPostSaved?.(slug);
+          return;
+        }
+
+        // PHP Upload (Web + Desktop)
+        if (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
+          const phpErr = await phpBlogUpload(
+            { filename: `${slug}.md`, content: fmLines + actualContent, manifest },
+            { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey },
+          );
+          const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/#/post/${slug}` : undefined;
+          setSavedFileName(`${slug}.md`);
+          setSavedFilePath(filePath);
+          setSavedFilePaths(phpErr
+            ? [`Lokal: ${filePath}`, `PHP Upload fehlgeschlagen: ${phpErr}`]
+            : [`Blog: ${blogSaveTarget.name}`, blogSaveTarget.phpApiUrl, ...(viewUrl ? [`Ansicht: ${viewUrl}`] : [])]);
+          setSaveSuccessMessage(phpErr ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : 'Artikel lokal gespeichert und per PHP hochgeladen.');
+          setSaveSuccessPathsLabel('Details:');
+          setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Im Blog anschauen' : undefined);
+          setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+          setShowSaveSuccess(true);
+          onBlogPostSaved?.(slug);
+          return;
+        }
+
+        finalizeSavedSource(filePath, `${slug}.md`, actualContent, { markAsFile: true });
+        onBlogPostSaved?.(slug);
+        return;
+      } catch { /* fall through to normal save */ }
+    }
+
     if (isTauri() && activeTab?.kind === 'file' && activeTab.filePath) {
       await writeTextFile(activeTab.filePath, contentToSave);
       const savedName = activeTab.filePath.split(/[\\/]/).pop() || activeTab.title || 'Dokument.md';
+
+      // FTP Upload für bestehende Blog-Post-Dateien
+      if (triggerFtp && blogSaveTarget?.deployType === 'ftp' && blogSaveTarget.ftpHost && blogSaveTarget.ftpUser && blogSaveTarget.ftpPassword) {
+        const blogRoot2 = (blogSaveTarget.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
+        const ftpErr = await ftpUpload(activeTab.filePath, savedName, {
+          host: blogSaveTarget.ftpHost,
+          user: blogSaveTarget.ftpUser,
+          password: blogSaveTarget.ftpPassword,
+          remotePath: blogRoot2 + '/posts/',
+          protocol: blogSaveTarget.ftpProtocol ?? 'ftp',
+        });
+        if (ftpErr) {
+          setSavedFileName(savedName);
+          setSavedFilePath(activeTab.filePath);
+          setSavedFilePaths([activeTab.filePath]);
+          setSaveSuccessMessage(`Lokal gespeichert. FTP-Upload fehlgeschlagen: ${ftpErr}`);
+          setSaveSuccessPathsLabel(undefined);
+          setSaveSuccessPrimaryActionLabel(undefined);
+          setSaveSuccessPrimaryActionUrl(null);
+          setShowSaveSuccess(true);
+        } else {
+          const slug = savedName.replace(/\.md$/, '');
+          // Update manifest.json locally and re-upload to server
+          try {
+            const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
+            let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
+              site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
+              posts: [],
+            };
+            // 1. Try local manifest
+            try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new manifest */ }
+            // 2. Try server manifest (authoritative — has all posts). Merge: keep server posts as base
+            if (blogSaveTarget.siteUrl) {
+              try {
+                const siteBase = (blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '');
+                const res = await fetch(`${siteBase}/manifest.json`);
+                if (res.ok) {
+                  const serverManifest = await res.json() as typeof manifest;
+                  if (Array.isArray(serverManifest?.posts) && serverManifest.posts.length >= manifest.posts.length) {
+                    manifest = serverManifest;
+                  }
+                }
+              } catch { /* server fetch non-fatal */ }
+            }
+            const fmMatch = contentToSave.match(/^---\n([\s\S]*?)\n---/);
+            const fmStr = fmMatch?.[1] ?? '';
+            const getFmField = (k: string) => fmStr.match(new RegExp(`^${k}:\\s*"?([^"\\n]+)"?`, 'm'))?.[1]?.trim() ?? '';
+            const entry: Record<string, unknown> = {
+              slug,
+              title: getFmField('title') || slug,
+              date: getFmField('date') || new Date().toISOString().split('T')[0],
+              readingTime: parseInt(getFmField('readingTime') || '1', 10) || 1,
+            };
+            if (getFmField('subtitle')) entry.subtitle = getFmField('subtitle');
+            if (getFmField('coverImage')) entry.coverImage = getFmField('coverImage');
+            const tagsMatch = fmStr.match(/^tags:\s*\[([^\]]*)\]/m);
+            if (tagsMatch) entry.tags = tagsMatch[1].split(',').map((t: string) => t.trim()).filter(Boolean);
+            const idx = manifest.posts.findIndex((p) => p.slug === slug);
+            if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
+            await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+            await ftpUpload(manifestPath, 'manifest.json', {
+              host: blogSaveTarget.ftpHost!,
+              user: blogSaveTarget.ftpUser!,
+              password: blogSaveTarget.ftpPassword!,
+              remotePath: blogRoot2 + '/',
+              protocol: blogSaveTarget.ftpProtocol ?? 'ftp',
+            }).catch(() => {});
+          } catch { /* manifest update non-fatal */ }
+          const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/#/post/${slug}` : undefined;
+          setSavedFileName(savedName);
+          setSavedFilePath(activeTab.filePath);
+          setSavedFilePaths([
+            `Blog: ${blogSaveTarget.name}`,
+            `FTP: ${blogSaveTarget.ftpHost}${blogRoot2}/posts/${savedName}`,
+            ...(viewUrl ? [`Ansicht: ${viewUrl}`] : []),
+          ]);
+          setSaveSuccessMessage('Artikel lokal gespeichert und per FTP hochgeladen.');
+          setSaveSuccessPathsLabel('Details:');
+          setSaveSuccessPrimaryActionLabel(viewUrl ? 'Im Blog anschauen' : undefined);
+          setSaveSuccessPrimaryActionUrl(viewUrl ?? null);
+          setShowSaveSuccess(true);
+        }
+        onFileSaved?.(activeTab.filePath, contentToSave, savedName);
+        return;
+      }
+
+      // PHP Upload für bestehende File-Tabs
+      if (triggerFtp && blogSaveTarget?.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
+        // Build updated manifest to send alongside the post
+        let phpManifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } | undefined;
+        try {
+          const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
+          let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
+            site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
+            posts: [],
+          };
+          try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new manifest */ }
+          // Fetch from PHP API (GET returns current server manifest with all posts)
+          try {
+            const res = await fetch(blogSaveTarget.phpApiUrl!, { method: 'GET' });
+            if (res.ok) {
+              const serverManifest = await res.json() as typeof manifest;
+              if (Array.isArray(serverManifest?.posts) && serverManifest.posts.length >= manifest.posts.length) {
+                manifest = serverManifest;
+              }
+            }
+          } catch { /* server fetch non-fatal */ }
+          const slug2 = savedName.replace(/\.md$/, '');
+          const fmMatch2 = contentToSave.match(/^---\n([\s\S]*?)\n---/);
+          const fmStr2 = fmMatch2?.[1] ?? '';
+          const getFmField2 = (k: string) => fmStr2.match(new RegExp(`^${k}:\\s*"?([^"\\n]+)"?`, 'm'))?.[1]?.trim() ?? '';
+          const entry2: Record<string, unknown> = {
+            slug: slug2,
+            title: getFmField2('title') || slug2,
+            date: getFmField2('date') || new Date().toISOString().split('T')[0],
+            readingTime: parseInt(getFmField2('readingTime') || '1', 10) || 1,
+          };
+          if (getFmField2('subtitle')) entry2.subtitle = getFmField2('subtitle');
+          if (getFmField2('coverImage')) entry2.coverImage = getFmField2('coverImage');
+          const tagsMatch2 = fmStr2.match(/^tags:\s*\[([^\]]*)\]/m);
+          if (tagsMatch2) entry2.tags = tagsMatch2[1].split(',').map((t: string) => t.trim()).filter(Boolean);
+          const idx2 = manifest.posts.findIndex((p) => p.slug === slug2);
+          if (idx2 >= 0) manifest.posts[idx2] = entry2; else manifest.posts.unshift(entry2);
+          await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+          phpManifest = manifest;
+        } catch { /* manifest update non-fatal */ }
+        const phpErr = await phpBlogUpload(
+          { filename: savedName, content: contentToSave, manifest: phpManifest },
+          { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey },
+        );
+        const slug = savedName.replace(/\.md$/, '');
+        const viewUrl = blogSaveTarget.siteUrl ? `${blogSaveTarget.siteUrl.replace(/\/$/, '')}/post/${slug}` : undefined;
+        setSavedFileName(savedName);
+        setSavedFilePath(activeTab.filePath);
+        setSavedFilePaths(phpErr
+          ? [activeTab.filePath, `PHP Upload fehlgeschlagen: ${phpErr}`]
+          : [`Blog: ${blogSaveTarget.name}`, blogSaveTarget.phpApiUrl, ...(viewUrl ? [`Ansicht: ${viewUrl}`] : [])]);
+        setSaveSuccessMessage(phpErr ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : 'Artikel lokal gespeichert und per PHP hochgeladen.');
+        setSaveSuccessPathsLabel('Details:');
+        setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Im Blog anschauen' : undefined);
+        setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+        setShowSaveSuccess(true);
+        onFileSaved?.(activeTab.filePath, contentToSave, savedName);
+        return;
+      }
+
       finalizeSavedSource(activeTab.filePath, savedName, contentToSave);
       return;
     }
@@ -1678,7 +1971,7 @@ export const ContentTransformScreen = ({
       const trimmed = sourceContent.trim();
       if (lastAutosaveRef.current[autosaveKey] === trimmed) return;
       setStep1AutosaveStatus('saving');
-      saveDraftAutosave(projectPath, autosaveKey, sourceContent)
+      saveDraftAutosave(projectPath, autosaveKey, sourceContent, editorSettings.autoSaveCustomPath)
         .then(() => {
           lastAutosaveRef.current[autosaveKey] = trimmed;
           setStep1AutosaveStatus('saved');
@@ -1696,7 +1989,7 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     if (!projectPath || !editorSettings.autoSaveEnabled) { setAutosaveHistory([]); return; }
     const autosaveKey = getStep1AutosaveKey();
-    listDraftAutosaves(projectPath, autosaveKey)
+    listDraftAutosaves(projectPath, autosaveKey, editorSettings.autoSaveCustomPath)
       .then((records) => setAutosaveHistory(records))
       .catch(() => setAutosaveHistory([]));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1916,6 +2209,8 @@ export const ContentTransformScreen = ({
 
   // Metadata Modal
   const [showMetadata, setShowMetadata] = useState(false);
+  const [showBlogMetaHint, setShowBlogMetaHint] = useState(false);
+  const pendingBlogSaveRef = useRef<(() => Promise<void>) | null>(null);
 
   // Save Success Modal
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
@@ -2869,7 +3164,7 @@ export const ContentTransformScreen = ({
       void handleSaveAsSourceToProject();
     }
     if (headerAction === "save_server" && effectiveStep === 1) {
-      void handleSaveSourceToServer();
+      void (blogSaveTarget ? handleSaveSourceToProject(undefined, true) : handleSaveSourceToServer());
     }
     onHeaderActionHandled?.();
   }, [
@@ -2944,10 +3239,11 @@ export const ContentTransformScreen = ({
                 void handleSaveAsSourceToProject(latestContent);
               }}
               onSaveToServer={(latestContent) => {
-                void handleSaveSourceToServer(latestContent);
+                void (blogSaveTarget ? handleSaveSourceToProject(latestContent, true) : handleSaveSourceToServer(latestContent));
               }}
               canSaveToProject={!!sourceContent.trim() && (!isTauri() || !!projectPath)}
-              canSaveToServer={!!sourceContent.trim() && !!zenStudioSettings.contentServerApiUrl}
+              canSaveToServer={!!sourceContent.trim() && (blogSaveTarget ? true : !!zenStudioSettings.contentServerApiUrl)}
+              saveToServerLabel={blogSaveTarget ? `Im Blog speichern` : undefined}
               editTabs={editTabs}
               activeEditTab={activeEditTab}
               onEditTabChange={(platform) => {
@@ -3285,10 +3581,56 @@ export const ContentTransformScreen = ({
         {renderStepContent()}
       </div>
 
-      {/* Footer */}
-      <div className="relative border-t border-[#AC8E66] py-3">
-        <ZenFooterText />
-      </div>
+      {/* Blog Meta Hint Banner */}
+      {showBlogMetaHint && (
+        <div style={{
+          position: 'fixed', bottom: '80px', left: '50%', transform: 'translateX(-50%)',
+          zIndex: 500, display: 'flex', alignItems: 'center', gap: '12px',
+          background: '#1e1a14', border: '1px solid rgba(172,142,102,0.5)',
+          borderRadius: '10px', padding: '12px 16px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+          maxWidth: '480px', width: 'calc(100vw - 48px)',
+        }}>
+          <FontAwesomeIcon icon={faCircleExclamation} style={{ color: '#AC8E66', fontSize: '14px', flexShrink: 0 }} />
+          <div style={{ flex: 1, color: '#c8b99a', lineHeight: 1.5 }}>
+            Kein Untertitel oder Tags gesetzt. Soll der Post-Kopf erst ausgefüllt werden?
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+            <button
+              onClick={() => {
+                setShowBlogMetaHint(false);
+                setShowMetadata(true);
+              }}
+              style={{
+                padding: '6px 12px', border: '1px solid rgba(172,142,102,0.6)',
+                borderRadius: '6px', background: 'transparent',
+                color: '#AC8E66', cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', whiteSpace: 'nowrap',
+              }}
+            >
+              Jetzt ausfüllen
+            </button>
+            <button
+              onClick={async () => {
+                setShowBlogMetaHint(false);
+                if (pendingBlogSaveRef.current) {
+                  await pendingBlogSaveRef.current();
+                  pendingBlogSaveRef.current = null;
+                }
+              }}
+              style={{
+                padding: '6px 12px', border: 'none',
+                borderRadius: '6px', background: '#AC8E66',
+                color: '#fff', cursor: 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', whiteSpace: 'nowrap',
+              }}
+            >
+              Trotzdem speichern
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       <ZenSettingsModal

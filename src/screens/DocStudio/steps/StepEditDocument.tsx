@@ -513,7 +513,7 @@ export function StepEditDocument({
   );
 
   return (
-    <div className="flex-1 flex flex-col items-center bg-[#121212] px-[24px]">
+    <div className="flex-1 flex flex-col items-center bg-[#1a1a1a] px-[24px] min-h-full">
       <div
         className={showPreview ? 'w-[92%] max-w-[1400px]' : 'w-[75%] max-w-[1024px]'}
         style={{
@@ -829,7 +829,7 @@ export function StepEditDocument({
                       }}
                     >
                       {isDirty ? <span style={{ color: isActive ? '#e5e5e5' : '#AC8E66' }}>•</span> : null}
-                      <span>{tab.title}</span>
+                      <span>{tab.title.length > 20 ? tab.title.slice(0, 20) + '…' : tab.title}</span>
                       <span
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1055,7 +1055,7 @@ export function StepEditDocument({
                 <ZenMarkdownPreview
                   content={activeContent}
                   projectPath={projectPath}
-                  height="580px"
+                  height="calc(100vh - 260px)"
                   onContentChange={(value) => onContentChange(activeTabId, value)}
                   collapseControlsByDefault
                   translationStatusStyle="ai"
@@ -1079,6 +1079,7 @@ export function StepEditDocument({
                   theme={editorSettings.theme}
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
+                  height="calc(100vh - 260px)"
                 />
               )}
             </div>

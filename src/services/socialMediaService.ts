@@ -52,6 +52,12 @@ export interface MediumConfig {
 export interface GitHubConfig {
   accessToken: string;
   username: string;
+  /** Docs repository name (e.g. "my-docs") */
+  docsRepo?: string;
+  /** Branch to push to (default: main) */
+  docsBranch?: string;
+  /** Target folder in repo (e.g. "docs/") */
+  docsPath?: string;
 }
 
 export interface PostResult {

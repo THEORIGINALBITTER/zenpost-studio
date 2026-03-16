@@ -88,7 +88,7 @@ export const ZenSettingsModal = ({
           style={{
             width: 180,
             minWidth: 180,
-            background: 'linear-gradient(0deg, #0B0B0B 0%, #171717 100%)',
+            background: '#1a1a1a',
             borderRadius: '0 0 0 12px',
             display: 'flex',
             flexDirection: 'column',

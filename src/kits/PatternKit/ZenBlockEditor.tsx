@@ -3890,7 +3890,8 @@ export const ZenBlockEditor = ({
         border: `1px solid ${colors.border}`,
         borderRadius: 8,
         backgroundColor: colors.background,
-        overflow: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
         height,
         fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
         ...(fontSize ? { ['--zen-editor-font-size' as any]: `${fontSize}px` } : {}),
@@ -4085,6 +4086,7 @@ export const ZenBlockEditor = ({
         </div>
       )}
 
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       <div
         ref={holderRef}
         style={{
@@ -4092,13 +4094,13 @@ export const ZenBlockEditor = ({
           color: colors.text,
         }}
       />
+      </div>
 
       {/* ZenEngine Hints Panel */}
       {showHintsPanel && analyzeResult && analyzeResult.suggestions.length > 0 && (
         <div style={{
-          position: 'sticky',
-          bottom: 24,
-          margin: '0 8px',
+          flexShrink: 0,
+          margin: '0 8px 4px',
           borderRadius: 8,
           background: theme === 'dark' ? 'rgba(21,21,21,0.97)' : 'rgba(237,230,216,0.97)',
           border: `1px solid ${colors.border}`,
@@ -4253,9 +4255,8 @@ export const ZenBlockEditor = ({
       {/* Content Intelligence Panel */}
       {showIntelPanel && contentIntel && (
         <div style={{
-          position: 'sticky',
-          bottom: 24,
-          margin: '0 8px',
+          flexShrink: 0,
+          margin: '0 8px 4px',
           borderRadius: 8,
           background: theme === 'dark' ? 'rgba(21,21,21,0.97)' : 'rgba(237,230,216,0.97)',
           border: `1px solid ${colors.border}`,
@@ -4354,8 +4355,7 @@ export const ZenBlockEditor = ({
       {/* ZenEngine Status-Bar */}
       <div
         style={{
-          position: 'sticky',
-          bottom: 0,
+          flexShrink: 0,
           display: 'flex',
           alignItems: 'center',
           gap: '12px',

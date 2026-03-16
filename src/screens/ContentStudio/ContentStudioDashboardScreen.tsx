@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCalendarDays,
@@ -10,6 +10,11 @@ import {
   faPenNib,
 } from '@fortawesome/free-solid-svg-icons';
 import { isWebProjectPath, getWebProjectName, getWebProjectType } from '../../services/webProjectService';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
+import { isTauri } from '@tauri-apps/api/core';
+import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs';
+import { join } from '@tauri-apps/api/path';
+import { type BlogConfig } from '../../services/zenStudioSettingsService';
 
 type DashboardDocument = {
   id: string;
@@ -39,6 +44,10 @@ type ContentStudioDashboardScreenProps = {
   onOpenServerArticle?: (slug: string) => void;
   onDeleteServerArticle?: (slug: string) => Promise<void>;
   onOpenApiSettings?: () => void;
+  onRemoveProject?: (path: string) => void;
+  blogs?: BlogConfig[];
+  onStartWritingToBlog?: (blog: BlogConfig) => void;
+  onOpenBlogPost?: (filePath: string, blog: BlogConfig) => void;
 };
 
 const ActionTile = ({
@@ -97,8 +106,13 @@ export function ContentStudioDashboardScreen({
   onOpenServerArticle,
   onDeleteServerArticle,
   onOpenApiSettings,
+  onRemoveProject,
+  blogs = [],
+  onStartWritingToBlog,
+  onOpenBlogPost,
 }: ContentStudioDashboardScreenProps) {
-  const visibleRecentProjects = recentProjectPaths.slice(0, 6);
+  const blogPaths = new Set(blogs.map((b) => b.path));
+  const visibleRecentProjects = recentProjectPaths.filter((p) => !blogPaths.has(p)).slice(0, 6);
   const stableOrderRef = useRef<string[]>([]);
   const seen = new Set(stableOrderRef.current);
   const newPaths = visibleRecentProjects.filter((p) => !seen.has(p));
@@ -109,6 +123,9 @@ export function ContentStudioDashboardScreen({
   const allProjects = stableOrderRef.current;
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<string | 'server'>('');
+  const [hoveredTab, setHoveredTab] = useState<string | null>(null);
+  const [blogPosts, setBlogPosts] = useState<Array<{ slug: string; title: string; date?: string }>>([]);
+  const [blogPostsLoading, setBlogPostsLoading] = useState(false);
   const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -129,6 +146,57 @@ export function ContentStudioDashboardScreen({
       .finally(() => { setDeletingSlug(null); setConfirmingDeleteSlug(null); });
   };
   const [cardHovered, setCardHovered] = useState(false);
+
+  // Load blog manifest when a blog tab is selected
+  useEffect(() => {
+    if (!selectedTab.startsWith('blog:')) { setBlogPosts([]); return; }
+    const blogId = selectedTab.slice(5);
+    const blog = blogs.find((b) => b.id === blogId);
+    if (!blog) { setBlogPosts([]); return; }
+    setBlogPostsLoading(true);
+
+    const parsePosts = (raw: unknown) => {
+      const posts = Array.isArray((raw as Record<string, unknown>)?.posts)
+        ? (raw as { posts: Record<string, unknown>[] }).posts : [];
+      return posts.map((p) => ({
+        slug: String(p.slug ?? ''),
+        title: String(p.title ?? p.slug ?? ''),
+        date: p.date ? String(p.date) : undefined,
+      }));
+    };
+
+    (async () => {
+      try {
+        // PHP-API blogs: fetch manifest from PHP endpoint
+        if (blog.deployType === 'php-api' && blog.phpApiUrl) {
+          const res = await fetch(blog.phpApiUrl, { method: 'GET' });
+          if (res.ok) {
+            setBlogPosts(parsePosts(await res.json()));
+            return;
+          }
+        }
+        // Any blog with a siteUrl: fetch manifest.json from the public site
+        if (blog.siteUrl) {
+          try {
+            const base = blog.siteUrl.startsWith('http') ? blog.siteUrl : 'https://' + blog.siteUrl;
+            const manifestUrl = base.replace(/\/$/, '') + '/manifest.json?t=' + Date.now();
+            const res = await fetch(manifestUrl);
+            if (res.ok) {
+              setBlogPosts(parsePosts(await res.json()));
+              return;
+            }
+          } catch { /* fall through to local */ }
+        }
+        // Local manifest fallback (Desktop only)
+        if (!isTauri()) { setBlogPosts([]); return; }
+        const manifestPath = await join(blog.path, 'manifest.json');
+        if (!(await exists(manifestPath))) { setBlogPosts([]); return; }
+        setBlogPosts(parsePosts(JSON.parse(await readTextFile(manifestPath))));
+      } catch { setBlogPosts([]); }
+      finally { setBlogPostsLoading(false); }
+    })();
+  }, [selectedTab, blogs]);
+
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
   const activeProjectName = activeProjectPath
     ? (isWebProjectPath(activeProjectPath)
@@ -214,57 +282,91 @@ export function ContentStudioDashboardScreen({
                   : (path.split(/[\\/]/).filter(Boolean).pop() || path);
                 const tabLabel = tabName.length > 6 ? tabName.slice(0, 5) + '…' : tabName;
                 const isActive = selectedTab !== 'server' && path === activeProjectPath;
+                const isHovered = hoveredTab === path;
                 return (
-                  <button
+                  <div
                     key={path}
-                    onClick={() => {
-                      setSelectedTab('');
-                      setSelectedPath(path);
-                      onSelectProjectPath(path);
-                    }}
-                    title={path}
-                    style={{
-                      width: '36px',
-                      height: '80px',
-                      borderRadius: '10px 0 0 10px',
-                      borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                      borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                      borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                      borderRight: 'none',
-                      background: isActive ? '#d0cbb8' : '#1a1a1a',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      padding: 0,
-                      transition: 'background 0.2s',
-                      position: 'relative',
-                      zIndex: isActive ? 20 : 10,
-                    }}
-                    onMouseEnter={(event) => {
-                      if (!isActive) event.currentTarget.style.background = '#2a2a2a';
-                    }}
-                    onMouseLeave={(event) => {
-                      if (!isActive) event.currentTarget.style.background = '#1a1a1a';
-                    }}
+                    style={{ position: 'relative' }}
+                    onMouseEnter={() => setHoveredTab(path)}
+                    onMouseLeave={() => setHoveredTab(null)}
                   >
-                    <span
+                    <button
+                      onClick={() => {
+                        setSelectedTab('');
+                        setSelectedPath(path);
+                        onSelectProjectPath(path);
+                      }}
+                      title={path}
                       style={{
-                        writingMode: 'vertical-rl',
-                        textOrientation: 'mixed',
-                        transform: 'rotate(180deg)',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '9px',
-                        color: isActive ? '#1a1a1a' : '#8E8E8E',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        maxHeight: '70px',
-                        letterSpacing: '0.3px',
+                        width: '36px',
+                        height: '80px',
+                        borderRadius: '10px 0 0 10px',
+                        borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                        borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                        borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                        borderRight: 'none',
+                        background: isActive ? '#d0cbb8' : isHovered ? '#2a2a2a' : '#1a1a1a',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: 0,
+                        transition: 'background 0.2s',
+                        position: 'relative',
+                        zIndex: isActive ? 20 : 10,
                       }}
                     >
-                      {tabLabel}
-                    </span>
-                  </button>
+                      <span
+                        style={{
+                          writingMode: 'vertical-rl',
+                          textOrientation: 'mixed',
+                          transform: 'rotate(180deg)',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '9px',
+                          color: isActive ? '#1a1a1a' : '#8E8E8E',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          maxHeight: '70px',
+                          letterSpacing: '0.3px',
+                        }}
+                      >
+                        {tabLabel}
+                      </span>
+                    </button>
+                    {/* Remove button — appears on hover */}
+                    {isHovered && onRemoveProject && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemoveProject(path);
+                        }}
+                        title={`"${tabName}" entfernen`}
+                        style={{
+                          position: 'absolute',
+                          top: '4px',
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          width: '18px',
+                          height: '18px',
+                          borderRadius: '50%',
+                          background: '#B3261E',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '10px',
+                          lineHeight: '18px',
+                          textAlign: 'center',
+                          cursor: 'pointer',
+                          zIndex: 30,
+                          padding: 0,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
                 );
               })}
               {onOpenServerArticle && (
@@ -312,21 +414,225 @@ export function ContentStudioDashboardScreen({
                   </span>
                 </button>
               )}
+              {blogs.map((blog) => {
+                const tabLabel = blog.name.length > 6 ? blog.name.slice(0, 5) + '…' : blog.name;
+                const isActive = selectedTab === `blog:${blog.id}`;
+                return (
+                  <button
+                    key={`blog:${blog.id}`}
+                    onClick={() => {
+                      setSelectedTab(`blog:${blog.id}`);
+                      setCardHovered(false);
+                    }}
+                    title={blog.siteUrl ?? blog.path}
+                    style={{
+                      width: '36px',
+                      height: '80px',
+                      borderRadius: '10px 0 0 10px',
+                      borderTop: isActive ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
+                      borderLeft: isActive ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
+                      borderBottom: isActive ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
+                      borderRight: 'none',
+                      background: isActive ? '#2e2318' : '#1a1a1a',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '4px',
+                      padding: 0,
+                      transition: 'background 0.2s',
+                      position: 'relative',
+                      zIndex: isActive ? 20 : 10,
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#2a2a2a'; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = '#1a1a1a'; }}
+                  >
+                    <FontAwesomeIcon icon={faGlobe} style={{ fontSize: '9px', color: isActive ? '#AC8E66' : '#5a5a5a' }} />
+                    <span
+                      style={{
+                        writingMode: 'vertical-rl',
+                        textOrientation: 'mixed',
+                        transform: 'rotate(180deg)',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '9px',
+                        color: isActive ? '#AC8E66' : '#8E8E8E',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        maxHeight: '60px',
+                        letterSpacing: '0.3px',
+                      }}
+                    >
+                      {tabLabel}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
 
             <div
               style={{ position: 'relative', width: '280px', minHeight: '320px', zIndex: 15 }}
-              onMouseEnter={() => selectedTab !== 'server' && hasDocs && setCardHovered(true)}
+              onMouseEnter={() => selectedTab !== 'server' && !selectedTab.startsWith('blog:') && hasDocs && setCardHovered(true)}
               onMouseLeave={() => setCardHovered(false)}
             >
-              {selectedTab === 'server' ? (
+              {selectedTab.startsWith('blog:') ? (() => {
+                const blogId = selectedTab.slice(5);
+                const activeBlog = blogs.find((b) => b.id === blogId);
+                return (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '320px',
+                      borderRadius: '0 12px 12px 0',
+                      padding: '14px 16px',
+                      borderTop: '1px solid #AC8E66',
+                      borderRight: '1px solid #AC8E66',
+                      borderBottom: '1px solid #AC8E66',
+                      borderLeft: 'none',
+                      background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      boxShadow: '4px 4px 20px rgba(0,0,0,0.25)',
+                    }}
+                  >
+                    <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '1px', flexShrink: 0 }}>
+                      Blog · {activeBlog?.name ?? ''}
+                      {blogPostsLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
+                    </p>
+                    {activeBlog?.siteUrl && (
+                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', marginBottom: '8px', flexShrink: 0 }}>
+                        {activeBlog.siteUrl}
+                      </div>
+                    )}
+                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      {!blogPostsLoading && blogPosts.length === 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: '10px', padding: '16px 0' }}>
+                          <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: 0, textAlign: 'center' }}>
+                            Noch keine Posts vorhanden.
+                          </p>
+                          {activeBlog && onStartWritingToBlog && (
+                            <button
+                              onClick={() => onStartWritingToBlog(activeBlog)}
+                              style={{
+                                padding: '8px 14px',
+                                border: '1px solid rgba(172,142,102,0.6)',
+                                borderRadius: '6px',
+                                background: '#AC8E66',
+                                color: '#fff',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '9px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Ersten Post schreiben
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {blogPosts.map((post) => (
+                        <div
+                          key={post.slug}
+                          style={{
+                            borderRadius: '6px',
+                            border: '0.5px solid rgba(172, 142, 102, 0.3)',
+                            background: 'rgba(255,255,255,0.4)',
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div
+                            onClick={async () => {
+                              if (!activeBlog || !isTauri()) return;
+                              if (!activeBlog.path) {
+                                alert('Bitte zuerst einen lokalen Ordner für diesen Blog in den Einstellungen angeben.');
+                                return;
+                              }
+                              const fp = await join(activeBlog.path, 'posts', `${post.slug}.md`);
+                              // If local file missing, fetch from server and save locally
+                              if (!(await exists(fp))) {
+                                try {
+                                  const base = activeBlog.siteUrl
+                                    ? (activeBlog.siteUrl.startsWith('http') ? activeBlog.siteUrl : 'https://' + activeBlog.siteUrl)
+                                    : null;
+                                  const postUrl = base ? `${base.replace(/\/$/, '')}/posts/${post.slug}.md?t=${Date.now()}` : null;
+                                  if (postUrl) {
+                                    const res = await fetch(postUrl);
+                                    if (res.ok) {
+                                      const mdContent = await res.text();
+                                      const { mkdir: mkdirFs } = await import('@tauri-apps/plugin-fs');
+                                      await mkdirFs(await join(activeBlog.path, 'posts'), { recursive: true }).catch(() => {});
+                                      await writeTextFile(fp, mdContent);
+                                    }
+                                  }
+                                } catch { /* open anyway, editor will handle missing file */ }
+                              }
+                              onOpenBlogPost?.(fp, activeBlog);
+                            }}
+                            style={{ flex: 1, minWidth: 0, padding: '7px 10px', cursor: 'pointer' }}
+                          >
+                            <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {post.title}
+                            </p>
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!activeBlog) return;
+                              const updated = blogPosts.filter((p) => p.slug !== post.slug);
+                              setBlogPosts(updated);
+                              try {
+                                const manifestPath = await join(activeBlog.path, 'manifest.json');
+                                const manifest = JSON.parse(await readTextFile(manifestPath));
+                                manifest.posts = (manifest.posts as Array<{ slug: string }>).filter((p) => p.slug !== post.slug);
+                                await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+                              } catch { /* ignore */ }
+                            }}
+                            style={{
+                              flexShrink: 0, padding: '4px 8px', marginRight: '4px',
+                              border: 'none', background: 'transparent',
+                              color: '#8a7a6a', fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '10px', cursor: 'pointer',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, paddingTop: '6px' }}>
+                      {activeBlog?.path ? (
+                        <button
+                          title="Im Finder öffnen"
+                          onClick={() => revealItemInDir(activeBlog.path)}
+                          style={{
+                            background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                            display: 'inline-flex', alignItems: 'center', gap: '4px',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                            color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                        >
+                          <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                          Im Finder
+                        </button>
+                      ) : <span />}
+                      <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                        {blogPosts.length} Posts
+                      </div>
+                    </div>
+                  </div>
+                );
+              })() : selectedTab === 'server' ? (
                 <div
                   style={{
                     width: '100%',
                     height: '320px',
                     borderRadius: '0 12px 12px 0',
                     padding: '14px 16px',
-                    border: '1px solid #b8b0a0',
+                    borderTop: '1px solid #b8b0a0',
+                    borderRight: '1px solid #b8b0a0',
+                    borderBottom: '1px solid #b8b0a0',
                     borderLeft: 'none',
                     background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
                     display: 'flex',
@@ -497,8 +803,27 @@ export function ContentStudioDashboardScreen({
                       );
                     })}
                   </div>
-                  <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'right', opacity: 0.7, flexShrink: 0, paddingTop: '6px' }}>
-                    Klicken zum Öffnen →
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, paddingTop: '6px' }}>
+                    {hasServerCachePath && serverLocalCachePath ? (
+                      <button
+                        title="Im Finder öffnen"
+                        onClick={(e) => { e.stopPropagation(); revealItemInDir(serverLocalCachePath); }}
+                        style={{
+                          background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                          color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                      >
+                        <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                        Im Finder
+                      </button>
+                    ) : <span />}
+                    <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                      Klicken zum Öffnen →
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -514,7 +839,9 @@ export function ContentStudioDashboardScreen({
                   borderRadius: '0 12px 12px 0',
                   padding: '18px 18px',
                   textAlign: 'left',
-                  border: '1px solid #b8b0a0',
+                  borderTop: '1px solid #b8b0a0',
+                  borderRight: '1px solid #b8b0a0',
+                  borderBottom: '1px solid #b8b0a0',
                   borderLeft: 'none',
                   background: '#d0cbb8',
                   cursor: activeProjectPath ? 'pointer' : 'not-allowed',
@@ -576,16 +903,27 @@ export function ContentStudioDashboardScreen({
                       : (activeProjectPath || 'Noch kein Projekt ausgewählt')}
                   </p>
                 </div>
-                <div
-                  style={{
-                    fontSize: '9px',
-                    color: '#AC8E66',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    textAlign: 'right',
-                    opacity: 0.7,
-                  }}
-                >
-                  Klicken zum Öffnen →
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  {activeProjectPath && !activeProjectIsWeb ? (
+                    <button
+                      title="Im Finder öffnen"
+                      onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
+                      style={{
+                        background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: '4px',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                        color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                      }}
+                      onMouseEnter={(e) => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                    >
+                      <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                      Im Finder
+                    </button>
+                  ) : <span />}
+                  <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                    Klicken zum Öffnen →
+                  </div>
                 </div>
               </button>
 
@@ -646,8 +984,27 @@ export function ContentStudioDashboardScreen({
                       </div>
                     ))}
                   </div>
-                  <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'right', opacity: 0.7 }}>
-                    Klicken zum Öffnen →
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                    {activeProjectPath && !activeProjectIsWeb ? (
+                      <button
+                        title="Im Finder öffnen"
+                        onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
+                        style={{
+                          background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                          display: 'inline-flex', alignItems: 'center', gap: '4px',
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                          color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                        }}
+                        onMouseEnter={(e) => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                      >
+                        <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                        Im Finder
+                      </button>
+                    ) : <span />}
+                    <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                      Klicken zum Öffnen →
+                    </div>
                   </div>
                 </div>
               )}
@@ -662,7 +1019,9 @@ export function ContentStudioDashboardScreen({
                 width: '36px',
                 height: '40px',
                 borderRadius: '0 10px 10px 0',
-                border: '1px dashed #AC8E66',
+                borderTop: '1px dashed #AC8E66',
+                borderRight: '1px dashed #AC8E66',
+                borderBottom: '1px dashed #AC8E66',
                 borderLeft: 'none',
                 background: 'transparent',
                 cursor: 'pointer',
@@ -693,14 +1052,22 @@ export function ContentStudioDashboardScreen({
                 title="Direkt schreiben"
                 description="Im Editor starten und Content vorbereiten"
                 icon={faFileLines}
-                onClick={onStartWriting}
-            />
-            <ActionTile
-              title="Projekt + Dokumente"
-              description="Dateien laden, suchen und per Drag & Drop importieren"
-              icon={faFolderOpen}
-              onClick={onOpenDocuments}
-            />
+                onClick={() => {
+                  // If a blog tab is active, write into that blog
+                  if (selectedTab.startsWith('blog:') && onStartWritingToBlog) {
+                    const blogId = selectedTab.slice(5);
+                    const activeBlog = blogs.find((b) => b.id === blogId);
+                    if (activeBlog) { onStartWritingToBlog(activeBlog); return; }
+                  }
+                  onStartWriting();
+                }}
+              />
+              <ActionTile
+                title="Projekt + Dokumente"
+                description="Dateien laden, suchen und per Drag & Drop importieren"
+                icon={faFolderOpen}
+                onClick={onOpenDocuments}
+              />
             <ActionTile
               title="Planen"
               description="Beiträge strukturieren und in den Planer übernehmen"

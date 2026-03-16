@@ -6,7 +6,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getMobileInboxPath, saveMobileInboxPath, saveWebMobileInboxFiles } from '../../../../../services/mobileInboxService';
 import * as QRCode from 'qrcode';
 
-const MOBILE_APP_DOWNLOAD_URL = 'https://zenpost.studio';
+const MOBILE_APP_DOWNLOAD_URL = 'https://zenpostapp.denisbitter.de';
 const MOBILE_APP_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
 
 export const ZenMobileSettingsContent = () => {
@@ -198,7 +198,7 @@ const buttonStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
   color: '#AC8E66',
-  backgroundColor: '#151515',
+  backgroundColor: 'rgba(172,142,102,0.1)',
   cursor: 'pointer',
 };
 

@@ -12,6 +12,7 @@ export interface ScheduledPost {
   platform: SocialPlatform;
   title: string;
   subtitle?: string;
+  imageUrl?: string;
   content: string;
   scheduledDate?: Date;
   scheduledTime?: string;

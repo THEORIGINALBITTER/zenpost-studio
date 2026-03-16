@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import JSZip from 'jszip';
@@ -408,9 +408,9 @@ export const ZenApiSettingsContent = () => {
       <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '20px 24px' }}>
           <div style={stepTitleStyle}>1. Server-Paket erstellen</div>
-          <button type="button" onClick={handleDownloadServerPackage} disabled={buildingPackage} style={testButtonStyle}>
+          <TestButton onClick={handleDownloadServerPackage} disabled={buildingPackage}>
             {buildingPackage ? 'Baue Paket...' : 'Server-Paket herunterladen'}
-          </button>
+          </TestButton>
 
           <div style={stepTitleStyle}>2. Server konfigurieren</div>
           <div style={hintStyle}>
@@ -613,37 +613,37 @@ export const ZenApiSettingsContent = () => {
 
           <div style={stepTitleStyle}>4. Health Checks</div>
           <div style={buttonRowStyle}>
-            <button type="button" onClick={() => { void handleHealthPing(); }} disabled={!!healthChecking} style={testButtonStyle}>
+            <TestButton onClick={() => { void handleHealthPing(); }} disabled={!!healthChecking}>
               {healthChecking === 'ping' ? 'Ping...' : 'Ping prüfen'}
-            </button>
-            <button type="button" onClick={() => { void handleHealthUpsert(); }} disabled={!!healthChecking} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={() => { void handleHealthUpsert(); }} disabled={!!healthChecking}>
               {healthChecking === 'upsert' ? 'Upsert...' : 'Upsert prüfen'}
-            </button>
-            <button type="button" onClick={() => { void handleHealthUpload(); }} disabled={!!healthChecking} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={() => { void handleHealthUpload(); }} disabled={!!healthChecking}>
               {healthChecking === 'upload' ? 'Upload...' : 'Upload prüfen'}
-            </button>
-            <button type="button" onClick={() => { void handleHealthList(); }} disabled={!!healthChecking} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={() => { void handleHealthList(); }} disabled={!!healthChecking}>
               {healthChecking === 'list' ? 'List...' : 'List prüfen'}
-            </button>
-            <button type="button" onClick={() => { void handleHealthDelete(); }} disabled={!!healthChecking} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={() => { void handleHealthDelete(); }} disabled={!!healthChecking}>
               {healthChecking === 'delete' ? 'Delete...' : 'Delete prüfen'}
-            </button>
+            </TestButton>
           </div>
 
           <div style={stepTitleStyle}>5. End-to-End testen</div>
           <div style={buttonRowStyle}>
-            <button type="button" onClick={handleTestConnection} disabled={testing} style={testButtonStyle}>
+            <TestButton onClick={handleTestConnection} disabled={testing}>
               {testing ? 'API wird getestet...' : 'API testen'}
-            </button>
-            <button type="button" onClick={handleSendTestInsert} disabled={sendingInsert} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={handleSendTestInsert} disabled={sendingInsert}>
               {sendingInsert ? 'Sende Insert...' : 'Test-Insert senden'}
-            </button>
-            <button type="button" onClick={handleSendTestUpdate} disabled={sendingUpdate} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={handleSendTestUpdate} disabled={sendingUpdate}>
               {sendingUpdate ? 'Sende Update...' : 'Test-Update senden'}
-            </button>
-            <button type="button" onClick={handleSendTestError} disabled={sendingErrorCase} style={testButtonStyle}>
+            </TestButton>
+            <TestButton onClick={handleSendTestError} disabled={sendingErrorCase}>
               {sendingErrorCase ? 'Sende Error...' : 'Test-Error senden'}
-            </button>
+            </TestButton>
           </div>
 
           {testResult && (
@@ -771,9 +771,9 @@ const inlineButtonStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '10px 12px',
   fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '11px',
+  fontSize: '9px',
   color: '#AC8E66',
-  backgroundColor: '#151515',
+  backgroundColor: 'transparent',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
 };
@@ -783,11 +783,41 @@ const testButtonStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '10px 14px',
   fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '11px',
+  fontSize: '9px',
   color: '#AC8E66',
-  backgroundColor: '#151515',
+  backgroundColor: 'transparent',
   cursor: 'pointer',
   width: 'fit-content',
+};
+
+const TestButton = ({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) => {
+  const [hovered, setHovered] = React.useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        ...testButtonStyle,
+        borderColor: hovered && !disabled ? '#AC8E66' : '#3A3A3A',
+        backgroundColor: hovered && !disabled ? 'rgba(172,142,102,0.08)' : 'transparent',
+        transition: 'border-color 0.15s, background-color 0.15s',
+        opacity: disabled ? 0.5 : 1,
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {children}
+    </button>
+  );
 };
 
 const secondaryButtonStyle: React.CSSProperties = {

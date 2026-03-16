@@ -27,6 +27,25 @@ const defaultServerConfig: ServerConfig = {
   contentServerImageBaseUrl: null,
 };
 
+export interface BlogConfig {
+  id: string;
+  name: string;
+  tagline?: string;
+  author?: string;
+  path: string;
+  siteUrl?: string;
+  // Deployment
+  deployType?: 'none' | 'git' | 'ftp' | 'php-api';
+  gitAutoPush?: boolean;
+  ftpHost?: string;
+  ftpUser?: string;
+  ftpPassword?: string;
+  ftpRemotePath?: string; // z.B. /public_html/blog/posts/
+  ftpProtocol?: 'ftp' | 'ftps' | 'sftp';
+  phpApiUrl?: string;
+  phpApiKey?: string;
+}
+
 export interface ZenStudioSettings {
   showInGettingStarted: boolean;
   showInDocStudio: boolean;
@@ -44,12 +63,14 @@ export interface ZenStudioSettings {
   contentServerImageBaseUrl: string | null;
   servers: ServerConfig[];
   activeServerIndex: number;
+  zenpostmobilPath: string | null;
+  blogs: BlogConfig[];
 }
 
 export const defaultZenStudioSettings: ZenStudioSettings = {
-  showInGettingStarted: true,
-  showInDocStudio: false,
-  showInContentAIStudio: false,
+  showInGettingStarted: false,
+  showInDocStudio: true,
+  showInContentAIStudio: true,
   thoughts: [...defaultZenThoughts],
   thoughtsFilePath: null,
   contentServerApiUrl: null,
@@ -63,6 +84,8 @@ export const defaultZenStudioSettings: ZenStudioSettings = {
   contentServerImageBaseUrl: null,
   servers: [{ ...defaultServerConfig }],
   activeServerIndex: 0,
+  zenpostmobilPath: null,
+  blogs: [],
 };
 
 export const loadZenStudioSettings = (): ZenStudioSettings => {
@@ -145,6 +168,36 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
         return [{ name: 'Server A', contentServerApiUrl: flatUrl, contentServerApiKey: flatKey, contentServerLocalCachePath: flatCachePath, contentServerApiEndpoint: flatEndpoint, contentServerImageUploadEndpoint: flatUpload, contentServerPingEndpoint: flatPing, contentServerListEndpoint: flatList, contentServerDeleteEndpoint: flatDelete, contentServerImageBaseUrl: flatImageBase }];
       })(),
       activeServerIndex: typeof parsed.activeServerIndex === 'number' && parsed.activeServerIndex >= 0 ? parsed.activeServerIndex : 0,
+      zenpostmobilPath: typeof parsed.zenpostmobilPath === 'string' && parsed.zenpostmobilPath.trim().length > 0
+        ? parsed.zenpostmobilPath.trim()
+        : null,
+      blogs: (() => {
+        if (Array.isArray(parsed.blogs) && parsed.blogs.length > 0) {
+          return (parsed.blogs as Partial<BlogConfig>[])
+            .filter((b) => typeof b.id === 'string' && typeof b.name === 'string' && typeof b.path === 'string')
+            .map((b) => ({
+              id: b.id!,
+              name: b.name!,
+              tagline: typeof b.tagline === 'string' && b.tagline.trim() ? b.tagline.trim() : undefined,
+              author: typeof b.author === 'string' && b.author.trim() ? b.author.trim() : undefined,
+              path: b.path!,
+              siteUrl: typeof b.siteUrl === 'string' && b.siteUrl.trim() ? b.siteUrl.trim() : undefined,
+              deployType: b.deployType,
+              gitAutoPush: b.gitAutoPush,
+              ftpHost: typeof b.ftpHost === 'string' && b.ftpHost.trim() ? b.ftpHost.trim() : undefined,
+              ftpUser: typeof b.ftpUser === 'string' && b.ftpUser.trim() ? b.ftpUser.trim() : undefined,
+              ftpPassword: typeof b.ftpPassword === 'string' && b.ftpPassword.trim() ? b.ftpPassword.trim() : undefined,
+              ftpRemotePath: typeof b.ftpRemotePath === 'string' && b.ftpRemotePath.trim() ? b.ftpRemotePath.trim() : undefined,
+              ftpProtocol: b.ftpProtocol,
+              phpApiUrl: typeof b.phpApiUrl === 'string' && b.phpApiUrl.trim() ? b.phpApiUrl.trim() : undefined,
+              phpApiKey: typeof b.phpApiKey === 'string' && b.phpApiKey.trim() ? b.phpApiKey.trim() : undefined,
+            }));
+        }
+        // Migration: promote legacy zenpostmobilPath to first blog entry
+        const legacyPath = typeof parsed.zenpostmobilPath === 'string' && parsed.zenpostmobilPath.trim().length > 0
+          ? parsed.zenpostmobilPath.trim() : null;
+        return legacyPath ? [{ id: 'zenpostmobil', name: 'zenpostmobil', path: legacyPath, siteUrl: 'https://zenpostmobil.denisbitter.de' }] : [];
+      })(),
     };
   } catch {
     return { ...defaultZenStudioSettings };

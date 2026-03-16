@@ -34,7 +34,7 @@ export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGenerat
         {/* Dark preloader panel */}
         <div
           style={{
-            background: 'linear-gradient(0deg, #0b0b0b 0%, #171717 100%)',
+            background: '#1a1a1a',
             borderRadius: '0 0 12px 12px',
             padding: '52px 32px 44px',
             display: 'flex',

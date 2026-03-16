@@ -4,9 +4,13 @@ import {
   postToDevTo, postToMedium, postToLinkedIn,
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
-import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { writeFile, writeTextFile, readTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
+import { join } from '@tauri-apps/api/path';
+import { loadZenStudioSettings, type BlogConfig } from '../../../../services/zenStudioSettingsService';
+import { gitCommitAndPush } from '../../../../services/gitService';
+import { ftpUpload } from '../../../../services/ftpService';
 import ZenEngine from '../../../../services/zenEngineService';
 import { marked } from 'marked';
 import { Document as DocxDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
@@ -20,7 +24,7 @@ import {
   faBookOpen,
   faCheck,
   faSpinner,
-  
+  faGlobe,
 } from '@fortawesome/free-solid-svg-icons';
 import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
 
@@ -48,6 +52,8 @@ interface ZenExportModalProps {
   platform?: string;
   documentName?: string;
   tags?: string[];
+  subtitle?: string;
+  imageUrl?: string;
   onNavigateToTransform?: () => void;
 }
 
@@ -226,7 +232,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
 ];
 
-export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
+export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], subtitle, imageUrl, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -240,6 +246,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
   const socialConfig = useMemo<SocialMediaConfig>(() => loadSocialConfig(), [isOpen]);
+  const blogs = useMemo<BlogConfig[]>(() => loadZenStudioSettings().blogs ?? [], [isOpen]);
   const { openExternal } = useOpenExternal();
 
   const createPdfBytes = async (text: string) => {
@@ -1330,6 +1337,109 @@ ${renderedHtml}
   };
 
   const handlePublish = async (option: PublishOption) => {
+    // Local blog: write to configured folder
+    if (option.id.startsWith('blog:')) {
+      const blogId = option.id.slice(5);
+      const blog = blogs.find((b) => b.id === blogId);
+      if (!blog) return;
+      setPublishingId(option.id);
+      setPublishError(null);
+      try {
+        const date = new Date().toISOString().split('T')[0];
+        const firstHeading = content.match(/^#+\s+(.+)/m)?.[1] ?? (documentName || 'Blog Post');
+        const titleText = firstHeading.trim().slice(0, 80);
+        const slug = `${date}-${titleText.toLowerCase()
+          .replace(/[äöüß]/g, (c) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
+          .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+        const tag = tags[0] ?? 'devlog';
+        const wordCount = content.trim().split(/\s+/).length;
+        const readingTime = Math.max(1, Math.round(wordCount / 220));
+        const allTags = tags.length > 0 ? tags.join(', ') : tag;
+        const frontmatterLines = [
+          '---',
+          `title: "${titleText.replace(/"/g, '\\"')}"`,
+          subtitle ? `subtitle: "${subtitle.replace(/"/g, '\\"')}"` : null,
+          `date: "${date}"`,
+          `tags: [${allTags}]`,
+          `readingTime: ${readingTime}`,
+          imageUrl ? `coverImage: "${imageUrl}"` : null,
+          '---',
+          '',
+          '',
+        ].filter((l): l is string => l !== null).join('\n');
+        const frontmatter = frontmatterLines;
+        const postsDir = await join(blog.path, 'posts');
+        if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
+        await writeTextFile(await join(postsDir, `${slug}.md`), frontmatter + content);
+        const manifestPath = await join(blog.path, 'manifest.json');
+        let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
+          site: { title: blog.name, tagline: blog.tagline ?? '', author: blog.author ?? '', url: blog.siteUrl ?? '' },
+          posts: [],
+        };
+        try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new manifest */ }
+        // Always keep site in sync with blog config
+        manifest.site = {
+          ...manifest.site,
+          title: blog.name,
+          ...(blog.tagline ? { tagline: blog.tagline } : {}),
+          ...(blog.author ? { author: blog.author } : {}),
+          ...(blog.siteUrl ? { url: blog.siteUrl } : {}),
+        };
+        const newEntry: Record<string, unknown> = { slug, title: titleText, date, tags: tags.length > 0 ? tags : [tag], readingTime };
+        if (subtitle) newEntry.subtitle = subtitle;
+        if (imageUrl) newEntry.coverImage = imageUrl;
+        const existingIdx = manifest.posts.findIndex((p) => p.slug === slug);
+        if (existingIdx >= 0) manifest.posts[existingIdx] = newEntry;
+        else manifest.posts.unshift(newEntry);
+        await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+        const deployType = blog.deployType ?? (blog.gitAutoPush ? 'git' : 'none');
+
+        if (deployType === 'git') {
+          const gitErr = await gitCommitAndPush(blog.path, `post: ${titleText}`);
+          if (gitErr) {
+            setPublishError({ id: option.id, message: `Lokal gespeichert, aber Git Push fehlgeschlagen: ${gitErr}` });
+            setTimeout(() => setPublishError(null), 6000);
+          }
+        } else if (deployType === 'ftp' && blog.ftpHost && blog.ftpUser && blog.ftpPassword && blog.ftpRemotePath) {
+          // Convert markdown to HTML and upload
+          const htmlBody = await marked(content);
+          const fullHtml = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>${titleText}</title></head><body>${htmlBody}</body></html>`;
+          const htmlFilePath = await join(blog.path, 'posts', `${slug}.html`);
+          await writeTextFile(htmlFilePath, fullHtml);
+          const ftpErr = await ftpUpload(htmlFilePath, `${slug}.html`, {
+            host: blog.ftpHost,
+            user: blog.ftpUser,
+            password: blog.ftpPassword,
+            remotePath: blog.ftpRemotePath,
+          });
+          // Also upload manifest.json
+          if (!ftpErr) {
+            const manifestRemotePath = blog.ftpRemotePath.replace(/\/posts\/?$/, '/');
+            await ftpUpload(manifestPath, 'manifest.json', {
+              host: blog.ftpHost,
+              user: blog.ftpUser,
+              password: blog.ftpPassword,
+              remotePath: manifestRemotePath,
+            });
+          }
+          if (ftpErr) {
+            setPublishError({ id: option.id, message: `Lokal gespeichert, aber FTP Upload fehlgeschlagen: ${ftpErr}` });
+            setTimeout(() => setPublishError(null), 6000);
+          }
+        }
+
+        setPublishedId(option.id);
+        setTimeout(() => setPublishedId(null), 3000);
+      } catch (err) {
+        setPublishError({ id: option.id, message: err instanceof Error ? err.message : 'Fehler beim Blog-Publish' });
+        setTimeout(() => setPublishError(null), 4000);
+      } finally {
+        setPublishingId(null);
+      }
+      return;
+    }
+
     const socialPlatformId = SOCIAL_PLATFORM_IDS[option.id];
 
     if (socialPlatformId && isPlatformConfigured(socialPlatformId, socialConfig)) {
@@ -1714,9 +1824,14 @@ ${renderedHtml}
             gridTemplateColumns: 'repeat(3, 1fr)',
             gap: '12px',
           }}>
-            {PUBLISH_OPTIONS.map((option) => {
+            {[
+              ...PUBLISH_OPTIONS,
+              ...blogs.map((b): PublishOption => ({ id: `blog:${b.id}`, label: b.name, icon: faGlobe, url: '', color: '#AC8E66' })),
+            ].map((option) => {
               const socialPid = SOCIAL_PLATFORM_IDS[option.id];
-              const isConfigured = !!(socialPid && isPlatformConfigured(socialPid, socialConfig));
+              const isConfigured = option.id.startsWith('blog:')
+                ? true
+                : !!(socialPid && isPlatformConfigured(socialPid, socialConfig));
               const isPublishing = publishingId === option.id;
               const isPublished = publishedId === option.id;
               const hasError = publishError?.id === option.id;

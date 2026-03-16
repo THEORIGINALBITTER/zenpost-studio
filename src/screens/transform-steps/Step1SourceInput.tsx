@@ -47,6 +47,7 @@ interface Step1SourceInputProps {
   onSaveToServer?: (content?: string) => void;
   canSaveToProject?: boolean;
   canSaveToServer?: boolean;
+  saveToServerLabel?: string;
   editTabs?: ContentPlatform[];
   activeEditTab?: ContentPlatform | null;
   onEditTabChange?: (platform: ContentPlatform) => void;
@@ -248,6 +249,7 @@ export const Step1SourceInput = ({
   onSaveToServer,
   canSaveToProject = false,
   canSaveToServer = false,
+  saveToServerLabel,
   editTabs = [],
   activeEditTab = null,
   onEditTabChange,
@@ -900,7 +902,14 @@ export const Step1SourceInput = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center pt-[50px]">
+    <div className="flex-1 flex 
+    flex-col 
+    items-center 
+    justify-center 
+    pt-[2px]
+    bg-[#1a1a1a]
+    "
+    >
       <div style={{ height: '18px', width: '100%', flexShrink: 0 }} />
       <div className="flex flex-col items-center w-3/4 max-w-3xl">
         <div
@@ -1104,7 +1113,7 @@ export const Step1SourceInput = ({
                       }}
                     >
                       {isDirty ? <span style={{ color: isActive ? '#AC8E66' : '#AC8E66' }}>•</span> : null}
-                      <span style={{ whiteSpace: 'nowrap' }}>{tab.title}</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{tab.title.length > 20 ? tab.title.slice(0, 20) + '…' : tab.title}</span>
                       <span
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1940,7 +1949,7 @@ export const Step1SourceInput = ({
                   focusHeadingRequest={outlineBlockFocusRequest}
                   onActiveHeadingChange={handleActiveBlockHeadingChange}
                   placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
-                  height="calc(100vh - 340px)"
+                  height="calc(100vh - 210px)"
                   fontSize={editorSettings?.fontSize}
                   wrapLines={editorSettings?.wrapLines}
                   showLineNumbers={editorSettings?.showLineNumbers}
@@ -1956,7 +1965,7 @@ export const Step1SourceInput = ({
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
                   placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
-                  height="calc(100vh - 340px)"
+                  height="calc(100vh - 210px)"
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
                 />
@@ -2226,7 +2235,7 @@ export const Step1SourceInput = ({
                 }}
               >
                 <FontAwesomeIcon icon={faExternalLinkAlt} />
-                Auf Server speichern
+                {saveToServerLabel ?? 'Auf Server speichern'}
               </button>
               <div style={{ flex: 1 }} />
               <button

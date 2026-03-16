@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, type AutofixResult, generatePlatformThumbnail, type PlatformThumbnailResult, adaptV2ToV1 } from '../../services/zenEngineService';
+import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, generatePlatformThumbnail, type PlatformThumbnailResult, adaptV2ToV1 } from '../../services/zenEngineService';
 import { recordAnalysisRun } from '../../services/zenEngineStatsService';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -300,8 +300,6 @@ export const Step4TransformResult = ({
   const [engineStats, setEngineStats] = useState<MarkdownResult | null>(null);
   const [qualityAnalysis, setQualityAnalysis] = useState<RuleAnalysisResult | null>(null);
   const engineDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [autofixRunning, setAutofixRunning] = useState(false);
-  const [lastAutofix, setLastAutofix] = useState<AutofixResult | null>(null);
 
   const stripBase64Images = useCallback(
     (text: string) =>
@@ -1109,6 +1107,15 @@ const handleDownload = async () => {
 
    
        
+        {/* Multi-Platform: 1× schreiben → N× transformieren */}
+        {multiPlatformMode && Object.keys(transformedContents).length > 1 && (
+          <div style={{ width: '90vw', padding: '0 24px', marginBottom: '2px', boxSizing: 'border-box' }}>
+            <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#AC8E66', margin: 0 }}>
+              1× geschrieben · {Object.keys(transformedContents).length}× transformiert
+            </p>
+          </div>
+        )}
+
         {/* Multi-Platform Tab Bar */}
         {multiPlatformMode
           && Object.keys(transformedContents).length > 1
@@ -1475,6 +1482,24 @@ const handleDownload = async () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                 <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 4 }}>
                   <span className="font-mono text-[11px] text-[#AC8E66]">{platformLabels[activeQaPlatform]}</span>
+                  {socialPlatform !== null && (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 7px',
+                      borderRadius: '999px',
+                      border: hasConfig ? '1px solid rgba(74,163,104,0.4)' : '1px solid rgba(172,142,102,0.3)',
+                      background: hasConfig ? 'rgba(74,163,104,0.08)' : 'rgba(172,142,102,0.06)',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '9px',
+                      color: hasConfig ? '#4aa368' : '#AC8E66',
+                      letterSpacing: '0.03em',
+                    }}>
+                      <FontAwesomeIcon icon={hasConfig ? faCheck : faArrowRight} style={{ fontSize: '7px' }} />
+                      {hasConfig ? 'Bereit zum Posten' : 'API einrichten'}
+                    </span>
+                  )}
                   <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
                   <span className="font-mono text-[9px] text-[#999]">
                     {(engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length).toLocaleString('de-DE')} Wörter
@@ -2013,7 +2038,7 @@ const handleDownload = async () => {
                       {isDirty ? <span 
                       style={{ 
                         color: isActive ? '#151515' : '#555' }}>•</span> : null}
-                      <span style={{ whiteSpace: 'nowrap' }}>{tab.title}</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{tab.title.length > 20 ? tab.title.slice(0, 20) + '…' : tab.title}</span>
                       {tab.kind !== 'draft' && (
                         <span
                           onClick={(event) => {

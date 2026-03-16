@@ -68,14 +68,16 @@ export const Step2PlatformSelection = ({
       <div className="flex flex-col items-center w-full max-w-4xl">
         <div className="flex flex-col items-center space-y-1">
           {/* Title */}
-          
+          <h1 className="font-mono font-bold text-[#1a1a1a] text-center" style={{ fontSize: '22px', letterSpacing: '-0.5px', marginBottom: '4px' }}>
+            1× schreiben. {multiSelectMode ? `${selectedPlatforms.length > 0 ? selectedPlatforms.length : '9'}×` : '9×'} transformieren.
+          </h1>
 
           {/* Subtitle */}
           <div>
             <ZenSubtitleDark>
               {multiSelectMode
-                ? 'Wähle eine oder mehrere Zielplattformen für deine Content-Transformation'
-                : 'Wähle die Zielplattform für deine Content-Transformation'
+                ? 'Wähle deine Zielplattformen — dein Text wird für jede einzeln optimiert'
+                : 'Wähle die Zielplattform — dein Text wird plattformgerecht transformiert'
               }
             </ZenSubtitleDark>
           </div>
@@ -85,8 +87,8 @@ export const Step2PlatformSelection = ({
             <div>
               <p className="font-mono text-[12px] text-[#AC8E66]">
                 {selectedPlatforms.length === 0
-                  ? 'Keine Plattform ausgewählt'
-                  : `${selectedPlatforms.length} Plattform${selectedPlatforms.length > 1 ? 'en' : ''} ausgewählt`
+                  ? 'Noch keine Plattform gewählt'
+                  : `1 Text → ${selectedPlatforms.length} Version${selectedPlatforms.length > 1 ? 'en' : ''}`
                 }
               </p>
             </div>

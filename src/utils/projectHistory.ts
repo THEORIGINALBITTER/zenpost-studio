@@ -2,6 +2,13 @@ const LAST_PROJECT_PATH_KEY = 'zenpost_last_project_path';
 const RECENT_PROJECT_PATHS_KEY = 'zenpost_recent_project_paths';
 const DEFAULT_LIMIT = 8;
 
+function lastKey(ns?: string) {
+  return ns ? `zenpost_${ns}_last_project_path` : LAST_PROJECT_PATH_KEY;
+}
+function recentKey(ns?: string) {
+  return ns ? `zenpost_${ns}_recent_project_paths` : RECENT_PROJECT_PATHS_KEY;
+}
+
 const normalizePath = (path: string) => path.trim();
 
 const uniquePaths = (paths: string[]) => {
@@ -16,17 +23,17 @@ const uniquePaths = (paths: string[]) => {
   return result;
 };
 
-export const getLastProjectPath = (): string | null => {
+export const getLastProjectPath = (ns?: string): string | null => {
   if (typeof window === 'undefined') return null;
-  const value = localStorage.getItem(LAST_PROJECT_PATH_KEY);
+  const value = localStorage.getItem(lastKey(ns));
   return value ? normalizePath(value) : null;
 };
 
-export const getRecentProjectPaths = (limit = DEFAULT_LIMIT): string[] => {
+export const getRecentProjectPaths = (limit = DEFAULT_LIMIT, ns?: string): string[] => {
   if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(RECENT_PROJECT_PATHS_KEY);
+  const raw = localStorage.getItem(recentKey(ns));
   if (!raw) {
-    const last = getLastProjectPath();
+    const last = getLastProjectPath(ns);
     return last ? [last] : [];
   }
 
@@ -39,25 +46,24 @@ export const getRecentProjectPaths = (limit = DEFAULT_LIMIT): string[] => {
   }
 };
 
-export const rememberProjectPath = (path: string, limit = DEFAULT_LIMIT) => {
+export const rememberProjectPath = (path: string, limit = DEFAULT_LIMIT, ns?: string) => {
   if (typeof window === 'undefined') return;
   const normalized = normalizePath(path);
   if (!normalized) return;
 
-  localStorage.setItem(LAST_PROJECT_PATH_KEY, normalized);
-  const history = getRecentProjectPaths(limit);
+  localStorage.setItem(lastKey(ns), normalized);
+  const history = getRecentProjectPaths(limit, ns);
   const next = uniquePaths([normalized, ...history]).slice(0, limit);
-  localStorage.setItem(RECENT_PROJECT_PATHS_KEY, JSON.stringify(next));
+  localStorage.setItem(recentKey(ns), JSON.stringify(next));
 };
 
-export const removeProjectPath = (path: string) => {
+export const removeProjectPath = (path: string, ns?: string) => {
   if (typeof window === 'undefined') return;
   const normalized = normalizePath(path);
-  const history = getRecentProjectPaths();
+  const history = getRecentProjectPaths(DEFAULT_LIMIT, ns);
   const next = history.filter((p) => p !== normalized);
-  localStorage.setItem(RECENT_PROJECT_PATHS_KEY, JSON.stringify(next));
-  if (localStorage.getItem(LAST_PROJECT_PATH_KEY) === normalized) {
-    localStorage.setItem(LAST_PROJECT_PATH_KEY, next[0] ?? '');
+  localStorage.setItem(recentKey(ns), JSON.stringify(next));
+  if (localStorage.getItem(lastKey(ns)) === normalized) {
+    localStorage.setItem(lastKey(ns), next[0] ?? '');
   }
 };
-

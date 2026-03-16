@@ -15,7 +15,7 @@ interface RustHttpResponse {
  * Universelle Fetch-Funktion: Rust Command im Desktop, Browser-Fetch im Web
  * Verwendet Rust-seitigen HTTP-Client um JS HTTP-Plugin Scope-Probleme zu umgehen
  */
-async function universalFetch(url: string, options?: RequestInit): Promise<Response> {
+export async function universalFetch(url: string, options?: RequestInit): Promise<Response> {
   if (isTauri()) {
     // Use Rust command to bypass JS HTTP plugin scope issues
     const headers: Record<string, string> = {};

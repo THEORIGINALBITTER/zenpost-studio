@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { exists } from '@tauri-apps/plugin-fs';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCheck } from '@fortawesome/free-solid-svg-icons';
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { isTauri } from '@tauri-apps/api/core';
 
 import { ZenSlider } from '../../components/ZenSlider';
 import {
@@ -68,12 +72,23 @@ const CheckboxOption = ({
       userSelect: 'none',
     }}
   >
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-      style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#AC8E66', flexShrink: 0 }}
-    />
+    <div
+      style={{
+        width: 16,
+        height: 16,
+        borderRadius: 4,
+        border: checked ? '1.5px solid #AC8E66' : '1.5px solid #4A4A4A',
+        backgroundColor: checked ? 'rgba(172,142,102,0.18)' : 'transparent',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        transition: 'border-color 0.15s, background-color 0.15s',
+      }}
+      onClick={() => onChange(!checked)}
+    >
+      {checked && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 8, color: '#AC8E66' }} />}
+    </div>
     {label}
   </label>
 );
@@ -333,7 +348,7 @@ export const ZenEditorSettingsContent = () => {
                 label="Automatisch speichern"
               />
               {settings.autoSaveEnabled && (
-                <div style={{ paddingLeft: 28, paddingTop: 4 }}>
+                <div style={{ paddingLeft: 28, paddingTop: 4, display: 'flex', flexDirection: 'column', gap: 10 }}>
                   <ZenSlider
                     label="Intervall"
                     value={settings.autoSaveIntervalSec}
@@ -345,6 +360,53 @@ export const ZenEditorSettingsContent = () => {
                       setSettings((prev) => ({ ...prev, autoSaveIntervalSec: value }))
                     }
                   />
+                  {isTauri() && (
+                    <div>
+                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#AC8E66', marginBottom: 6 }}>
+                        AUTOSAVE-ORDNER
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                          flex: 1, fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
+                          color: settings.autoSaveCustomPath ? '#1a1a1a' : '#1a1a1a',
+                          background: 'transparent', border: '1px solid rgba(172,142,102,0.25)',
+                          borderRadius: 4, padding: '4px 8px', overflow: 'hidden',
+                          textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        }}>
+                          {settings.autoSaveCustomPath ?? 'Standard (Projektordner)'}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const selected = await openDialog({ directory: true, multiple: false });
+                            if (typeof selected === 'string' && selected) {
+                              setSettings((prev) => ({ ...prev, autoSaveCustomPath: selected }));
+                            }
+                          }}
+                          style={{
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
+                            background: 'rgba(172,142,102,0.12)', border: '1px solid rgba(172,142,102,0.4)',
+                            borderRadius: 4, color: '#AC8E66', padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          Ordner wählen
+                        </button>
+                        {settings.autoSaveCustomPath && (
+                          <button
+                            type="button"
+                            onClick={() => setSettings((prev) => ({ ...prev, autoSaveCustomPath: undefined }))}
+                            style={{
+                              fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
+                              background: 'transparent', border: '1px solid rgba(172,142,102,0.25)',
+                              borderRadius: 4, color: '#666', padding: '4px 8px', cursor: 'pointer',
+                            }}
+                          >
+                            Zurücksetzen
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

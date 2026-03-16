@@ -405,4 +405,4 @@ Dieses Komponenten-System ist Teil von ZenPost Studio.
 **Version:** 1.0.0
 **Letzte Aktualisierung:** 2025
 
-Made with 🧡 by Denis Bitter - Fullstack Developer 
+Made with <3 by Denis Bitter - Fullstack Developer 

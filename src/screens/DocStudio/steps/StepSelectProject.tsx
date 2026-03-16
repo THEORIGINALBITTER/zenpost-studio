@@ -6,10 +6,17 @@ import {
   faDesktop,
   faFilePen,
   faFolderOpen,
+  faGlobe,
   faMagnifyingGlass,
   faPlus,
+  faCloudArrowUp,
 } from '@fortawesome/free-solid-svg-icons';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { DocStudioRuntime } from '../types';
+import { GitHubDocsWizard } from '../components/GitHubDocsWizard';
+import { DocsSiteWizard } from '../components/DocsSiteWizard';
+import type { DocsPushSummary, GeneratedTemplate } from '../../../services/githubDocsService';
+import type { DocsSiteConfig } from '../../../services/docsSiteService';
 
 export function StepSelectProject({
   runtime,
@@ -24,6 +31,16 @@ export function StepSelectProject({
   onEditInputFields,
   onOpenRecentDocument,
   onRemoveProject,
+  onPushDocsToGitHub,
+  githubDocsFileCount,
+  onWebFolderPick,
+  onOpenGitHubSettings,
+  generatedTemplates = [],
+  onPushTemplates,
+  docFiles = [],
+  onSaveDocsSiteLocally,
+  onPushDocsSiteToGitHub,
+  initialWizard,
 }: {
   runtime: DocStudioRuntime;
   projectPath: string | null;
@@ -35,8 +52,18 @@ export function StepSelectProject({
   onContinueToEditor?: () => void;
   onOpenDashboard?: () => void;
   onEditInputFields?: () => void;
+  onWebFolderPick?: () => void;
   onOpenRecentDocument?: (path: string) => void;
   onRemoveProject?: (path: string) => void;
+  onPushDocsToGitHub?: () => Promise<DocsPushSummary>;
+  githubDocsFileCount?: number;
+  onOpenGitHubSettings?: () => void;
+  generatedTemplates?: GeneratedTemplate[];
+  onPushTemplates?: (templates: GeneratedTemplate[]) => Promise<DocsPushSummary>;
+  docFiles?: Array<{ name: string; path: string }>;
+  onSaveDocsSiteLocally?: (config: DocsSiteConfig) => Promise<void>;
+  onPushDocsSiteToGitHub?: (config: DocsSiteConfig) => Promise<DocsPushSummary>;
+  initialWizard?: 'github' | 'docs-site';
 }) {
   const visibleRecentProjects = recentProjectPaths.slice(0, 6);
 
@@ -55,10 +82,17 @@ export function StepSelectProject({
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
   const [showInlineAdd, setShowInlineAdd] = useState(false);
   const [inlinePathInput, setInlinePathInput] = useState('');
+  const [showGitHubWizard, setShowGitHubWizard] = useState(() => initialWizard === 'github');
+  const [showDocsSiteWizard, setShowDocsSiteWizard] = useState(() => initialWizard === 'docs-site');
 
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
   const desktopDisabled = runtime === 'web';
-  const activeProjectName = activeProjectPath?.split(/[\\/]/).filter(Boolean).pop() || 'Projekt';
+  const isWebFolderPath = (p: string | null) => p?.startsWith('@web-folder:') ?? false;
+  const activeProjectName = activeProjectPath
+    ? isWebFolderPath(activeProjectPath)
+      ? activeProjectPath.replace('@web-folder:', '')
+      : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() || 'Projekt'
+    : 'Projekt';
 
   const openNativeFolderPicker = async () => {
     try {
@@ -168,7 +202,9 @@ export function StepSelectProject({
                       width: '36px',
                       height: '80px',
                       borderRadius: '10px 0 0 10px',
-                      border: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                      borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
                       borderRight: 'none',
                       background: isActive ? '#d0cbb8' : isHovered ? '#2a2a2a' : '#1a1a1a',
                       cursor: 'pointer',
@@ -237,7 +273,9 @@ export function StepSelectProject({
                     borderRadius: '0 12px 12px 0',
                     padding: '18px',
                     textAlign: 'left',
-                    border: '1px solid #b8b0a0',
+                    borderTop: '1px solid #b8b0a0',
+                    borderRight: '1px solid #b8b0a0',
+                    borderBottom: '1px solid #b8b0a0',
                     borderLeft: 'none',
                     background: '#d0cbb8',
                     display: 'flex',
@@ -255,7 +293,48 @@ export function StepSelectProject({
                     </p>
                   </div>
                   <div style={{ borderTop: '1px solid rgba(172,142,102,0.3)', paddingTop: '12px', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {runtime !== 'web' && (
+                    {runtime === 'web' ? (
+                      <>
+                        <button
+                          onClick={() => { onWebFolderPick?.(); setShowInlineAdd(false); }}
+                          style={{
+                            padding: '9px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid rgba(172,142,102,0.6)',
+                            background: '#AC8E66',
+                            color: '#fff',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faGlobe} style={{ fontSize: '11px' }} />
+                          Browser-Ordner öffnen
+                        </button>
+                        {onContinueToEditor && (
+                          <button
+                            onClick={() => { onContinueToEditor?.(); setShowInlineAdd(false); }}
+                            style={{
+                              padding: '9px 12px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(90,80,64,0.3)',
+                              background: 'transparent',
+                              color: '#5a5040',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '10px',
+                              cursor: 'pointer',
+                              textAlign: 'center' as const,
+                            }}
+                          >
+                            Ohne Ordner fortfahren
+                          </button>
+                        )}
+                      </>
+                    ) : (
                       <>
                         <button
                           onClick={openNativeFolderPicker}
@@ -282,8 +361,6 @@ export function StepSelectProject({
                           <span style={{ fontSize: '9px', color: '#9a9080', fontFamily: 'IBM Plex Mono, monospace' }}>oder manuell</span>
                           <div style={{ flex: 1, height: '1px', background: 'rgba(172,142,102,0.2)' }} />
                         </div>
-                      </>
-                    )}
                     <input
                       type="text"
                       placeholder="/Users/dein/projekt"
@@ -357,6 +434,8 @@ export function StepSelectProject({
                         Ohne Ordner fortfahren
                       </button>
                     )}
+                      </>
+                    )}
                   </div>
                   <button
                     onClick={() => { setShowInlineAdd(false); setInlinePathInput(''); }}
@@ -398,7 +477,9 @@ export function StepSelectProject({
                       borderRadius: '0 12px 12px 0',
                       padding: '18px 18px',
                       textAlign: 'left',
-                      border: '1px solid #b8b0a0',
+                      borderTop: '1px solid #b8b0a0',
+                      borderRight: '1px solid #b8b0a0',
+                      borderBottom: '1px solid #b8b0a0',
                       borderLeft: 'none',
                       background: '#d0cbb8',
                       cursor: activeProjectPath ? 'pointer' : 'not-allowed',
@@ -425,7 +506,7 @@ export function StepSelectProject({
                         Aktuelles Projekt
                       </p>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
-                        <FontAwesomeIcon icon={faFolderOpen} style={{ color: '#AC8E66', fontSize: '16px' }} />
+                        <FontAwesomeIcon icon={isWebFolderPath(activeProjectPath) ? faGlobe : faFolderOpen} style={{ color: '#AC8E66', fontSize: '16px' }} />
                         <span
                           style={{
                             fontSize: '15px',
@@ -463,16 +544,35 @@ export function StepSelectProject({
                       </p>
                     </div>
 
-                    <div
-                      style={{
-                        fontSize: '9px',
-                        color: '#AC8E66',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                        textAlign: 'right',
-                        opacity: 0.7,
-                      }}
-                    >
-                      Klicken zum Öffnen →
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      {activeProjectPath && runtime !== 'web' ? (
+                        <button
+                          title="Im Finder öffnen"
+                          onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: '2px 4px',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '8px',
+                            color: '#AC8E66',
+                            opacity: 0.7,
+                            borderRadius: '4px',
+                          }}
+                          onMouseEnter={(e) => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                        >
+                          <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                          Im Finder
+                        </button>
+                      ) : <span />}
+                      <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                        Klicken zum Öffnen →
+                      </div>
                     </div>
                   </button>
 
@@ -487,7 +587,9 @@ export function StepSelectProject({
                         bottom: 0,
                         borderRadius: '0 12px 12px 0',
                         background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
-                        border: '1px solid #b8b0a0',
+                        borderTop: '1px solid #b8b0a0',
+                        borderRight: '1px solid #b8b0a0',
+                        borderBottom: '1px solid #b8b0a0',
                         borderLeft: 'none',
                         padding: '14px 16px',
                         display: 'flex',
@@ -534,8 +636,35 @@ export function StepSelectProject({
                           </div>
                         ))}
                       </div>
-                      <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'right', opacity: 0.7 }}>
-                        Klicken zum Öffnen →
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+                        {activeProjectPath && runtime !== 'web' ? (
+                          <button
+                            title="Im Finder öffnen"
+                            onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: '2px 4px',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '8px',
+                              color: '#AC8E66',
+                              opacity: 0.7,
+                              borderRadius: '4px',
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                          >
+                            <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
+                            Im Finder
+                          </button>
+                        ) : <span />}
+                        <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                          Klicken zum Öffnen →
+                        </div>
                       </div>
                     </div>
                   )}
@@ -557,7 +686,9 @@ export function StepSelectProject({
                 width: '36px',
                 height: '40px',
                 borderRadius: '0 10px 10px 0',
-                border: showInlineAdd ? '1px solid #AC8E66' : '1px dashed #AC8E66',
+                borderTop: showInlineAdd ? '1px solid #AC8E66' : '1px dashed #AC8E66',
+                borderRight: showInlineAdd ? '1px solid #AC8E66' : '1px dashed #AC8E66',
+                borderBottom: showInlineAdd ? '1px solid #AC8E66' : '1px dashed #AC8E66',
                 borderLeft: 'none',
                 background: showInlineAdd ? 'rgba(172,142,102,0.15)' : 'transparent',
                 cursor: 'pointer',
@@ -577,64 +708,124 @@ export function StepSelectProject({
             </button>
           </div>
 
-          {/* Right: Action tiles */}
+          {/* Right: Action tiles or GitHub Wizard */}
           {activeProjectPath ? (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                gap: '12px',
-              }}
-            >
-              <div style={{ gridColumn: '1 / -1', height: '30px', visibility: 'hidden' }} aria-hidden="true">
-                Projekt wählen
+            <>
+              <div
+                style={{
+                  display: (showGitHubWizard || showDocsSiteWizard) ? 'none' : 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: '12px',
+                }}
+              >
+                <div style={{ gridColumn: '1 / -1', height: '30px', visibility: 'hidden' }} aria-hidden="true">
+                  Projekt wählen
+                </div>
+                <ActionTile
+                  title="Projekt neu scannen"
+                  description="Scan aktualisieren und Projektstruktur neu einlesen"
+                  icon={faMagnifyingGlass}
+                  disabled={desktopDisabled}
+                  desktopOnly={desktopDisabled}
+                  onClick={() => {
+                    const targetPath = ensureProjectSelected();
+                    if (!targetPath && runtime !== 'web') return;
+                    onRescan?.();
+                  }}
+                />
+                <ActionTile
+                  title="Einfach direkt starten"
+                  description={hasExistingAnalysis ? 'Direkt im Editor arbeiten' : 'Zum Editor wechseln und weiter schreiben'}
+                  icon={faFilePen}
+                  disabled={false}
+                  onClick={() => {
+                    const targetPath = ensureProjectSelected();
+                    if (!targetPath && runtime !== 'web') return;
+                    onContinueToEditor?.();
+                  }}
+                />
+                <ActionTile
+                  title="Projekt Mappe öffnen"
+                  description="Zu Templates und Dokument-Dashboard wechseln"
+                  icon={faChartSimple}
+                  disabled={false}
+                  onClick={() => {
+                    const targetPath = ensureProjectSelected();
+                    if (!targetPath && runtime !== 'web') return;
+                    onOpenDashboard?.();
+                  }}
+                />
+                <ActionTile
+                  title="Datenfelder ergänzen"
+                  description="Produktinfos, Setup und Metadaten im Dashboard pflegen"
+                  icon={faBookOpen}
+                  disabled={false}
+                  onClick={() => {
+                    const targetPath = ensureProjectSelected();
+                    if (!targetPath && runtime !== 'web') return;
+                    onEditInputFields?.();
+                  }}
+                />
+                {onPushDocsToGitHub && (
+                  <ActionTile
+                    title="Docs → GitHub"
+                    description="Markdown-Dateien in ein GitHub Repository pushen"
+                    icon={faCloudArrowUp}
+                    disabled={false}
+                    onClick={() => {
+                      ensureProjectSelected();
+                      setShowGitHubWizard(true);
+                    }}
+                  />
+                )}
+                {onSaveDocsSiteLocally && (
+                  <ActionTile
+                    title="Docs-Website"
+                    description="Statische index.html für GitHub Pages generieren"
+                    icon={faGlobe}
+                    disabled={false}
+                    onClick={() => {
+                      ensureProjectSelected();
+                      setShowDocsSiteWizard(true);
+                    }}
+                  />
+                )}
               </div>
-              <ActionTile
-                title="Projekt neu scannen"
-                description="Scan aktualisieren und Projektstruktur neu einlesen"
-                icon={faMagnifyingGlass}
-                disabled={desktopDisabled}
-                desktopOnly={desktopDisabled}
-                onClick={() => {
-                  const targetPath = ensureProjectSelected();
-                  if (!targetPath && runtime !== 'web') return;
-                  onRescan?.();
-                }}
-              />
-              <ActionTile
-                title="Einfach direkt starten"
-                description={hasExistingAnalysis ? 'Direkt im Editor arbeiten' : 'Zum Editor wechseln und weiter schreiben'}
-                icon={faFilePen}
-                disabled={false}
-                onClick={() => {
-                  const targetPath = ensureProjectSelected();
-                  if (!targetPath && runtime !== 'web') return;
-                  onContinueToEditor?.();
-                }}
-              />
-              <ActionTile
-                title="Projekt Mappe öffnen"
-                description="Zu Templates und Dokument-Dashboard wechseln"
-                icon={faChartSimple}
-                disabled={false}
-                onClick={() => {
-                  const targetPath = ensureProjectSelected();
-                  if (!targetPath && runtime !== 'web') return;
-                  onOpenDashboard?.();
-                }}
-              />
-              <ActionTile
-                title="Datenfelder ergänzen"
-                description="Produktinfos, Setup und Metadaten im Dashboard pflegen"
-                icon={faBookOpen}
-                disabled={false}
-                onClick={() => {
-                  const targetPath = ensureProjectSelected();
-                  if (!targetPath && runtime !== 'web') return;
-                  onEditInputFields?.();
-                }}
-              />
-            </div>
+
+              {showDocsSiteWizard && onSaveDocsSiteLocally && (
+                <div style={{ marginTop: '16px' }}>
+                  <DocsSiteWizard
+                    projectPath={activeProjectPath}
+                    projectName={activeProjectName}
+                    docFiles={docFiles}
+                    onBack={() => setShowDocsSiteWizard(false)}
+                    onSaveLocally={onSaveDocsSiteLocally}
+                    onPushToGitHub={onPushDocsSiteToGitHub}
+                    onOpenSettings={() => {
+                      setShowDocsSiteWizard(false);
+                      onOpenGitHubSettings?.();
+                    }}
+                  />
+                </div>
+              )}
+
+              {showGitHubWizard && onPushDocsToGitHub && (
+                <div style={{ marginTop: '16px' }}>
+                  <GitHubDocsWizard
+                    projectPath={activeProjectPath}
+                    fileCount={githubDocsFileCount ?? 0}
+                    onBack={() => setShowGitHubWizard(false)}
+                    onPush={onPushDocsToGitHub}
+                    onOpenSettings={() => {
+                      setShowGitHubWizard(false);
+                      onOpenGitHubSettings?.();
+                    }}
+                    generatedTemplates={generatedTemplates}
+                    onPushTemplates={onPushTemplates}
+                  />
+                </div>
+              )}
+            </>
           ) : null}
         </div>
 
@@ -692,11 +883,6 @@ export function StepSelectProject({
           )}
         </div>
 
-        {runtime === 'web' && (
-          <p style={{ marginTop: '16px', fontSize: '10px', color: '#777', fontFamily: 'monospace' }}>
-            Browser-Modus: Projekt-Scan funktioniert nur in der Desktop-App (Tauri).
-          </p>
-        )}
       </div>
 
     </div>

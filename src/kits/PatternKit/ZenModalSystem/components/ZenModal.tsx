@@ -100,12 +100,12 @@ export const ZenModal = ({
   const modalBg =
     theme === "paper"
       ? "linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)"
-      : "linear-gradient(0deg, #0B0B0B 0%, #171717 100%)";
+      : "#1a1a1a";
 
   const headerBg =
     theme === "paper"
       ? " #1a1a1a"
-      : "linear-gradient(0deg, #0B0B0B 0%, #171717 100%)";
+      : "#1a1a1a";
 
   const borderColor = theme === "paper" ? "#555)" : "#555";
 

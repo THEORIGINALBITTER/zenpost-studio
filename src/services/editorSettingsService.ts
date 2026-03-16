@@ -7,6 +7,7 @@ export interface EditorSettings {
   fontSize: number;
   autoSaveEnabled: boolean;
   autoSaveIntervalSec: number;
+  autoSaveCustomPath?: string;
   wrapLines: boolean;
   showLineNumbers: boolean;
   theme: EditorTheme;
@@ -20,6 +21,7 @@ export const defaultEditorSettings: EditorSettings = {
   fontSize: 12,
   autoSaveEnabled: false,
   autoSaveIntervalSec: 30,
+  autoSaveCustomPath: undefined,
   wrapLines: true,
   showLineNumbers: true,
   theme: 'light',
@@ -113,9 +115,14 @@ const quickChecksum = (input: string) => {
   return `${hash}`;
 };
 
-const ensureDraftAutosavesDir = async (projectPath: string): Promise<string> => {
-  const editorRoot = await ensureEditorDir(projectPath);
-  const autosavesRoot = `${editorRoot}/${AUTOSAVES_DIR}`;
+const ensureDraftAutosavesDir = async (projectPath: string, customBasePath?: string): Promise<string> => {
+  let autosavesRoot: string;
+  if (customBasePath) {
+    autosavesRoot = customBasePath;
+  } else {
+    const editorRoot = await ensureEditorDir(projectPath);
+    autosavesRoot = `${editorRoot}/${AUTOSAVES_DIR}`;
+  }
   if (!(await exists(autosavesRoot))) {
     await mkdir(autosavesRoot, { recursive: true });
   }
@@ -124,7 +131,8 @@ const ensureDraftAutosavesDir = async (projectPath: string): Promise<string> => 
 
 const MAX_AUTOSAVE_VERSIONS = 5;
 
-const getDraftAutosavesDirPath = async (projectPath: string): Promise<string> => {
+const getDraftAutosavesDirPath = async (projectPath: string, customBasePath?: string): Promise<string> => {
+  if (customBasePath) return customBasePath;
   const editorRoot = await getEditorRoot(projectPath);
   return `${editorRoot}/${AUTOSAVES_DIR}`;
 };
@@ -157,9 +165,10 @@ const pruneOldVersions = async (
 export const saveDraftAutosave = async (
   projectPath: string,
   key: string,
-  content: string
+  content: string,
+  customBasePath?: string
 ): Promise<DraftAutosaveRecord> => {
-  const autosavesRoot = await ensureDraftAutosavesDir(projectPath);
+  const autosavesRoot = await ensureDraftAutosavesDir(projectPath, customBasePath);
   const safeKey = sanitizeKey(key);
   const timestamp = Date.now();
   const base = `${safeKey}_${timestamp}`;
@@ -177,10 +186,11 @@ export const saveDraftAutosave = async (
 
 export const listDraftAutosaves = async (
   projectPath: string,
-  key: string
+  key: string,
+  customBasePath?: string
 ): Promise<DraftAutosaveRecord[]> => {
   try {
-    const autosavesRoot = await getDraftAutosavesDirPath(projectPath);
+    const autosavesRoot = await getDraftAutosavesDirPath(projectPath, customBasePath);
     if (!(await exists(autosavesRoot))) return [];
     const entries = await readDir(autosavesRoot);
     const safeKey = sanitizeKey(key);
