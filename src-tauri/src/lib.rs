@@ -6,6 +6,64 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use engine::{markdown, image_proc, rules};
 
+// ─── SFTP Upload ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct SftpUploadRequest {
+    pub host: String,
+    pub port: Option<u16>,
+    pub user: String,
+    pub password: String,
+    pub local_path: String,
+    pub remote_path: String, // full remote path incl. filename
+}
+
+#[tauri::command]
+async fn sftp_upload(req: SftpUploadRequest) -> Result<(), String> {
+    use ssh2::Session;
+    use std::net::TcpStream;
+    use std::path::Path;
+
+    let port = req.port.unwrap_or(22);
+    let addr = format!("{}:{}", req.host, port);
+
+    let tcp = TcpStream::connect(&addr)
+        .map_err(|e| format!("Verbindung zu {} fehlgeschlagen: {}", addr, e))?;
+
+    let mut sess = Session::new()
+        .map_err(|e| format!("SSH Session konnte nicht erstellt werden: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH Handshake fehlgeschlagen: {}", e))?;
+    sess.userauth_password(&req.user, &req.password)
+        .map_err(|e| format!("SFTP Authentifizierung fehlgeschlagen: {}", e))?;
+
+    if !sess.authenticated() {
+        return Err("SFTP: Authentifizierung abgelehnt (falsches Passwort oder Benutzer)".into());
+    }
+
+    let sftp = sess.sftp()
+        .map_err(|e| format!("SFTP Subsystem konnte nicht gestartet werden: {}", e))?;
+
+    // Ensure remote directory exists
+    let remote = Path::new(&req.remote_path);
+    if let Some(parent) = remote.parent() {
+        let _ = sftp.mkdir(parent, 0o755); // ignore error if already exists
+    }
+
+    let content = std::fs::read(&req.local_path)
+        .map_err(|e| format!("Lokale Datei konnte nicht gelesen werden: {}", e))?;
+
+    let mut remote_file = sftp.create(remote)
+        .map_err(|e| format!("Remote-Datei konnte nicht erstellt werden ({}): {}", req.remote_path, e))?;
+
+    use std::io::Write;
+    remote_file.write_all(&content)
+        .map_err(|e| format!("Upload fehlgeschlagen: {}", e))?;
+
+    Ok(())
+}
+
 /// Persistenter ZenEngine-V2-Handle — einmal beim App-Start erzeugt,
 /// wird als Tauri-State gehalten. Rules werden nur bei Änderung neu geladen.
 pub struct ZenEngineState(pub Mutex<rules::EngineHandleV2>);
@@ -172,6 +230,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
         http_fetch,
         print_current_window,
+        sftp_upload,
         // ZenEngine
         engine_version,
         engine_render_markdown,

@@ -75,6 +75,43 @@ export const ZenMobileSettingsContent = () => {
             Mobile Einstellungen
           </div>
 
+            <div style={panelStyle}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FontAwesomeIcon icon={faDownload} style={{ color: '#AC8E66' }} />
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#333' }}>
+                Mobile App Download
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 10 }}>
+              <div
+                style={{
+                  width: 132,
+                  height: 132,
+                  borderRadius: 10,
+                  border: '1px solid rgba(172,142,102,0.45)',
+                  background: 'transparent',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <img src={mobileAppQrSrc} alt="QR-Code fuer Mobile App Download" style={{ width: '100%', height: '100%' }} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666', lineHeight: 1.5 }}>
+                  <FontAwesomeIcon icon={faQrcode} style={{ marginRight: 6, color: '#AC8E66' }} />
+                  QR scannen und DEV .
+                </div>
+                <button type="button" onClick={handleOpenDownload} style={buttonStyle}>
+                  Download Seite oeffnen
+                </button>
+                <code style={codeRowStyle}>{MOBILE_APP_DOWNLOAD_URL}</code>
+              </div>
+            </div>
+          </div>
+
           <div style={panelStyle}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -115,41 +152,7 @@ export const ZenMobileSettingsContent = () => {
             )}
           </div>
 
-          <div style={panelStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <FontAwesomeIcon icon={faDownload} style={{ color: '#AC8E66' }} />
-              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#333' }}>
-                Mobile App Download
-              </span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 10 }}>
-              <div
-                style={{
-                  width: 132,
-                  height: 132,
-                  borderRadius: 10,
-                  border: '1px solid rgba(172,142,102,0.45)',
-                  background: 'transparent',
-                  overflow: 'hidden',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <img src={mobileAppQrSrc} alt="QR-Code fuer Mobile App Download" style={{ width: '100%', height: '100%' }} />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
-                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666', lineHeight: 1.5 }}>
-                  <FontAwesomeIcon icon={faQrcode} style={{ marginRight: 6, color: '#AC8E66' }} />
-                  QR scannen und Installationsseite direkt am iPhone oeffnen.
-                </div>
-                <button type="button" onClick={handleOpenDownload} style={buttonStyle}>
-                  Download Seite oeffnen
-                </button>
-                <code style={codeRowStyle}>{MOBILE_APP_DOWNLOAD_URL}</code>
-              </div>
-            </div>
-          </div>
+        
 
           <div style={panelStyle}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
