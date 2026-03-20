@@ -7,17 +7,9 @@ import { faDownload, faExternalLinkAlt } from '@fortawesome/free-solid-svg-icons
 export function CornerRibbon() {
   const { openExternal } = useOpenExternal();
   const isDesktop = isTauri();
-  const isMobile = !isDesktop;
-
   const [isHovered, setIsHovered] = useState(false);
 
   const handleClick = () => {
-    if (isMobile) {
-      // Mobile: erst öffnen, dann ggf. zweiten Klick nutzen
-      setIsHovered((prev) => !prev);
-      return;
-    }
-
     if (isDesktop) {
       openExternal('https://zenpost.denisbitter.de');
     } else {
@@ -37,8 +29,8 @@ export function CornerRibbon() {
         right: 0,
         zIndex: 9999,
       }}
-      onMouseEnter={() => !isMobile && setIsHovered(true)}
-      onMouseLeave={() => !isMobile && setIsHovered(false)}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
     >
       <div
         role="button"

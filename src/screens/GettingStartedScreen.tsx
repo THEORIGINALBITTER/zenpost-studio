@@ -97,37 +97,30 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
         overflow: 'hidden',
       }}
     >
-      {/* Label slide: text → "→" on hover */}
-      <div style={{ position: 'relative', overflow: 'hidden', height: '80px', width: '14px' }}>
+      {/* Label fade: text ↔ "→" on hover */}
+      <div style={{ position: 'relative', width: '100%', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <span style={{
           writingMode: 'vertical-rl',
           textOrientation: 'mixed',
-          transform: `rotate(180deg) ${showHover ? 'translateX(100%)' : 'translateX(0)'}`,
+          transform: 'rotate(180deg)',
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '9px',
           color: isActive ? '#1a1a1a' : '#8E8E8E',
           whiteSpace: 'nowrap',
           letterSpacing: '0.3px',
           position: 'absolute',
-          bottom: 0,
-          left: 0,
           opacity: showHover ? 0 : 1,
-          transition: 'transform 0.22s ease, opacity 0.18s ease',
+          transition: 'opacity 0.18s ease',
         }}>
           {studio.shortLabel}
         </span>
         <span style={{
-          writingMode: 'vertical-rl',
-          textOrientation: 'mixed',
-          transform: `rotate(180deg) ${showHover ? 'translateX(0)' : 'translateX(-100%)'}`,
           fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '11px',
+          fontSize: '13px',
           color: '#AC8E66',
           position: 'absolute',
-          bottom: 0,
-          left: 0,
           opacity: showHover ? 1 : 0,
-          transition: 'transform 0.22s ease, opacity 0.18s ease',
+          transition: 'opacity 0.18s ease',
         }}>
           →
         </span>
