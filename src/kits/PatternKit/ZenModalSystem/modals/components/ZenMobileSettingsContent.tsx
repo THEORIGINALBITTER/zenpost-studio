@@ -79,7 +79,7 @@ export const ZenMobileSettingsContent = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <FontAwesomeIcon icon={faDownload} style={{ color: '#AC8E66' }} />
               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#333' }}>
-                Mobile App Download
+                Mobile App Dev LOG
               </span>
             </div>
 
@@ -102,10 +102,10 @@ export const ZenMobileSettingsContent = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
                 <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666', lineHeight: 1.5 }}>
                   <FontAwesomeIcon icon={faQrcode} style={{ marginRight: 6, color: '#AC8E66' }} />
-                  QR scannen und DEV .
+                  QR scannen und DEV Log lesen.
                 </div>
                 <button type="button" onClick={handleOpenDownload} style={buttonStyle}>
-                  Download Seite oeffnen
+                  DEV LOG Seite oeffnen
                 </button>
                 <code style={codeRowStyle}>{MOBILE_APP_DOWNLOAD_URL}</code>
               </div>

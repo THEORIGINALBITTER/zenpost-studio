@@ -266,27 +266,65 @@ class ZenImageBlockTool {
       }
     });
 
-    // Canvas statt <img> — Bitmap wird einmal gezeichnet, Resize = reiner CSS/GPU-Scale
-    // → kein WebKit-Pixel-Repaint bei Größenänderung → kein Cursor-Reset
-    const canvas = document.createElement('canvas');
-    canvas.className = 'zen-image-block-img';
-    canvas.draggable = false;
-    canvas.style.width = '100%';
-    canvas.style.height = 'auto';
-    canvas.style.display = 'block';
-    canvas.setAttribute('aria-label', this.data.alt);
+    const isOpfs = this.data.url.startsWith('opfs://');
+    const isLocalFile = this.data.url.startsWith('/') || this.data.url.startsWith('asset://');
 
-    if (/^asset:\/\//i.test(this.data.url)) {
-      const unsupported = document.createElement('div');
-      unsupported.style.padding = '14px';
-      unsupported.style.fontFamily = 'IBM Plex Mono, monospace';
-      unsupported.style.fontSize = '10px';
-      unsupported.style.color = '#AC8E66';
-      unsupported.style.border = '1px dashed rgba(172,142,102,0.45)';
-      unsupported.style.borderRadius = '8px';
-      unsupported.textContent = 'Nicht unterstützte Mobile-Bild-URL (asset://).';
-      wrapper.appendChild(unsupported);
+    if (isOpfs) {
+      // Web: OPFS → Blob URL
+      const img = document.createElement('img');
+      img.className = 'zen-image-block-img';
+      img.draggable = false;
+      img.style.width = '100%';
+      img.style.height = 'auto';
+      img.style.display = 'block';
+      img.setAttribute('aria-label', this.data.alt);
+      void (async () => {
+        try {
+          const { loadOpfsImageAsBlobUrl } = await import('../../utils/editorImageCompression');
+          img.src = await loadOpfsImageAsBlobUrl(this.data.url);
+        } catch {
+          img.alt = `Bild nicht gefunden: ${this.data.url}`;
+        }
+      })();
+      wrapper.appendChild(img);
+    } else if (isLocalFile) {
+      // Tauri: absoluter Pfad oder asset:// → readFile → Blob URL
+      const img = document.createElement('img');
+      img.className = 'zen-image-block-img';
+      img.draggable = false;
+      img.style.width = '100%';
+      img.style.height = 'auto';
+      img.style.display = 'block';
+      img.setAttribute('aria-label', this.data.alt);
+      const filePath = this.data.url.startsWith('asset://')
+        ? decodeURIComponent(this.data.url.replace(/^asset:\/\/localhost\//, ''))
+        : this.data.url;
+      void (async () => {
+        try {
+          const { readFile } = await import('@tauri-apps/plugin-fs');
+          const bytes = await readFile(filePath);
+          const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png';
+          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+            : ext === 'webp' ? 'image/webp'
+            : ext === 'gif' ? 'image/gif'
+            : 'image/png';
+          img.src = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        } catch {
+          img.alt = `Bild nicht gefunden: ${filePath}`;
+        }
+      })();
+      wrapper.appendChild(img);
     } else {
+      // Canvas statt <img> für data: und https: URLs — Bitmap wird einmal gezeichnet,
+      // Resize = reiner CSS/GPU-Scale → kein WebKit-Pixel-Repaint → kein Cursor-Reset
+      const canvas = document.createElement('canvas');
+      canvas.className = 'zen-image-block-img';
+      canvas.draggable = false;
+      canvas.style.width = '100%';
+      canvas.style.height = 'auto';
+      canvas.style.display = 'block';
+      canvas.setAttribute('aria-label', this.data.alt);
+
       // WKWebView Bug: setting canvas.width while in a MutationObserver-watched DOM
       // fires the callback with a single MutationRecord instead of MutationRecord[]
       // which crashes EditorJS's detectToolRootChange(e) → e.forEach is not a function.
@@ -305,9 +343,6 @@ class ZenImageBlockTool {
         const ctx = canvas.getContext('2d');
         if (ctx) ctx.drawImage(tempImg, 0, 0, canvas.width, canvas.height);
 
-        // WKWebView doesn't re-evaluate height:auto when canvas intrinsic dimensions
-        // change via JS — the CSS box stays at initial 0×0, bitmap not scaled to fill width.
-        // Explicitly setting aspect-ratio forces a CSS layout recalc.
         canvas.style.aspectRatio = `${canvas.width} / ${canvas.height}`;
 
         if (parent) {
@@ -316,9 +351,8 @@ class ZenImageBlockTool {
         }
       };
       tempImg.src = toBlobUrl(this.data.url);
+      wrapper.appendChild(canvas);
     }
-
-    wrapper.appendChild(canvas);
     wrapper.appendChild(urlOverlay);
 
     // Größen-Badge auf dem Bild (nur Anzeige, kein Klick)
@@ -366,36 +400,43 @@ class ZenImageBlockTool {
     const wrapper = document.createElement('div');
     wrapper.className = 'zen-image-block-settings';
 
+    const labelRow = document.createElement('div');
+    labelRow.className = 'zen-image-block-slider-row';
+
     const label = document.createElement('span');
     label.className = 'zen-image-block-settings-label';
     label.textContent = 'Bildgröße';
-    wrapper.appendChild(label);
 
-    const btnGroup = document.createElement('div');
-    btnGroup.className = 'zen-image-block-btn-group';
+    const valueLabel = document.createElement('span');
+    valueLabel.className = 'zen-image-block-settings-label';
+    valueLabel.textContent = `${this.data.width}%`;
 
-    const presets = [25, 50, 75, 100];
-    for (const pct of presets) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.textContent = `${pct}%`;
-      btn.className = `zen-image-block-size-btn${this.data.width === pct ? ' active' : ''}`;
-      btn.addEventListener('click', () => {
-        this.data.width = pct;
-        if (this._wrapper) {
-          this._wrapper.style.width = `${pct}%`;
-          this._wrapper.dataset.width = String(pct);
-          const badge = this._wrapper.querySelector<HTMLSpanElement>('.zen-image-block-size-badge');
-          if (badge) badge.textContent = `${pct}%`;
-        }
-        btnGroup.querySelectorAll('.zen-image-block-size-btn').forEach((b) =>
-          b.classList.toggle('active', b === btn)
-        );
-      });
-      btnGroup.appendChild(btn);
-    }
+    labelRow.appendChild(label);
+    labelRow.appendChild(valueLabel);
+    wrapper.appendChild(labelRow);
 
-    wrapper.appendChild(btnGroup);
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '10';
+    slider.max = '100';
+    slider.step = '5';
+    slider.value = String(this.data.width);
+    slider.className = 'zen-image-block-slider';
+
+    const applyWidth = (pct: number) => {
+      this.data.width = pct;
+      valueLabel.textContent = `${pct}%`;
+      if (this._wrapper) {
+        this._wrapper.style.width = `${pct}%`;
+        this._wrapper.dataset.width = String(pct);
+        const badge = this._wrapper.querySelector<HTMLSpanElement>('.zen-image-block-size-badge');
+        if (badge) badge.textContent = `${pct}%`;
+      }
+    };
+
+    slider.addEventListener('input', () => applyWidth(Number(slider.value)));
+
+    wrapper.appendChild(slider);
     return wrapper;
   }
 
@@ -803,18 +844,24 @@ class ZenCodeBlockTool {
     wrapper.appendChild(textarea);
 
     this.dropdownRoot = createRoot(dropdownHost);
-    this.dropdownRoot.render(
-      React.createElement(ZenDropdown, {
-        value: this.data.language,
-        onChange: (value: string) => {
-          this.data.language = value;
-        },
-        options: ZenCodeBlockTool.LANGUAGE_OPTIONS,
-        variant: 'compact',
-        fullWidth: false,
-        theme: 'dark',
-      })
-    );
+
+    const renderDropdown = (currentLanguage: string) => {
+      this.dropdownRoot!.render(
+        React.createElement(ZenDropdown, {
+          value: currentLanguage,
+          onChange: (value: string) => {
+            this.data.language = value;
+            renderDropdown(value);
+          },
+          options: ZenCodeBlockTool.LANGUAGE_OPTIONS,
+          variant: 'compact',
+          fullWidth: false,
+          theme: 'dark',
+        })
+      );
+    };
+
+    renderDropdown(this.data.language);
 
     return wrapper;
   }
@@ -3102,43 +3149,54 @@ export const ZenBlockEditor = ({
 
     const insertImagesAtCursor = (images: Array<{ url: string; alt?: string }>) => {
       if (!images.length) return;
-      const editor = editorRef.current as any;
-      if (!editor?.blocks) return;
+      void (async () => {
+        const editor = editorRef.current as any;
+        if (!editor?.blocks) return;
 
-      const info = getCurrentBlockInfo(toolbarActionBlockIndexRef.current);
-      let insertIndex: number | undefined;
-      const shouldReplaceCurrent = !!info && !info.hasContent;
-
-      if (shouldReplaceCurrent && info) {
-        insertIndex = info.index;
-        try {
-          editor.blocks.delete(info.index);
-        } catch {
-          // fallback to regular insert below
-        }
-      } else if (info) {
-        insertIndex = info.index + 1;
-      } else {
-        const currentIndex = editor.blocks.getCurrentBlockIndex?.();
-        insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
-      }
-
-      images.forEach((image, offset) => {
-        editor.blocks.insert(
-          'imageBlock',
-          { url: image.url, alt: image.alt ?? '' },
-          undefined,
-          typeof insertIndex === 'number' ? insertIndex + offset : undefined,
-          true
+        const optimizedImages = await Promise.all(
+          images.map(async (image) => ({
+            ...image,
+            url: image.url.startsWith('data:image/')
+              ? await autoOptimizeDataUrl(image.url)
+              : image.url,
+          }))
         );
-      });
 
-      const targetIndex =
-        typeof insertIndex === 'number'
-          ? insertIndex + images.length - 1
-          : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
-      toolbarActionBlockIndexRef.current = targetIndex;
-      focusBlockByIndex(targetIndex, 'end');
+        const info = getCurrentBlockInfo(toolbarActionBlockIndexRef.current);
+        let insertIndex: number | undefined;
+        const shouldReplaceCurrent = !!info && !info.hasContent;
+
+        if (shouldReplaceCurrent && info) {
+          insertIndex = info.index;
+          try {
+            editor.blocks.delete(info.index);
+          } catch {
+            // fallback to regular insert below
+          }
+        } else if (info) {
+          insertIndex = info.index + 1;
+        } else {
+          const currentIndex = editor.blocks.getCurrentBlockIndex?.();
+          insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
+        }
+
+        optimizedImages.forEach((image, offset) => {
+          editor.blocks.insert(
+            'imageBlock',
+            { url: image.url, alt: image.alt ?? '' },
+            undefined,
+            typeof insertIndex === 'number' ? insertIndex + offset : undefined,
+            true
+          );
+        });
+
+        const targetIndex =
+          typeof insertIndex === 'number'
+            ? insertIndex + optimizedImages.length - 1
+            : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
+        toolbarActionBlockIndexRef.current = targetIndex;
+        focusBlockByIndex(targetIndex, 'end');
+      })();
     };
 
     onRegisterImageInserter(insertImagesAtCursor);

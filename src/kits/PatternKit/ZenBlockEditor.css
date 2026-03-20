@@ -793,34 +793,37 @@
   letter-spacing: 0.5px;
 }
 
-/* Preset-Größen-Buttons (in Settings-Toolbar) */
-.zen-image-block-btn-group {
+/* Größen-Schieberegler */
+.zen-image-block-slider-row {
   display: flex;
-  gap: 4px;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.zen-image-block-size-btn {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 10px;
-  padding: 4px 8px;
-  background: transparent;
-  border: 1px solid #2A2A2A;
-  border-radius: 4px;
-  color: #4A4540;
+.zen-image-block-slider {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  height: 2px;
+  background: #2A2A2A;
+  border-radius: 2px;
+  outline: none;
   cursor: pointer;
-  transition: all 0.1s ease;
-  line-height: 1;
+  accent-color: #AC8E66;
 }
 
-.zen-image-block-size-btn:hover {
-  border-color: rgba(172, 142, 102, 0.4);
-  color: #AC8E66;
+.zen-image-block-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #AC8E66;
+  cursor: pointer;
+  border: none;
 }
 
-.zen-image-block-size-btn.active {
-  border-color: #AC8E66;
-  color: #AC8E66;
-  background: rgba(172, 142, 102, 0.08);
+.zen-image-block-slider::-webkit-slider-thumb:hover {
+  background: #C4A87A;
 }
 
 .zen-link-block-tool__input,

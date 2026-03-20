@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { exportAllSettingsAsFile, importAllSettingsFromFile } from '../../../../services/zenStudioSettingsService';
 import { ZenModal } from '../components/ZenModal';
 import { MODAL_CONTENT } from '../config/ZenModalConfig';
 import { ZenAISettingsContent } from './components/ZenAISettingsContent';
@@ -10,8 +11,9 @@ import { ZenStudioSettingsContent } from './components/ZenStudioSettingsContent'
 import { ZenMobileSettingsContent } from './components/ZenMobileSettingsContent';
 import { ZenApiSettingsContent } from './components/ZenApiSettingsContent';
 import { ZenEngineSettingsContent } from './components/ZenEngineSettingsContent';
+import { ZenNewsletterSettingsContent } from './components/ZenNewsletterSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
@@ -24,16 +26,17 @@ interface ZenSettingsModalProps {
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'ai', label: 'AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
-  { id: 'api', label: 'API', icon: faPlug },
-  { id: 'social', label: 'Social Media', icon: faShareNodes },
+  { id: 'api', label: 'Server API', icon: faPlug },
+  { id: 'social', label: 'Media Transformation', icon: faShareNodes },
   { id: 'editor', label: 'Editor', icon: faPenNib },
-  { id: 'mobile', label: 'Mobile', icon: faMobileScreen },
+  { id: 'mobile', label: 'Mobile APP', icon: faMobileScreen },
   { id: 'zenengine', label: 'ZenEngine', icon: faBolt },
+  { id: 'newsletter', label: 'Newsletter', icon: faEnvelope },
   { id: 'zenstudio', label: 'ZenGedanken', icon: faLightbulb },
   { id: 'license', label: 'Lizenz', icon: faIdCard },
 ];
@@ -50,7 +53,28 @@ export const ZenSettingsModal = ({
 }: ZenSettingsModalProps) => {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
   const [hoveredTab, setHoveredTab] = useState<TabType | null>(null);
+  const [backupMsg, setBackupMsg] = useState<string | null>(null);
   const contentPanelRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleExportAll = () => {
+    exportAllSettingsAsFile();
+    setBackupMsg('Backup gespeichert');
+    setTimeout(() => setBackupMsg(null), 3000);
+  };
+
+  const handleImportAll = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      await importAllSettingsFromFile(file);
+      setBackupMsg('Settings wiederhergestellt — bitte neu starten');
+    } catch (err) {
+      setBackupMsg(err instanceof Error ? err.message : 'Fehler beim Import');
+    }
+    e.target.value = '';
+    setTimeout(() => setBackupMsg(null), 5000);
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -133,12 +157,48 @@ export const ZenSettingsModal = ({
                   icon={tab.icon}
                   style={{ width: 14, flexShrink: 0, color: isActive ? '#AC8E66' : isHovered ? '#999' : '#555' }}
                 />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {tab.label}
-                </span>
+                <div style={{ position: 'relative', overflow: 'hidden', height: '16px', flex: 1 }}>
+                  <span style={{
+                    position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
+                    transform: isHovered ? 'translateY(-100%)' : 'translateY(0)',
+                    opacity: isHovered ? 0 : 1,
+                    transition: 'transform 0.22s ease, opacity 0.18s ease',
+                  }}>
+                    {tab.label}
+                  </span>
+                  <span style={{
+                    position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
+                    color: '#AC8E66',
+                    transform: isHovered ? 'translateY(0)' : 'translateY(100%)',
+                    opacity: isHovered ? 1 : 0,
+                    transition: 'transform 0.22s ease, opacity 0.18s ease',
+                  }}>
+                    Öffnen →
+                  </span>
+                </div>
               </button>
             );
           })}
+
+          {/* Backup / Restore */}
+          <div style={{ marginTop: 'auto', padding: '12px 14px 8px', borderTop: '1px solid rgba(172,142,102,0.15)' }}>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: '#555', marginBottom: 6, letterSpacing: '0.05em' }}>BACKUP</div>
+            <button
+              onClick={handleExportAll}
+              style={{ width: '100%', padding: '5px 8px', marginBottom: 4, background: 'rgba(172,142,102,0.1)', border: '1px solid rgba(172,142,102,0.3)', borderRadius: 4, color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, cursor: 'pointer', textAlign: 'left' }}
+            >
+              ↓ Alle Settings exportieren
+            </button>
+            <label style={{ width: '100%', display: 'block', padding: '5px 8px', background: 'rgba(172,142,102,0.06)', border: '1px solid rgba(172,142,102,0.2)', borderRadius: 4, color: '#888', fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, cursor: 'pointer' }}>
+              ↑ Backup importieren
+              <input ref={importInputRef} type="file" accept=".json" onChange={handleImportAll} style={{ display: 'none' }} />
+            </label>
+            {backupMsg && (
+              <div style={{ marginTop: 6, fontFamily: 'IBM Plex Mono, monospace', fontSize: 7, color: backupMsg.includes('Fehler') ? '#c0392b' : '#AC8E66', lineHeight: 1.4 }}>
+                {backupMsg}
+              </div>
+            )}
+          </div>
         </nav>
 
         {/* Content Panel */}
@@ -170,6 +230,7 @@ export const ZenSettingsModal = ({
             <ZenStudioSettingsContent onOpenZenThoughtsEditor={onOpenZenThoughtsEditor} />
           )}
           {activeTab === 'zenengine' && <ZenEngineSettingsContent />}
+          {activeTab === 'newsletter' && <ZenNewsletterSettingsContent />}
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

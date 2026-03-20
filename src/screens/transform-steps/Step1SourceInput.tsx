@@ -17,6 +17,12 @@ import rough from 'roughjs/bin/rough';
 import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
+import {
+  compressEditorImageFileToDataUrl,
+  saveImageToOpfs,
+  EDITOR_IMAGE_MAX_FILE_SIZE_MB,
+  isEditorImageOversized,
+} from '../../utils/editorImageCompression';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
@@ -65,6 +71,7 @@ interface Step1SourceInputProps {
   dirtyDocTabs?: Record<string, boolean>;
   onDocTabChange?: (tabId: string) => void;
   onCloseDocTab?: (tabId: string) => void;
+  onNewDraft?: () => void;
   projectPath?: string | null;
   onRegisterLiveContentGetter?: (getter: (() => Promise<string>) | null) => void;
   comparisonBaseContent?: string;
@@ -232,6 +239,73 @@ const ZenStepItem = ({
   );
 };
 
+const RotatedTab = ({
+  onClick,
+  disabled,
+  style,
+  label,
+  hoverLabel,
+  color,
+  title,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  style: React.CSSProperties;
+  label: string;
+  hoverLabel: string;
+  color: string;
+  title?: string;
+}) => {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      title={title}
+      onMouseEnter={() => !disabled && setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="lg:flex"
+      style={{
+        position: 'absolute',
+        transformOrigin: 'left top',
+        padding: '10px 10px',
+        borderRadius: '8px 8px 0px 0px',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '10px',
+        color,
+        letterSpacing: '0.03em',
+        whiteSpace: 'nowrap',
+        zIndex: 1,
+        overflow: 'hidden',
+        minWidth: '80px',
+        transition: 'background 0.2s ease',
+        ...style,
+      }}
+    >
+      {/* Fade-swap: label ↔ hoverLabel */}
+      <span style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        opacity: hovered ? 0 : 1,
+        transition: 'opacity 0.18s ease',
+        padding: '0 10px',
+      }}>
+        {label}
+      </span>
+      <span style={{
+        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        opacity: hovered ? 1 : 0,
+        color: disabled ? color : '#AC8E66',
+        transition: 'opacity 0.18s ease',
+        padding: '0 10px',
+      }}>
+        {hoverLabel}
+      </span>
+      {/* Invisible spacer to maintain button size */}
+      <span style={{ visibility: 'hidden' }}>{label.length > hoverLabel.length ? label : hoverLabel}</span>
+    </button>
+  );
+};
 
 export const Step1SourceInput = ({
   sourceContent,
@@ -267,6 +341,7 @@ export const Step1SourceInput = ({
   dirtyDocTabs = {},
   onDocTabChange,
   onCloseDocTab,
+  onNewDraft,
   projectPath,
   onRegisterLiveContentGetter,
   comparisonBaseContent = '',
@@ -499,8 +574,7 @@ export const Step1SourceInput = ({
     }
   };
 
-  const MAX_IMAGE_FILE_SIZE_MB = 15;
-  const MAX_IMAGE_DROP_FILES = 8;
+  const MAX_IMAGE_DROP_FILES = 4;
 
   const isImageFile = (file: File) =>
     file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(file.name);
@@ -525,23 +599,15 @@ export const Step1SourceInput = ({
     return withoutBrackets;
   };
 
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error ?? new Error('Datei konnte nicht gelesen werden.'));
-      reader.readAsDataURL(file);
-    });
-
   const handleImageDrop = async (files: FileList | File[]): Promise<boolean> => {
     const imageFiles = Array.from(files).filter(isImageFile);
     if (imageFiles.length === 0) return false;
 
     const limitedFiles = imageFiles.slice(0, MAX_IMAGE_DROP_FILES);
-    const oversized = limitedFiles.find((file) => file.size > MAX_IMAGE_FILE_SIZE_MB * 1024 * 1024);
+    const oversized = limitedFiles.find((file) => isEditorImageOversized(file));
     if (oversized) {
       onError?.(
-        `Bild zu groß: ${oversized.name} ist größer als ${MAX_IMAGE_FILE_SIZE_MB}MB.`
+        `Bild zu groß: ${oversized.name} ist größer als ${EDITOR_IMAGE_MAX_FILE_SIZE_MB}MB.`
       );
       return true;
     }
@@ -551,13 +617,40 @@ export const Step1SourceInput = ({
       const markdownImageLines: string[] = [];
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
-      for (const imageFile of limitedFiles) {
-        const safeStem = sanitizeFileStem(imageFile.name);
-        const dataUrl = await fileToDataUrl(imageFile);
-        if (editorType === 'block' && blockImageInserterRef.current) {
-          blockImages.push({ url: dataUrl, alt: safeStem });
+      if (isTauri()) {
+        // Tauri: Datei auf Disk schreiben → absoluter Pfad, kein Canvas, kein base64
+        // Speicherort: neben dem Dokument (_assets/) oder ~/Documents/zenpost-images/
+        const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
+        let imagesDir: string;
+        if (projectPath) {
+          const { dirname } = await import('@tauri-apps/api/path');
+          imagesDir = `${await dirname(projectPath)}/_assets`;
         } else {
-          markdownImageLines.push(`![${safeStem}](${dataUrl})`);
+          const { documentDir } = await import('@tauri-apps/api/path');
+          imagesDir = `${await documentDir()}/zenpost-images`;
+        }
+        await mkdir(imagesDir, { recursive: true });
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const safeName = imageFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = `${imagesDir}/${Date.now()}-${safeName}`;
+          await writeFile(filePath, new Uint8Array(await imageFile.arrayBuffer()));
+          if (editorType === 'block' && blockImageInserterRef.current) {
+            blockImages.push({ url: filePath, alt: safeStem }); // roher Pfad → _buildPreview konvertiert zu asset://
+          } else {
+            markdownImageLines.push(`![${safeStem}](${filePath})`);
+          }
+        }
+      } else {
+        // Web: OPFS speichern → kein base64, kein Canvas-Crash
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const opfsPath = await saveImageToOpfs(imageFile);
+          if (editorType === 'block' && blockImageInserterRef.current) {
+            blockImages.push({ url: opfsPath, alt: safeStem });
+          } else {
+            markdownImageLines.push(`![${safeStem}](${opfsPath})`);
+          }
         }
       }
 
@@ -599,27 +692,15 @@ export const Step1SourceInput = ({
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
       if (isTauri()) {
-        const { readFile } = await import('@tauri-apps/plugin-fs');
         for (const sourcePath of normalized) {
           const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
           const safeStem = sanitizeFileStem(sourceName);
-          const ext = sourceName.split('.').pop()?.toLowerCase() || 'png';
-          try {
-            const bytes = await readFile(sourcePath);
-            const b64 = btoa(String.fromCharCode(...bytes));
-            const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-            const dataUrl = `data:${mime};base64,${b64}`;
-            if (editorType === 'block' && blockImageInserterRef.current) {
-              blockImages.push({ url: dataUrl, alt: safeStem });
-            } else {
-              markdownImageLines.push(`![${safeStem}](${dataUrl})`);
-            }
-          } catch {
-            if (editorType === 'block' && blockImageInserterRef.current) {
-              blockImages.push({ url: sourcePath, alt: safeStem });
-            } else {
-              markdownImageLines.push(`![${safeStem}](${sourcePath})`);
-            }
+          if (editorType === 'block' && blockImageInserterRef.current) {
+            // Roher Pfad → _buildPreview in ZenBlockEditor konvertiert zu asset:// für <img>
+            blockImages.push({ url: sourcePath, alt: safeStem });
+          } else {
+            // Markdown: ZenMarkdownPreview ruft convertFileSrc beim Rendern
+            markdownImageLines.push(`![${safeStem}](${sourcePath})`);
           }
         }
       } else {
@@ -731,13 +812,18 @@ export const Step1SourceInput = ({
     const imageFiles = Array.from(event.dataTransfer?.files ?? []).filter(isImageFile);
     if (imageFiles.length > 0) {
       const firstImage = imageFiles[0];
-      if (firstImage.size > MAX_IMAGE_FILE_SIZE_MB * 1024 * 1024) {
-        onError?.(`Bild zu groß: ${firstImage.name} ist größer als ${MAX_IMAGE_FILE_SIZE_MB}MB.`);
+      if (isEditorImageOversized(firstImage)) {
+        onError?.(`Bild zu groß: ${firstImage.name} ist größer als ${EDITOR_IMAGE_MAX_FILE_SIZE_MB}MB.`);
         return;
       }
       try {
-        const dataUrl = await fileToDataUrl(firstImage);
-        updatePostMetaField('imageUrl', dataUrl);
+        let imageUrl: string;
+        if (isTauri()) {
+          imageUrl = await compressEditorImageFileToDataUrl(firstImage);
+        } else {
+          imageUrl = await saveImageToOpfs(firstImage);
+        }
+        updatePostMetaField('imageUrl', imageUrl);
         onError?.('');
         return;
       } catch (error) {
@@ -1131,6 +1217,40 @@ export const Step1SourceInput = ({
                     </button>
                   );
                 })}
+                {onNewDraft && (
+                  <button
+                    onClick={onNewDraft}
+                    title="Neuen Entwurf öffnen"
+                    style={{
+                      marginBottom: '12px',
+                      flex: '0 0 auto',
+                      padding: '10px 12px',
+                      backgroundColor: '#151515',
+                      border: '1px dotted #555',
+                      borderRadius: '8px 8px 0px 0px',
+                      borderBottom: 'none',
+                      cursor: 'pointer',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '14px',
+                      color: '#666',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      lineHeight: 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = '#AC8E66';
+                      e.currentTarget.style.borderColor = '#AC8E66';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = '#666';
+                      e.currentTarget.style.borderColor = '#555';
+                    }}
+                  >
+                    +
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1387,82 +1507,51 @@ export const Step1SourceInput = ({
               left: -5,
             }}
 >
-            <button
+            <RotatedTab
               onClick={toggleOutlinePanel}
-              className=" lg:flex"
               style={{
-                position: 'absolute',
                 left: showOutline ? -258 : -28,
                 top: showOutline ? 60 : 190,
                 transform: showOutline ? 'rotate(0deg)' : 'rotate(-90deg)',
-                transformOrigin: 'left top',
-                padding: '10px 10px',
                 backgroundColor: '#1a1a1a',
                 border: '1px solid #AC8E66',
-                borderRadius: '8px 8px 0px 0px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                color: '#aaaaaa',
-                letterSpacing: '0.03em',
-                zIndex: 1,
               }}
-            >
-                {showOutline ? 'Gliederung ausblenden' : 'Gliederung'}   
-            </button>
+              label={showOutline ? 'Gliederung ausblenden' : 'Gliederung'}
+              hoverLabel={showOutline ? 'Schließen ×' : 'Öffnen →'}
+              color="#aaaaaa"
+            />
 
-            <button
+            <RotatedTab
               onClick={toggleComparisonPanel}
               disabled={!canUseComparison}
-              className=" lg:flex"
               style={{
-                position: 'absolute',
                 left: -28,
                 top: showComparison ? 295 : 300,
                 transform: 'rotate(-90deg)',
-                transformOrigin: 'left top',
-                padding: '10px 10px',
                 backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#1a1a1a',
                 border: !canUseComparison ? '1px solid #3A3A3A' : '1px solid #AC8E66',
-                borderRadius: '8px 8px 0px 0px',
                 cursor: !canUseComparison ? 'not-allowed' : 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                color: !canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#aaaaaa',
-                letterSpacing: '0.03em',
-                whiteSpace: 'nowrap',
-                zIndex: 1,
               }}
+              label={`Vergleich ${showComparison ? 'an' : 'aus'}`}
+              hoverLabel={!canUseComparison ? 'Nicht verfügbar' : showComparison ? 'Ausblenden ×' : 'Einblenden →'}
+              color={!canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#aaaaaa'}
               title={!canUseComparison ? 'Keine Vergleichsbasis verfügbar.' : `Vergleich ${showComparison ? 'ausblenden' : 'anzeigen'}`}
-            >
-              Vergleich {showComparison ? 'an' : 'aus'}
-            </button>
+            />
 
             {/* Meta Tab Button */}
-            <button
+            <RotatedTab
               onClick={() => setShowMeta((v) => !v)}
-              className=" lg:flex"
               style={{
-                position: 'absolute',
                 left: -28,
                 top: 420,
                 transform: 'rotate(-90deg)',
-                transformOrigin: 'left top',
-                padding: '10px 10px',
                 backgroundColor: showMeta ? '#d0cbb8' : '#1a1a1a',
                 border: '1px solid #AC8E66',
-                borderRadius: '8px 8px 0px 0px',
-                cursor: 'pointer',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                color: showMeta ? '#1a1a1a' : '#aaaaaa',
-                letterSpacing: '0.03em',
-                whiteSpace: 'nowrap',
-                zIndex: 1,
               }}
-            >
-              Post Metadaten
-            </button>
+              label="Post Metadaten"
+              hoverLabel={showMeta ? 'Schließen ×' : 'Öffnen →'}
+              color={showMeta ? '#1a1a1a' : '#aaaaaa'}
+            />
 
             {/* Meta Panel */}
             {showMeta && (
@@ -1904,6 +1993,11 @@ export const Step1SourceInput = ({
                 event.preventDefault();
                 event.stopPropagation();
                 setIsImageDragActive(false);
+                // Tauri: Pfade bevorzugen → convertFileSrc, kein base64, kein Canvas
+                if (isTauri() && hasImagePaths) {
+                  void handleImagePathDrop(imagePaths);
+                  return;
+                }
                 if (hasImageFiles && event.dataTransfer.files?.length) {
                   void handleImageDrop(event.dataTransfer.files);
                   return;

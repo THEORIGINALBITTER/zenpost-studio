@@ -68,6 +68,87 @@ interface StudioDef {
 
 type ServerSlugItem = { slug: string; title?: string; date?: string };
 
+const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive: boolean; onClick: () => void }) => {
+  const [hovered, setHovered] = useState(false);
+  const showHover = hovered && !isActive;
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: '36px',
+        height: '100px',
+        borderRadius: '10px 0 0 10px',
+        borderTop: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderLeft: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderBottom: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderRight: 'none',
+        background: isActive ? '#d0cbb8' : showHover ? '#242424' : '#1a1a1a',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        transition: 'background 0.2s, border-color 0.2s',
+        position: 'relative',
+        zIndex: isActive ? 20 : 10,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Label slide: text → "→" on hover */}
+      <div style={{ position: 'relative', overflow: 'hidden', height: '80px', width: '14px' }}>
+        <span style={{
+          writingMode: 'vertical-rl',
+          textOrientation: 'mixed',
+          transform: `rotate(180deg) ${showHover ? 'translateX(100%)' : 'translateX(0)'}`,
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '9px',
+          color: isActive ? '#1a1a1a' : '#8E8E8E',
+          whiteSpace: 'nowrap',
+          letterSpacing: '0.3px',
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          opacity: showHover ? 0 : 1,
+          transition: 'transform 0.22s ease, opacity 0.18s ease',
+        }}>
+          {studio.shortLabel}
+        </span>
+        <span style={{
+          writingMode: 'vertical-rl',
+          textOrientation: 'mixed',
+          transform: `rotate(180deg) ${showHover ? 'translateX(0)' : 'translateX(-100%)'}`,
+          fontFamily: 'IBM Plex Mono, monospace',
+          fontSize: '11px',
+          color: '#AC8E66',
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          opacity: showHover ? 1 : 0,
+          transition: 'transform 0.22s ease, opacity 0.18s ease',
+        }}>
+          →
+        </span>
+      </div>
+      {studio.id === 'mobile' && (
+        <span style={{
+          position: 'absolute', top: '6px', right: '3px',
+          fontSize: '6px', fontFamily: 'IBM Plex Mono, monospace',
+          color: isActive ? '#7a5a30' : '#AC8E66',
+          background: isActive ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.15)',
+          borderRadius: '3px', padding: '1px 4px',
+          border: '0.5px solid rgba(172,142,102,0.5)',
+          writingMode: 'horizontal-tb', letterSpacing: '0.5px', lineHeight: 1,
+        }}>
+          BETA
+        </span>
+      )}
+    </button>
+  );
+};
+
 export function GettingStartedScreen({
   onBack: _onBack,
   onOpenDocStudio,
@@ -378,72 +459,12 @@ export function GettingStartedScreen({
             {studios.map((studio) => {
               const isActive = studio.id === activeStudio;
               return (
-                <button
+                <SidebarTab
                   key={studio.id}
+                  studio={studio}
+                  isActive={isActive}
                   onClick={() => setActiveStudio(studio.id)}
-                  style={{
-                    width: '36px',
-                    height: '100px',
-                    borderRadius: '10px 0 0 10px',
-                    borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                    borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                    borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                    borderRight: 'none',
-                    background: isActive ? '#d0cbb8' : '#1a1a1a',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: 0,
-                    transition: 'background 0.2s',
-                    position: 'relative',
-                    zIndex: isActive ? 20 : 10,
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) e.currentTarget.style.background = '#2a2a2a';
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) e.currentTarget.style.background = '#1a1a1a';
-                  }}
-                >
-                  <span
-                    style={{
-                      writingMode: 'vertical-rl',
-                      textOrientation: 'mixed',
-                      transform: 'rotate(180deg)',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '9px',
-                      color: isActive ? '#1a1a1a' : '#8E8E8E',
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      maxHeight: '90px',
-                      letterSpacing: '0.3px',
-                    }}
-                  >
-                    {studio.shortLabel}
-                  </span>
-                  {studio.id === 'mobile' && (
-                    <span
-                      style={{
-                        position: 'absolute',
-                        top: '6px',
-                        right: '3px',
-                        fontSize: '6px',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                        color: isActive ? '#7a5a30' : '#AC8E66',
-                        background: isActive ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.15)',
-                        borderRadius: '3px',
-                        padding: '1px 4px',
-                        border: '0.5px solid rgba(172,142,102,0.5)',
-                        writingMode: 'horizontal-tb',
-                        letterSpacing: '0.5px',
-                        lineHeight: 1,
-                      }}
-                    >
-                      BETA
-                    </span>
-                  )}
-                </button>
+                />
               );
             })}
           </div>
@@ -963,15 +984,18 @@ interface RecentItemCardProps {
 
 const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
   const sourceLabel = item.source === 'doc-studio' ? 'Doc Studio' : 'Content AI';
+  const [hovered, setHovered] = useState(false);
 
   return (
     <button
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
-        border: '1px solid #2A2A2A',
+        border: `0.5px solid ${hovered ? '#AC8E66' : '#2A2A2A'}`,
         borderRadius: '12px',
         padding: '14px 18px',
-        background: 'transparent',
+        background: hovered ? '#111' : 'transparent',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -981,32 +1005,14 @@ const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
         color: '#e5e5e5',
         textAlign: 'left',
         width: '100%',
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.border = '0.5px solid #AC8E66';
-        e.currentTarget.style.backgroundColor = '#111';
-        e.currentTarget.style.transform = 'translateX(5px)';
-        e.currentTarget.style.boxShadow = '0 10px 24px rgba(0,0,0,0.33)';
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.border = '0.5px solid #2a2a2a';
-        e.currentTarget.style.backgroundColor = 'transparent';
-        e.currentTarget.style.transform = 'translateX(0)';
-        e.currentTarget.style.boxShadow = 'none';
+        transform: hovered ? 'translateX(5px)' : 'translateX(0)',
+        boxShadow: hovered ? '0 10px 24px rgba(0,0,0,0.33)' : 'none',
       }}
     >
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
           <div style={{ fontSize: '10px', fontWeight: 200, color: '#e5e5e5' }}>{item.title}</div>
-          <span
-            style={{
-              border: '0.5px dotted #3A3328',
-              color: '#c9ab82',
-              borderRadius: '999px',
-              fontSize: '9px',
-              padding: '1px 7px',
-            }}
-          >
+          <span style={{ border: '0.5px dotted #3A3328', color: '#c9ab82', borderRadius: '999px', fontSize: '9px', padding: '1px 7px' }}>
             {sourceLabel}
           </span>
         </div>
@@ -1015,7 +1021,27 @@ const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
           {item.subtitle ? ` · ${item.subtitle}` : ''}
         </div>
       </div>
-      <div style={{ fontSize: '10px', color: '#AC8E66' }}>Fortsetzen</div>
+      {/* Slide-up: "Fortsetzen" → "Öffnen →" */}
+      <div style={{ position: 'relative', overflow: 'hidden', height: '14px', width: '60px', flexShrink: 0 }}>
+        <div style={{
+          position: 'absolute', top: 0, left: 0, width: '100%',
+          fontSize: '10px', color: '#AC8E66', textAlign: 'right',
+          transform: hovered ? 'translateY(-100%)' : 'translateY(0)',
+          opacity: hovered ? 0 : 1,
+          transition: 'transform 0.22s ease, opacity 0.18s ease',
+        }}>
+          Fortsetzen
+        </div>
+        <div style={{
+          position: 'absolute', top: 0, left: 0, width: '100%',
+          fontSize: '10px', color: '#AC8E66', textAlign: 'right',
+          transform: hovered ? 'translateY(0)' : 'translateY(100%)',
+          opacity: hovered ? 1 : 0,
+          transition: 'transform 0.22s ease, opacity 0.18s ease',
+        }}>
+          Öffnen →
+        </div>
+      </div>
     </button>
   );
 };

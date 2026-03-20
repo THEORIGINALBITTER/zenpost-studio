@@ -13,7 +13,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readDir, readTextFile, writeTextFile, exists, mkdir, remove } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
-import { loadZenStudioSettings, saveZenStudioSettings, type BlogConfig } from '../../../../../services/zenStudioSettingsService';
+import { loadZenStudioSettings, saveZenStudioSettings, exportZenStudioSettingsAsFile, importZenStudioSettingsFromFile, type BlogConfig } from '../../../../../services/zenStudioSettingsService';
 import { ftpUpload } from '../../../../../services/ftpService';
 import { getPhpUploadScript, getHtaccessContent } from '../../../../../services/phpBlogService';
 import {
@@ -1035,13 +1035,21 @@ export const ZenSocialMediaSettingsContent = ({
                             { step: '2', text: 'Lade das PHP Paket herunter — 2 Dateien: zenpost-upload.php + .htaccess (Key ist eingetragen).' },
                             { step: '3', text: 'Lade BEIDE Dateien direkt in das Blog-Hauptverzeichnis hoch (z.B. /zenpostapp/). NICHT in Unterordner!' },
                             { step: '4', text: 'Trage die vollständige URL unten ein (z.B. https://meinserver.de/zenpostapp/zenpost-upload.php).' },
-                            { step: '5', text: 'Fertig — "Auf Server speichern" lädt Posts hoch. Dashboard lädt Posts vom Server.' },
+                            { step: '5', text: 'Fertig — "Auf Server speichern" lädt Posts + Titelbilder hoch. Bilder landen automatisch in _assets/ auf dem Server und werden als URL im manifest verlinkt.' },
                           ].map(({ step, text }) => (
                             <div key={step} style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
                               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 700, flexShrink: 0, width: '12px' }}>{step}.</span>
                               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', lineHeight: 1.5 }}>{text}</span>
                             </div>
                           ))}
+
+                          {/* Titelbilder-Hinweis */}
+                          <div style={{ marginTop: '8px', padding: '6px 8px', background: 'rgba(172,142,102,0.08)', border: '1px solid rgba(172,142,102,0.3)', borderRadius: '4px' }}>
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 700, marginBottom: '3px' }}>TITELBILDER</div>
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', lineHeight: 1.5 }}>
+                              Bild per Drag &amp; Drop in die Post-Metadaten ziehen. Beim Upload auf den Server wird das Bild automatisch in <span style={{ color: '#AC8E66' }}>_assets/</span> gespeichert und die URL im manifest.json verlinkt — kein manuelles Hochladen nötig.
+                            </div>
+                          </div>
                         </div>
 
                         <input
@@ -1164,6 +1172,46 @@ export const ZenSocialMediaSettingsContent = ({
               <FontAwesomeIcon icon={faPlus} />
               Blog hinzufügen
             </button>
+          )}
+
+          {/* Export / Import Config */}
+          {wizardStep === null && (
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px' }}>
+              <button
+                onClick={exportZenStudioSettingsAsFile}
+                style={{
+                  flex: 1, padding: '9px 12px', border: '1px solid rgba(172,142,102,0.3)',
+                  borderRadius: '6px', background: 'transparent', cursor: 'pointer',
+                  color: '#888', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                }}
+              >
+                ↓ Config exportieren
+              </button>
+              <label style={{
+                flex: 1, padding: '9px 12px', border: '1px solid rgba(172,142,102,0.3)',
+                borderRadius: '6px', background: 'transparent', cursor: 'pointer',
+                color: '#888', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                textAlign: 'center',
+              }}>
+                ↑ Config importieren
+                <input
+                  type="file"
+                  accept=".json"
+                  style={{ display: 'none' }}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      await importZenStudioSettingsFromFile(file);
+                      setBlogs(loadZenStudioSettings().blogs ?? []);
+                    } catch (err) {
+                      console.error('Import fehlgeschlagen:', err);
+                    }
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
           )}
 
           {wizardStep === 'name' && (

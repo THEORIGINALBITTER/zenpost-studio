@@ -18,6 +18,11 @@ import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
 import { textToMarkdown } from '../../services/aiService';
 import { isTauri } from '@tauri-apps/api/core';
+import {
+  saveImageToOpfs,
+  EDITOR_IMAGE_MAX_FILE_SIZE_MB,
+  isEditorImageOversized,
+} from '../../utils/editorImageCompression';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -1042,14 +1047,6 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     return withoutBrackets;
   };
 
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error ?? new Error('Datei konnte nicht gelesen werden.'));
-      reader.readAsDataURL(file);
-    });
-
   const extractImagePathsFromDataTransfer = (event: DragEvent<HTMLTextAreaElement>): string[] => {
     const uriListRaw = event.dataTransfer.getData('text/uri-list');
     const textRaw = event.dataTransfer.getData('text/plain');
@@ -1085,13 +1082,55 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     event.preventDefault();
     event.stopPropagation();
 
+    // Tauri: Pfade bevorzugen wenn verfügbar → raw path, kein base64
+    if (isTauri() && imagePaths.length > 0) {
+      const pathLines = imagePaths.slice(0, 6).map((imagePath) => {
+        const sourceName = imagePath.split('/').pop()?.split('\\').pop() || 'image';
+        const safeStem = sanitizeFileStem(sourceName);
+        return `![${safeStem}](${imagePath})`;
+      });
+      setFormatError(null);
+      appendImageMarkdown(pathLines);
+      return;
+    }
+
     if (imageFiles.length > 0) {
-      const lines: string[] = [];
-      for (const imageFile of imageFiles.slice(0, 6)) {
-        const safeStem = sanitizeFileStem(imageFile.name);
-        const dataUrl = await fileToDataUrl(imageFile);
-        lines.push(`![${safeStem}](${dataUrl})`);
+      const limitedFiles = imageFiles.slice(0, 6);
+      const oversized = limitedFiles.find((imageFile) => isEditorImageOversized(imageFile));
+      if (oversized) {
+        setFormatError(`Bild zu groß: ${oversized.name} ist größer als ${EDITOR_IMAGE_MAX_FILE_SIZE_MB}MB.`);
+        return;
       }
+
+      const lines: string[] = [];
+      if (isTauri()) {
+        // Tauri: neben Dokument oder ~/Documents/zenpost-images/, kein Canvas
+        const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
+        let imagesDir: string;
+        if (projectPath) {
+          const { dirname } = await import('@tauri-apps/api/path');
+          imagesDir = `${await dirname(projectPath)}/_assets`;
+        } else {
+          const { documentDir } = await import('@tauri-apps/api/path');
+          imagesDir = `${await documentDir()}/zenpost-images`;
+        }
+        await mkdir(imagesDir, { recursive: true });
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const safeName = imageFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = `${imagesDir}/${Date.now()}-${safeName}`;
+          await writeFile(filePath, new Uint8Array(await imageFile.arrayBuffer()));
+          lines.push(`![${safeStem}](${filePath})`);
+        }
+      } else {
+        // Web: OPFS → kein base64
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const opfsPath = await saveImageToOpfs(imageFile);
+          lines.push(`![${safeStem}](${opfsPath})`);
+        }
+      }
+      setFormatError(null);
       appendImageMarkdown(lines);
       return;
     }
@@ -1121,25 +1160,8 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
     const nextLines = [...lines];
 
-    if (isTauri()) {
-      const { readFile } = await import('@tauri-apps/plugin-fs');
-      for (const { index, line } of pathLineIndexes) {
-        const sourcePath = normalizeDroppedPath(line.trim());
-        const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
-        const safeStem = sanitizeFileStem(sourceName);
-        const ext = sourceName.split('.').pop()?.toLowerCase() || 'png';
-        try {
-          const bytes = await readFile(sourcePath);
-          const b64 = btoa(String.fromCharCode(...bytes));
-          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
-          nextLines[index] = `![${safeStem}](data:${mime};base64,${b64})`;
-        } catch {
-          nextLines[index] = `![${safeStem}](${sourcePath})`;
-        }
-      }
-      return nextLines.join('\n');
-    }
-
+    // Pfad direkt behalten — ZenMarkdownPreview ruft convertFileSrc() beim Rendern,
+    // kein readFile + Canvas + base64 nötig (egal ob Tauri oder Web)
     for (const { index, line } of pathLineIndexes) {
       const sourcePath = normalizeDroppedPath(line.trim());
       const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';

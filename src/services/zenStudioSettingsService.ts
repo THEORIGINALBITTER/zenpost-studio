@@ -46,6 +46,68 @@ export interface BlogConfig {
   phpApiKey?: string;
 }
 
+export type NewsletterProvider = 'none' | 'custom-api' | 'php-generator' | 'mailchimp' | 'beehiiv' | 'buttondown';
+
+export interface NewsletterPhpGenConfig {
+  emailMethod: 'php-mail' | 'smtp';
+  fromEmail: string;
+  fromName: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpUser: string;
+  smtpPass: string;
+  smtpEncryption: 'tls' | 'ssl';
+  storageMethod: 'json' | 'sqlite' | 'mysql';
+  sqlitePath: string;   // für sqlite, z.B. ../data/subscribers.sqlite
+  dbHost: string;
+  dbName: string;
+  dbUser: string;
+  dbPass: string;
+  apiKey: string;
+  siteUrl: string;
+  apiBaseUrl: string;
+}
+
+export const defaultPhpGenConfig: NewsletterPhpGenConfig = {
+  emailMethod: 'php-mail',
+  fromEmail: '',
+  fromName: '',
+  smtpHost: '',
+  smtpPort: '587',
+  smtpUser: '',
+  smtpPass: '',
+  smtpEncryption: 'tls',
+  storageMethod: 'mysql',
+  sqlitePath: '../data/subscribers.sqlite',
+  dbHost: 'localhost',
+  dbName: '',
+  dbUser: '',
+  dbPass: '',
+  apiKey: '',
+  siteUrl: '',
+  apiBaseUrl: '',
+};
+
+export interface NewsletterConfig {
+  enabled: boolean;
+  provider: NewsletterProvider;
+  apiUrl: string;       // custom-api / php-generator: notify endpoint
+  apiKey: string;       // custom-api & mailchimp & beehiiv & buttondown
+  audienceId: string;   // mailchimp list id
+  wizardStep: number;   // 0=choose, 1=configure, 2=done
+  phpGen: NewsletterPhpGenConfig;
+}
+
+export const defaultNewsletterConfig: NewsletterConfig = {
+  enabled: false,
+  provider: 'none',
+  apiUrl: '',
+  apiKey: '',
+  audienceId: '',
+  wizardStep: 0,
+  phpGen: { ...defaultPhpGenConfig },
+};
+
 export interface ZenStudioSettings {
   showInGettingStarted: boolean;
   showInDocStudio: boolean;
@@ -65,6 +127,7 @@ export interface ZenStudioSettings {
   activeServerIndex: number;
   zenpostmobilPath: string | null;
   blogs: BlogConfig[];
+  newsletter: NewsletterConfig;
 }
 
 export const defaultZenStudioSettings: ZenStudioSettings = {
@@ -86,6 +149,7 @@ export const defaultZenStudioSettings: ZenStudioSettings = {
   activeServerIndex: 0,
   zenpostmobilPath: null,
   blogs: [],
+  newsletter: { ...defaultNewsletterConfig },
 };
 
 export const loadZenStudioSettings = (): ZenStudioSettings => {
@@ -198,6 +262,38 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
           ? parsed.zenpostmobilPath.trim() : null;
         return legacyPath ? [{ id: 'zenpostmobil', name: 'zenpostmobil', path: legacyPath, siteUrl: 'https://zenpostmobil.denisbitter.de' }] : [];
       })(),
+      newsletter: (() => {
+        const n = parsed.newsletter as Partial<NewsletterConfig> | undefined;
+        if (!n) return { ...defaultNewsletterConfig };
+        const g = (n.phpGen ?? {}) as Partial<NewsletterPhpGenConfig>;
+        return {
+          enabled:     typeof n.enabled === 'boolean' ? n.enabled : false,
+          provider:    (['none','custom-api','php-generator','mailchimp','beehiiv','buttondown'] as NewsletterProvider[]).includes(n.provider as NewsletterProvider) ? n.provider! : 'none',
+          apiUrl:      typeof n.apiUrl === 'string' ? n.apiUrl : '',
+          apiKey:      typeof n.apiKey === 'string' ? n.apiKey : '',
+          audienceId:  typeof n.audienceId === 'string' ? n.audienceId : '',
+          wizardStep:  typeof n.wizardStep === 'number' ? n.wizardStep : 0,
+          phpGen: {
+            emailMethod:    g.emailMethod === 'smtp' ? 'smtp' : 'php-mail',
+            fromEmail:      typeof g.fromEmail === 'string' ? g.fromEmail : '',
+            fromName:       typeof g.fromName === 'string' ? g.fromName : '',
+            smtpHost:       typeof g.smtpHost === 'string' ? g.smtpHost : '',
+            smtpPort:       typeof g.smtpPort === 'string' ? g.smtpPort : '587',
+            smtpUser:       typeof g.smtpUser === 'string' ? g.smtpUser : '',
+            smtpPass:       typeof g.smtpPass === 'string' ? g.smtpPass : '',
+            smtpEncryption: g.smtpEncryption === 'ssl' ? 'ssl' : 'tls',
+            storageMethod:  (['json','sqlite','mysql'] as const).includes(g.storageMethod as 'json'|'sqlite'|'mysql') ? g.storageMethod as 'json'|'sqlite'|'mysql' : 'mysql',
+            sqlitePath:     typeof g.sqlitePath === 'string' && g.sqlitePath.trim() ? g.sqlitePath.trim() : '../data/subscribers.sqlite',
+            dbHost:         typeof g.dbHost === 'string' ? g.dbHost : 'localhost',
+            dbName:         typeof g.dbName === 'string' ? g.dbName : '',
+            dbUser:         typeof g.dbUser === 'string' ? g.dbUser : '',
+            dbPass:         typeof g.dbPass === 'string' ? g.dbPass : '',
+            apiKey:         typeof g.apiKey === 'string' ? g.apiKey : '',
+            siteUrl:        typeof g.siteUrl === 'string' ? g.siteUrl : '',
+            apiBaseUrl:     typeof g.apiBaseUrl === 'string' ? g.apiBaseUrl : '',
+          },
+        };
+      })(),
     };
   } catch {
     return { ...defaultZenStudioSettings };
@@ -208,7 +304,141 @@ export const saveZenStudioSettings = (settings: ZenStudioSettings): void => {
   if (typeof window === 'undefined') return;
   localStorage.setItem(ZEN_STUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   window.dispatchEvent(new CustomEvent('zen-studio-settings-updated', { detail: settings }));
+  // Tauri: auch in Datei persistieren (silent, background)
+  void persistSettingsToFile(settings);
 };
+
+// ─── Datei-Persistenz (Tauri only) ───────────────────────────────────────────
+
+const SETTINGS_FILE_NAME = 'studio-settings.json';
+
+const getSettingsFilePath = async (): Promise<string> => {
+  const { appDataDir } = await import('@tauri-apps/api/path');
+  return `${await appDataDir()}/${SETTINGS_FILE_NAME}`;
+};
+
+const persistSettingsToFile = async (settings: ZenStudioSettings): Promise<void> => {
+  try {
+    const { isTauri } = await import('@tauri-apps/api/core');
+    if (!isTauri()) return;
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const filePath = await getSettingsFilePath();
+    await writeTextFile(filePath, JSON.stringify(settings, null, 2));
+  } catch {
+    // Fehler still ignorieren — localStorage bleibt Fallback
+  }
+};
+
+/** Beim App-Start aufrufen: lädt Datei → synchronisiert localStorage */
+export const initZenStudioSettings = async (): Promise<void> => {
+  try {
+    const { isTauri } = await import('@tauri-apps/api/core');
+    if (!isTauri()) return;
+    const { exists, readTextFile } = await import('@tauri-apps/plugin-fs');
+    const filePath = await getSettingsFilePath();
+    if (!(await exists(filePath))) return;
+    const raw = await readTextFile(filePath);
+    const parsed = JSON.parse(raw) as Partial<ZenStudioSettings>;
+    // In localStorage schreiben damit loadZenStudioSettings() sofort den richtigen Wert hat
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(ZEN_STUDIO_SETTINGS_STORAGE_KEY, JSON.stringify(parsed));
+      window.dispatchEvent(new CustomEvent('zen-studio-settings-updated', { detail: { ...defaultZenStudioSettings, ...parsed } }));
+    }
+  } catch {
+    // Datei nicht lesbar → localStorage bleibt wie er ist
+  }
+};
+
+// ─── Export / Import ──────────────────────────────────────────────────────────
+
+/** Config als JSON-Datei herunterladen (Browser download) */
+export const exportZenStudioSettingsAsFile = (): void => {
+  const settings = loadZenStudioSettings();
+  const json = JSON.stringify(settings, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zenpost-config-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+/** JSON-Datei einlesen und als aktive Config setzen */
+export const importZenStudioSettingsFromFile = (file: File): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result)) as Partial<ZenStudioSettings>;
+        const merged: ZenStudioSettings = { ...defaultZenStudioSettings, ...parsed };
+        saveZenStudioSettings(merged);
+        resolve();
+      } catch {
+        reject(new Error('Ungültige Konfigurationsdatei.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsText(file);
+  });
+
+/** Alle App-Settings (AI, Editor, Social, Studio) als eine JSON-Datei exportieren */
+export const exportAllSettingsAsFile = (): void => {
+  const ALL_KEYS = [
+    'zenpost_zen_studio_settings',
+    'zenpost_ai_config',
+    'zenpost_editor_settings',
+    'zenpost_social_config',
+  ];
+  const backup: Record<string, unknown> = {
+    _version: 1,
+    _exportedAt: new Date().toISOString(),
+    _app: 'ZenPost Studio',
+  };
+  for (const key of ALL_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      try { backup[key] = JSON.parse(raw); } catch { backup[key] = raw; }
+    }
+  }
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `zenpost-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
+/** Vollständiges Settings-Backup wiederherstellen */
+export const importAllSettingsFromFile = (file: File): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result)) as Record<string, unknown>;
+        const RESTORABLE_KEYS = [
+          'zenpost_zen_studio_settings',
+          'zenpost_ai_config',
+          'zenpost_editor_settings',
+          'zenpost_social_config',
+        ];
+        let restored = 0;
+        for (const key of RESTORABLE_KEYS) {
+          if (parsed[key] !== undefined) {
+            localStorage.setItem(key, JSON.stringify(parsed[key]));
+            restored++;
+          }
+        }
+        if (restored === 0) reject(new Error('Keine gültigen Settings in der Datei gefunden.'));
+        else resolve();
+      } catch {
+        reject(new Error('Ungültige Backup-Datei.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'));
+    reader.readAsText(file);
+  });
 
 export const patchZenStudioSettings = (patch: Partial<ZenStudioSettings>): ZenStudioSettings => {
   const current = loadZenStudioSettings();

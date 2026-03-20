@@ -16,6 +16,27 @@ export interface PhpBlogUploadPayload {
 }
 
 /**
+ * Uploads a cover image (base64) to the blog server's _assets/ folder.
+ * Returns the public URL on success, or null on failure.
+ */
+export async function phpBlogImageUpload(
+  imageData: string,  // data:image/... base64
+  fileName: string,
+  config: PhpBlogConfig,
+): Promise<string | null> {
+  try {
+    const response = await fetch(config.apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': config.apiKey },
+      body: JSON.stringify({ imageData, fileName }),
+    });
+    if (!response.ok) return null;
+    const json = await response.json() as { success?: boolean; url?: string };
+    return json.success && json.url ? json.url : null;
+  } catch { return null; }
+}
+
+/**
  * Uploads a blog post to a PHP upload endpoint.
  * Returns an error string on failure, null on success.
  */
@@ -43,6 +64,30 @@ export async function phpBlogUpload(
   } catch (e) {
     return e instanceof Error ? e.message : String(e);
   }
+}
+
+export interface PhpBlogNewsletterPayload {
+  title: string;
+  subtitle?: string;
+  slug: string;
+  siteUrl: string;
+}
+
+/**
+ * Triggers newsletter notification after successful blog post upload.
+ * Silently fails — newsletter error should not block publishing.
+ */
+export async function phpBlogNewsletterNotify(
+  payload: PhpBlogNewsletterPayload,
+  config: { apiUrl: string; apiKey: string },
+): Promise<void> {
+  try {
+    await fetch(config.apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': config.apiKey },
+      body: JSON.stringify(payload),
+    });
+  } catch { /* silent — newsletter failure must not block publishing */ }
 }
 
 /**
@@ -73,6 +118,7 @@ define('API_KEY', '${apiKey}');
 // Nur ändern wenn du eine andere Struktur willst.
 define('POSTS_DIR', __DIR__ . '/posts/');
 define('MANIFEST_PATH', __DIR__ . '/manifest.json');
+define('ASSETS_DIR', __DIR__ . '/_assets/');
 
 // ── CORS ────────────────────────────────────────────────────────────────────
 header('Access-Control-Allow-Origin: *');
@@ -115,6 +161,47 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid JSON body']);
+    exit;
+}
+
+// ── Image Upload ─────────────────────────────────────────────────────────────
+if (isset($body['imageData'])) {
+    $imageData = trim((string)($body['imageData'] ?? ''));
+    $fileName  = trim((string)($body['fileName']  ?? ''));
+
+    if (!preg_match('/^data:image\\/(png|jpe?g|webp|gif);base64,(.+)$/i', $imageData, $im)) {
+        http_response_code(422);
+        echo json_encode(['error' => 'Invalid image data (only png/jpg/webp/gif)']);
+        exit;
+    }
+    $ext    = strtolower($im[1] === 'jpeg' ? 'jpg' : $im[1]);
+    $binary = base64_decode(preg_replace('/\\s+/', '', $im[2]), true);
+    if ($binary === false) {
+        http_response_code(422);
+        echo json_encode(['error' => 'Base64 decode failed']);
+        exit;
+    }
+    $safeName = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $fileName);
+    $safeName = trim($safeName, '-_.');
+    if ($safeName === '') { $safeName = 'cover-' . gmdate('Ymd-His'); }
+    if (!preg_match('/\\.(png|jpe?g|webp|gif)$/i', $safeName)) { $safeName .= '.' . $ext; }
+
+    if (!is_dir(ASSETS_DIR)) { mkdir(ASSETS_DIR, 0755, true); }
+    $targetPath = ASSETS_DIR . $safeName;
+    if (file_exists($targetPath)) {
+        $safeName   = pathinfo($safeName, PATHINFO_FILENAME) . '-' . gmdate('His') . '.' . $ext;
+        $targetPath = ASSETS_DIR . $safeName;
+    }
+    if (@file_put_contents($targetPath, $binary) === false) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not write image file']);
+        exit;
+    }
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host   = $_SERVER['HTTP_HOST'] ?? '';
+    $scriptDir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/');
+    $url = ($host !== '' ? $scheme . '://' . $host : '') . $scriptDir . '/_assets/' . rawurlencode($safeName);
+    echo json_encode(['success' => true, 'url' => $url, 'fileName' => $safeName]);
     exit;
 }
 

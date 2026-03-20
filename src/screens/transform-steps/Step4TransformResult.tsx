@@ -83,6 +83,7 @@ interface Step4TransformResultProps {
   originalContent?: string;
   originalLabel?: string;
   projectPath?: string | null;
+  onNewDraft?: () => void;
 }
 
 type ImproveOption = {
@@ -205,6 +206,7 @@ export const Step4TransformResult = ({
   originalContent = '',
   originalLabel = 'Original',
   projectPath,
+  onNewDraft: _onNewDraft,
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {

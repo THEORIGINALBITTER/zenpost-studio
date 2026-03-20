@@ -59,18 +59,27 @@ export const getEditorAutosavePath = async (projectPath: string): Promise<string
   return `${editorRoot}/${AUTOSAVE_FILE}`;
 };
 
+const loadSettingsFromLocalStorage = (): Partial<EditorSettings> | null => {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem('zenpost_editor_settings');
+  if (!raw) return null;
+  try { return JSON.parse(raw) as Partial<EditorSettings>; } catch { return null; }
+};
+
 export const loadEditorSettings = async (projectPath: string): Promise<EditorSettings> => {
   try {
     const settingsPath = await getEditorSettingsPath(projectPath);
     if (!(await exists(settingsPath))) {
-      return { ...defaultEditorSettings };
+      const fromStorage = loadSettingsFromLocalStorage();
+      return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
     }
     const raw = await readTextFile(settingsPath);
     const parsed = JSON.parse(raw) as Partial<EditorSettings>;
     return { ...defaultEditorSettings, ...parsed };
   } catch (error) {
     console.error('[EditorSettings] Failed to load settings:', error);
-    return { ...defaultEditorSettings };
+    const fromStorage = loadSettingsFromLocalStorage();
+    return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
   }
 };
 

@@ -231,7 +231,7 @@ export const ZenApiSettingsContent = () => {
       return;
     }
     if (status < 500) {
-      setResult(`Health erreichbar: ${label} (${status}) ${text ? `- ${text}` : ''}`.trim(), 'info');
+      setResult(`Health OK: ${label} erreichbar (${status} — Endpoint antwortet)`, 'success');
       return;
     }
     setResult(`Health Fehler: ${label} (${status}) ${text ? `- ${text}` : ''}`.trim(), 'error');
@@ -253,7 +253,8 @@ export const ZenApiSettingsContent = () => {
   });
 
   const handleHealthUpsert = async () => runHealthCheck('upsert', async () => {
-    await probeEndpoint('Upsert', settings.contentServerApiEndpoint, 'OPTIONS');
+    // Send a POST with an empty body — server should return 400 (missing fields), not 404/500
+    await probeEndpoint('Upsert', settings.contentServerApiEndpoint, 'POST', '{}');
   });
 
   const handleHealthList = async () => runHealthCheck('list', async () => {
@@ -261,7 +262,8 @@ export const ZenApiSettingsContent = () => {
   });
 
   const handleHealthDelete = async () => runHealthCheck('delete', async () => {
-    await probeEndpoint('Delete', settings.contentServerDeleteEndpoint, 'OPTIONS');
+    // Send GET without slug — server should return 400 (missing slug), not 404/500
+    await probeEndpoint('Delete', settings.contentServerDeleteEndpoint, 'GET');
   });
 
   const handleHealthUpload = async () => runHealthCheck('upload', async () => {
@@ -377,6 +379,8 @@ export const ZenApiSettingsContent = () => {
 
   const buildUploadPhp = () => `<?php\nini_set('display_errors', 1);\nini_set('display_startup_errors', 1);\nerror_reporting(E_ALL);\nheader("Access-Control-Allow-Origin: *");\nheader("Access-Control-Allow-Methods: POST, OPTIONS");\nheader("Access-Control-Allow-Headers: Content-Type, Authorization");\nif ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }\nheader("Content-Type: application/json; charset=utf-8");\n\n$configPath = __DIR__ . DIRECTORY_SEPARATOR . 'config.php';\nif (!file_exists($configPath)) { http_response_code(500); echo json_encode(["success"=>false,"message"=>"config.php fehlt. setup.php ausfuehren."]); exit; }\n$config = require $configPath;\n\n$apiKeyEnabled = !empty($config['api_key_enabled']);\n$expectedApiKey = trim((string)($config['api_key'] ?? ''));\n$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';\n$token = null;\nif (preg_match('/Bearer\\s+(.+)/i', $authHeader, $m)) { $token = trim($m[1]); }\nif ($apiKeyEnabled && ($expectedApiKey === '' || $token !== $expectedApiKey)) {\n  http_response_code(401); echo json_encode(["success"=>false,"message"=>"Unauthorized"]); exit;\n}\n\n$input = json_decode(file_get_contents('php://input'), true);\nif (!is_array($input)) { http_response_code(400); echo json_encode(["success"=>false,"message"=>"Ungueltiges JSON"]); exit; }\n\n$imageData = trim((string)($input['imageData'] ?? ''));\n$fileName = trim((string)($input['fileName'] ?? ''));\nif ($imageData === '' || strpos($imageData, 'data:image/') !== 0) {\n  http_response_code(422); echo json_encode(["success"=>false,"message"=>"imageData (data:image) fehlt."]); exit;\n}\n\nif (!preg_match('/^data:image\\/(png|jpe?g|webp|gif);base64,(.+)$/i', $imageData, $m)) {\n  http_response_code(422); echo json_encode(["success"=>false,"message"=>"Nur png/jpg/webp/gif base64 erlaubt."]); exit;\n}\n\n$ext = strtolower($m[1] === 'jpeg' ? 'jpg' : $m[1]);\n$base64 = preg_replace('/\\s+/', '', $m[2]);\n$binary = base64_decode($base64, true);\nif ($binary === false) {\n  http_response_code(422); echo json_encode(["success"=>false,"message"=>"Base64 Dekodierung fehlgeschlagen."]); exit;\n}\n\n$safeName = preg_replace('/[^a-zA-Z0-9._-]+/', '-', $fileName);\n$safeName = trim($safeName, '-_.');\nif ($safeName === '') { $safeName = 'zenpost-image-' . gmdate('Ymd-His'); }\n$existingExt = strtolower((string)pathinfo($safeName, PATHINFO_EXTENSION));\n$allowedExt = ['png', 'jpg', 'jpeg', 'webp', 'gif'];\nif ($existingExt === '' || !in_array($existingExt, $allowedExt, true)) {\n  $safeName = preg_replace('/\\.[^.]+$/', '', $safeName);\n  $safeName .= '.' . $ext;\n}\n\n$webRoot = rtrim((string)($_SERVER['DOCUMENT_ROOT'] ?? ''), DIRECTORY_SEPARATOR);\n$targetDir = '';\nif ($webRoot !== '') {\n  $targetDir = $webRoot . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'zenpoststudio';\n}\nif ($targetDir === '') {\n  $targetDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'images' . DIRECTORY_SEPARATOR . 'zenpoststudio';\n}\nif (!is_dir($targetDir)) {\n  @mkdir($targetDir, 0775, true);\n}\nif (!is_dir($targetDir) || !is_writable($targetDir)) {\n  http_response_code(500); echo json_encode(["success"=>false,"message"=>"Upload-Verzeichnis nicht beschreibbar: ".$targetDir,"documentRoot"=>$webRoot]); exit;\n}\n\n$targetPath = $targetDir . DIRECTORY_SEPARATOR . $safeName;\nif (file_exists($targetPath)) {\n  $safeName = pathinfo($safeName, PATHINFO_FILENAME) . '-' . gmdate('His') . '.' . $ext;\n  $targetPath = $targetDir . DIRECTORY_SEPARATOR . $safeName;\n}\n\nif (@file_put_contents($targetPath, $binary) === false) {\n  http_response_code(500); echo json_encode(["success"=>false,"message"=>"Datei konnte nicht geschrieben werden."]); exit;\n}\n\n$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';\n$host = $_SERVER['HTTP_HOST'] ?? '';\n$publicBase = trim((string)($config['image_public_base'] ?? ''));\nif ($publicBase === '') {\n  $publicBase = ($host !== '') ? ($scheme . '://' . $host . '/images/zenpoststudio') : '/images/zenpoststudio';\n}\n$publicBase = rtrim($publicBase, '/');\n$url = $publicBase . '/' . rawurlencode($safeName);\n\necho json_encode([\n  "success" => true,\n  "fileName" => $safeName,\n  "path" => $targetPath,\n  "url" => $url,\n  "targetDir" => $targetDir,\n  "documentRoot" => $webRoot\n]);\n`;
 
+  const buildDeletePhp = () => `<?php\nheader("Access-Control-Allow-Origin: *");\nheader("Access-Control-Allow-Methods: GET, DELETE, OPTIONS");\nheader("Access-Control-Allow-Headers: Content-Type, Authorization");\nif ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }\nheader("Content-Type: application/json; charset=utf-8");\n\n$configPath = __DIR__ . DIRECTORY_SEPARATOR . 'config.php';\nif (!file_exists($configPath)) { http_response_code(500); echo json_encode(["success"=>false,"message"=>"config.php fehlt."]); exit; }\n$config = require $configPath;\n\n$conn = new mysqli((string)$config['db_host'], (string)$config['db_user'], (string)$config['db_pass'], (string)$config['db_name']);\nif ($conn->connect_error) { http_response_code(500); echo json_encode(["success"=>false,"message"=>"DB Fehler: ".$conn->connect_error]); exit; }\n$conn->set_charset("utf8mb4");\n\n$apiKeyEnabled = !empty($config['api_key_enabled']);\n$expectedApiKey = trim((string)($config['api_key'] ?? ''));\n$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';\n$token = null;\nif (preg_match('/Bearer\\s+(.+)/i', $authHeader, $m)) { $token = trim($m[1]); }\nif ($apiKeyEnabled && ($expectedApiKey === '' || $token !== $expectedApiKey)) {\n  http_response_code(401); echo json_encode(["success"=>false,"message"=>"Unauthorized"]); exit;\n}\n\n$slug = trim($_GET['slug'] ?? '');\nif ($slug === '') { http_response_code(400); echo json_encode(["success"=>false,"message"=>"Kein Slug uebergeben."]); exit; }\n\n$stmt = $conn->prepare("DELETE FROM Articles WHERE Slug = ?");\n$stmt->bind_param("s", $slug);\nif ($stmt->execute()) {\n  $deleted = $stmt->affected_rows;\n  echo json_encode(["success"=>true,"deleted"=>$deleted]);\n} else {\n  http_response_code(500); echo json_encode(["success"=>false,"message"=>"Datenbankfehler: ".$stmt->error]);\n}\n$stmt->close();\n$conn->close();\n`;
+
   const buildSetupPhp = () => `<?php\nheader('Content-Type: text/html; charset=utf-8');\n$baseDir = __DIR__;\n$configPath = $baseDir . DIRECTORY_SEPARATOR . 'config.php';\n$message = '';\n$error = '';\nif ($_SERVER['REQUEST_METHOD'] === 'POST') {\n  $dbHost = trim($_POST['db_host'] ?? '');\n  $dbName = trim($_POST['db_name'] ?? '');\n  $dbUser = trim($_POST['db_user'] ?? '');\n  $dbPass = trim($_POST['db_pass'] ?? '');\n  $apiKeyEnabled = isset($_POST['api_key_enabled']) && $_POST['api_key_enabled'] === '1';\n  $apiKey = trim($_POST['api_key'] ?? '');\n  if ($dbHost === '' || $dbName === '' || $dbUser === '') { $error = 'Bitte DB Host, DB Name und DB User ausfuellen.'; }\n  else {\n    $configContent = "<?php\\nreturn [\\n"\n      . "    'db_host' => " . var_export($dbHost, true) . ",\\n"\n      . "    'db_name' => " . var_export($dbName, true) . ",\\n"\n      . "    'db_user' => " . var_export($dbUser, true) . ",\\n"\n      . "    'db_pass' => " . var_export($dbPass, true) . ",\\n"\n      . "    'api_key_enabled' => " . ($apiKeyEnabled ? 'true' : 'false') . ",\\n"\n      . "    'api_key' => " . var_export($apiKey, true) . ",\\n"\n      . "];\\n";\n    if (@file_put_contents($configPath, $configContent) === false) { $error = 'config.php konnte nicht geschrieben werden.'; }\n    else { $message = 'Setup gespeichert.'; }\n  }\n}\n?><!doctype html><html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ZenPost API Setup</title></head>\n<body style="font-family:monospace;background:#111;color:#eee;padding:24px;">\n<div style="max-width:720px;margin:0 auto;background:#1b1b1b;border:1px solid #444;border-radius:10px;padding:18px;">\n<h1 style="font-size:18px;color:#d8be92;">ZenPost API Setup</h1>\n<?php if ($message): ?><div style="padding:8px;background:#14321a;border:1px solid #2f7a40;"><?= htmlspecialchars($message) ?></div><?php endif; ?>\n<?php if ($error): ?><div style="padding:8px;background:#3a1616;border:1px solid #8f2c2c;"><?= htmlspecialchars($error) ?></div><?php endif; ?>\n<form method="post">\n<label>DB Host</label><br><input type="text" name="db_host" style="width:100%;padding:8px;"><br>\n<label>DB Name</label><br><input type="text" name="db_name" style="width:100%;padding:8px;"><br>\n<label>DB User</label><br><input type="text" name="db_user" style="width:100%;padding:8px;"><br>\n<label>DB Passwort</label><br><input type="password" name="db_pass" style="width:100%;padding:8px;"><br>\n<label><input type="checkbox" name="api_key_enabled" value="1"> API-Key aktivieren (optional)</label><br>\n<label>API Key</label><br><input type="text" name="api_key" style="width:100%;padding:8px;"><br><br>\n<button type="submit">Setup speichern</button>\n</form></div></body></html>\n`;
 
   const handleDownloadServerPackage = async () => {
@@ -388,14 +392,29 @@ export const ZenApiSettingsContent = () => {
       zip.file('setup.php', buildSetupPhp());
       zip.file('ping.php', buildPingPhp());
       zip.file('save_articles_zenpost.php', buildSavePhp());
+      zip.file('delete_articles.php', buildDeletePhp());
       zip.file('upload_images.php', buildUploadPhp());
-      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'zenpost-server-api.zip';
-      link.click();
-      URL.revokeObjectURL(link.href);
-      setResult('Server-Paket erzeugt: zenpost-server-api.zip', 'success');
+      const uint8 = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
+      if (isTauri()) {
+        const { save: saveDialog } = await import('@tauri-apps/plugin-dialog');
+        const { writeFile } = await import('@tauri-apps/plugin-fs');
+        const savePath = await saveDialog({
+          defaultPath: 'zenpost-server-api.zip',
+          filters: [{ name: 'ZIP', extensions: ['zip'] }],
+        });
+        if (savePath) {
+          await writeFile(savePath, uint8);
+          setResult(`Server-Paket gespeichert: ${savePath}`, 'success');
+        }
+      } else {
+        const blob = new Blob([uint8], { type: 'application/zip' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'zenpost-server-api.zip';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        setResult('Server-Paket erzeugt: zenpost-server-api.zip', 'success');
+      }
     } catch (error) {
       setResult(`Paket erstellen fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`, 'error');
     } finally {

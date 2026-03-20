@@ -62,7 +62,7 @@ import {
   getDirectoryHandle, readMarkdownFiles,
   type WebProject,
 } from "./services/webProjectService";
-import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings } from "./services/zenStudioSettingsService";
+import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 
 import ZenCursor from "./components/ZenCursor";
@@ -152,85 +152,6 @@ const extractFirstImageUrlFromBlocks = (
   return '';
 };
 
-type DeveloperInfoProps = {
-  onOpenProfile: () => void;
-  onImageClick?: () => void;
-  compact?: boolean;
-};
-
-const DeveloperInfo = ({ onOpenProfile, onImageClick, compact = false }: DeveloperInfoProps) => (
-  <div
-    style={{
-      marginTop: compact ? "14px" : "22px",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      gap: compact ? "10px" : "14px",
-    }}
-  >
-    <button
-      onClick={onImageClick ?? onOpenProfile}
-      aria-label="Zu Denis Bitter"
-      style={{
-        background: "transparent",
-        padding: 0,
-        cursor: "pointer",
-       
-        width: compact ? "88px" : "120px",
-        height: compact ? "88px" : "120px",
-        borderRadius: "999px",
-        border: "1px solid #AC8E66",
-        overflow: "hidden",
-        boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-      }}
-    >
-      <img
-        src="/denis-rund.png"
-        alt="Denis Bitter"
-        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-      />
-    </button>
-    <div
-      style={{
-        fontFamily: "IBM Plex Mono, monospace",
-        fontSize: compact ? "16px" : "20px",
-        color: "#EFE7DC",
-        textAlign: "center",
-      }}
-    >
-      Moin, ich bin{" "}
-      <button
-        onClick={onOpenProfile}
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          color: "#AC8E66",
-          fontFamily: "inherit",
-          fontSize: "inherit",
-          cursor: "pointer",
-        }}
-      >
-        DenisBitter
-      </button>
-    </div>
-    <div
-      style={{
-        fontFamily: "IBM Plex Mono, monospace",
-        fontSize: compact ? "12px" : "14px",
-        color: "#bfbfbf",
-        textAlign: "center",
-        lineHeight: 1.6,
-        maxWidth: "520px",
-      }}
-    >
-      Software Architect, Full-Stack Entwickler und Dozent aus Hamburg.
-      <br />
-      Ich glaube daran, dass gute Technologie verstanden werden muss —
-      nicht nur funktionieren.
-    </div>
-  </div>
-);
 
 type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox";
 
@@ -268,6 +189,7 @@ function AppContent() {
   const [converterStep, setConverterStep] = useState(1);
   const [contentTransformStep, setContentTransformStep] = useState(1);
   const [contentStudioDashboardView, setContentStudioDashboardView] = useState<"dashboard" | "project-map">("dashboard");
+  const [dashboardActiveContextPath, setDashboardActiveContextPath] = useState<string | null>(null);
   const [docStudioStep, setDocStudioStep] = useState(0);
   const [docStudioInitialWizard, setDocStudioInitialWizard] = useState<'github' | 'docs-site' | undefined>(undefined);
 
@@ -370,6 +292,9 @@ function AppContent() {
   const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | "rescan" | null>(null);
   const [docStudioPreviewMode, setDocStudioPreviewMode] = useState(false);
   const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
+
+  // App-Start: Studio-Settings aus Datei laden (überschreibt localStorage mit persistiertem Stand)
+  useEffect(() => { void initZenStudioSettings(); }, []);
 
   useEffect(() => {
     if (!showContentSaveMenu) return;
@@ -1983,7 +1908,7 @@ function AppContent() {
   // Hilfefunktion für Header-Text
   const getLeftText = () => {
     if (currentScreen === "welcome") {
-      return <span style={{ color: "#AC8E66" }}>ZenPost Studio</span>;
+      return <span style={{ color: "#AC8E66" }}>禅 ZenPost Studio</span>;
     }
 
     const studioNames: Record<Exclude<Screen, "welcome">, string> = {
@@ -1996,7 +1921,7 @@ function AppContent() {
 
     return (
       <>
-        ZenPost Studio · <span style={{ color: "#AC8E66" }}>{studioNames[currentScreen]}</span>
+        禅 ZenPost Studio · <span style={{ color: "#AC8E66" }}>{studioNames[currentScreen]}</span>
       
      
       </>
@@ -2167,6 +2092,7 @@ function AppContent() {
                 label="Projektmappe"
                 icon={<FontAwesomeIcon icon={faFolderOpen} />}
                 onClick={() => {
+                  if (dashboardActiveContextPath) void handleSwitchContentStudioProject(dashboardActiveContextPath);
                   setContentStudioDashboardView("project-map");
                   setContentTransformStep(0);
                 }}
@@ -2422,60 +2348,109 @@ function AppContent() {
           style={{
             minHeight: "100vh",
             display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "24px",
-            background: "#1a1a1a",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            padding: "48px 28px 36px",
+            background: "#111111",
             color: "#EFE7DC",
-            textAlign: "center",
             fontFamily: "IBM Plex Mono, monospace",
+            boxSizing: "border-box",
           }}
         >
-          <div
-            style={{
-              maxWidth: "520px",
-              backgroundColor: "rgba(10, 10, 10, 0.9)",
-              border: "1px solid #AC8E66",
-              borderRadius: "12px",
-              padding: "28px",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.35)",
-            }}
-          >
+          {/* Top: Brand mark */}
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+              <div style={{ width: "24px", height: "1px", background: "#AC8E66" }} />
+              <span style={{ fontSize: "10px", color: "#AC8E66", letterSpacing: "0.18em", textTransform: "uppercase" as const }}>
+                ZenPost Studio
+              </span>
+            </div>
+            <div style={{ fontSize: "10px", color: "#383028", letterSpacing: "0.08em", paddingLeft: "34px" }}>
+              v0.1 · Building in Public
+            </div>
+          </div>
+
+          {/* Middle: Story */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingTop: "52px", paddingBottom: "52px" }}>
             <div
               style={{
-                fontSize: "20px",
-                marginBottom: "12px",
-                color: "#AC8E66",
+                fontSize: "30px",
+                fontWeight: 700,
+                lineHeight: 1.15,
+                color: "#EFE7DC",
+                marginBottom: "28px",
+                letterSpacing: "-0.02em",
               }}
             >
-              ZenPost Studio
+              Ein Werkzeug<br />
+              <span style={{ color: "#AC8E66" }}>für ruhiges</span><br />
+              Schreiben.
             </div>
-            <div style={{ fontSize: "13px", lineHeight: 1.6 }}>
-              Diese App ist nur auf Desktop oder iPad verfügbar.
+
+            <div
+              style={{
+                fontSize: "12px",
+                lineHeight: 1.95,
+                color: "#7a7060",
+                borderLeft: "1px solid #222",
+                paddingLeft: "16px",
+                marginBottom: "40px",
+              }}
+            >
+              ZenPost Studio ist ein Tool —<br />
+              gebaut für Menschen, die denken,<br />
+              bevor sie posten.<br />
               <br />
-              Die mobile App-Version ist für dein Gerät noch nicht verfügbar.
+
+              1 mal Schreiben. 9mal Transformieren.<br />
+              Eine Mobil App entsteht gerade<br />
+              Die Geschichte dahinter...<br />
+              Öffentlich. Ehrlich. Zeile für Zeile.
+              <br />
+              Als Dev Log - Building in Public
             </div>
-            <div
+
+            {/* Ornamental divider */}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "28px" }}>
+              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to right, #AC8E66, transparent)" }} />
+              <span style={{ fontSize: "9px", color: "#AC8E66", letterSpacing: "0.2em" }}>DEV LOG</span>
+              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to left, #AC8E66, transparent)" }} />
+            </div>
+
+            {/* Primary CTA */}
+            <button
+              onClick={() => openExternal("https://zenpostmobil.denisbitter.de")}
               style={{
-                marginTop: "18px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "10px",
-                alignItems: "center",
+                padding: "14px 18px",
+                background: "rgba(172,142,102,0.08)",
+                border: "1px solid #AC8E66",
+                borderRadius: "6px",
+                color: "#AC8E66",
+                fontFamily: "IBM Plex Mono, monospace",
+                fontSize: "13px",
+                cursor: "pointer",
+                textAlign: "left" as const,
+                letterSpacing: "0.02em",
+                marginBottom: "20px",
               }}
             >
+              Building in Public lesen ↗
+            </button>
+
+            {/* Secondary links */}
+            <div style={{ display: "flex", gap: "24px" }}>
               <button
-                onClick={() => openExternal("https://zenpost.denisbitter.de/")}
+                onClick={() => openExternal("https://theoriginalbitter.github.io/zenpost-studio/#/")}
                 style={{
-                  width: "220px",
-                  padding: "10px 12px",
-                  borderRadius: "8px",
-                  border: "1px solid #3A3A3A",
-                  background: "transparent",
-                  color: "#EFE7DC",
+                  background: "none",
+                  border: "none",
+                  color: "#504840",
                   fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: "12px",
+                  fontSize: "11px",
                   cursor: "pointer",
+                  padding: 0,
+                  textDecoration: "underline",
+                  textDecorationColor: "#2a2a2a",
                 }}
               >
                 ZenPost Guide
@@ -2483,61 +2458,50 @@ function AppContent() {
               <button
                 onClick={() => openExternal("https://github.com/THEORIGINALBITTER/zenpost-studio")}
                 style={{
-                  width: "220px",
-                  padding: "10px 12px",
-                  borderRadius: "8px",
-                  border: "1px solid #3A3A3A",
-                  background: "transparent",
-                  color: "#EFE7DC",
+                  background: "none",
+                  border: "none",
+                  color: "#504840",
                   fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: "12px",
+                  fontSize: "11px",
                   cursor: "pointer",
+                  padding: 0,
+                  textDecoration: "underline",
+                  textDecorationColor: "#2a2a2a",
                 }}
               >
                 GitHub
               </button>
-              <button
-                onClick={() => openExternal("mailto:saghallo@denisbitter.de")}
-                style={{
-                  width: "220px",
-                  padding: "10px 12px",
-                  borderRadius: "8px",
-                  border: "1px solid #3A3A3A",
-                  background: "transparent",
-                  color: "#EFE7DC",
-                  fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: "12px",
-                  cursor: "pointer",
-                }}
-              >
-                Support E-Mail
-              </button>
             </div>
-          <DeveloperInfo
-            compact={true}
-            onImageClick={() => openExternal("https://denisbitter.de/")}
-            onOpenProfile={() => openExternal("https://denisbitter.de/about")}
-          />
+          </div>
+
+          {/* Footer */}
+          <div
+            style={{
+              borderTop: "1px solid #1c1c1c",
+              paddingTop: "20px",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span style={{ fontSize: "10px", 
+              color: "#4e4e4e", letterSpacing: "0.08em" }}>
+              Desktop Web Mobil 
+            </span>
             <button
               onClick={() => openExternal("https://denisbitter.de")}
               style={{
-                marginTop: "18px",
-                paddingTop: "14px",
-                borderTop: "1px solid #2A2A2A",
-                fontSize: "11px",
-                color: "#8e8e8e",
-                letterSpacing: "0.02em",
-                background: "transparent",
-                borderLeft: "none",
-                borderRight: "none",
-                borderBottom: "none",
-                width: "100%",
+                background: "none",
+                border: "none",
+                fontSize: "10px",
+                color: "#404040",
                 fontFamily: "IBM Plex Mono, monospace",
                 cursor: "pointer",
+                padding: 0,
+                letterSpacing: "0.06em",
               }}
             >
-              Made with <span style={{ color: "#AC8E66" }}>♥</span> by{" "}
-              <span style={{ color: "#AC8E66" }}>Denis Bitter</span>
+              by <span style={{ color: "#AC8E66" }}>Denis Bitter</span>
             </button>
           </div>
         </div>
@@ -2774,6 +2738,7 @@ function AppContent() {
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
+                onActiveContextChange={setDashboardActiveContextPath}
                 onOpenDashboardDocument={(doc) => {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
@@ -2795,7 +2760,10 @@ function AppContent() {
                     return;
                   }
                 }}
-                onOpenDocuments={() => setContentStudioDashboardView("project-map")}
+                onOpenDocuments={(path) => {
+                  if (path) void handleSwitchContentStudioProject(path);
+                  setContentStudioDashboardView("project-map");
+                }}
                 onOpenPlanner={() => {
                   setSchedulerPlatformPosts([]);
                   setPlannerDefaultTab('planen');

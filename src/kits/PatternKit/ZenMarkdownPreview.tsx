@@ -61,6 +61,58 @@ const getChildrenText = (children: ReactNode): string =>
     })
     .join('')
     .trim();
+// Lädt lokale Bilder (absolute Pfade / asset:// / opfs://) als Blob URL
+// Tauri: readFile → Blob URL  |  Web: OPFS → Blob URL
+function LocalImagePreview({ src, alt, style, ...rest }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const [displaySrc, setDisplaySrc] = useState<string | undefined>(src);
+  useEffect(() => {
+    if (!src) return;
+    let blobUrl: string | null = null;
+
+    // Web: OPFS-Pfad
+    if (src.startsWith('opfs://')) {
+      void (async () => {
+        try {
+          const { loadOpfsImageAsBlobUrl } = await import('../../utils/editorImageCompression');
+          blobUrl = await loadOpfsImageAsBlobUrl(src);
+          setDisplaySrc(blobUrl);
+        } catch {
+          setDisplaySrc(src);
+        }
+      })();
+      return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+    }
+
+    // Tauri: absoluter Pfad oder asset://
+    const isLocal = src.startsWith('/') || src.startsWith('asset://');
+    if (!isLocal || !isTauri()) {
+      setDisplaySrc(src);
+      return;
+    }
+    const filePath = src.startsWith('asset://')
+      ? decodeURIComponent(src.replace(/^asset:\/\/localhost\//, ''))
+      : src;
+    void (async () => {
+      try {
+        const { readFile } = await import('@tauri-apps/plugin-fs');
+        const bytes = await readFile(filePath);
+        const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png';
+        const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+          : ext === 'webp' ? 'image/webp'
+          : ext === 'gif' ? 'image/gif'
+          : 'image/png';
+        blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+        setDisplaySrc(blobUrl);
+      } catch {
+        setDisplaySrc(src);
+      }
+    })();
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
+  }, [src]);
+  // eslint-disable-next-line jsx-a11y/alt-text
+  return <img src={displaySrc} alt={alt} style={style} {...rest} />;
+}
+
 interface ZenMarkdownPreviewProps {
   content: string;
   projectPath?: string | null;
@@ -672,7 +724,7 @@ export const ZenMarkdownPreview = ({
       const src = resolvePreviewImageSrc(typeof props.src === 'string' ? props.src : undefined);
       const alt = typeof props.alt === 'string' ? props.alt : 'Bild';
       return (
-        <img
+        <LocalImagePreview
           {...props}
           src={src || props.src}
           alt={alt}

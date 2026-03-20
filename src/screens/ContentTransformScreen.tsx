@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
-import { readTextFile, writeTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
+import { readTextFile, writeTextFile, writeFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { join } from '@tauri-apps/api/path';
 import {
@@ -56,7 +56,7 @@ import {
   type ZenStudioSettings,
 } from '../services/zenStudioSettingsService';
 import { ftpUpload } from '../services/ftpService';
-import { phpBlogUpload } from '../services/phpBlogService';
+import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../services/phpBlogService';
 import ZenEngine from '../services/zenEngineService';
 
 interface PlatformOption {
@@ -247,26 +247,60 @@ const extractPostMetaFromContent = (
   fallbackTitle?: string
 ): PostMeta => {
   const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
-  const frontmatterDateMatch = content.match(
-    /^---[\s\S]*?\n(?:publishDate|date):\s*([0-9]{4}-[0-9]{2}-[0-9]{2}).*?\n[\s\S]*?---/m
-  );
-  // Parse tags: [a, b, c] or tags: a, b, c
+  // Read individual frontmatter fields (handles quoted and unquoted values)
+  const getFm = (key: string) =>
+    frontmatter.match(new RegExp(`^${key}:\\s*"?([^"\\n]+)"?`, 'm'))?.[1]?.trim() ?? '';
+  // Parse tags: tags: [a, b, c] or tags: a, b, c
   const tagsRaw = frontmatter.match(/^tags:\s*(.+)$/m)?.[1]?.trim() ?? '';
   const tags = tagsRaw
-    ? tagsRaw.replace(/^\[|\]$/g, '').split(',').map(t => t.trim()).filter(Boolean)
+    ? tagsRaw.replace(/^\[|\]$/g, '').split(',').map((t: string) => t.trim()).filter(Boolean)
     : [];
-  const stripHtml = (s: string) => s.replace(/<[^>]+>/g, '').trim();
-  const h1Title = stripHtml(content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '');
-  const h2Subtitle = stripHtml(content.match(/^##\s+(.+)$/m)?.[1]?.trim() ?? '');
-  const imageUrl = content.match(/!\[[^\]]*\]\(([^)]+)\)/)?.[1]?.trim() ?? '';
+  const h1Title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() ?? '';
   const fallbackClean = (fallbackTitle ?? '').replace(/\.[^.]+$/, '').trim();
+  // coverImage comes from frontmatter only — NOT from content images (would pick up random article images)
+  const coverImage = getFm('coverImage');
+  const fmTitle = getFm('title');
+  const fmSubtitle = getFm('subtitle');
+  const fmDate = getFm('date') || getFm('publishDate');
   return {
-    title: h1Title || fallbackClean,
-    subtitle: h2Subtitle,
-    imageUrl,
-    date: normalizeDateForInput(frontmatterDateMatch?.[1] ?? ''),
+    title: fmTitle || h1Title || fallbackClean,
+    subtitle: fmSubtitle,
+    imageUrl: coverImage,
+    date: normalizeDateForInput(fmDate),
     tags,
   };
+};
+
+/**
+ * Wenn eine .md Datei aus einem posts/-Ordner geladen wird,
+ * liest diese Funktion die manifest.json des Blog-Ordners und
+ * gibt den Manifest-Eintrag zurück (Titel, Tags, coverImage).
+ */
+const loadMetaFromManifest = async (filePath: string): Promise<Partial<PostMeta> | null> => {
+  try {
+    if (!isTauri()) return null;
+    // posts/datei.md → parent ist posts/ → parent davon ist der Blog-Ordner
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    const postsIdx = parts.lastIndexOf('posts');
+    if (postsIdx < 1) return null;
+    const blogRoot = parts.slice(0, postsIdx).join('/');
+    const manifestPath = await join(blogRoot, 'manifest.json');
+    const raw = await readTextFile(manifestPath);
+    const manifest = JSON.parse(raw) as { posts?: Array<Record<string, unknown>> };
+    if (!Array.isArray(manifest.posts)) return null;
+    const fileName = parts[parts.length - 1].replace(/\.md$/i, '');
+    const entry = manifest.posts.find(
+      (p) => typeof p.slug === 'string' && (p.slug === fileName || p.slug === fileName.toLowerCase())
+    );
+    if (!entry) return null;
+    return {
+      title: typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : undefined,
+      subtitle: typeof entry.subtitle === 'string' && entry.subtitle.trim() ? entry.subtitle.trim() : undefined,
+      imageUrl: typeof entry.coverImage === 'string' && entry.coverImage.trim() ? entry.coverImage.trim() : undefined,
+      date: typeof entry.date === 'string' ? normalizeDateForInput(entry.date) : undefined,
+      tags: Array.isArray(entry.tags) ? (entry.tags as string[]) : undefined,
+    };
+  } catch { return null; }
 };
 
 const postMetaEquals = (a: PostMeta, b: PostMeta): boolean =>
@@ -328,7 +362,7 @@ const resolveServerImageUrl = (rawValue: string, imageBaseUrl?: string | null): 
 const isInlineOrBlobImageUrl = (value?: string): boolean => {
   const candidate = (value ?? '').trim();
   if (!candidate) return false;
-  return /^data:image\//i.test(candidate) || /^blob:/i.test(candidate);
+  return /^data:image\//i.test(candidate) || /^blob:/i.test(candidate) || candidate.startsWith('opfs://');
 };
 
 const normalizeServerUrlValue = (url: string): string => (
@@ -755,12 +789,13 @@ const replaceInlineImagesByUploadedUrls = async (
 };
 
 const normalizeIncomingPostMeta = (
-  meta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string } | null
-): { title: string; subtitle: string; imageUrl: string; date: string } => ({
+  meta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string; tags?: string[] } | null
+): { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] } => ({
   title: (meta?.title ?? '').trim(),
   subtitle: (meta?.subtitle ?? '').trim(),
   imageUrl: (meta?.imageUrl ?? '').trim(),
   date: normalizeDateForInput(meta?.date),
+  tags: Array.isArray(meta?.tags) ? meta.tags : [],
 });
 
 const toUserFacingError = (rawError: string, context: 'transform' | 'post'): string => {
@@ -902,8 +937,14 @@ export const ContentTransformScreen = ({
   const [step1ComparisonSelectionByTab, setStep1ComparisonSelectionByTab] = useState<Record<string, string>>(
     () => contentTransformSessionCache?.step1ComparisonSelectionByTab ?? {}
   );
-  const [editorSettings, setEditorSettings] = useState<EditorSettings>({
-    ...defaultEditorSettings,
+  const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem('zenpost_editor_settings');
+      if (raw) {
+        try { return { ...defaultEditorSettings, ...JSON.parse(raw) as Partial<EditorSettings> }; } catch { /* ignore */ }
+      }
+    }
+    return { ...defaultEditorSettings };
   });
   const lastAutosaveRef = useRef<Record<string, string>>({});
   const [step1AutosaveStatus, setStep1AutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -1135,6 +1176,15 @@ export const ContentTransformScreen = ({
     return `${baseName}_${date}_v${version}.md`;
   };
 
+  // Sanitize filename for blog upload: only lowercase, numbers, hyphens allowed
+  const sanitizeBlogFilename = (name: string): string =>
+    name
+      .replace(/\.md$/i, '')
+      .toLowerCase()
+      .replace(/[äöüß]/g, (c: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '');
+
   // Strip existing version pattern from filename: "Name_2026-02-03_v1.md" → "Name"
   // Also handles multiple nested patterns: "Name_2026-02-03_v1_2026-02-03_v1" → "Name"
   const stripVersionPattern = (name: string): string => {
@@ -1313,11 +1363,35 @@ export const ContentTransformScreen = ({
         const titleFromMeta = postMeta.title.trim();
         const firstHeading = actualContent.match(/^#+\s+(.+)/m)?.[1] ?? (fileName || 'Blog Post');
         const titleText = (titleFromMeta || firstHeading).trim().slice(0, 80);
+        // Slug: URL-sicher für Server + Manifest (nur a-z, 0-9, Bindestrich)
         const slug = `${date}-${titleText.toLowerCase()
           .replace(/[äöüß]/g, (c: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
           .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+        // Lokaler Dateiname: echter Titel, nur Dateisystem-Sonderzeichen entfernen
+        const localFilename = `${date}-${titleText.replace(/[/\\:*?"<>|]/g, '-').trim()}.md`;
         const wordCount = actualContent.trim().split(/\s+/).length;
         const readingTime = Math.max(1, Math.round(wordCount / 220));
+        const postsDir = await join(blogSaveTarget.path, 'posts');
+        if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
+        // If meta image is base64, extract and save as image file next to the post
+        let coverImageValue = postMeta.imageUrl.trim();
+        if (coverImageValue && /^data:image\//i.test(coverImageValue)) {
+          try {
+            const assetsDir = await join(postsDir, '_assets');
+            if (!(await exists(assetsDir))) await mkdir(assetsDir, { recursive: true });
+            const extMatch = coverImageValue.match(/^data:image\/([a-zA-Z0-9.+-]+);/);
+            const ext = extMatch?.[1] === 'jpeg' ? 'jpg' : (extMatch?.[1] ?? 'jpg');
+            const imgFilename = `${slug}-cover.${ext}`;
+            const base64Data = coverImageValue.split(',')[1] ?? '';
+            const binaryStr = atob(base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+            await writeFile(await join(assetsDir, imgFilename), bytes);
+            coverImageValue = `_assets/${imgFilename}`;
+          } catch (imgErr) {
+            console.warn('[ZenPost] Cover-Bild konnte nicht als Datei gespeichert werden:', imgErr);
+          }
+        }
         const fmLines = [
           '---',
           `title: "${titleText.replace(/"/g, '\\"')}"`,
@@ -1325,12 +1399,10 @@ export const ContentTransformScreen = ({
           `date: "${date}"`,
           postMeta.tags.length > 0 ? `tags: [${postMeta.tags.join(', ')}]` : null,
           `readingTime: ${readingTime}`,
-          postMeta.imageUrl.trim() ? `coverImage: "${postMeta.imageUrl.trim()}"` : null,
+          coverImageValue ? `coverImage: "${coverImageValue}"` : null,
           '---', '', '',
         ].filter((l): l is string => l !== null).join('\n');
-        const postsDir = await join(blogSaveTarget.path, 'posts');
-        if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
-        const filePath = await join(postsDir, `${slug}.md`);
+        const filePath = await join(postsDir, localFilename);
         await writeTextFile(filePath, fmLines + actualContent);
         // Update manifest.json
         const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
@@ -1355,7 +1427,7 @@ export const ContentTransformScreen = ({
         const entry: Record<string, unknown> = { slug, title: titleText, date, readingTime };
         if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
         if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
-        if (postMeta.imageUrl.trim()) entry.coverImage = postMeta.imageUrl.trim();
+        if (coverImageValue) entry.coverImage = coverImageValue;
         const idx = manifest.posts.findIndex((p) => p.slug === slug);
         if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
         await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -1408,11 +1480,32 @@ export const ContentTransformScreen = ({
 
         // PHP Upload (Web + Desktop)
         if (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
+          // Cover-Image: base64 → hochladen → URL in manifest entry ersetzen
+          const phpCfg = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
+          if (coverImageValue.startsWith('data:image/')) {
+            const extM = coverImageValue.match(/^data:image\/(png|jpe?g|webp|gif);/i);
+            const ext2 = extM ? (extM[1].toLowerCase() === 'jpeg' ? 'jpg' : extM[1].toLowerCase()) : 'jpg';
+            const imgName = `cover-${slug}.${ext2}`;
+            const uploadedUrl = await phpBlogImageUpload(coverImageValue, imgName, phpCfg);
+            if (uploadedUrl) {
+              entry.coverImage = uploadedUrl;
+              manifest.posts[manifest.posts.findIndex((p) => p.slug === slug)] = entry;
+            }
+          }
           const phpErr = await phpBlogUpload(
             { filename: `${slug}.md`, content: fmLines + actualContent, manifest },
-            { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey },
+            phpCfg,
           );
           const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/#/post/${slug}` : undefined;
+          if (!phpErr && blogSaveTarget.siteUrl) {
+            const nlCfg = loadZenStudioSettings().newsletter;
+            if (nlCfg.enabled && nlCfg.apiUrl.trim()) {
+              phpBlogNewsletterNotify(
+                { title: String(entry.title ?? ''), subtitle: entry.subtitle ? String(entry.subtitle) : undefined, slug, siteUrl: blogSaveTarget.siteUrl },
+                { apiUrl: nlCfg.apiUrl, apiKey: nlCfg.apiKey },
+              );
+            }
+          }
           setSavedFileName(`${slug}.md`);
           setSavedFilePath(filePath);
           setSavedFilePaths(phpErr
@@ -1457,7 +1550,7 @@ export const ContentTransformScreen = ({
           setSaveSuccessPrimaryActionUrl(null);
           setShowSaveSuccess(true);
         } else {
-          const slug = savedName.replace(/\.md$/, '');
+          const slug = sanitizeBlogFilename(savedName);
           // Update manifest.json locally and re-upload to server
           try {
             const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
@@ -1480,19 +1573,18 @@ export const ContentTransformScreen = ({
                 }
               } catch { /* server fetch non-fatal */ }
             }
-            const fmMatch = contentToSave.match(/^---\n([\s\S]*?)\n---/);
-            const fmStr = fmMatch?.[1] ?? '';
-            const getFmField = (k: string) => fmStr.match(new RegExp(`^${k}:\\s*"?([^"\\n]+)"?`, 'm'))?.[1]?.trim() ?? '';
+            const wordCountFtp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
+            const readingTimeFtp = Math.max(1, Math.round(wordCountFtp / 220));
             const entry: Record<string, unknown> = {
               slug,
-              title: getFmField('title') || slug,
-              date: getFmField('date') || new Date().toISOString().split('T')[0],
-              readingTime: parseInt(getFmField('readingTime') || '1', 10) || 1,
+              title: postMeta.title.trim() || slug,
+              date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
+              readingTime: readingTimeFtp,
             };
-            if (getFmField('subtitle')) entry.subtitle = getFmField('subtitle');
-            if (getFmField('coverImage')) entry.coverImage = getFmField('coverImage');
-            const tagsMatch = fmStr.match(/^tags:\s*\[([^\]]*)\]/m);
-            if (tagsMatch) entry.tags = tagsMatch[1].split(',').map((t: string) => t.trim()).filter(Boolean);
+            if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
+            const ftpImgUrl = postMeta.imageUrl.trim();
+            if (ftpImgUrl && !ftpImgUrl.startsWith('data:image/')) entry.coverImage = ftpImgUrl;
+            if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
             const idx = manifest.posts.findIndex((p) => p.slug === slug);
             if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
             await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -1543,30 +1635,44 @@ export const ContentTransformScreen = ({
               }
             }
           } catch { /* server fetch non-fatal */ }
-          const slug2 = savedName.replace(/\.md$/, '');
-          const fmMatch2 = contentToSave.match(/^---\n([\s\S]*?)\n---/);
-          const fmStr2 = fmMatch2?.[1] ?? '';
-          const getFmField2 = (k: string) => fmStr2.match(new RegExp(`^${k}:\\s*"?([^"\\n]+)"?`, 'm'))?.[1]?.trim() ?? '';
+          const slug2 = sanitizeBlogFilename(savedName);
+          const wordCountPhp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
+          const readingTimePhp = Math.max(1, Math.round(wordCountPhp / 220));
           const entry2: Record<string, unknown> = {
             slug: slug2,
-            title: getFmField2('title') || slug2,
-            date: getFmField2('date') || new Date().toISOString().split('T')[0],
-            readingTime: parseInt(getFmField2('readingTime') || '1', 10) || 1,
+            title: postMeta.title.trim() || slug2,
+            date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
+            readingTime: readingTimePhp,
           };
-          if (getFmField2('subtitle')) entry2.subtitle = getFmField2('subtitle');
-          if (getFmField2('coverImage')) entry2.coverImage = getFmField2('coverImage');
-          const tagsMatch2 = fmStr2.match(/^tags:\s*\[([^\]]*)\]/m);
-          if (tagsMatch2) entry2.tags = tagsMatch2[1].split(',').map((t: string) => t.trim()).filter(Boolean);
+          if (postMeta.subtitle.trim()) entry2.subtitle = postMeta.subtitle.trim();
+          const phpImgUrl = postMeta.imageUrl.trim();
+          if (phpImgUrl && !phpImgUrl.startsWith('data:image/')) entry2.coverImage = phpImgUrl;
+          if (postMeta.tags.length > 0) entry2.tags = postMeta.tags;
           const idx2 = manifest.posts.findIndex((p) => p.slug === slug2);
           if (idx2 >= 0) manifest.posts[idx2] = entry2; else manifest.posts.unshift(entry2);
           await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
           phpManifest = manifest;
         } catch { /* manifest update non-fatal */ }
+        const cleanFilename = `${sanitizeBlogFilename(savedName)}.md`;
+        // Cover-Image: base64 → hochladen → URL in manifest entry ersetzen
+        const phpCfg2 = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
+        const rawImg2 = postMeta.imageUrl.trim();
+        if (phpManifest && rawImg2.startsWith('data:image/')) {
+          const extM2 = rawImg2.match(/^data:image\/(png|jpe?g|webp|gif);/i);
+          const ext3 = extM2 ? (extM2[1].toLowerCase() === 'jpeg' ? 'jpg' : extM2[1].toLowerCase()) : 'jpg';
+          const slugForImg = sanitizeBlogFilename(savedName);
+          const imgName2 = `cover-${slugForImg}.${ext3}`;
+          const uploadedUrl2 = await phpBlogImageUpload(rawImg2, imgName2, phpCfg2);
+          if (uploadedUrl2 && phpManifest.posts) {
+            const pi = phpManifest.posts.findIndex((p: Record<string, unknown>) => p.slug === slugForImg);
+            if (pi >= 0) phpManifest.posts[pi] = { ...phpManifest.posts[pi], coverImage: uploadedUrl2 };
+          }
+        }
         const phpErr = await phpBlogUpload(
-          { filename: savedName, content: contentToSave, manifest: phpManifest },
-          { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey },
+          { filename: cleanFilename, content: contentToSave, manifest: phpManifest },
+          phpCfg2,
         );
-        const slug = savedName.replace(/\.md$/, '');
+        const slug = sanitizeBlogFilename(savedName);
         const viewUrl = blogSaveTarget.siteUrl ? `${blogSaveTarget.siteUrl.replace(/\/$/, '')}/post/${slug}` : undefined;
         setSavedFileName(savedName);
         setSavedFilePath(activeTab.filePath);
@@ -1670,9 +1776,17 @@ export const ContentTransformScreen = ({
           alert('Bild-URL in Post-Metadaten ist data/blob, aber Upload-Endpunkt fehlt.');
           return;
         }
-        const dataUrl = preferredImage.startsWith('blob:')
-          ? await blobUrlToDataImageUrl(preferredImage)
-          : preferredImage;
+        let dataUrl: string;
+        if (preferredImage.startsWith('opfs://')) {
+          const { loadOpfsImageAsBlobUrl } = await import('../utils/editorImageCompression');
+          const blobUrl = await loadOpfsImageAsBlobUrl(preferredImage);
+          dataUrl = await blobUrlToDataImageUrl(blobUrl);
+          URL.revokeObjectURL(blobUrl);
+        } else if (preferredImage.startsWith('blob:')) {
+          dataUrl = await blobUrlToDataImageUrl(preferredImage);
+        } else {
+          dataUrl = preferredImage;
+        }
         normalizedPreferredImage = await uploadImageDataUrlToServer(
           dataUrl,
           uploadUrl,
@@ -1897,7 +2011,7 @@ export const ContentTransformScreen = ({
         subtitle: incomingMeta.subtitle || extractedMeta.subtitle,
         imageUrl: incomingMeta.imageUrl || extractedMeta.imageUrl,
         date: incomingMeta.date || extractedMeta.date,
-        tags: extractedMeta.tags,
+        tags: incomingMeta.tags.length > 0 ? incomingMeta.tags : extractedMeta.tags,
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
@@ -1964,6 +2078,7 @@ export const ContentTransformScreen = ({
 
   useEffect(() => {
     if (!projectPath || !editorSettings.autoSaveEnabled) return;
+    if (!isTauri() || projectPath.startsWith('@web:')) return; // Autosave nur in Tauri mit echtem Dateisystem
     if (!sourceContent.trim()) return;
     const autosaveKey = getStep1AutosaveKey();
     const debounceMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
@@ -1980,6 +2095,8 @@ export const ContentTransformScreen = ({
         .catch((error) => {
           console.error('[ContentTransform] Autosave fehlgeschlagen:', error);
           setStep1AutosaveStatus('error');
+          // Fehlerstatus nach 8 Sekunden automatisch zurücksetzen
+          setTimeout(() => setStep1AutosaveStatus('idle'), 8000);
         });
     }, debounceMs);
     return () => clearTimeout(timeout);
@@ -2081,9 +2198,18 @@ export const ContentTransformScreen = ({
       setSourceContent(content);
       const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
-      const nextMeta = extractPostMetaFromContent(content, fileNameFromPath);
-      setPostMeta(nextMeta);
-      setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
+      const extractedMeta2 = extractPostMetaFromContent(content, fileNameFromPath);
+      void loadMetaFromManifest(requestedFilePath).then((manifestMeta2) => {
+        const nextMeta: PostMeta = {
+          title: manifestMeta2?.title || extractedMeta2.title,
+          subtitle: manifestMeta2?.subtitle || extractedMeta2.subtitle,
+          imageUrl: manifestMeta2?.imageUrl || extractedMeta2.imageUrl,
+          date: manifestMeta2?.date || extractedMeta2.date,
+          tags: (manifestMeta2?.tags && manifestMeta2.tags.length > 0) ? manifestMeta2.tags : extractedMeta2.tags,
+        };
+        setPostMeta(nextMeta);
+        setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
+      });
       setError(null);
       setStep(1);
       onFileRequestHandled?.();
@@ -2092,6 +2218,8 @@ export const ContentTransformScreen = ({
     let isMounted = true;
     const loadRequestedFile = async () => {
       try {
+        // Manifest ZUERST lesen — bevor irgendwelche State-Updates den useEffect triggern
+        const manifestMeta = await loadMetaFromManifest(requestedFilePath);
         const content = await readTextFile(requestedFilePath);
         if (!isMounted) return;
         const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
@@ -2099,6 +2227,16 @@ export const ContentTransformScreen = ({
           existingFileTab?.id ||
           openDocTabs.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
           tabId;
+        const extractedMeta = extractPostMetaFromContent(content, fileNameFromPath);
+        const nextMeta: PostMeta = {
+          title: manifestMeta?.title || extractedMeta.title,
+          subtitle: manifestMeta?.subtitle || extractedMeta.subtitle,
+          imageUrl: manifestMeta?.imageUrl || extractedMeta.imageUrl,
+          date: manifestMeta?.date || extractedMeta.date,
+          tags: (manifestMeta?.tags && manifestMeta.tags.length > 0) ? manifestMeta.tags : extractedMeta.tags,
+        };
+        // postMetaByTab VOR docTabContents setzen — so findet der useEffect sofort den richtigen Wert
+        setPostMetaByTab((prev) => ({ ...prev, [resolvedTabId]: nextMeta }));
         setOpenDocTabs((prev) => {
           const match =
             prev.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
@@ -2120,9 +2258,7 @@ export const ContentTransformScreen = ({
         setActiveDocTabId(resolvedTabId);
         setSourceContent(content);
         setFileName(fileNameFromPath);
-        const nextMeta = extractPostMetaFromContent(content, fileNameFromPath);
         setPostMeta(nextMeta);
-        setPostMetaByTab((prev) => ({ ...prev, [resolvedTabId]: nextMeta }));
         setError(null);
         setStep(1);
         lastRequestedFilePathRef.current = requestedFilePath;
@@ -2579,6 +2715,23 @@ export const ContentTransformScreen = ({
       return;
     }
     closeDocTab(tabId);
+  };
+
+  const handleNewDraft = () => {
+    const draftCount = openDocTabs.filter((t) => t.kind === 'draft').length + 1;
+    const hasRealTabs = openDocTabs.some((t) => t.kind !== 'draft');
+    const draftTabId = `draft-${Date.now()}`;
+    // Never use plain 'Entwurf' when real tabs are open — Regel 1 would remove it
+    const title = hasRealTabs ? `Entwurf ${draftCount}` : 'Entwurf';
+    setOpenDocTabs((prev) => [...prev, { id: draftTabId, title, kind: 'draft' }]);
+    setDocTabContents((prev) => ({ ...prev, [draftTabId]: '' }));
+    setDirtyDocTabs((prev) => ({ ...prev, [draftTabId]: false }));
+    setPostMetaByTab((prev) => ({ ...prev, [draftTabId]: EMPTY_POST_META }));
+    activeDocTabIdRef.current = draftTabId;
+    setActiveDocTabId(draftTabId);
+    setSourceContent('');
+    setFileName(title);
+    emitExternalContentChange('', 'step1', draftTabId);
   };
 
   const saveTabContent = async (tabId: string) => {
@@ -3279,6 +3432,7 @@ export const ContentTransformScreen = ({
               dirtyDocTabs={dirtyDocTabs}
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
+              onNewDraft={handleNewDraft}
               projectPath={projectPath}
               comparisonBaseContent={step1ComparisonBaseContent}
               comparisonBaseLabel={step1ComparisonBaseLabel}
@@ -3302,13 +3456,15 @@ export const ContentTransformScreen = ({
               autosaveStatusText={
                 !editorSettings.autoSaveEnabled
                   ? 'Autosave · off'
-                  : step1AutosaveStatus === 'saving'
-                    ? 'Autosave · speichert...'
-                    : step1AutosaveStatus === 'error'
-                      ? 'Autosave · fehler'
-                      : step1AutosaveStatus === 'saved'
-                        ? `Autosave · ${step1AutosaveAt ? new Date(step1AutosaveAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'ok'}`
-                        : 'Autosave · on'
+                  : (!isTauri() || projectPath?.startsWith('@web:'))
+                    ? 'Autosave · nur Desktop'
+                    : step1AutosaveStatus === 'saving'
+                      ? 'Autosave · speichert...'
+                      : step1AutosaveStatus === 'error'
+                        ? 'Autosave · Speichern fehlgeschlagen'
+                        : step1AutosaveStatus === 'saved'
+                          ? `Autosave · ${step1AutosaveAt ? new Date(step1AutosaveAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'ok'}`
+                          : 'Autosave · on'
               }
               onOpenEditorSettings={() => {
                 setSettingsDefaultTab('editor');
@@ -3551,6 +3707,7 @@ export const ContentTransformScreen = ({
               dirtyDocTabs={dirtyDocTabs}
               onDocTabChange={handleDocTabChange}
               onCloseDocTab={handleCloseDocTab}
+              onNewDraft={handleNewDraft}
               activeDocTabContent={activeDocTabId ? docTabContents[activeDocTabId] ?? '' : ''}
               docTabContents={docTabContents}
               originalContent={step4OriginalContent}

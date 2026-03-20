@@ -44,6 +44,8 @@ export function ContentStudioProjectMapScreen({
   const [fileSearch, setFileSearch] = useState('');
   const [fileSort, setFileSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('name-asc');
   const [activeTab, setActiveTab] = useState<'files' | 'web'>(isDesktopRuntime ? 'files' : 'web');
+  const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+  const [titleHovered, setTitleHovered] = useState(false);
 
   const matchesFileSearch = (name: string, path: string, query: string): boolean => {
     const q = query.trim().toLowerCase();
@@ -118,44 +120,43 @@ export function ContentStudioProjectMapScreen({
           textAlign: 'left',
         }}
       >
-        <div style={{ marginBottom: '12px', display: 'flex', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ marginBottom: '12px' }}>
+          <div
+            onClick={onBack}
+            title="Zurück zum Dashboard"
+            onMouseEnter={() => setTitleHovered(true)}
+            onMouseLeave={() => setTitleHovered(false)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '12px',
+              cursor: 'pointer',
+            }}
+          >
             <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '22px', color: '#AC8E66' }} />
-            <h2 style={{ fontSize: '18px', fontWeight: 200, color: '#AC8E66', margin: 0, fontFamily: 'IBM Plex Mono, monospace' }}>
-              Content Projektmappe
-            </h2>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={onBack}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid #3A3A3A',
-                background: 'transparent',
-                color: '#999',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-            >
-              Dashboard
-            </button>
-            <button
-              onClick={onStartWriting}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '8px',
-                border: '1px solid #AC8E66',
-                background: '#d0cbb8',
-                color: '#1a1a1a',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-                cursor: 'pointer',
-              }}
-            >
-              Direkt schreiben
-            </button>
+            <div style={{ position: 'relative', overflow: 'hidden', height: '27px' }}>
+              {/* Original text — slides up on hover */}
+              <h2 style={{
+                fontSize: '18px', fontWeight: 200, color: '#AC8E66', margin: 0,
+                fontFamily: 'IBM Plex Mono, monospace', whiteSpace: 'nowrap',
+                transform: titleHovered ? 'translateY(-100%)' : 'translateY(0)',
+                opacity: titleHovered ? 0 : 1,
+                transition: 'transform 0.22s ease, opacity 0.18s ease',
+              }}>
+                Content Projektmappe
+              </h2>
+              {/* Hover text — slides in from below */}
+              <h2 style={{
+                fontSize: '18px', fontWeight: 200, color: '#AC8E66', margin: 0,
+                fontFamily: 'IBM Plex Mono, monospace', whiteSpace: 'nowrap',
+                position: 'absolute', top: 0, left: 0,
+                transform: titleHovered ? 'translateY(0)' : 'translateY(100%)',
+                opacity: titleHovered ? 1 : 0,
+                transition: 'transform 0.22s ease, opacity 0.18s ease',
+              }}>
+                Projekt wechseln →
+              </h2>
+            </div>
           </div>
         </div>
 
@@ -233,8 +234,8 @@ export function ContentStudioProjectMapScreen({
                 padding: '5px 12px',
                 borderRadius: '6px',
                 border: `1px solid ${activeTab === 'files' ? '#AC8E66' : '#3A3A3A'}`,
-                background: activeTab === 'files' ? 'rgba(172,142,102,0.12)' : 'transparent',
-                color: activeTab === 'files' ? '#AC8E66' : '#777',
+                background: activeTab === 'files' ? '#AC8E66' : 'transparent',
+                color: activeTab === 'files' ? '#1a1a1a' : '#777',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '10px',
                 cursor: 'pointer',
@@ -249,8 +250,8 @@ export function ContentStudioProjectMapScreen({
               padding: '5px 12px',
               borderRadius: '6px',
               border: `1px solid ${activeTab === 'web' ? '#AC8E66' : '#3A3A3A'}`,
-              background: activeTab === 'web' ? 'rgba(172,142,102,0.12)' : 'transparent',
-              color: activeTab === 'web' ? '#AC8E66' : '#777',
+              background: activeTab === 'web' ? '#AC8E66' : 'transparent',
+              color: activeTab === 'web' ? '#1a1a1a' : '#777',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
               cursor: 'pointer',
@@ -322,15 +323,19 @@ export function ContentStudioProjectMapScreen({
                 <button
                   key={file.path}
                   onClick={() => onOpenFile(file.path)}
+                  onMouseEnter={() => setHoveredItemId(file.path)}
+                  onMouseLeave={() => setHoveredItemId(null)}
                   style={{
-                    border: '0.5px solid #3A3A3A',
+                    border: hoveredItemId === file.path ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
                     borderRadius: '10px',
                     padding: '10px 12px',
-                    background: 'transparent',
+                    background: hoveredItemId === file.path ? 'rgba(205,195,176,0.12)' : 'transparent',
                     textAlign: 'left',
                     cursor: 'pointer',
                     color: '#7a7a7a',
                     fontFamily: 'IBM Plex Mono, monospace',
+                    transform: hoveredItemId === file.path ? 'translateX(3px)' : 'translateX(0)',
+                    transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
                   }}
                 >
                   <div style={{ fontSize: '11px', color: '#d3d3d3' }}>{file.name}</div>
@@ -343,15 +348,19 @@ export function ContentStudioProjectMapScreen({
                 <button
                   key={doc.id}
                   onClick={() => onLoadWebDocument(doc.content, doc.name)}
+                  onMouseEnter={() => setHoveredItemId(doc.id)}
+                  onMouseLeave={() => setHoveredItemId(null)}
                   style={{
-                    border: '0.5px solid #3A3A3A',
+                    border: hoveredItemId === doc.id ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
                     borderRadius: '10px',
                     padding: '10px 12px',
-                    background: 'transparent',
+                    background: hoveredItemId === doc.id ? 'rgba(205,195,176,0.12)' : 'transparent',
                     textAlign: 'left',
                     cursor: 'pointer',
                     color: '#7a7a7a',
                     fontFamily: 'IBM Plex Mono, monospace',
+                    transform: hoveredItemId === doc.id ? 'translateX(3px)' : 'translateX(0)',
+                    transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
                   }}
                 >
                   <div style={{ fontSize: '11px', color: '#d3d3d3' }}>{doc.name}</div>
