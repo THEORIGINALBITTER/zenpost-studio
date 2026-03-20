@@ -33,7 +33,7 @@ export function ContentStudioProjectMapScreen({
   allFiles,
   webDocuments,
   onBack,
-  onStartWriting,
+  onStartWriting: _onStartWriting,
   onOpenFile,
   onLoadWebDocument,
 }: ContentStudioProjectMapScreenProps) {
