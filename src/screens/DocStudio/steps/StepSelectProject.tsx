@@ -708,89 +708,87 @@ export function StepSelectProject({
             </button>
           </div>
 
-          {/* Right: Action tiles or GitHub Wizard */}
-          {activeProjectPath ? (
-            <>
-              <div
-                style={{
-                  display: (showGitHubWizard || showDocsSiteWizard) ? 'none' : 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  gap: '12px',
-                }}
-              >
-                <div style={{ gridColumn: '1 / -1', height: '30px', visibility: 'hidden' }} aria-hidden="true">
-                  Projekt wählen
-                </div>
-                <ActionTile
-                  title="Projekt neu scannen"
-                  description="Scan aktualisieren und Projektstruktur neu einlesen"
-                  icon={faMagnifyingGlass}
-                  disabled={desktopDisabled}
-                  desktopOnly={desktopDisabled}
-                  onClick={() => {
-                    const targetPath = ensureProjectSelected();
-                    if (!targetPath && runtime !== 'web') return;
-                    onRescan?.();
-                  }}
-                />
-                <ActionTile
-                  title="Einfach direkt starten"
-                  description={hasExistingAnalysis ? 'Direkt im Editor arbeiten' : 'Zum Editor wechseln und weiter schreiben'}
-                  icon={faFilePen}
-                  disabled={false}
-                  onClick={() => {
-                    const targetPath = ensureProjectSelected();
-                    if (!targetPath && runtime !== 'web') return;
-                    onContinueToEditor?.();
-                  }}
-                />
-                <ActionTile
-                  title="Projekt Mappe öffnen"
-                  description="Zu Templates und Dokument-Dashboard wechseln"
-                  icon={faChartSimple}
-                  disabled={false}
-                  onClick={() => {
-                    const targetPath = ensureProjectSelected();
-                    if (!targetPath && runtime !== 'web') return;
-                    onOpenDashboard?.();
-                  }}
-                />
-                <ActionTile
-                  title="Datenfelder ergänzen"
-                  description="Produktinfos, Setup und Metadaten im Dashboard pflegen"
-                  icon={faBookOpen}
-                  disabled={false}
-                  onClick={() => {
-                    const targetPath = ensureProjectSelected();
-                    if (!targetPath && runtime !== 'web') return;
-                    onEditInputFields?.();
-                  }}
-                />
-                {onPushDocsToGitHub && (
-                  <ActionTile
-                    title="Docs → GitHub"
-                    description="Markdown-Dateien in ein GitHub Repository pushen"
-                    icon={faCloudArrowUp}
-                    disabled={false}
-                    onClick={() => {
-                      ensureProjectSelected();
-                      setShowGitHubWizard(true);
-                    }}
-                  />
-                )}
-                {onSaveDocsSiteLocally && (
-                  <ActionTile
-                    title="Docs-Website"
-                    description="Statische index.html für GitHub Pages generieren"
-                    icon={faGlobe}
-                    disabled={false}
-                    onClick={() => {
-                      ensureProjectSelected();
-                      setShowDocsSiteWizard(true);
-                    }}
-                  />
-                )}
+          {/* Right: Action tiles or GitHub Wizard — always visible, locked when no project */}
+          <>
+            <div
+              style={{
+                display: (showGitHubWizard || showDocsSiteWizard) ? 'none' : 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: '12px',
+              }}
+            >
+              <div style={{ gridColumn: '1 / -1', height: '30px', visibility: 'hidden' }} aria-hidden="true">
+                Projekt wählen
               </div>
+              <ActionTile
+                title="Projekt neu scannen"
+                description="Scan aktualisieren und Projektstruktur neu einlesen"
+                icon={faMagnifyingGlass}
+                disabled={desktopDisabled}
+                desktopOnly={desktopDisabled}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  const targetPath = ensureProjectSelected();
+                  if (!targetPath && runtime !== 'web') return;
+                  onRescan?.();
+                }}
+              />
+              <ActionTile
+                title="Einfach direkt starten"
+                description={hasExistingAnalysis ? 'Direkt im Editor arbeiten' : 'Zum Editor wechseln und weiter schreiben'}
+                icon={faFilePen}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  const targetPath = ensureProjectSelected();
+                  if (!targetPath && runtime !== 'web') return;
+                  onContinueToEditor?.();
+                }}
+              />
+              <ActionTile
+                title="Projekt Mappe öffnen"
+                description="Zu Templates und Dokument-Dashboard wechseln"
+                icon={faChartSimple}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  const targetPath = ensureProjectSelected();
+                  if (!targetPath && runtime !== 'web') return;
+                  onOpenDashboard?.();
+                }}
+              />
+              <ActionTile
+                title="Datenfelder ergänzen"
+                description="Produktinfos, Setup und Metadaten im Dashboard pflegen"
+                icon={faBookOpen}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  const targetPath = ensureProjectSelected();
+                  if (!targetPath && runtime !== 'web') return;
+                  onEditInputFields?.();
+                }}
+              />
+              <ActionTile
+                title="Docs → GitHub"
+                description="Markdown-Dateien in ein GitHub Repository pushen"
+                icon={faCloudArrowUp}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  if (!activeProjectPath) return;
+                  ensureProjectSelected();
+                  setShowGitHubWizard(true);
+                }}
+              />
+              <ActionTile
+                title="Docs-Website"
+                description="Statische index.html für GitHub Pages generieren"
+                icon={faGlobe}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  if (!activeProjectPath) return;
+                  ensureProjectSelected();
+                  setShowDocsSiteWizard(true);
+                }}
+              />
+            </div>
 
               {showDocsSiteWizard && onSaveDocsSiteLocally && (
                 <div style={{ marginTop: '16px' }}>
@@ -825,8 +823,7 @@ export function StepSelectProject({
                   />
                 </div>
               )}
-            </>
-          ) : null}
+          </>
         </div>
 
         {/* Recent documents */}
@@ -896,6 +893,7 @@ const ActionTile = ({
   onClick,
   disabled,
   desktopOnly,
+  locked,
 }: {
   title: string;
   description: string;
@@ -903,50 +901,118 @@ const ActionTile = ({
   onClick?: () => void;
   disabled?: boolean;
   desktopOnly?: boolean;
-}) => (
-  <button
-    onClick={() => {
-      if (disabled) return;
-      onClick?.();
-    }}
-    style={{
-      position: 'relative',
-      borderRadius: '12px',
-      border: disabled ? '0.5px solid #2A2A2A' : '0.5px solid #3A3A3A',
-      background: 'rgba(255,255,255,0.01)',
-      color: disabled ? '#666' : '#e7e7e7',
-      textAlign: 'left',
-      padding: '14px 14px',
-      minHeight: '92px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      display: 'flex',
-      alignItems: 'flex-start',
-      gap: '10px',
-    }}
-  >
-    <FontAwesomeIcon icon={icon} style={{ color: disabled ? '#666' : '#AC8E66', marginTop: '2px' }} />
-    <div>
-      <p style={{ margin: '0 0 5px 0', fontSize: '12px', fontFamily: 'IBM Plex Mono, monospace' }}>{title}</p>
-      <p style={{ margin: 0, fontSize: '10px', color: '#919191', fontFamily: 'IBM Plex Mono, monospace' }}>
-        {description}
-      </p>
-    </div>
-    {desktopOnly && (
-      <div style={{
-        position: 'absolute',
-        top: '7px',
-        right: '8px',
+  locked?: boolean;
+}) => {
+  const [hovered, setHovered] = useState(false);
+  // locked = no project selected — show paper but dimmed + hint on hover
+  // disabled = desktop-only in web mode
+  const active = hovered && !disabled && !locked;
+  const lockedHovered = hovered && locked && !disabled;
+
+  return (
+    <button
+      onClick={() => { if (disabled || locked) return; onClick?.(); }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        position: 'relative',
+        borderRadius: '16px',
+        border: `0.5px solid ${
+          disabled ? 'rgba(172,142,102,0.08)'
+          : locked ? (lockedHovered ? 'rgba(172,142,102,0.35)' : 'rgba(172,142,102,0.14)')
+          : active ? '#AC8E66'
+          : 'rgba(172,142,102,0.22)'
+        }`,
+        background: disabled
+          ? 'rgba(255,255,255,0.02)'
+          : active
+            ? 'linear-gradient(160deg, #EAE0CF 0%, #DDD3C0 100%)'
+            : locked
+              ? 'linear-gradient(160deg, #D8D2C6 0%, #CEC8BC 100%)'
+              : 'linear-gradient(160deg, #EDE6D8 0%, #E5DDD0 100%)',
+        color: disabled ? '#888' : '#2a2318',
+        textAlign: 'left',
+        padding: '14px 14px',
+        minHeight: '92px',
+        cursor: disabled ? 'not-allowed' : locked ? 'default' : 'pointer',
         display: 'flex',
-        alignItems: 'center',
-        gap: '3px',
-        padding: '2px 6px',
-        borderRadius: '4px',
-        background: 'rgba(172,142,102,0.08)',
-        border: '0.5px solid rgba(172,142,102,0.25)',
-      }}>
-        <FontAwesomeIcon icon={faDesktop} style={{ fontSize: '7px', color: '#AC8E66' }} />
-        <span style={{ fontSize: '7px', fontFamily: 'IBM Plex Mono, monospace', color: '#AC8E66', letterSpacing: '0.3px' }}>Desktop</span>
+        alignItems: 'flex-start',
+        gap: '10px',
+        boxShadow: active
+          ? 'inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -1px 0 rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.22)'
+          : disabled
+            ? 'none'
+            : 'inset 0 1px 0 rgba(255,255,255,0.45), inset 0 -1px 0 rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.12)',
+        transition: 'border-color 0.2s ease, background 0.25s ease, box-shadow 0.25s ease',
+        opacity: disabled ? 0.45 : locked ? 0.4 : 1,
+        overflow: 'hidden',
+      }}
+    >
+      {/* Locked overlay hint */}
+      {locked && (
+        <div style={{
+          position: 'absolute', inset: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(209,203,184,1)',
+          borderRadius: '16px',
+          opacity: lockedHovered ? 1 : 0,
+          transition: 'opacity 0.05s ease',
+          pointerEvents: 'none',
+          zIndex: 2,
+        }}>
+          <span style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '12px',
+            color: '#1a1a1a',
+            letterSpacing: '0.06em',
+            textAlign: 'center',
+            padding: '0 12px',
+            lineHeight: 1.5,
+          }}>
+            ← Zuerst Projekt in der Karte anlegen
+          </span>
+        </div>
+      )}
+
+      <FontAwesomeIcon icon={icon} style={{ color: disabled ? '#888' : '#8A6F4A', marginTop: '2px', flexShrink: 0 }} />
+      <div style={{ overflow: 'hidden', flex: 1 }}>
+        {/* Title — zen slide-up on hover */}
+        <div style={{ position: 'relative', overflow: 'hidden', height: '18px', marginBottom: '5px' }}>
+          <p style={{
+            margin: 0, fontSize: '12px', fontFamily: 'IBM Plex Mono, monospace',
+            whiteSpace: 'nowrap', position: 'absolute', top: 0, left: 0,
+            color: disabled ? '#888' : '#2a2318',
+            transform: active ? 'translateY(-100%)' : 'translateY(0)',
+            opacity: active ? 0 : 1,
+            transition: 'transform 0.22s ease, opacity 0.18s ease',
+          }}>{title}</p>
+          <p style={{
+            margin: 0, fontSize: '12px', fontFamily: 'IBM Plex Mono, monospace',
+            whiteSpace: 'nowrap', color: '#8A6F4A', position: 'absolute', top: 0, left: 0,
+            transform: active ? 'translateY(0)' : 'translateY(100%)',
+            opacity: active ? 1 : 0,
+            transition: 'transform 0.22s ease, opacity 0.18s ease',
+          }}>Öffnen →</p>
+        </div>
+        <p style={{
+          margin: 0, fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace',
+          color: disabled ? '#666' : '#7a6a58',
+          opacity: active ? 0.6 : 1,
+          transition: 'opacity 0.2s ease',
+        }}>{description}</p>
       </div>
-    )}
-  </button>
-);
+      {desktopOnly && !locked && (
+        <div style={{
+          position: 'absolute', top: '7px', right: '8px',
+          display: 'flex', alignItems: 'center', gap: '3px',
+          padding: '2px 6px', borderRadius: '4px',
+          background: 'rgba(172,142,102,0.10)',
+          border: '0.5px solid rgba(172,142,102,0.3)',
+        }}>
+          <FontAwesomeIcon icon={faDesktop} style={{ fontSize: '7px', color: '#8A6F4A' }} />
+          <span style={{ fontSize: '7px', fontFamily: 'IBM Plex Mono, monospace', color: '#8A6F4A', letterSpacing: '0.3px' }}>Desktop</span>
+        </div>
+      )}
+    </button>
+  );
+};

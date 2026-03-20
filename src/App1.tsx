@@ -1874,12 +1874,27 @@ function AppContent() {
     }
   };
 
-  const handleWebProjectCreated = async (project: WebProject) => {
+  const handleWebProjectCreated = async (project: WebProject, initialDocs?: Array<{name: string; content: string; modifiedAt: number}>) => {
     const path = encodeWebProjectPath(project.id);
     rememberProjectPath(path);
     setContentStudioRecentProjectPaths(getRecentProjectPaths());
     setContentStudioProjectPath(path);
-    // For directory projects: read markdown files and add to webDocuments
+    // Pre-loaded docs from webkitdirectory picker
+    if (initialDocs && initialDocs.length > 0) {
+      const now = Date.now();
+      setWebDocuments((prev) => {
+        const newDocs = initialDocs.map((f, i) => ({
+          id: `webdir_${project.id}_${i}`,
+          name: f.name,
+          content: f.content,
+          updatedAt: f.modifiedAt || now,
+        }));
+        const existingIds = new Set(newDocs.map((d) => d.id));
+        return [...newDocs, ...prev.filter((d) => !existingIds.has(d.id))].slice(0, 40);
+      });
+      return;
+    }
+    // For directory projects via File System Access API: read markdown files from handle
     if (project.type === 'directory') {
       try {
         const handle = await getDirectoryHandle(project.id);
@@ -3010,7 +3025,7 @@ function AppContent() {
       <ZenWebProjectPickerModal
         isOpen={showWebProjectPicker}
         onClose={() => setShowWebProjectPicker(false)}
-        onCreated={(project) => { void handleWebProjectCreated(project); }}
+        onCreated={(project, initialDocs) => { void handleWebProjectCreated(project, initialDocs); }}
       />
 
       <ZenContentStudioModal

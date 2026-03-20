@@ -71,10 +71,12 @@ const ActionTile = ({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        borderRadius: '12px',
-        border: `0.5px solid ${hovered ? '#AC8E66' : '#3A3A3A'}`,
-        background: hovered ? 'rgba(172,142,102,0.06)' : 'rgba(255,255,255,0.01)',
-        color: '#e7e7e7',
+        borderRadius: '16px',
+        border: `0.5px solid ${hovered ? '#AC8E66' : 'rgba(172,142,102,0.22)'}`,
+        background: hovered
+          ? 'linear-gradient(160deg, #EAE0CF 0%, #DDD3C0 100%)'
+          : 'linear-gradient(160deg, #EDE6D8 0%, #E5DDD0 100%)',
+        color: '#2a2318',
         textAlign: 'left',
         padding: '14px 14px',
         minHeight: '92px',
@@ -82,16 +84,20 @@ const ActionTile = ({
         display: 'flex',
         alignItems: 'flex-start',
         gap: '10px',
-        transition: 'border-color 0.2s ease, background 0.2s ease',
+        boxShadow: hovered
+          ? 'inset 0 1px 0 rgba(255,255,255,0.55), inset 0 -1px 0 rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.22)'
+          : 'inset 0 1px 0 rgba(255,255,255,0.45), inset 0 -1px 0 rgba(0,0,0,0.05), 0 2px 8px rgba(0,0,0,0.12)',
+        transition: 'border-color 0.2s ease, background 0.25s ease, box-shadow 0.25s ease',
       }}
     >
-      <FontAwesomeIcon icon={icon} style={{ color: '#AC8E66', marginTop: '2px', flexShrink: 0 }} />
+      <FontAwesomeIcon icon={icon} style={{ color: '#8A6F4A', marginTop: '2px', flexShrink: 0 }} />
       <div style={{ overflow: 'hidden' }}>
         {/* Title slot — slides up on hover */}
         <div style={{ position: 'relative', overflow: 'hidden', height: '18px', marginBottom: '5px' }}>
           <p style={{
             margin: 0, fontSize: '12px', fontFamily: 'IBM Plex Mono, monospace',
             whiteSpace: 'nowrap', position: 'absolute', top: 0, left: 0,
+            color: '#2a2318',
             transform: hovered ? 'translateY(-100%)' : 'translateY(0)',
             opacity: hovered ? 0 : 1,
             transition: 'transform 0.22s ease, opacity 0.18s ease',
@@ -100,7 +106,7 @@ const ActionTile = ({
           </p>
           <p style={{
             margin: 0, fontSize: '12px', fontFamily: 'IBM Plex Mono, monospace',
-            whiteSpace: 'nowrap', color: '#AC8E66', position: 'absolute', top: 0, left: 0,
+            whiteSpace: 'nowrap', color: '#8A6F4A', position: 'absolute', top: 0, left: 0,
             transform: hovered ? 'translateY(0)' : 'translateY(100%)',
             opacity: hovered ? 1 : 0,
             transition: 'transform 0.22s ease, opacity 0.18s ease',
@@ -111,8 +117,8 @@ const ActionTile = ({
         {/* Description — fades slightly on hover */}
         <p style={{
           margin: 0, fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace',
-          color: '#919191',
-          opacity: hovered ? 0.5 : 1,
+          color: '#7a6a58',
+          opacity: hovered ? 0.6 : 1,
           transition: 'opacity 0.2s ease',
         }}>
           {description}

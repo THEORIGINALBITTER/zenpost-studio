@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFolder, faGlobe, faSpinner } from '@fortawesome/free-solid-svg-icons';
+import { faFolder, faFolderOpen, faGlobe, faSpinner } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import {
   canUseDirectoryPicker,
@@ -12,10 +12,16 @@ import {
 const mono = 'IBM Plex Mono, monospace';
 const gold = '#AC8E66';
 
+export interface WebPickerInitialDoc {
+  name: string;
+  content: string;
+  modifiedAt: number;
+}
+
 interface ZenWebProjectPickerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: (project: WebProject) => void;
+  onCreated: (project: WebProject, initialDocs?: WebPickerInitialDoc[]) => void;
 }
 
 export function ZenWebProjectPickerModal({
@@ -26,7 +32,9 @@ export function ZenWebProjectPickerModal({
   const [virtualName, setVirtualName] = useState('');
   const [showVirtualInput, setShowVirtualInput] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [folderLoading, setFolderLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasDirPicker = canUseDirectoryPicker();
 
@@ -43,6 +51,35 @@ export function ZenWebProjectPickerModal({
       setError('Ordner konnte nicht geöffnet werden.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleFolderInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setFolderLoading(true);
+    setError(null);
+    try {
+      const allowed = new Set(['md', 'txt', 'markdown', 'mdx']);
+      const folderName = (files[0] as File & { webkitRelativePath?: string }).webkitRelativePath?.split('/')?.[0] || 'Browser-Ordner';
+      const docs: WebPickerInitialDoc[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const ext = file.name.split('.').pop()?.toLowerCase() || '';
+        if (!allowed.has(ext)) continue;
+        try {
+          const content = await file.text();
+          docs.push({ name: file.name, content, modifiedAt: file.lastModified });
+        } catch { /* skip unreadable */ }
+      }
+      const project = createVirtualProject(folderName);
+      onCreated(project, docs);
+      onClose();
+    } catch {
+      setError('Ordner konnte nicht geladen werden.');
+    } finally {
+      setFolderLoading(false);
+      if (folderInputRef.current) folderInputRef.current.value = '';
     }
   }
 
@@ -112,6 +149,54 @@ export function ZenWebProjectPickerModal({
             </div>
           </button>
         )}
+
+        {/* ── Browser-Ordner via webkitdirectory (Safari / Firefox / alle Browser) ── */}
+        {!hasDirPicker && (
+          <button
+            type="button"
+            disabled={folderLoading}
+            onClick={() => folderInputRef.current?.click()}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 14,
+              padding: '14px 16px', borderRadius: 8,
+              cursor: folderLoading ? 'default' : 'pointer',
+              border: `1px solid rgba(172,142,102,0.45)`,
+              background: 'rgba(172,142,102,0.07)',
+              textAlign: 'left', opacity: folderLoading ? 0.75 : 1,
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { if (!folderLoading) e.currentTarget.style.background = 'rgba(172,142,102,0.13)'; }}
+            onMouseLeave={(e) => { if (!folderLoading) e.currentTarget.style.background = 'rgba(172,142,102,0.07)'; }}
+          >
+            <FontAwesomeIcon
+              icon={folderLoading ? faSpinner : faFolderOpen}
+              spin={folderLoading}
+              style={{ color: gold, fontSize: 20, flexShrink: 0 }}
+            />
+            <div>
+              <div style={{ fontFamily: mono, fontSize: 11, color: '#222', fontWeight: 600, marginBottom: 3 }}>
+                {folderLoading ? 'Ordner wird geladen …' : 'Browser-Ordner öffnen'}
+              </div>
+              <div style={{ fontFamily: mono, fontSize: 9, color: '#777', lineHeight: 1.6 }}>
+                Ordner aus dem Finder wählen.<br />
+                Markdown-Dateien werden direkt eingelesen.
+              </div>
+            </div>
+          </button>
+        )}
+        <input
+          type="file"
+          multiple
+          style={{ display: 'none' }}
+          ref={(el) => {
+            folderInputRef.current = el;
+            if (el) {
+              el.setAttribute('webkitdirectory', '');
+              el.setAttribute('directory', '');
+            }
+          }}
+          onChange={handleFolderInput}
+        />
 
         {/* ── Virtuelles Projekt ── */}
         {!showVirtualInput ? (
