@@ -6,6 +6,8 @@ fn main() {
         .flag_if_supported("-std=c++17")
         .flag_if_supported("-O3")
         .flag_if_supported("-pthread")
+        .flag_if_supported("/utf-8")   // MSVC: UTF-8 source+exec charset (fixes C4566 for \uXXXX in strings)
+        .flag_if_supported("/wd4996")  // MSVC: suppress strdup() deprecation warning (C4996)
         .compile("zen_engine");
 
     println!("cargo:rerun-if-changed=cpp/zen_engine.cpp");
@@ -26,6 +28,8 @@ fn main() {
         .flag_if_supported("-std=c++17")
         .flag_if_supported("-O3")
         .flag_if_supported("-pthread")
+        .flag_if_supported("/utf-8")
+        .flag_if_supported("/wd4996")
         .compile("zen_engine_v2");
 
     println!("cargo:rerun-if-changed=cpp/zen_engine_v2/types.h");

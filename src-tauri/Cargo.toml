@@ -2,7 +2,7 @@
 name = "zenpost-studio"
 version = "1.0.4"
 description = "ZenStudio Publisher - AI-powered content transformation and documentation generator"
-authors = ["Denis Bitter <contact@denisbitter.de>"]
+authors = ["Denis Bitter <saghallo@denisbitter.de>"]
 license = "MIT"
 repository = "https://github.com/THEORIGINALBITTER/zenpost-studio"
 edition = "2021"
@@ -33,6 +33,8 @@ reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
 # SFTP
 ssh2 = "0.9"
+# Vendored OpenSSL: kompiliert aus Source — nötig für macOS cross-compile (arm64→x86_64 universal)
+openssl = { version = "0.10", features = ["vendored"] }
 # ZenEngine dependencies
 comrak = { version = "0.29", features = [] }
 image = { version = "0.25", features = ["jpeg", "png", "webp"] }
