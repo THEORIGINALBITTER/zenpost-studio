@@ -420,6 +420,7 @@ export const Step1SourceInput = ({
   const [showMeta, setShowMeta] = useState(false);
   const [showAutosaveHistory, setShowAutosaveHistory] = useState(false);
   const [autosaveHovered, setAutosaveHovered] = useState(false);
+  const [editorToggleHovered, setEditorToggleHovered] = useState(false);
   const autosaveHistoryRef = useRef<HTMLDivElement>(null);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
@@ -1379,6 +1380,8 @@ export const Step1SourceInput = ({
                 border: '0.5px solid #3a3a3a',
                 borderRadius: '0 0 0 0 ',
                 backgroundColor: '#1a1a1a',
+                position: 'relative',
+                zIndex: 1,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
@@ -2137,16 +2140,18 @@ export const Step1SourceInput = ({
              <>
                <button
                  onClick={() => onEditorTypeChange?.(editorType === "block" ? "markdown" : "block")}
+                 onMouseEnter={() => setEditorToggleHovered(true)}
+                 onMouseLeave={() => setEditorToggleHovered(false)}
                  style={{
                    position: "absolute",
-                    left: 'calc(100% + 1px)',
+                   left: 'calc(100% + 1px)',
                    top: "-5px",
                    transform: "translatex(10%) rotate(90deg)",
                    transformOrigin: "left center",
                    padding: "10px 12px",
                    backgroundColor: "#121212",
                    border: "1px solid #AC8E66",
-                   borderRadius: '8px 8px 0px 0px',        
+                   borderRadius: '8px 8px 0px 0px',
                    cursor: "pointer",
                    fontFamily: "IBM Plex Mono, monospace",
                    fontSize: "11px",
@@ -2162,7 +2167,26 @@ export const Step1SourceInput = ({
                  }}
                >
                  <FontAwesomeIcon icon={editorType === "block" ? faAlignLeft : faCode} style={{ color: "#AC8E66" }} />
-                 {editorType === "block" ? "Markdown Editor" : "Block Editor"}
+                 <div style={{ position: 'relative', overflow: 'hidden', height: '14px', flex: 1 }}>
+                   <span style={{
+                     display: 'block',
+                     transform: editorToggleHovered ? 'translateY(-100%)' : 'translateY(0)',
+                     opacity: editorToggleHovered ? 0 : 1,
+                     transition: 'transform 0.22s ease, opacity 0.18s ease',
+                   }}>
+                     {editorType === "block" ? "Markdown Editor" : "Block Editor"}
+                   </span>
+                   <span style={{
+                     display: 'block',
+                     position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
+                     color: '#AC8E66',
+                     transform: editorToggleHovered ? 'translateY(0)' : 'translateY(100%)',
+                     opacity: editorToggleHovered ? 1 : 0,
+                     transition: 'transform 0.22s ease, opacity 0.18s ease',
+                   }}>
+                     {editorType === "block" ? "zu Markdown →" : "zu Block →"}
+                   </span>
+                 </div>
                </button>
                <div
                  style={{
