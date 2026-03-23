@@ -10,13 +10,24 @@
 
 - **Content AI Studio**
   - [Inhalte transformieren](workflows/content-transform.md)
+  - [Social Media – Direkt posten](workflows/social-media.md)
+  - [Blog Publishing](workflows/blog-publishing.md)
 
 - **Doc Studio**
   - [Dokumentation generieren](workflows/doc-studio.md)
 
 - **Converter Studio**
   - [Dateien konvertieren](workflows/file-converter.md)
-  - [Seiten exportieren](workflows/pages-export.md)
+  - [Planner & Export](workflows/pages-export.md)
+
+- **Mobile APP**
+  - [iPhone Workflow](workflows/mobile-app.md)
+
+- **ZenEngine**
+  - [Lernende KI-Engine](workflows/zenengine.md)
+
+- **Newsletter**
+  - [Self-hosted Mailing](workflows/newsletter.md)
 
 - **KI**
   - [Übersicht](ai/overview.md)
@@ -32,7 +43,7 @@
 
 - **Entwicklung**
   - [Architektur](dev/architecture.md)
-  - [API](dev/api.md)
+  - [API Referenz](dev/api.md)
   - [Mobile App MVP](dev/mobile-app-mvp.md)
 
 - **Links**
