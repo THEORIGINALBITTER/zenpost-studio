@@ -106,7 +106,7 @@ export const AI_TEMPERATURE_INFO: InfoBoxConfig = {
   links: [
     {
       label: 'Stil-Regler erklärt',
-      url: 'https://zenpostapp.denisbitter.de/docs/ai/overview.html#temperature-stil',
+      url: 'https://zenpostdocs.denisbitter.de/ai/overview.html#temperature-stil',
     },
   ],
   type: 'info',
@@ -314,7 +314,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
       },
       {
         label: 'Setup-Anleitung',
-        url: 'https://zenpostapp.denisbitter.de/docs/ai/cloud.html',
+        url: 'https://zenpostdocs.denisbitter.de/ai/cloud.html',
       },
     ],
     type: 'info',
@@ -329,7 +329,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
       },
       {
         label: 'Setup-Anleitung',
-        url: 'https://zenpostapp.denisbitter.de/docs/ai/cloud.html',
+        url: 'https://zenpostdocs.denisbitter.de/ai/cloud.html',
       },
     ],
     type: 'info',
@@ -340,7 +340,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
     links: [
       {
         label: 'Setup-Anleitung (Docs)',
-        url: 'https://zenpostapp.denisbitter.de/docs/ai/ollama.html',
+        url: 'https://zenpostdocs.denisbitter.de/ai/ollama.html',
       },
     ],
     type: 'success',
@@ -351,7 +351,7 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
     links: [
       {
         label: 'Setup-Anleitung',
-        url: 'https://zenpostapp.denisbitter.de/docs/ai/cloud.html',
+        url: 'https://zenpostdocs.denisbitter.de/ai/cloud.html',
       },
     ],
     type: 'info',

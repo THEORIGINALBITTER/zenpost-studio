@@ -31,7 +31,7 @@ export const ZenAboutModal = ({ isOpen, onClose, onOpenBugReport }: ZenAboutModa
     {
       icon: faBook,
       label: "ZenPost Guide",
-      url: "https://zenpostapp.denisbitter.de/docs/",
+      url: "https://zenpostdocs.denisbitter.de/",
       description: "View documentation and guides",
     },
     {

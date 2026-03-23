@@ -104,7 +104,7 @@ type LineDiffRow = {
 
 
 const EXTERNAL_DOCS_URL =
-  "https://zenpostapp.denisbitter.de/docs/workflows/pages-export.html";
+  "https://zenpostdocs.denisbitter.de/workflows/pages-export.html";
 
 // Helper component for rough circle
 const ZenRoughCircle = ({ number }: { number: number }) => {

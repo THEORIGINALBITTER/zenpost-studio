@@ -463,7 +463,7 @@ export const ZenLicenseSettingsContent = () => {
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <button
-            onClick={() => openExternal('https://zenpostapp.denisbitter.de/docs/')}
+            onClick={() => openExternal('https://zenpostdocs.denisbitter.de/')}
             style={{
               display: 'flex',
               alignItems: 'center',

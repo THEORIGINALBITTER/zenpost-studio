@@ -2463,7 +2463,7 @@ function AppContent() {
             {/* Secondary links */}
             <div style={{ display: "flex", gap: "24px" }}>
               <button
-                onClick={() => openExternal("https://zenpostapp.denisbitter.de/docs/")}
+                onClick={() => openExternal("https://zenpostdocs.denisbitter.de/")}
                 style={{
                   background: "none",
                   border: "none",

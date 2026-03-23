@@ -21,7 +21,7 @@ const DIST = join(ROOT, 'docs-dist');
 const SITE = {
   title: 'ZenPost Studio – Guide',
   description: 'Dokumentation, Workflows und Referenz für ZenPost Studio — KI-gestütztes Content-Tool für Desktop und Web.',
-  url: 'https://zenpostapp.denisbitter.de/docs',
+  url: 'https://zenpostdocs.denisbitter.de',
   author: 'Denis Bitter',
   github: 'https://github.com/THEORIGINALBITTER/zenpost-studio',
   twitterHandle: '@THEORIGINALBITTER',
@@ -614,12 +614,9 @@ function build() {
   // .htaccess
   const htaccess = `# ZenPost Docs — Apache config
 
-Options -Indexes
-Options +FollowSymLinks
-
 # Clean URLs: /ai/overview → /ai/overview.html
 RewriteEngine On
-RewriteBase /docs/
+RewriteBase /
 
 # Skip real files and directories
 RewriteCond %{REQUEST_FILENAME} !-f

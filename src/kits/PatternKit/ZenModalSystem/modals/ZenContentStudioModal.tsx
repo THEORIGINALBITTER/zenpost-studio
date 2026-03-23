@@ -224,7 +224,7 @@ export const ZenContentStudioModal = ({
   };
 
   const openGuide = () => {
-    void openExternal("https://zenpostapp.denisbitter.de/docs/");
+    void openExternal("https://zenpostdocs.denisbitter.de/");
   };
 
   // Modal-Content und dynamischer Subtitle
