@@ -711,7 +711,6 @@ export const ZenSocialMediaSettingsContent = ({
       {/* LinkedIn Wizard */}
       {activeTab === 'linkedin' && (() => {
         const li = config.linkedin;
-        const isConfigured = !!(li?.accessToken && li?.personId);
 
         const detectMemberId = async () => {
           setLinkedInDetecting(true);
