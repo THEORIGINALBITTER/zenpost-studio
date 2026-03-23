@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faFolderOpen, faMobileScreen, faQrcode } from '@fortawesome/free-solid-svg-icons';
 import { open } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { getMobileInboxPath, saveMobileInboxPath, saveWebMobileInboxFiles } from '../../../../../services/mobileInboxService';
 import * as QRCode from 'qrcode';
 
@@ -62,9 +63,12 @@ export const ZenMobileSettingsContent = () => {
     }
   };
 
-  const handleOpenDownload = () => {
-    if (typeof window === 'undefined') return;
-    window.open(MOBILE_APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+  const handleOpenDownload = async () => {
+    if (isTauri()) {
+      await openUrl(MOBILE_APP_DOWNLOAD_URL);
+    } else {
+      window.open(MOBILE_APP_DOWNLOAD_URL, '_blank', 'noopener,noreferrer');
+    }
   };
 
   return (
