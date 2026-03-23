@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faTwitter,
@@ -110,6 +110,9 @@ export const ZenSocialMediaSettingsContent = ({
 }: ZenSocialMediaSettingsContentProps) => {
   const [config, setConfig] = useState<SocialMediaConfig>({});
   const [activeTab, setActiveTab] = useState<TabType>('twitter');
+  const [linkedInWizardStep, setLinkedInWizardStep] = useState<1 | 2 | 3>(1);
+  const [linkedInDetecting, setLinkedInDetecting] = useState(false);
+  const [linkedInDetectMsg, setLinkedInDetectMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [blogs, setBlogs] = useState<BlogConfig[]>([]);
   const [scanningBlogId, setScanningBlogId] = useState<string | null>(null);
@@ -129,6 +132,10 @@ export const ZenSocialMediaSettingsContent = ({
     setConfig(loadedConfig);
     setBlogs(loadZenStudioSettings().blogs ?? []);
     setIsHydrated(true);
+    // Jump to step 3 if LinkedIn is already configured
+    if (loadedConfig.linkedin?.accessToken && loadedConfig.linkedin?.personId) {
+      setLinkedInWizardStep(3);
+    }
   }, []);
 
   const handleDownloadPhpPackage = async (blog?: BlogConfig) => {
@@ -701,51 +708,195 @@ export const ZenSocialMediaSettingsContent = ({
         </div>
       )}
 
-      {/* LinkedIn Config */}
-      {activeTab === 'linkedin' && (
-        <div
-          style={{
-            maxWidth: '560px',
-            margin: '0 auto',
-          }}
-        >
-          <div style={{ marginBottom: '20px' }}>
-            <InputField
-              type="password"
-              value={config.linkedin?.clientId || ''}
-              onChange={(value) => updateLinkedInConfig('clientId', value)}
-              placeholder="Client ID"
-            />
+      {/* LinkedIn Wizard */}
+      {activeTab === 'linkedin' && (() => {
+        const li = config.linkedin;
+        const isConfigured = !!(li?.accessToken && li?.personId);
+
+        const detectMemberId = async () => {
+          setLinkedInDetecting(true);
+          setLinkedInDetectMsg(null);
+          try {
+            const token = li?.accessToken || '';
+            const httpFetch = isTauri()
+              ? (await import('@tauri-apps/plugin-http')).fetch
+              : window.fetch.bind(window);
+
+            // Try /v2/me (r_liteprofile scope)
+            const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (meRes.ok) {
+              const d = await meRes.json();
+              if (d.id) {
+                updateLinkedInConfig('personId', String(d.id));
+                setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.id}` });
+                setLinkedInWizardStep(3);
+                setLinkedInDetecting(false);
+                return;
+              }
+            }
+            // Try /v2/userinfo (openid scope)
+            const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (uiRes.ok) {
+              const d = await uiRes.json();
+              if (d.sub) {
+                updateLinkedInConfig('personId', String(d.sub));
+                setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.sub}` });
+                setLinkedInWizardStep(3);
+                setLinkedInDetecting(false);
+                return;
+              }
+            }
+            setLinkedInDetectMsg({ ok: false, text: 'Automatisch nicht möglich — bitte manuell eintragen (siehe Anleitung unten).' });
+          } catch {
+            setLinkedInDetectMsg({ ok: false, text: 'Netzwerkfehler beim Erkennen.' });
+          }
+          setLinkedInDetecting(false);
+        };
+
+        // Step indicator style
+        const stepDot = (n: 1 | 2 | 3) => ({
+          width: 24, height: 24, borderRadius: '50%',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, fontWeight: 600,
+          background: linkedInWizardStep >= n ? '#AC8E66' : 'rgba(172,142,102,0.15)',
+          color: linkedInWizardStep >= n ? '#151515' : '#666',
+          flexShrink: 0,
+        } as React.CSSProperties);
+
+        return (
+          <div style={{ maxWidth: '540px', margin: '0 auto' }}>
+
+            {/* Step indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28 }}>
+              {([1, 2, 3] as const).map((n, i) => (
+                <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button type="button" onClick={() => setLinkedInWizardStep(n)} style={{ ...stepDot(n), cursor: 'pointer', border: 'none' }}>{n}</button>
+                  {i < 2 && <div style={{ flex: 1, height: 1, width: 40, background: linkedInWizardStep > n ? '#AC8E66' : 'rgba(172,142,102,0.2)' }} />}
+                </div>
+              ))}
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#666', marginLeft: 8 }}>
+                {linkedInWizardStep === 1 ? 'App & Token' : linkedInWizardStep === 2 ? 'Member ID erkennen' : 'Fertig'}
+              </span>
+            </div>
+
+            {/* Step 1: App credentials + Token */}
+            {linkedInWizardStep === 1 && (
+              <div>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#999', marginBottom: 20, lineHeight: 1.6 }}>
+                  Erstelle eine App auf dem LinkedIn Developer Portal und generiere dort einen Access Token mit dem Scope <span style={{ color: '#AC8E66' }}>w_member_social</span>.
+                </p>
+                <div style={{ marginBottom: 16 }}>
+                  <InputField type="password" value={li?.clientId || ''} onChange={(v) => updateLinkedInConfig('clientId', v)} placeholder="Client ID" />
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <InputField type="password" value={li?.clientSecret || ''} onChange={(v) => updateLinkedInConfig('clientSecret', v)} placeholder="Client Secret" />
+                </div>
+                <div style={{ marginBottom: 24 }}>
+                  <InputField type="password" value={li?.accessToken || ''} onChange={(v) => updateLinkedInConfig('accessToken', v)} placeholder="Access Token" />
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noreferrer"
+                    style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#AC8E66', textDecoration: 'none' }}>
+                    → LinkedIn Developer Portal
+                  </a>
+                  <div style={{ flex: 1 }} />
+                  <button type="button" disabled={!li?.accessToken}
+                    onClick={() => { setLinkedInWizardStep(2); setLinkedInDetectMsg(null); }}
+                    style={{
+                      padding: '8px 18px', borderRadius: 8,
+                      border: '1px solid rgba(172,142,102,0.5)', background: 'rgba(172,142,102,0.1)',
+                      color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11,
+                      cursor: li?.accessToken ? 'pointer' : 'not-allowed', opacity: li?.accessToken ? 1 : 0.4,
+                    }}>
+                    Weiter →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Detect Member ID */}
+            {linkedInWizardStep === 2 && (
+              <div>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#999', marginBottom: 20, lineHeight: 1.6 }}>
+                  ZenPost versucht deine LinkedIn Member ID automatisch zu erkennen. Diese ID ist nötig, um Posts in deinem Namen zu veröffentlichen.
+                </p>
+                <button type="button" disabled={linkedInDetecting}
+                  onClick={detectMemberId}
+                  style={{
+                    width: '100%', padding: '12px', marginBottom: 16, borderRadius: 10,
+                    border: '1px solid rgba(172,142,102,0.5)', background: 'rgba(172,142,102,0.08)',
+                    color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 12,
+                    cursor: linkedInDetecting ? 'wait' : 'pointer',
+                  }}>
+                  {linkedInDetecting ? 'Erkenne Member ID …' : '⟳  Member ID automatisch erkennen'}
+                </button>
+
+                {linkedInDetectMsg && (
+                  <div style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 8,
+                    border: `1px solid ${linkedInDetectMsg.ok ? 'rgba(74,163,104,0.3)' : 'rgba(232,113,113,0.3)'}`,
+                    background: linkedInDetectMsg.ok ? 'rgba(74,163,104,0.06)' : 'rgba(232,113,113,0.06)',
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                    color: linkedInDetectMsg.ok ? '#4aa368' : '#e87171' }}>
+                    {linkedInDetectMsg.text}
+                  </div>
+                )}
+
+                {/* Manual fallback */}
+                <div style={{ marginBottom: 8 }}>
+                  <InputField type="text" value={li?.personId || ''}
+                    onChange={(v) => { updateLinkedInConfig('personId', v); if (v) setLinkedInDetectMsg(null); }}
+                    placeholder="Member ID manuell (nur Ziffern)" />
+                </div>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#555', marginBottom: 24, lineHeight: 1.6 }}>
+                  Manuell finden: LinkedIn öffnen → DevTools (F12) → Network → Seite laden → Request <span style={{ color: '#AC8E66' }}>voyager/api/me</span> → Response → <span style={{ color: '#AC8E66' }}>objectUrn</span> → Zahl dahinter.
+                </p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button type="button" onClick={() => setLinkedInWizardStep(1)}
+                    style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(172,142,102,0.2)',
+                      background: 'transparent', color: '#666', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, cursor: 'pointer' }}>
+                    ← Zurück
+                  </button>
+                  <div style={{ flex: 1 }} />
+                  <button type="button" disabled={!li?.personId}
+                    onClick={() => setLinkedInWizardStep(3)}
+                    style={{ padding: '8px 18px', borderRadius: 8,
+                      border: '1px solid rgba(172,142,102,0.5)', background: 'rgba(172,142,102,0.1)',
+                      color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11,
+                      cursor: li?.personId ? 'pointer' : 'not-allowed', opacity: li?.personId ? 1 : 0.4 }}>
+                    Weiter →
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Done */}
+            {linkedInWizardStep === 3 && (
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>
+                  <FontAwesomeIcon icon={faCheck} style={{ color: '#4aa368' }} />
+                </div>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13, color: '#4aa368', marginBottom: 8 }}>
+                  LinkedIn verbunden
+                </p>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#666', marginBottom: 24, lineHeight: 1.6 }}>
+                  Member ID: <span style={{ color: '#AC8E66' }}>{li?.personId}</span><br />
+                  Token läuft in ~2 Monaten ab — dann hier neu eintragen.
+                </p>
+                <button type="button" onClick={() => { setLinkedInWizardStep(1); setLinkedInDetectMsg(null); }}
+                  style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(172,142,102,0.2)',
+                    background: 'transparent', color: '#666', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, cursor: 'pointer' }}>
+                  Neu konfigurieren
+                </button>
+              </div>
+            )}
+
           </div>
-          <div style={{ marginBottom: '20px' }}>
-            <InputField
-              type="password"
-              value={config.linkedin?.clientSecret || ''}
-              onChange={(value) => updateLinkedInConfig('clientSecret', value)}
-              placeholder="Client Secret"
-            />
-          </div>
-          <div style={{ marginBottom: '24px' }}>
-            <InputField
-              type="password"
-              value={config.linkedin?.accessToken || ''}
-              onChange={(value) => updateLinkedInConfig('accessToken', value)}
-              placeholder="Access Token"
-            />
-          </div>
-          <ZenInfoBox
-            type="warning"
-            title="API Credentials"
-            description="Visit linkedin.com/developers/apps to create an app"
-            links={[
-              {
-                label: 'LinkedIn Developers',
-                url: 'https://www.linkedin.com/developers/apps',
-              },
-            ]}
-          />
-        </div>
-      )}
+        );
+      })()}
 
       {/* dev.to Config */}
       {activeTab === 'devto' && (

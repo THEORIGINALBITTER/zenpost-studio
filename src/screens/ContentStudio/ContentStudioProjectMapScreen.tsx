@@ -160,7 +160,7 @@ export function ContentStudioProjectMapScreen({
           </div>
         </div>
 
-        <p style={{ color: '#999', marginBottom: '14px', fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace' }}>
+        <p style={{ color: '#d0cbb8', marginBottom: '14px', fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace' }}>
           {projectPath ? `Projekt: ${projectPath}` : 'Kein Projekt ausgewählt'}
         </p>
 
@@ -177,18 +177,19 @@ export function ContentStudioProjectMapScreen({
             if (file) void handleWebFile(file);
           }}
           style={{
-            border: `2px dashed ${isDragActive ? '#AC8E66' : '#3A3A3A'}`,
+            background: '#d0cbb8',
+            border: `1px dashed ${isDragActive ? '#AC8E66' : '#3A3A3A'}`,
             borderRadius: '12px',
             padding: '18px',
             textAlign: 'center',
             marginBottom: '14px',
-            color: '#7a7a7a',
+            color: '#1a1a1a',
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '11px',
           }}
         >
           {isConverting ? 'Konvertiere Dokument…' : 'Datei hier ablegen (Drag & Drop)'}
-          <div style={{ marginTop: '8px', fontSize: '9px', color: '#666' }}>
+          <div style={{ marginTop: '8px', fontSize: '9px', color: '#1a1a1a/20' }}>
             Unterstützt: .md, .txt, .json, .pdf, .docx, .doc, .pages
           </div>
           <button
@@ -197,7 +198,7 @@ export function ContentStudioProjectMapScreen({
               marginTop: '10px',
               padding: '7px 10px',
               borderRadius: '8px',
-              border: '1px dotted #3A3A3A',
+              border: '1px dotted #1a1a1a',
               background: 'transparent',
               color: '#888',
               fontFamily: 'IBM Plex Mono, monospace',
@@ -231,10 +232,10 @@ export function ContentStudioProjectMapScreen({
             <button
               onClick={() => setActiveTab('files')}
               style={{
-                padding: '5px 12px',
+                padding: '8px 12px',
                 borderRadius: '6px',
                 border: `1px solid ${activeTab === 'files' ? '#AC8E66' : '#3A3A3A'}`,
-                background: activeTab === 'files' ? '#AC8E66' : 'transparent',
+                background: activeTab === 'files' ? '#d0cbb8' : 'transparent',
                 color: activeTab === 'files' ? '#1a1a1a' : '#777',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '10px',
@@ -247,10 +248,10 @@ export function ContentStudioProjectMapScreen({
           <button
             onClick={() => setActiveTab('web')}
             style={{
-              padding: '5px 12px',
+              padding: '8px 12px',
               borderRadius: '6px',
               border: `1px solid ${activeTab === 'web' ? '#AC8E66' : '#3A3A3A'}`,
-              background: activeTab === 'web' ? '#AC8E66' : 'transparent',
+              background: activeTab === 'web' ? '#d0cbb8' : 'transparent',
               color: activeTab === 'web' ? '#1a1a1a' : '#777',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',

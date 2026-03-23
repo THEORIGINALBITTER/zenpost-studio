@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
-import { isTauri } from '@tauri-apps/api/core';
+import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import { ZenRoughButton, ZenModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
@@ -18,7 +18,6 @@ import { defaultEditorSettings, type EditorSettings } from '../../services/edito
 import type { ContentPlatform } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
 import {
-  compressEditorImageFileToDataUrl,
   saveImageToOpfs,
   EDITOR_IMAGE_MAX_FILE_SIZE_MB,
   isEditorImageOversized,
@@ -420,6 +419,7 @@ export const Step1SourceInput = ({
   const [showOutline, setShowOutline] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
   const [showAutosaveHistory, setShowAutosaveHistory] = useState(false);
+  const [autosaveHovered, setAutosaveHovered] = useState(false);
   const autosaveHistoryRef = useRef<HTMLDivElement>(null);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
@@ -819,7 +819,21 @@ export const Step1SourceInput = ({
       try {
         let imageUrl: string;
         if (isTauri()) {
-          imageUrl = await compressEditorImageFileToDataUrl(firstImage);
+          // Tauri: save to _assets/ folder next to doc (same as editor) — no base64
+          const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
+          let imagesDir: string;
+          if (projectPath) {
+            const { dirname } = await import('@tauri-apps/api/path');
+            imagesDir = `${await dirname(projectPath)}/_assets`;
+          } else {
+            const { documentDir } = await import('@tauri-apps/api/path');
+            imagesDir = `${await documentDir()}/zenpost-images`;
+          }
+          await mkdir(imagesDir, { recursive: true });
+          const safeName = firstImage.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const filePath = `${imagesDir}/${Date.now()}-${safeName}`;
+          await writeFile(filePath, new Uint8Array(await firstImage.arrayBuffer()));
+          imageUrl = filePath;
         } else {
           imageUrl = await saveImageToOpfs(firstImage);
         }
@@ -841,7 +855,7 @@ export const Step1SourceInput = ({
     }
 
     onError?.('Nur Bilddateien oder Bild-URLs sind für Bild-URL erlaubt.');
-  }, [onError, updatePostMetaField]);
+  }, [onError, projectPath, updatePostMetaField]);
 
   // Get active doc tab info
   const activeDocTab = docTabs.find((tab) => tab.id === activeDocTabId);
@@ -1055,21 +1069,45 @@ export const Step1SourceInput = ({
                       }}
                       title="Editor-Einstellungen öffnen"
                     >
-                      <FontAwesomeIcon icon={faGear} style={{ fontSize: '9px' }} />
+                      <FontAwesomeIcon icon={faGear} style={{ fontSize: '11px' }} />
                     </button>
                     <button
                       type="button"
                       onClick={() => autosaveHistory.length > 0 && setShowAutosaveHistory((p) => !p)}
-                      title={autosaveHistory.length > 0 ? `${autosaveHistory.length} Autosave-Versionen` : autosaveStatusText}
+                      onMouseEnter={() => autosaveHistory.length > 0 && setAutosaveHovered(true)}
+                      onMouseLeave={() => setAutosaveHovered(false)}
+                      title={autosaveHistory.length > 0 ? `${autosaveHistory.length} Autosave-Versionen` : autosaveStatusText ?? ''}
                       style={{
                         background: 'transparent', border: 'none', padding: 0,
                         cursor: autosaveHistory.length > 0 ? 'pointer' : 'default',
-                        fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
-                        color: '#AC8E66', whiteSpace: 'nowrap',
-                        textDecoration: autosaveHistory.length > 0 && showAutosaveHistory ? 'underline' : 'none',
+                        minWidth: '160px',
                       }}
                     >
-                      {autosaveStatusText}
+                      <div style={{
+                        position: 'relative', overflow: 'hidden', height: '14px',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {/* Default text — slides up on hover */}
+                        <span style={{
+                          display: 'block', color: '#d0cbb8',
+                          transform: autosaveHovered ? 'translateY(-100%)' : 'translateY(0)',
+                          opacity: autosaveHovered ? 0 : 1,
+                          transition: 'transform 0.22s ease, opacity 0.18s ease',
+                        }}>
+                          {autosaveStatusText}
+                        </span>
+                        {/* Hover text — slides in from below */}
+                        <span style={{
+                          display: 'block', color: '#AC8E66',
+                          position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
+                          transform: autosaveHovered ? 'translateY(0)' : 'translateY(100%)',
+                          opacity: autosaveHovered ? 1 : 0,
+                          transition: 'transform 0.22s ease, opacity 0.18s ease',
+                        }}>
+                          {autosaveHistory.length > 0 ? 'Verlauf ansehen →' : ''}
+                        </span>
+                      </div>
                     </button>
 
                     {/* History Dropdown */}
@@ -1077,25 +1115,32 @@ export const Step1SourceInput = ({
                       <div style={{
                         position: 'absolute', top: 'calc(100% + 4px)', right: 0,
                         width: 290,
-                        background: '#111', border: '1px solid #AC8E66',
+                        background: '#1a1a1a', 
+                        border: '1px solid #1a1a1a',
                         borderRadius: 8, padding: '6px 0',
                         zIndex: 300, boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
                         fontFamily: 'IBM Plex Mono, monospace',
                       }}>
-                        <div style={{ padding: '3px 12px 7px', fontSize: 9, color: '#666', borderBottom: '1px solid #222', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                        <div style={{ 
+                          padding: '10px 12px 7px', 
+                          fontSize: 9, 
+                          color: '#d0cbb8', 
+                        
+                          borderBottom: '1px solid #222', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                           Autosave-Verlauf
                         </div>
                         {autosaveHistory.map((record, idx) => (
                           <div key={record.meta.updatedAt} style={{
                             display: 'flex', alignItems: 'center', gap: 8,
                             padding: '6px 12px',
+                            background: '#d0cbb8',
                             borderBottom: idx < autosaveHistory.length - 1 ? '1px solid #1C1C1C' : 'none',
                           }}>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 10, color: '#D4C5A9' }}>
+                              <div style={{ fontSize: 10, color: '#446344' }}>
                                 {new Date(record.meta.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                               </div>
-                              <div style={{ fontSize: 9, color: '#555', marginTop: 1 }}>
+                              <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
                                 {record.meta.contentLength.toLocaleString('de-DE')} Zeichen
                               </div>
                             </div>
@@ -1105,10 +1150,10 @@ export const Step1SourceInput = ({
                                 onClick={() => { onAutosaveHistoryRestore?.(record); setShowAutosaveHistory(false); }}
                                 style={{
                                   background: 'transparent', border: '1px solid #AC8E66',
-                                  borderRadius: 4, color: '#AC8E66', fontSize: 9,
+                                  borderRadius: 4, color: '#AC8E66', fontSize: 10,
                                   padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
                                 }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#fff'; }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#1a1a1a'; }}
                                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
                               >
                                 Laden
@@ -1121,7 +1166,7 @@ export const Step1SourceInput = ({
                                   borderRadius: 4, color: '#888', fontSize: 9,
                                   padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
                                 }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a1a1a'; (e.currentTarget as HTMLButtonElement).style.color = '#1a1a1a'; }}
                                 onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#444'; (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
                               >
                                 Diff
@@ -1137,9 +1182,9 @@ export const Step1SourceInput = ({
             
             </div>
           )}
-          {/* Doc Tabs - like Doc Studio */}
+          {/* Doc Tabs */}
           {docTabs.length > 0 && (
-            <div className="w-full" style={{ marginBottom: '-19px', position: 'relative' }}>
+            <div className="w-full" style={{ marginBottom: '-19px', position: 'relative', zIndex: 0 }}>
               <div
                 className="zen-no-scrollbar"
                 style={{
@@ -1170,7 +1215,7 @@ export const Step1SourceInput = ({
                         marginBottom: '12px',
                         flex: '0 0 auto',
                         padding: '10px 16px',
-                        backgroundColor: '#151515',
+                        backgroundColor: isActive ? '#d0cbb8' : '#1a1a1a',
                         border: isActive ? '1px solid #AC8E66' : '1px dotted #777',
                         borderRadius: '8px 8px 0px 0px',
                         borderBottom: 'none',
@@ -1178,8 +1223,9 @@ export const Step1SourceInput = ({
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: isActive ? '10px' : '9px',
                         fontWeight: isActive ? '200' : '400',
-                        color: isActive ? '#AC8E66' : '#999',
-                        transition: 'all 0.2s',
+                        color: isActive ? '#1a1a1a' : '#999',
+                        transition: 'all 0.1s',
+                        transform: isActive ? 'translateY(0)' : 'translateY(8px)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -1189,16 +1235,18 @@ export const Step1SourceInput = ({
                         if (!isActive) {
                           e.currentTarget.style.color = '#AC8E66';
                           e.currentTarget.style.borderColor = '#AC8E66';
+                          e.currentTarget.style.transform = 'translateY(0)';
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isActive) {
                           e.currentTarget.style.color = '#999';
                           e.currentTarget.style.borderColor = '#777';
+                          e.currentTarget.style.transform = 'translateY(8px)';
                         }
                       }}
                     >
-                      {isDirty ? <span style={{ color: isActive ? '#AC8E66' : '#AC8E66' }}>•</span> : null}
+                      {isDirty ? <span style={{ color: '#AC8E66' }}>•</span> : null}
                       <span style={{ whiteSpace: 'nowrap' }}>{tab.title.length > 20 ? tab.title.slice(0, 20) + '…' : tab.title}</span>
                       <span
                         onClick={(event) => {
@@ -1208,7 +1256,7 @@ export const Step1SourceInput = ({
                         style={{
                           marginLeft: 'auto',
                           fontSize: '12px',
-                          color: isActive ? '#AC8E66' : '#777',
+                          color: isActive ? '#1a1a1a' : '#777',
                           opacity: 0.8,
                         }}
                       >
@@ -1234,18 +1282,24 @@ export const Step1SourceInput = ({
                       fontSize: '14px',
                       color: '#666',
                       transition: 'all 0.2s',
+                      transform: 'translateY(8px)',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       lineHeight: 1,
+                      zIndex: 0,
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.color = '#AC8E66';
                       e.currentTarget.style.borderColor = '#AC8E66';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.zIndex = '1'
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.color = '#666';
                       e.currentTarget.style.borderColor = '#555';
+                      e.currentTarget.style.transform = 'translateY(8px)';
+                      e.currentTarget.style.zIndex = '0'
                     }}
                   >
                     +
@@ -1284,10 +1338,10 @@ export const Step1SourceInput = ({
                 borderRadius: '10px',
                 border: isDragActive
                   ? '1.5px dashed #AC8E66'
-                  : '1px dashed rgba(172,142,102,0.4)',
+                  : '1px dashed #1a1a1a',
                 background: isDragActive
-                  ? 'rgba(172,142,102,0.07)'
-                  : 'rgba(255,255,255,0.02)',
+                  ? 'rgba(172,142,102,1)'
+                  : '#d0cbb8',
                 padding: '36px 20px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1297,17 +1351,19 @@ export const Step1SourceInput = ({
                 cursor: 'pointer',
                 transition: 'all 0.2s',
                 marginTop: '10px',
-                marginBottom: '16px',
+                marginBottom: '20px',
+                position: 'relative',
+                zIndex: 1,
               }}
             >
               <FontAwesomeIcon
                 icon={isDragActive ? faFolderOpen : faFileUpload}
-                style={{ fontSize: '22px', color: isDragActive ? '#AC8E66' : '#555' }}
+                style={{ fontSize: '22px', color: isDragActive ? '#AC8E66' : '#1a1a1a' }}
               />
-              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: isDragActive ? '#AC8E66' : '#888' }}>
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: isDragActive ? '#AC8E66' : '#1a1a1a' }}>
                 {isDragActive ? 'Loslassen zum Laden' : 'Datei hier ablegen'}
               </span>
-              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555' }}>
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#1a1a1a' }}>
                 .md · .txt · .docx · .html — oder klicken zum Auswählen
               </span>
             </div>
@@ -1318,20 +1374,20 @@ export const Step1SourceInput = ({
           {showComparison && comparisonBaseContent !== undefined && (
             <div
               style={{
-                marginBottom: '12px',
+                marginBottom: '0.5px',
                 padding: '10px',
                 border: '0.5px solid #3a3a3a',
-                borderRadius: '10px',
-                backgroundColor: '#101010',
+                borderRadius: '0 0 0 0 ',
+                backgroundColor: '#1a1a1a',
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                <div className="font-mono text-[10px] text-[#AC8E66]">
+                <div className="font-mono text-[10px] text-[#d0cbb8]">
                   Vorher: {comparisonBaseLabel}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   {comparisonBaseOptions.length > 1 ? (
-                    <div style={{ width: '320px' }}>
+                    <div style={{ width: '320px', color:  '#d0cbb8' }}>
                       <ZenDropdown
                         value={comparisonBaseSelection ?? comparisonBaseOptions[0]?.id ?? ''}
                         onChange={(value) => onComparisonBaseChange?.(value)}
@@ -1340,7 +1396,7 @@ export const Step1SourceInput = ({
                       />
                     </div>
                   ) : null}
-                  <div className="font-mono text-[10px] text-[#777]">
+                  <div className="font-mono text-[10px] text-[#d0cbb8]">
                     Zeichen Δ {sourceContent.length - comparisonBaseContent.length}
                   </div>
                   {onAdoptCurrentAsComparisonBase ? (
@@ -1360,9 +1416,9 @@ export const Step1SourceInput = ({
                     title="Vergleich schließen"
                     style={{
                       background: 'transparent',
-                      border: '1px solid #3A3A3A',
+                      border: '1px solid #d0cbb8',
                       borderRadius: '4px',
-                      color: '#666',
+                      color: '#d0cbb8',
                       width: '22px',
                       height: '22px',
                       display: 'inline-flex',
@@ -1400,16 +1456,16 @@ export const Step1SourceInput = ({
                         borderBottom: '0.5px solid #202020',
                         backgroundColor:
                           row.status === 'removed'
-                            ? 'rgba(239,68,68,0.12)'
+                            ? 'rgba(239,68,68,1)'
                             : row.status === 'modified'
-                              ? 'rgba(245, 158, 11, 0.15)'
+                              ? 'rgba(245, 158, 11,1 )'
                               : '#171717',
                         color:
                           row.status === 'removed'
-                            ? '#fca5a5'
+                            ? '#1a1a1a'
                             : row.status === 'modified'
-                              ? '#fcd34d'
-                              : '#888',
+                              ? '#1a1a1a'
+                              : '#1a1a1a',
                         fontFamily: 'monospace',
                         fontSize: '10px',
                         whiteSpace: 'pre-wrap',
@@ -1429,16 +1485,16 @@ export const Step1SourceInput = ({
                         borderBottom: '0.5px solid #202020',
                         backgroundColor:
                           row.status === 'added'
-                            ? 'rgba(34,197,94,0.12)'
+                            ? 'rgba(34,197,94,1)'
                             : row.status === 'modified'
-                              ? 'rgba(245, 158, 11, 0.15)'
-                              : '#171717',
+                              ? 'rgba(245, 158, 11, 1)'
+                              : '#d0cbb8',
                         color:
                           row.status === 'added'
-                            ? '#86efac'
+                            ? '#1a1a1a'
                             : row.status === 'modified'
-                              ? '#fcd34d'
-                              : '#d9d4c5',
+                              ? '#1a1a1a'
+                              : '#1a1a1a',
                         fontFamily: 'monospace',
                         fontSize: '10px',
                         whiteSpace: 'pre-wrap',
@@ -1756,7 +1812,15 @@ export const Step1SourceInput = ({
                         >
                           {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
                         </div>
-                        {metaImageInvalidForServer && (
+                        {metaImageIsInlineData && isTauri() && (
+                          <div
+                            className="font-mono text-[9px]"
+                            style={{ color: '#d39b52', lineHeight: '13px' }}
+                          >
+                            Altes Format (base64) — wird beim nächsten Speichern automatisch in _assets/ konvertiert.
+                          </div>
+                        )}
+                        {metaImageInvalidForServer && !isTauri() && (
                           <div
                             className="font-mono text-[9px]"
                             style={{
@@ -1771,7 +1835,11 @@ export const Step1SourceInput = ({
                         {(postMeta?.imageUrl ?? '').trim() &&
                           /^(https?:\/\/|data:image\/|blob:|file:\/\/|\/)/i.test((postMeta?.imageUrl ?? '').trim()) && (
                             <img
-                              src={(postMeta?.imageUrl ?? '').trim()}
+                              src={
+                                isTauri() && /^\//.test((postMeta?.imageUrl ?? '').trim())
+                                  ? convertFileSrc((postMeta?.imageUrl ?? '').trim())
+                                  : (postMeta?.imageUrl ?? '').trim()
+                              }
                               alt="Meta Bild Vorschau"
                               style={{
                                 width: '100%',
@@ -1813,13 +1881,14 @@ export const Step1SourceInput = ({
                   zIndex: 6,
                 }}
               >
-                <div className="font-mono text-[9px] text-[#AC8E66] tracking-wide">Struktur ESC Closed</div>
+                <div className="font-mono text-[10px] text-[#AC8E66] tracking-wide">Struktur ESC Closed</div>
                 {editorType === 'block' && (
                   <div className="
                   font-mono 
-                  text-[9px]
+                  
+                  text-[10px]
                   leading-[12px]
-                  text-[#e3d4bf]">
+                  text-[#d0cbb8]">
                     Kapitelklick bleibt im Block-Editor und springt zur passenden Ueberschrift.
                   </div>
                 )}
@@ -1885,8 +1954,8 @@ export const Step1SourceInput = ({
                     {outlineItems.length === 0 ? (
                       <div className="
                       font-mono 
-                      text-[10px] 
-                      text-[#666]">
+                      text-[11px] 
+                      text-[#999]">
                         Keine Ueberschriften erkannt.
                       </div>
                     ) : (
@@ -1913,7 +1982,7 @@ export const Step1SourceInput = ({
                               width: '100%',
                               padding: '3px 6px',
                               lineHeight: '13px',
-                              borderRadius: 6,
+                              borderRadius: 2,
                               color: item.line === activeOutlineLine ? '#151515' : '#c8c8c8',
                             }}
                             onClick={() => handleOutlineItemClick(item.line, idx)}
@@ -2539,18 +2608,26 @@ export const Step1SourceInput = ({
 
         <style>{`
           @keyframes fade-in {
-            from {
-              opacity: 0;
-              transform: translateY(-10px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-10px); }
+            to   { opacity: 1; transform: translateY(0); }
           }
+          .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
 
-          .animate-fade-in {
-            animation: fade-in 0.3s ease-out forwards;
+          .autosave-label-default {
+            transform: translateY(0);
+            opacity: 1;
+          }
+          .autosave-label-hover {
+            transform: translateY(100%);
+            opacity: 0;
+          }
+          button:hover .autosave-label-default {
+            transform: translateY(-100%);
+            opacity: 0;
+          }
+          button:hover .autosave-label-hover {
+            transform: translateY(0);
+            opacity: 1;
           }
         `}</style>
       </ZenModal>

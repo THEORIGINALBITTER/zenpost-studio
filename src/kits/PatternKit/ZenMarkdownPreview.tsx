@@ -1,6 +1,6 @@
 import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ZenEngine from '../../services/zenEngineService';
-import { internalizeImages } from '../../services/zenImageStore';
+import { internalizeImages, clearImageStore } from '../../services/zenImageStore';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -134,6 +134,8 @@ interface ZenMarkdownPreviewProps {
   marginBottom?: number;
   marginLeft?: number;
   marginRight?: number;
+  /** Override the paper background color (default: 'rgb(217, 212, 197)'). Use 'transparent' to let parent gradient show through. */
+  paperBackground?: string;
 }
 
 export type { PreviewThemeId } from './zenMarkdownPreviewTypes';
@@ -162,6 +164,7 @@ export const ZenMarkdownPreview = ({
   marginBottom = 48,
   marginLeft = 64,
   marginRight = 64,
+  paperBackground: _paperBackground,
 }: ZenMarkdownPreviewProps) => {
   const { openExternal } = useOpenExternal();
   const [zoom, setZoom] = useState(70);
@@ -185,7 +188,7 @@ export const ZenMarkdownPreview = ({
   // previewStats: ZenEngine IPC-Call für Wort-/Zeichenzahl — im selben Timer.
   // Das Original-`content` bleibt unverändert für Posting und Export.
   const [previewContent, setPreviewContent] = useState(() => internalizeImages(content));
-  const [previewStats, setPreviewStats] = useState({ word_count: 0, char_count: 0 });
+  const [_previewStats, setPreviewStats] = useState({ word_count: 0, char_count: 0 });
   const contentUpdateRef = useRef<number | null>(null);
   useEffect(() => {
     if (contentUpdateRef.current !== null) window.clearTimeout(contentUpdateRef.current);
@@ -209,6 +212,11 @@ export const ZenMarkdownPreview = ({
       if (contentUpdateRef.current !== null) window.clearTimeout(contentUpdateRef.current);
     };
   }, [content]);
+
+  // Blob-URLs freigeben wenn die Preview unmountet
+  useEffect(() => {
+    return () => { clearImageStore(); };
+  }, []);
 
   const clearReadingCursorTimer = useCallback(() => {
     if (readingCursorTimerRef.current !== null) {
@@ -918,25 +926,6 @@ export const ZenMarkdownPreview = ({
             {zoom}%
           </button>
 
-          {/* Engine Stats */}
-          {previewStats.word_count > 0 && (
-            <div
-              className="
-                h-9 px-3
-                inline-flex items-center gap-1.5
-                rounded-lg
-                bg-[#111]
-                border border-[#222]
-                font-mono text-[9px] text-[#555]
-                select-none
-              "
-              title="ZenEngine Statistik"
-            >
-              <span>{previewStats.word_count.toLocaleString('de-DE')}W</span>
-              <span className="text-[#2a2a2a]">·</span>
-              <span>{previewStats.char_count.toLocaleString('de-DE')}Z</span>
-            </div>
-          )}
 
           <button
             onClick={handleZoomIn}
@@ -1101,13 +1090,12 @@ export const ZenMarkdownPreview = ({
       <div
         className="zen-preview-paper
         text-[#3a3a3a]
-        border-[2px]
-        border-[#555]
-        rounded-[8px_8px_12px_12px]
+        border-[1px]
+        border-[#1a1a1a]/30
+        rounded-[0_0_12px_12px]
         max-w-none"
         style={{
           height,
-          borderWidth: '2.5px',
           background: 'rgb(217, 212, 197)',
           boxShadow: 'inset 0 0 30px rgba(0,0,0,0.03)',
           position: 'relative',
@@ -1168,7 +1156,7 @@ export const ZenMarkdownPreview = ({
               right: marginRight,
               bottom: marginBottom,
               left: marginLeft,
-              border: '1px dashed rgba(172, 142, 102, 0.28)',
+              border: '1px dashed rgba(172, 142, 102, 0.68)',
               pointerEvents: 'none',
               zIndex: 2,
             }}

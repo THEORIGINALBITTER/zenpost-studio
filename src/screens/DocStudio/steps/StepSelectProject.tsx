@@ -570,7 +570,7 @@ export function StepSelectProject({
                           Im Finder
                         </button>
                       ) : <span />}
-                      <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                      <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
                         Klicken zum Öffnen →
                       </div>
                     </div>
@@ -601,7 +601,7 @@ export function StepSelectProject({
                     >
                       <p
                         style={{
-                          fontSize: '9px',
+                          fontSize: '10px',
                           color: '#7a7060',
                           fontFamily: 'IBM Plex Mono, monospace',
                           margin: '0 0 4px 0',
@@ -662,7 +662,7 @@ export function StepSelectProject({
                             Im Finder
                           </button>
                         ) : <span />}
-                        <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                        <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
                           Klicken zum Öffnen →
                         </div>
                       </div>

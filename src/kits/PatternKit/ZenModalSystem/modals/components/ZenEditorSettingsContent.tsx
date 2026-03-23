@@ -34,7 +34,7 @@ const SectionLabel = ({ children }: { children: string }) => (
       fontSize: 9,
       fontWeight: 600,
       letterSpacing: '0.12em',
-      color: '#AC8E66',
+      color: '#1a1a1a',
       textTransform: 'uppercase',
       marginBottom: 14,
     }}
@@ -294,6 +294,42 @@ export const ZenEditorSettingsContent = () => {
 
               {/* Slider */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Presets */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {([
+                    { label: 'Kein', top: 0,  bottom: 0,  left: 0,  right: 0  },
+                    { label: 'Eng',  top: 24, bottom: 24, left: 32, right: 32 },
+                    { label: 'Normal', top: 48, bottom: 48, left: 64, right: 64 },
+                    { label: 'Weit', top: 80, bottom: 80, left: 120, right: 120 },
+                  ] as const).map((p) => {
+                    const isSelected =
+                      settings.marginTop === p.top &&
+                      settings.marginBottom === p.bottom &&
+                      settings.marginLeft === p.left &&
+                      settings.marginRight === p.right;
+                    return (
+                      <button
+                        key={p.label}
+                        onClick={() => setSettings((prev) => ({ ...prev, marginTop: p.top, marginBottom: p.bottom, marginLeft: p.left, marginRight: p.right }))}
+                        style={{
+                          padding: '3px 10px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '9px',
+                          border: isSelected ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+                          borderRadius: 4,
+                          background: isSelected ? 'rgba(172,142,102,0.12)' : 'transparent',
+                          color: isSelected ? '#AC8E66' : '#888',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
                 <ZenSlider
                   label="Oben"
                   value={settings.marginTop}
@@ -360,9 +396,27 @@ export const ZenEditorSettingsContent = () => {
                       setSettings((prev) => ({ ...prev, autoSaveIntervalSec: value }))
                     }
                   />
+                  <ZenSlider
+                    label="Max. Versionen"
+                    value={settings.autosaveMaxVersions ?? 10}
+                    min={3}
+                    max={20}
+                    step={1}
+                    valueFormatter={(v) => `${v} Versionen`}
+                    onChange={(value) => setSettings((prev) => ({ ...prev, autosaveMaxVersions: value }))}
+                  />
+                  <ZenSlider
+                    label="Aufbewahrung"
+                    value={settings.autosaveRetentionDays ?? 30}
+                    min={7}
+                    max={90}
+                    step={7}
+                    valueFormatter={(v) => `${v} Tage`}
+                    onChange={(value) => setSettings((prev) => ({ ...prev, autosaveRetentionDays: value }))}
+                  />
                   {isTauri() && (
                     <div>
-                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#AC8E66', marginBottom: 6 }}>
+                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#1a1a1a', marginBottom: 6 }}>
                         AUTOSAVE-ORDNER
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -385,7 +439,7 @@ export const ZenEditorSettingsContent = () => {
                           }}
                           style={{
                             fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
-                            background: 'rgba(172,142,102,0.12)', border: '1px solid rgba(172,142,102,0.4)',
+                            background: 'transparent', border: '1px solid rgba(172,142,102,0.4)',
                             borderRadius: 4, color: '#AC8E66', padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
                           }}
                         >

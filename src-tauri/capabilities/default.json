@@ -16,17 +16,6 @@
     "fs:allow-read-text-file",
     "fs:allow-write-file",
     "fs:allow-write-text-file",
-   {
-  "identifier": "http:default",
-  "allow": [
-    { "url": "http://127.0.0.1:11434/**" },
-    { "url": "http://127.0.0.1:11434/**" },
-
-    { "url": "https://api.openai.com/**" },
-    { "url": "https://api.anthropic.com/**" }
-  ]
-
-    },
     {
       "identifier": "fs:allow-mkdir",
       "allow": [
@@ -53,12 +42,17 @@
       "allow": [
         { "url": "http://127.0.0.1:11434" },
         { "url": "http://127.0.0.1:11434/*" },
-        { "url": "http://127.0.0.1:11434" },
-        { "url": "http://127.0.0.1:11434/*" },
         { "url": "https://api.openai.com" },
         { "url": "https://api.openai.com/*" },
         { "url": "https://api.anthropic.com" },
-        { "url": "https://api.anthropic.com/*" }
+        { "url": "https://api.anthropic.com/*" },
+        { "url": "https://api.twitter.com/*" },
+        { "url": "https://www.reddit.com/*" },
+        { "url": "https://oauth.reddit.com/*" },
+        { "url": "https://api.linkedin.com/*" },
+        { "url": "https://dev.to/*" },
+        { "url": "https://api.medium.com/*" },
+        { "url": "https://api.github.com/*" }
       ]
     },
     "opener:default",

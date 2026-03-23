@@ -18,6 +18,7 @@ import {
 
 const mono = 'IBM Plex Mono, monospace';
 const gold = '#AC8E66';
+const black = '#1a1a1a';
 
 const RULE_GROUPS: Array<{ id: keyof RuleGroupSettings; label: string; desc: string; badge?: string }> = [
   { id: 'passive_voice',       label: 'Passive Voice',          desc: 'wird, wurde, wurden, werden …' },
@@ -75,7 +76,7 @@ export function ZenEngineSettingsContent() {
   }
 
   const sectionLabel = (text: string) => (
-    <p style={{ fontFamily: mono, fontSize: 9, color: `${gold}99`, textTransform: 'uppercase', letterSpacing: 1.2, margin: '0 0 12px' }}>
+    <p style={{ fontFamily: mono, fontSize: 9, color: `${black}`, textTransform: 'uppercase', letterSpacing: 1.2, margin: '0 0 12px' }}>
       {text}
     </p>
   );
@@ -94,7 +95,7 @@ export function ZenEngineSettingsContent() {
             <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: '#222', letterSpacing: 0.3 }}>
               ZenEngine
             </div>
-            <div style={{ fontFamily: mono, fontSize: 10, color: '#888', marginTop: 3 }}>
+            <div style={{ fontFamily: mono, fontSize: 10, color: '#333', marginTop: 3 }}>
               Regeln · Stil · Lernhistorie
             </div>
           </div>
@@ -104,7 +105,7 @@ export function ZenEngineSettingsContent() {
             title="ZenEngine Details"
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              fontFamily: mono, fontSize: 9, color: gold,
+              fontFamily: mono, fontSize: 9, color: black,
               background: 'rgba(172,142,102,0.1)', border: `1px solid rgba(172,142,102,0.35)`,
               borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
               transition: 'background 0.15s',
@@ -200,7 +201,7 @@ export function ZenEngineSettingsContent() {
           {/* ── Gelernte Regeln ── */}
           {sectionLabel(`Gelernte Regeln · ${userRules.length} gesamt`)}
           {userRules.length === 0 ? (
-            <p style={{ fontFamily: mono, fontSize: 10, color: '#bbb', margin: 0 }}>
+            <p style={{ fontFamily: mono, fontSize: 10, color: '#1a1a1a', margin: 0 }}>
               Noch keine — im Editor auf „+ Wort / Phrase lernen" klicken.
             </p>
           ) : (
@@ -212,12 +213,12 @@ export function ZenEngineSettingsContent() {
                 }}>
                   <span style={{
                     fontFamily: mono, fontSize: 10, background: 'rgba(172,142,102,0.12)',
-                    color: gold, borderRadius: 4, padding: '1px 7px',
+                    color: black, borderRadius: 4, padding: '1px 7px',
                     border: '1px solid rgba(172,142,102,0.3)', flexShrink: 0,
                   }}>
                     {rule.pattern}
                   </span>
-                  <span style={{ fontFamily: mono, fontSize: 9, color: '#888', flex: 1 }}>
+                  <span style={{ fontFamily: mono, fontSize: 9, color: '#1a1a1a', flex: 1 }}>
                     {rule.suggestion}
                   </span>
                   {rule.replacements.length > 0 && (
@@ -225,7 +226,7 @@ export function ZenEngineSettingsContent() {
                       {rule.replacements.slice(0, 3).map(r => (
                         <span key={r} style={{
                           fontFamily: mono, fontSize: 9, padding: '0 5px',
-                          border: '1px solid rgba(172,142,102,0.25)', borderRadius: 3, color: '#999',
+                          border: '1px solid rgba(172,142,102,0.25)', borderRadius: 3, color: '#1a1a1a',
                         }}>
                           {r}
                         </span>
@@ -237,9 +238,10 @@ export function ZenEngineSettingsContent() {
                     onClick={() => handleDeleteRule(rule.pattern)}
                     title="Regel löschen"
                     style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer',
-                      color: '#ccc', padding: '2px 4px', flexShrink: 0,
+                      background: 'transparent', border: '#fff', cursor: 'pointer',
+                      color: '#ccc', padding: '5px 5pxx', flexShrink: 0,
                       fontSize: 11,
+                    
                     }}
                     onMouseEnter={e => (e.currentTarget.style.color = '#e05c5c')}
                     onMouseLeave={e => (e.currentTarget.style.color = '#ccc')}
@@ -269,7 +271,7 @@ export function ZenEngineSettingsContent() {
                 <div style={{ fontFamily: mono, fontSize: 18, color: gold, fontWeight: 700 }}>
                   {stat.value}
                 </div>
-                <div style={{ fontFamily: mono, fontSize: 8, color: '#999', marginTop: 2 }}>
+                <div style={{ fontFamily: mono, fontSize: 8, color: '#1a1a1a', marginTop: 2 }}>
                   {stat.label}
                 </div>
               </div>
@@ -283,7 +285,7 @@ export function ZenEngineSettingsContent() {
               style={{
                 fontFamily: mono, fontSize: 9, display: 'flex', alignItems: 'center', gap: 7,
                 background: 'transparent', border: '1px solid rgba(172,142,102,0.3)',
-                borderRadius: 5, color: `${gold}aa`, padding: '5px 12px', cursor: 'pointer',
+                borderRadius: 5, color: `${black}aa`, padding: '5px 12px', cursor: 'pointer',
               }}
               onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = gold; (e.currentTarget as HTMLButtonElement).style.color = gold; }}
               onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.3)'; (e.currentTarget as HTMLButtonElement).style.color = `${gold}aa`; }}
@@ -322,7 +324,7 @@ export function ZenEngineSettingsContent() {
                       const label = RULE_GROUPS.find(r => r.id === ruleId)?.label ?? ruleId.replace(/_/g, ' ');
                       return (
                         <div key={ruleId} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontFamily: mono, fontSize: 9, color: '#888', width: 140, flexShrink: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontFamily: mono, fontSize: 9, color: '#1a1a1a', width: 140, flexShrink: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
                             {label}
                           </span>
                           <div style={{ flex: 1, height: 6, borderRadius: 3, background: 'rgba(172,142,102,0.12)', overflow: 'hidden' }}>
@@ -331,7 +333,7 @@ export function ZenEngineSettingsContent() {
                           <span style={{ fontFamily: mono, fontSize: 9, color: gold, width: 28, textAlign: 'right', flexShrink: 0 }}>
                             {stat.hits}
                           </span>
-                          <span style={{ fontFamily: mono, fontSize: 8, color: '#666', width: 90, flexShrink: 0 }}>
+                          <span style={{ fontFamily: mono, fontSize: 8, color: '#1a1a1a', width: 90, flexShrink: 0 }}>
                             {formatLastSeen(stat.lastSeen)}
                           </span>
                         </div>
@@ -347,7 +349,7 @@ export function ZenEngineSettingsContent() {
                       marginTop: 14, fontFamily: mono, fontSize: 9,
                       display: 'flex', alignItems: 'center', gap: 7,
                       background: 'transparent', border: '1px solid rgba(172,142,102,0.3)',
-                      borderRadius: 5, color: `${gold}aa`, padding: '5px 12px', cursor: 'pointer',
+                      borderRadius: 5, color: `${black}aa`, padding: '5px 12px', cursor: 'pointer',
                     }}
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = gold; (e.currentTarget as HTMLButtonElement).style.color = gold; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.3)'; (e.currentTarget as HTMLButtonElement).style.color = `${gold}aa`; }}

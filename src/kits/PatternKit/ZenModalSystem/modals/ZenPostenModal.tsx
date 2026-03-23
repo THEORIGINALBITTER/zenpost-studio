@@ -28,6 +28,7 @@ interface ZenPostenModalProps {
   onClose: () => void;
   onSelectPlatforms: (platforms: SocialPlatform[]) => void;
   currentPlatform?: SocialPlatform | null;
+  initialSelectedPlatforms?: SocialPlatform[];
 }
 
 interface PlatformInfo {
@@ -52,12 +53,13 @@ export const ZenPostenModal = ({
   onClose,
   onSelectPlatforms,
   currentPlatform,
+  initialSelectedPlatforms,
 }: ZenPostenModalProps) => {
   const modalPreset = getModalPreset('posten-select');
   const [selectedPlatforms, setSelectedPlatforms] = useState<SocialPlatform[]>([]);
   const [configuredPlatforms, setConfiguredPlatforms] = useState<Set<SocialPlatform>>(new Set());
 
-  // Load configuration status on open
+  // Load configuration status on open + restore previous selection
   useEffect(() => {
     if (isOpen) {
       const loadConfig = async () => {
@@ -75,19 +77,15 @@ export const ZenPostenModal = ({
 
       loadConfig();
 
-      // Pre-select current platform if provided
-      if (currentPlatform && !selectedPlatforms.includes(currentPlatform)) {
+      // Restore previous multi-selection, fall back to current single platform
+      if (initialSelectedPlatforms && initialSelectedPlatforms.length > 0) {
+        setSelectedPlatforms(initialSelectedPlatforms);
+      } else if (currentPlatform && !selectedPlatforms.includes(currentPlatform)) {
         setSelectedPlatforms([currentPlatform]);
       }
     }
+    // intentionally not clearing on close — keeps selection for next open
   }, [isOpen, currentPlatform]);
-
-  // Reset on close
-  useEffect(() => {
-    if (!isOpen) {
-      setSelectedPlatforms([]);
-    }
-  }, [isOpen]);
 
   const togglePlatform = (platform: SocialPlatform) => {
     setSelectedPlatforms(prev => {

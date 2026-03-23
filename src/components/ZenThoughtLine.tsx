@@ -31,8 +31,8 @@ export const ZenThoughtLine = ({ thoughts, visible = true, containerStyle }: Zen
       <div
         style={{
           fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '9px',
-          fontWeight: 400,
+          fontSize: '10px',
+          fontWeight: 100,
           color: '#8f8f8f',
           letterSpacing: '0.2px',
         }}

@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   loadSocialConfig, isPlatformConfigured,
   postToDevTo, postToMedium, postToLinkedIn,
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
+import { preparePostContent } from '../../../../config/platformPostRules';
 import { writeFile, writeTextFile, readTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
@@ -25,6 +26,9 @@ import {
   faCheck,
   faSpinner,
   faGlobe,
+  faCopy,
+  faExternalLinkAlt,
+  faImage,
 } from '@fortawesome/free-solid-svg-icons';
 import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
 
@@ -245,6 +249,14 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
+  // Platforms where API failed → show persistent "Copy & Open" fallback button
+  const [copyFallbackIds, setCopyFallbackIds] = useState<Set<string>>(new Set());
+  // Platform selection for bulk-post (user explicitly selects before posting)
+  const [selectedPlatformIds, setSelectedPlatformIds] = useState<Set<string>>(new Set());
+  // LinkedIn cover image
+  const [linkedInImage, setLinkedInImage] = useState<File | null>(null);
+  const [linkedInImagePreview, setLinkedInImagePreview] = useState<string | null>(null);
+  const linkedInFileInputRef = useRef<HTMLInputElement>(null);
   const socialConfig = useMemo<SocialMediaConfig>(() => loadSocialConfig(), [isOpen]);
   const blogs = useMemo<BlogConfig[]>(() => loadZenStudioSettings().blogs ?? [], [isOpen]);
   const { openExternal } = useOpenExternal();
@@ -1449,35 +1461,59 @@ ${renderedHtml}
         const title = documentName || 'Untitled';
         let result: { success: boolean; url?: string; error?: string };
 
-        // DEV.to: max 4 tags, must be lowercase alphanumeric + hyphens
-        const devtoTags = tags
-          .slice(0, 4)
-          .map(t => t.toLowerCase().replace(/[^a-z0-9]/g, ''));
+        const meta = { title, subtitle: subtitle ?? undefined, imageUrl: imageUrl ?? undefined, tags };
 
         if (option.id === 'devto') {
+          const prepared = preparePostContent('devto', content, meta);
           result = await postToDevTo(
-            { title, body_markdown: content, published: false, tags: devtoTags },
+            {
+              title: prepared.title ?? title,
+              body_markdown: prepared.text,
+              published: false,
+              tags: prepared.tags ?? [],
+              ...(prepared.coverImageUrl ? { cover_image: prepared.coverImageUrl } : {}),
+            },
             socialConfig.devto!,
           );
         } else if (option.id === 'medium') {
+          const prepared = preparePostContent('medium', content, meta);
           result = await postToMedium(
-            { title, content, contentFormat: 'markdown', publishStatus: 'draft', tags },
+            {
+              title: prepared.title ?? title,
+              content: prepared.text,
+              contentFormat: 'markdown',
+              publishStatus: 'draft',
+              tags: prepared.tags ?? [],
+            },
             socialConfig.medium!,
           );
         } else if (option.id === 'linkedin') {
+          const prepared = preparePostContent('linkedin', content, {
+            ...meta,
+            imageUrl: linkedInImage ? URL.createObjectURL(linkedInImage) : imageUrl ?? undefined,
+          });
           result = await postToLinkedIn(
-            { text: content.substring(0, 3000) },
+            {
+              text: prepared.text,
+              coverImageFile: linkedInImage ?? undefined,
+              coverImageUrl: !linkedInImage ? prepared.coverImageSourceUrl : undefined,
+            },
             socialConfig.linkedin!,
           );
         } else if (option.id === 'github-gist') {
-          const filename = `${title.replace(/[^a-z0-9]/gi, '_')}.md`;
+          const prepared = preparePostContent('github', content, meta);
+          const gistTitle = prepared.title ?? title;
+          const description = prepared.tags?.length
+            ? `${gistTitle} [${prepared.tags.join(', ')}]`
+            : gistTitle;
+          const filename = `${gistTitle.replace(/[^a-z0-9]/gi, '_')}.md`;
           const resp = await fetch('https://api.github.com/gists', {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${socialConfig.github!.accessToken}`,
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ description: title, public: false, files: { [filename]: { content } } }),
+            body: JSON.stringify({ description, public: false, files: { [filename]: { content: prepared.text } } }),
           });
           if (!resp.ok) throw new Error('Gist konnte nicht erstellt werden');
           const gistData = await resp.json();
@@ -1488,17 +1524,22 @@ ${renderedHtml}
 
         if (result.success) {
           setPublishedId(option.id);
+          // Remove copy-fallback state on successful post
+          setCopyFallbackIds(prev => { const s = new Set(prev); s.delete(option.id); return s; });
           if (result.url) {
             try { await openExternal(result.url); } catch { window.open(result.url, '_blank', 'noopener,noreferrer'); }
           }
           setTimeout(() => setPublishedId(null), 3000);
         } else {
+          // Activate persistent "Copy & Open" fallback for API errors
+          setCopyFallbackIds(prev => new Set(prev).add(option.id));
           setPublishError({ id: option.id, message: result.error ?? 'Unbekannter Fehler' });
-          setTimeout(() => setPublishError(null), 4000);
+          setTimeout(() => setPublishError(null), 5000);
         }
       } catch (err) {
+        setCopyFallbackIds(prev => new Set(prev).add(option.id));
         setPublishError({ id: option.id, message: err instanceof Error ? err.message : 'Fehler beim Posten' });
-        setTimeout(() => setPublishError(null), 4000);
+        setTimeout(() => setPublishError(null), 5000);
       } finally {
         setPublishingId(null);
       }
@@ -1518,6 +1559,19 @@ ${renderedHtml}
     } catch (err) {
       window.open(option.url, '_blank', 'noopener,noreferrer');
     }
+  };
+
+  // Post all selected platforms sequentially
+  const handlePostSelected = async () => {
+    const allOptions = [
+      ...PUBLISH_OPTIONS,
+      ...blogs.map((b): PublishOption => ({ id: `blog:${b.id}`, label: b.name, icon: faGlobe, url: '', color: '#AC8E66' })),
+    ];
+    for (const option of allOptions) {
+      if (!selectedPlatformIds.has(option.id)) continue;
+      await handlePublish(option);
+    }
+    setSelectedPlatformIds(new Set());
   };
 
   // Handle tone selection and start optimization
@@ -1835,64 +1889,277 @@ ${renderedHtml}
               const isPublishing = publishingId === option.id;
               const isPublished = publishedId === option.id;
               const hasError = publishError?.id === option.id;
-              const borderColor = isPublished ? '#4caf50' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.5)' : '#3A3A3A';
-              const iconColor = isPublished ? '#4caf50' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
+              const hasCopyFallback = copyFallbackIds.has(option.id);
+              const isSelected = selectedPlatformIds.has(option.id);
+              const borderColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? 'rgba(172,142,102,0.6)' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.3)' : '#3A3A3A';
+              const iconColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? '#AC8E66' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
+
+              // Copy-fallback handler: copy content + open platform URL
+              const handleCopyAndOpen = async (e: React.MouseEvent) => {
+                e.stopPropagation();
+                try { await navigator.clipboard.writeText(content.substring(0, 3000)); } catch {}
+                const url = option.url || 'https://www.linkedin.com/feed/';
+                try { await openExternal(url); } catch { window.open(url, '_blank', 'noopener,noreferrer'); }
+              };
+
+              // ── LinkedIn: special card with image preview ──────────────────
+              if (option.id === 'linkedin' && isConfigured && !hasCopyFallback) {
+                return (
+                  <div
+                    key={option.id}
+                    style={{
+                      position: 'relative',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      border: `0.5px solid ${borderColor}`,
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      backgroundColor: isPublished ? 'rgba(76,175,80,0.07)' : 'transparent',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {/* Cover image area */}
+                    <div
+                      onClick={() => !isPublishing && !isPublished && linkedInFileInputRef.current?.click()}
+                      style={{
+                        width: '100%',
+                        height: 68,
+                        backgroundColor: '#141414',
+                        cursor: isPublishing || isPublished ? 'default' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                        position: 'relative',
+                        borderBottom: `0.5px solid ${borderColor}`,
+                      }}
+                    >
+                      {linkedInImagePreview || imageUrl ? (
+                        <>
+                          <img
+                            src={linkedInImagePreview ?? imageUrl ?? undefined}
+                            alt="Cover"
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          />
+                          {!isPublishing && !isPublished && linkedInImagePreview && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setLinkedInImage(null);
+                                setLinkedInImagePreview(null);
+                              }}
+                              style={{
+                                position: 'absolute', top: 4, right: 4,
+                                width: 18, height: 18, borderRadius: '50%',
+                                backgroundColor: 'rgba(0,0,0,0.65)',
+                                border: '0.5px solid rgba(255,255,255,0.2)',
+                                color: '#fff', fontSize: '9px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', padding: 0,
+                              }}
+                            >×</button>
+                          )}
+                          {imageUrl && !linkedInImagePreview && (
+                            <div style={{
+                              position: 'absolute', bottom: 0, left: 0, right: 0,
+                              backgroundColor: 'rgba(0,0,0,0.55)',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '7px', color: '#AC8E66',
+                              padding: '2px 5px', textAlign: 'center',
+                            }}>
+                              aus PostMetadaten
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                          <FontAwesomeIcon icon={faImage} style={{ fontSize: '16px', color: '#333' }} />
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#444' }}>
+                            + Titelbild
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Post button */}
+                    <button
+                      onClick={() => !isPublishing && handlePublish(option)}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '14px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: isPublishing ? 'default' : 'pointer',
+                        opacity: isPublishing ? 0.75 : 1,
+                        width: '100%',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (isPublishing) return;
+                        (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = isPublished ? '#4caf50' : '#AC8E66';
+                        (e.currentTarget.parentElement as HTMLDivElement).style.backgroundColor = isPublished ? 'rgba(76,175,80,0.12)' : 'rgba(172,142,102,0.1)';
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = borderColor;
+                        (e.currentTarget.parentElement as HTMLDivElement).style.backgroundColor = isPublished ? 'rgba(76,175,80,0.07)' : 'transparent';
+                      }}
+                    >
+                      <FontAwesomeIcon
+                        icon={isPublishing ? faSpinner : isPublished ? faCheck : option.icon}
+                        spin={isPublishing}
+                        style={{ fontSize: '22px', color: iconColor }}
+                      />
+                      <span style={{
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '11px',
+                        color: isPublished ? '#4caf50' : iconColor,
+                        fontWeight: 500,
+                      }}>
+                        {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : option.label}
+                      </span>
+                      {isPublishing && linkedInImage && (
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66' }}>
+                          Bild wird hochgeladen …
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Configured dot */}
+                    {!isPublishing && !isPublished && (
+                      <span style={{
+                        position: 'absolute', top: 8, right: 8,
+                        width: 6, height: 6, borderRadius: '50%',
+                        backgroundColor: '#AC8E66',
+                      }} />
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <button
                   key={option.id}
-                  onClick={() => !isPublishing && handlePublish(option)}
+                  onClick={() => {
+                    if (isPublishing || isPublished) return;
+                    if (hasCopyFallback) { void handlePublish(option); return; }
+                    if (!isConfigured) { void handlePublish(option); return; }
+                    // Toggle selection for configured platforms
+                    setSelectedPlatformIds(prev => {
+                      const next = new Set(prev);
+                      next.has(option.id) ? next.delete(option.id) : next.add(option.id);
+                      return next;
+                    });
+                  }}
                   style={{
                     position: 'relative',
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '12px',
-                    padding: '24px 16px',
-                    backgroundColor: isPublished ? 'rgba(76,175,80,0.07)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent',
+                    gap: '10px',
+                    padding: '20px 12px',
+                    backgroundColor: isPublished ? 'rgba(76,175,80,0.07)' : isSelected ? 'rgba(172,142,102,0.1)' : hasCopyFallback ? 'rgba(172,142,102,0.06)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent',
                     border: `0.5px solid ${borderColor}`,
                     borderRadius: '12px',
-                    cursor: isPublishing ? 'default' : 'pointer',
+                    cursor: isPublishing ? 'default' : hasCopyFallback ? 'default' : 'pointer',
                     transition: 'all 0.2s',
                     opacity: isPublishing ? 0.75 : 1,
                   }}
                   onMouseEnter={(e) => {
-                    if (isPublishing) return;
+                    if (isPublishing || hasCopyFallback) return;
                     e.currentTarget.style.borderColor = isPublished ? '#4caf50' : isConfigured ? '#AC8E66' : '#555555';
                     e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.12)' : isConfigured ? 'rgba(172,142,102,0.1)' : '#55555520';
                     e.currentTarget.style.transform = 'translateY(-2px)';
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.borderColor = borderColor;
-                    e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.07)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent';
+                    e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.07)' : hasCopyFallback ? 'rgba(172,142,102,0.06)' : hasError ? 'rgba(224,92,92,0.07)' : 'transparent';
                     e.currentTarget.style.transform = 'translateY(0)';
                   }}
                 >
+                  {/* Selection checkmark */}
+                  {isSelected && (
+                    <span style={{
+                      position: 'absolute', top: 6, left: 6,
+                      width: 16, height: 16, borderRadius: '50%',
+                      backgroundColor: '#AC8E66',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <FontAwesomeIcon icon={faCheck} style={{ fontSize: '8px', color: '#1a1a1a' }} />
+                    </span>
+                  )}
                   {/* Configured indicator dot */}
-                  {isConfigured && !isPublishing && !isPublished && (
+                  {isConfigured && !isPublishing && !isPublished && !hasCopyFallback && !isSelected && (
                     <span style={{
                       position: 'absolute', top: 8, right: 8,
                       width: 6, height: 6, borderRadius: '50%',
                       backgroundColor: '#AC8E66',
                     }} />
                   )}
+                  {/* Reset button for copy-fallback mode */}
+                  {hasCopyFallback && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCopyFallbackIds(prev => { const s = new Set(prev); s.delete(option.id); return s; });
+                      }}
+                      title="Zurücksetzen — API erneut versuchen"
+                      style={{
+                        position: 'absolute', top: 6, right: 6,
+                        width: 16, height: 16, borderRadius: '50%',
+                        backgroundColor: 'rgba(172,142,102,0.2)',
+                        border: '0.5px solid rgba(172,142,102,0.4)',
+                        color: '#AC8E66', fontSize: '8px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', padding: 0,
+                      }}
+                    >×</button>
+                  )}
+
                   <FontAwesomeIcon
-                    icon={isPublishing ? faSpinner : isPublished ? faCheck : option.icon}
+                    icon={isPublishing ? faSpinner : isPublished ? faCheck : hasCopyFallback ? option.icon : option.icon}
                     spin={isPublishing}
-                    style={{ fontSize: '32px', color: iconColor }}
+                    style={{ fontSize: '28px', color: iconColor, opacity: hasCopyFallback ? 0.5 : 1 }}
                   />
                   <span style={{
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '11px',
-                    color: isPublished ? '#4caf50' : hasError ? '#e05c5c' : iconColor,
+                    color: isPublished ? '#4caf50' : hasCopyFallback ? '#AC8E66' : hasError ? '#e05c5c' : iconColor,
                     fontWeight: isConfigured ? 500 : 'normal',
                   }}>
                     {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : hasError ? 'Fehler' : option.label}
                   </span>
-                  {hasError && (
+                  {hasError && !hasCopyFallback && (
                     <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', textAlign: 'center', lineHeight: 1.4 }}>
                       {publishError!.message.substring(0, 45)}
                     </span>
+                  )}
+                  {/* Copy & Open fallback button */}
+                  {hasCopyFallback && (
+                    <button
+                      onClick={handleCopyAndOpen}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '5px',
+                        padding: '5px 10px',
+                        backgroundColor: 'rgba(172,142,102,0.15)',
+                        border: '0.5px solid rgba(172,142,102,0.5)',
+                        borderRadius: '6px',
+                        color: '#AC8E66',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '9px',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = 'rgba(172,142,102,0.25)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'rgba(172,142,102,0.15)'; }}
+                    >
+                      <FontAwesomeIcon icon={faCopy} style={{ fontSize: '9px' }} />
+                      Kopieren &amp; Öffnen
+                      <FontAwesomeIcon icon={faExternalLinkAlt} style={{ fontSize: '8px' }} />
+                    </button>
                   )}
                 </button>
               );
@@ -1901,6 +2168,74 @@ ${renderedHtml}
             </div>
           )}
         </div>
+
+        {/* Post selected platforms bar */}
+        {selectedPlatformIds.size > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px',
+            margin: '8px 0 0',
+            backgroundColor: 'rgba(172,142,102,0.08)',
+            border: '0.5px solid rgba(172,142,102,0.4)',
+            borderRadius: '10px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
+                {selectedPlatformIds.size} Plattform{selectedPlatformIds.size > 1 ? 'en' : ''} ausgewählt
+              </span>
+              <button
+                onClick={() => setSelectedPlatformIds(new Set())}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                  color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                }}
+              >
+                Alle abwählen
+              </button>
+            </div>
+            <button
+              onClick={handlePostSelected}
+              disabled={publishingId !== null}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px',
+                backgroundColor: publishingId ? 'rgba(172,142,102,0.1)' : '#AC8E66',
+                border: 'none',
+                borderRadius: '8px',
+                color: publishingId ? '#AC8E66' : '#1a1a1a',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                fontWeight: 600,
+                cursor: publishingId ? 'default' : 'pointer',
+                transition: 'background 0.15s',
+              }}
+            >
+              {publishingId ? (
+                <><FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: '9px' }} /> Wird gepostet …</>
+              ) : (
+                <><FontAwesomeIcon icon={faCheck} style={{ fontSize: '9px' }} /> Ausgewählte posten</>
+              )}
+            </button>
+          </div>
+        )}
+
+        {/* Hidden file input for LinkedIn cover image */}
+        <input
+          ref={linkedInFileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/gif,image/webp"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setLinkedInImage(file);
+            const url = URL.createObjectURL(file);
+            setLinkedInImagePreview(url);
+            e.target.value = '';
+          }}
+        />
 
         {/* Tone Selector Overlay */}
         {showToneSelector && (

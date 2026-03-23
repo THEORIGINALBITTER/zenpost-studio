@@ -105,10 +105,10 @@ export const ZenDropdown = ({
 
     // dark Titel und Texte sind Dunkel, Menü ist Hell des Dropdown
     return {
-      triggerText: "#555",
+      triggerText: "#AC8E66",
       triggerBorder: "#3a3a3a",
       triggerBg: "transparent",
-      triggerHoverBg: "rgba(172,142,102,0.10)",
+      triggerHoverBg: "transparent",
       caret: "#AC8E66",
 
       label: labelColor ?? "#666",
@@ -117,8 +117,8 @@ export const ZenDropdown = ({
       menuBorder: "rgba(172,142,102,0.6)",
       menuShadow: "0 18px 40px rgba(0,0,0,0.55)",
       itemText: "#888",
-      itemActiveBg: "rgba(201,201,197,0.1)",
-      itemActiveText: "#AC8E66",
+      itemActiveBg: "",
+      itemActiveText: "#fff",
       itemSelectedBar: "#AC8E66",
       hintText: "#777",
       hintBorder: "#3a3a3a",

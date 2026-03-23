@@ -2,6 +2,19 @@
  * Social Media API Service
  * Handles API integrations for Twitter, Reddit, LinkedIn, and other platforms
  */
+import { isTauri } from '@tauri-apps/api/core';
+
+/**
+ * Native HTTP fetch — uses Tauri's HTTP plugin in Tauri context (bypasses CORS),
+ * falls back to standard fetch in browser/web mode.
+ */
+async function httpFetch(url: string, init?: RequestInit): Promise<Response> {
+  if (isTauri()) {
+    const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+    return tauriFetch(url, init) as unknown as Response;
+  }
+  return fetch(url, init);
+}
 
 // ============================================================================
 // Types & Interfaces
@@ -38,6 +51,7 @@ export interface LinkedInConfig {
   clientId: string;
   clientSecret: string;
   accessToken: string;
+  personId?: string;   // optional: LinkedIn Person ID (from profile URL or /v2/me), skips profile API call
   refreshToken?: string;
 }
 
@@ -84,6 +98,10 @@ export interface RedditPostOptions {
 export interface LinkedInPostOptions {
   text: string;
   visibility?: 'PUBLIC' | 'CONNECTIONS' | 'LOGGED_IN';
+  /** Binary file (from local file picker) */
+  coverImageFile?: File;
+  /** Public URL — fetched to binary and uploaded automatically */
+  coverImageUrl?: string;
 }
 
 export interface DevToPostOptions {
@@ -163,7 +181,7 @@ export async function postToTwitter(
 ): Promise<PostResult> {
   try {
     // Twitter API v2 - Create Tweet
-    const response = await fetch('https://api.twitter.com/2/tweets', {
+    const response = await httpFetch('https://api.twitter.com/2/tweets', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -186,7 +204,7 @@ export async function postToTwitter(
       let previousTweetId = data.data.id;
 
       for (const threadText of content.thread) {
-        const threadResponse = await fetch('https://api.twitter.com/2/tweets', {
+        const threadResponse = await httpFetch('https://api.twitter.com/2/tweets', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -229,7 +247,7 @@ export async function postToTwitter(
 async function getRedditAccessToken(config: RedditConfig): Promise<string> {
   const auth = btoa(`${config.clientId}:${config.clientSecret}`);
 
-  const response = await fetch('https://www.reddit.com/api/v1/access_token', {
+  const response = await httpFetch('https://www.reddit.com/api/v1/access_token', {
     method: 'POST',
     headers: {
       Authorization: `Basic ${auth}`,
@@ -258,7 +276,7 @@ export async function postToReddit(
   try {
     const accessToken = await getRedditAccessToken(config);
 
-    const response = await fetch('https://oauth.reddit.com/api/submit', {
+    const response = await httpFetch('https://oauth.reddit.com/api/submit', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -304,34 +322,184 @@ export async function postToReddit(
 // LinkedIn API Integration
 // ============================================================================
 
+/** Resolves the LinkedIn person URN for the authenticated user.
+ *  Strategy:
+ *  1. Use config.personId if already stored (no API call needed)
+ *  2. Try /v2/userinfo  (requires openid scope)
+ *  3. Try /v2/me        (requires r_liteprofile scope)
+ *  4. Throw a clear error explaining which scope is missing
+ */
+// Posts API (/rest/posts) requires urn:li:person:{numericId}
+// The numeric ID comes from /v2/me (r_liteprofile scope) or config.personId
+async function getLinkedInPersonUrn(accessToken: string, personId?: string): Promise<string> {
+  // 1. Manual override (must be numeric for ugcPosts)
+  if (personId && personId.trim()) {
+    const id = personId.trim();
+    return /^\d+$/.test(id) ? `urn:li:member:${id}` : `urn:li:person:${id}`;
+  }
+
+  // 2. /v2/me → numeric id (r_liteprofile scope)
+  const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (meRes.ok) {
+    const data = await meRes.json();
+    if (data.id) return `urn:li:member:${data.id}`;
+  }
+
+  // 3. /v2/userinfo → OIDC sub (openid scope) — use urn:li:person: format
+  const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (uiRes.ok) {
+    const data = await uiRes.json();
+    if (data.sub) return `urn:li:person:${data.sub}`;
+  }
+
+  throw new Error(
+    'LinkedIn Member-ID nicht gefunden. Bitte im LinkedIn-Wizard "Auto-Detect" erneut ausführen.'
+  );
+}
+
+/**
+ * Upload an image to LinkedIn and return the image URN.
+ * Uses Community Management API (initializeUpload → binary PUT).
+ */
+export async function uploadLinkedInImage(
+  imageFile: File,
+  personUrn: string,
+  accessToken: string,
+): Promise<string> {
+  const initRes = await httpFetch(
+    'https://api.linkedin.com/rest/images?action=initializeUpload',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'LinkedIn-Version': '202603',
+        'X-Restli-Protocol-Version': '2.0.0',
+      },
+      body: JSON.stringify({ initializeUploadRequest: { owner: personUrn } }),
+    },
+  );
+  if (!initRes.ok) {
+    const t = await initRes.text();
+    throw new Error(`LinkedIn Bild-Init fehlgeschlagen: ${t}`);
+  }
+  const initData = await initRes.json();
+  const uploadUrl: string = initData.value?.uploadUrl;
+  const imageUrn: string = initData.value?.image;
+  if (!uploadUrl || !imageUrn) throw new Error('Kein Upload-URL von LinkedIn erhalten');
+
+  const arrayBuffer = await imageFile.arrayBuffer();
+  const uploadRes = await httpFetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': imageFile.type || 'image/jpeg' },
+    body: arrayBuffer as unknown as BodyInit,
+  });
+  // LinkedIn returns 201 on success, some S3 endpoints return 200
+  if (!uploadRes.ok && uploadRes.status !== 201) {
+    throw new Error(`LinkedIn Bild-Upload fehlgeschlagen: HTTP ${uploadRes.status}`);
+  }
+  return imageUrn;
+}
+
 export async function postToLinkedIn(
   content: LinkedInPostOptions,
   config: LinkedInConfig
 ): Promise<PostResult> {
   try {
-    // First, get the user's profile URN
-    const profileResponse = await fetch('https://api.linkedin.com/v2/userinfo', {
-      headers: {
-        Authorization: `Bearer ${config.accessToken}`,
-      },
-    });
+    const personId = config.personId?.trim() || '';
 
-    if (!profileResponse.ok) {
-      throw new Error('Failed to get LinkedIn profile');
+    // ── Strategy 1: Community Management API (/rest/posts) ──────────────────
+    // Required for apps created after 2024. Author must be urn:li:person:{OIDC sub}.
+    // OIDC sub is alphanumeric (e.g. QCAQCRxWqV) — set by wizard auto-detect.
+    if (personId && !/^\d+$/.test(personId)) {
+      const personUrn = `urn:li:person:${personId}`;
+
+      // Upload cover image if provided (fail gracefully — post without image on error)
+      let imageUrn: string | null = null;
+      const imageSource = content.coverImageFile ?? content.coverImageUrl;
+      if (imageSource) {
+        try {
+          let fileToUpload: File;
+          if (imageSource instanceof File) {
+            fileToUpload = imageSource;
+          } else {
+            // coverImageUrl: fetch binary → wrap in File
+            const res = await fetch(imageSource);
+            const blob = await res.blob();
+            const ext = blob.type.split('/')[1] || 'jpg';
+            fileToUpload = new File([blob], `cover.${ext}`, { type: blob.type });
+          }
+          imageUrn = await uploadLinkedInImage(fileToUpload, personUrn, config.accessToken);
+        } catch (imgErr) {
+          console.warn('LinkedIn image upload failed, posting without image:', imgErr);
+        }
+      }
+
+      const restPostData: Record<string, unknown> = {
+        author: personUrn,
+        commentary: content.text,
+        visibility: content.visibility || 'PUBLIC',
+        distribution: {
+          feedDistribution: 'MAIN_FEED',
+          targetEntities: [],
+          thirdPartyDistributionChannels: [],
+        },
+        lifecycleState: 'PUBLISHED',
+        isReshareDisabledByAuthor: false,
+      };
+      if (imageUrn) {
+        restPostData.content = { media: { id: imageUrn } };
+      }
+
+      const restResponse = await httpFetch('https://api.linkedin.com/rest/posts', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${config.accessToken}`,
+          'Content-Type': 'application/json',
+          'LinkedIn-Version': '202603',
+          'X-Restli-Protocol-Version': '2.0.0',
+        },
+        body: JSON.stringify(restPostData),
+      });
+
+      if (restResponse.ok) {
+        // 201 Created — post ID comes from the x-restli-id header, body is empty
+        const postUrn =
+          restResponse.headers.get('x-restli-id') ||
+          restResponse.headers.get('location') ||
+          '';
+        return {
+          success: true,
+          platform: 'linkedin',
+          postId: postUrn,
+          url: postUrn
+            ? `https://www.linkedin.com/feed/update/${encodeURIComponent(postUrn)}`
+            : 'https://www.linkedin.com/feed/',
+        };
+      }
+
+      // 403 = Community Management API not yet approved → fall through to ugcPosts
+      if (restResponse.status !== 403) {
+        const errorText = await restResponse.text();
+        let apiMsg = '';
+        try { apiMsg = JSON.parse(errorText).message || ''; } catch {}
+        throw new Error(apiMsg || `HTTP ${restResponse.status}`);
+      }
     }
 
-    const profile = await profileResponse.json();
-    const personUrn = `urn:li:person:${profile.sub}`;
-
-    // Create post
+    // ── Strategy 2: ugcPosts (deprecated for apps created after 2024) ────────
+    // Author must be urn:li:member:{numericId} from /v2/me (r_liteprofile scope).
+    const personUrn = await getLinkedInPersonUrn(config.accessToken, config.personId);
     const postData = {
       author: personUrn,
       lifecycleState: 'PUBLISHED',
       specificContent: {
         'com.linkedin.ugc.ShareContent': {
-          shareCommentary: {
-            text: content.text,
-          },
+          shareCommentary: { text: content.text },
           shareMediaCategory: 'NONE',
         },
       },
@@ -340,7 +508,7 @@ export async function postToLinkedIn(
       },
     };
 
-    const response = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+    const response = await httpFetch('https://api.linkedin.com/v2/ugcPosts', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.accessToken}`,
@@ -351,24 +519,48 @@ export async function postToLinkedIn(
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Failed to post to LinkedIn');
+      const errorText = await response.text();
+      let apiMsg = '';
+      try { apiMsg = JSON.parse(errorText).message || ''; } catch {}
+      // ugcPosts is deprecated for apps created after ~2024; new apps need Community Management API
+      if (apiMsg.toLowerCase().includes('data processing') || (response.status === 422 && !apiMsg.toLowerCase().includes('duplicate'))) {
+        throw new Error(
+          'LinkedIn Community Management API nicht freigeschaltet.\n' +
+          'Lösung: LinkedIn Developer Portal → Settings → App verifizieren → ' +
+          'Products → "Community Management API" → Request access.\n' +
+          'Nach Freischaltung (1–3 Tage) funktioniert das Posting automatisch.'
+        );
+      }
+      throw new Error(apiMsg || `HTTP ${response.status}`);
     }
 
     const data = await response.json();
-    const postId = data.id;
+    const postId = data.id || '';
 
     return {
       success: true,
       platform: 'linkedin',
-      postId: postId,
-      url: `https://www.linkedin.com/feed/update/${postId}`,
+      postId,
+      url: postId ? `https://www.linkedin.com/feed/update/${postId}` : 'https://www.linkedin.com/feed/',
     };
   } catch (error) {
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    // LinkedIn returns a duplicate error when the exact same content was already posted.
+    // The error contains the existing post's URN — treat this as success.
+    const duplicateMatch = msg.match(/duplicate of (urn:li:[a-zA-Z]+:\d+)/i);
+    if (duplicateMatch) {
+      const urn = duplicateMatch[1];
+      return {
+        success: true,
+        platform: 'linkedin',
+        postId: urn,
+        url: `https://www.linkedin.com/feed/update/${encodeURIComponent(urn)}`,
+      };
+    }
     return {
       success: false,
       platform: 'linkedin',
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: msg,
     };
   }
 }
@@ -382,7 +574,7 @@ export async function postToDevTo(
   config: DevToConfig
 ): Promise<PostResult> {
   try {
-    const response = await fetch('https://dev.to/api/articles', {
+    const response = await httpFetch('https://dev.to/api/articles', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -420,7 +612,7 @@ export async function postToDevTo(
 // ============================================================================
 
 async function getMediumUserId(token: string): Promise<string> {
-  const response = await fetch('https://api.medium.com/v1/me', {
+  const response = await httpFetch('https://api.medium.com/v1/me', {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -441,7 +633,7 @@ export async function postToMedium(
   try {
     const userId = await getMediumUserId(config.integrationToken);
 
-    const response = await fetch(`https://api.medium.com/v1/users/${userId}/posts`, {
+    const response = await httpFetch(`https://api.medium.com/v1/users/${userId}/posts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -499,7 +691,7 @@ export async function postToGitHubDiscussions(
     `;
 
     // First, get repository ID
-    const repoResponse = await fetch(
+    const repoResponse = await httpFetch(
       `https://api.github.com/repos/${content.owner}/${content.repo}`,
       {
         headers: {
@@ -517,7 +709,7 @@ export async function postToGitHubDiscussions(
     const repositoryId = repoData.node_id;
 
     // Create discussion
-    const response = await fetch('https://api.github.com/graphql', {
+    const response = await httpFetch('https://api.github.com/graphql', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.accessToken}`,

@@ -200,7 +200,7 @@ const buttonStyle: React.CSSProperties = {
   padding: '7px 12px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
-  color: '#AC8E66',
+  color: '#1a1a1a',
   backgroundColor: 'rgba(172,142,102,0.1)',
   cursor: 'pointer',
 };

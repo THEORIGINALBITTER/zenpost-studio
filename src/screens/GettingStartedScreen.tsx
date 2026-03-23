@@ -758,7 +758,7 @@ export function GettingStartedScreen({
                         <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#1F8A41', opacity: 0.6 }} />
                       </div>
                       <div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 100, color: '#1a1a1a' }}>
                           Server Artikel
                         </p>
                         <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
@@ -775,7 +775,7 @@ export function GettingStartedScreen({
                 {deleteToast && (
                   <div style={{
                     padding: '8px 14px',
-                    borderRadius: '8px',
+                    borderRadius: '3px',
                     background: 'rgba(31,111,63,0.12)',
                     border: '0.5px solid rgba(31,138,65,0.4)',
                     fontFamily: 'IBM Plex Mono, monospace',
@@ -939,7 +939,7 @@ export function GettingStartedScreen({
                 gap: '9px',
               }}
             >
-              <span style={{ fontSize: '9px', fontWeight: '100', color: '#777' }}>Zuletzt bearbeitet</span>
+              <span style={{ fontSize: '11px', fontWeight: '100', color: '#d0cbb8' }}>Zuletzt bearbeitet</span>
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {sortedRecent.map((item) => (
@@ -1009,7 +1009,7 @@ const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
             {sourceLabel}
           </span>
         </div>
-        <div style={{ fontSize: '10px', color: '#777' }}>
+        <div style={{ fontSize: '11px', color: '#d0cbb8' }}>
           Zuletzt bearbeitet: {new Date(item.updatedAt).toLocaleDateString('de-DE')}
           {item.subtitle ? ` · ${item.subtitle}` : ''}
         </div>

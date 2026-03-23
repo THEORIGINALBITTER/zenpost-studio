@@ -13,6 +13,8 @@ import { isWebProjectPath, getWebProjectName, getWebProjectType } from '../../se
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isTauri } from '@tauri-apps/api/core';
 import { readTextFile, writeTextFile, exists, readDir, remove } from '@tauri-apps/plugin-fs';
+import { ftpUpload } from '../../services/ftpService';
+import { phpBlogManifestUpdate } from '../../services/phpBlogService';
 import { join } from '@tauri-apps/api/path';
 import { type BlogConfig } from '../../services/zenStudioSettingsService';
 
@@ -594,8 +596,8 @@ export function ContentStudioDashboardScreen({
                       {blogPostsLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
                     </p>
                     {activeBlog?.siteUrl && (
-                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', marginBottom: '8px', flexShrink: 0 }}>
-                        {activeBlog.siteUrl}
+                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', marginBottom: '8px', flexShrink: 0 }}>
+                       https://{activeBlog.siteUrl}
                       </div>
                     )}
                     <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -628,7 +630,7 @@ export function ContentStudioDashboardScreen({
                           key={post.slug}
                           style={{
                             borderRadius: '6px',
-                            border: post.synced ? '0.5px solid rgba(172, 142, 102, 0.3)' : '0.5px solid rgba(180,60,60,0.25)',
+                            border: post.synced ? '0.5px solid rgba(102, 186, 122,1)' : '0.5px solid rgba(180,60,60,1)',
                             background: post.synced ? 'rgba(255,255,255,0.4)' : 'rgba(255,240,240,0.5)',
                             flexShrink: 0,
                             display: 'flex',
@@ -702,13 +704,35 @@ export function ContentStudioDashboardScreen({
                                   ? post.localPath
                                   : await join(activeBlog.path, 'posts', `${post.slug}.md`);
                                 if (await exists(filePath)) await remove(filePath);
-                                // Remove from manifest.json
+                                // Remove from local manifest.json
                                 const manifestPath = await join(activeBlog.path, 'manifest.json');
+                                let updatedManifest: { posts?: Array<{ slug: string }> } | null = null;
                                 if (await exists(manifestPath)) {
-                                  const manifest = JSON.parse(await readTextFile(manifestPath));
-                                  manifest.posts = (manifest.posts as Array<{ slug: string }>).filter((p) => p.slug !== post.slug);
+                                  const manifest = JSON.parse(await readTextFile(manifestPath)) as { posts?: Array<{ slug: string }> };
+                                  manifest.posts = (manifest.posts ?? []).filter((p) => p.slug !== post.slug);
                                   await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+                                  updatedManifest = manifest;
                                 }
+
+                                // Sync manifest to server
+                                if (updatedManifest) {
+                                  if (activeBlog.deployType === 'ftp' && activeBlog.ftpHost && activeBlog.ftpUser && activeBlog.ftpPassword) {
+                                    const blogRoot = (activeBlog.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
+                                    await ftpUpload(manifestPath, 'manifest.json', {
+                                      host: activeBlog.ftpHost,
+                                      user: activeBlog.ftpUser,
+                                      password: activeBlog.ftpPassword,
+                                      remotePath: blogRoot + '/',
+                                      protocol: activeBlog.ftpProtocol ?? 'ftp',
+                                    }).catch(() => {}); // non-fatal
+                                  } else if (activeBlog.deployType === 'php-api' && activeBlog.phpApiUrl && activeBlog.phpApiKey) {
+                                    await phpBlogManifestUpdate(
+                                      updatedManifest,
+                                      { apiUrl: activeBlog.phpApiUrl, apiKey: activeBlog.phpApiKey },
+                                    ).catch(() => {}); // non-fatal
+                                  }
+                                }
+
                                 setDeleteToast({ msg: 'Gelöscht', ok: true });
                                 setTimeout(() => setDeleteToast(null), 2500);
                               } catch (e) {
@@ -735,25 +759,25 @@ export function ContentStudioDashboardScreen({
                           title="Im Finder öffnen"
                           onClick={() => revealItemInDir(activeBlog.path)}
                           style={{
-                            background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                            background: 'none', border: 'none', padding: '5px 4px', cursor: 'pointer',
                             display: 'inline-flex', alignItems: 'center', gap: '4px',
                             fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
-                            color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                            color: '#1a1a1a', opacity: 0.7, borderRadius: '4px',
                           }}
                           onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
                           onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
                         >
                           <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
-                          Im Finder
+                          Im Finder lokal
                         </button>
                       ) : <span />}
-                      <div style={{ fontSize: '9px', fontFamily: 'IBM Plex Mono, monospace', display: 'flex', gap: '8px' }}>
-                        <span style={{ color: '#4caf50', opacity: 0.9 }}>
-                          ● {blogPosts.filter((p) => p.synced).length} Server
+                      <div style={{ fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace', display: 'flex', gap: '8px' }}>
+                        <span style={{ color: '#3a873d', opacity: 1 }}>
+                          ● {blogPosts.filter((p) => p.synced).length} Server on
                         </span>
                         {blogPosts.some((p) => !p.synced) && (
                           <span style={{ color: '#e05252', opacity: 0.9 }}>
-                            ● {blogPosts.filter((p) => !p.synced).length} Lokal
+                            ● {blogPosts.filter((p) => !p.synced).length} Lokal off
                           </span>
                         )}
                       </div>
@@ -815,7 +839,7 @@ export function ContentStudioDashboardScreen({
                       }}
                     >
                       {hasServerCachePath
-                        ? `Lokaler Cache: ${serverLocalCachePath}`
+                        ? `Lokaler Cache Pfad: ${serverLocalCachePath}`
                         : 'Lokaler Cache fehlt'}
                     </span>
                     {!hasServerCachePath && (
@@ -895,7 +919,7 @@ export function ContentStudioDashboardScreen({
                           style={{
                             borderRadius: '6px',
                             border: '0.5px solid rgba(172, 142, 102, 0.3)',
-                            background: 'rgba(255,255,255,0.4)',
+                            background: '#d0cbb82',
                             flexShrink: 0,
                             display: 'flex',
                             alignItems: 'center',
@@ -946,19 +970,19 @@ export function ContentStudioDashboardScreen({
                         title="Im Finder öffnen"
                         onClick={(e) => { e.stopPropagation(); revealItemInDir(serverLocalCachePath); }}
                         style={{
-                          background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+                          background: 'none', border: 'none', padding: '5px 7px', cursor: 'pointer',
                           display: 'inline-flex', alignItems: 'center', gap: '4px',
                           fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
-                          color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                          color: '#1a1a1a', opacity: 0.7, borderRadius: '1px',
                         }}
                         onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
                       >
                         <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
-                        Im Finder
+                        Im Finder 
                       </button>
                     ) : <span />}
-                    <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                    <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
                       Klicken zum Öffnen →
                     </div>
                   </div>
@@ -1049,7 +1073,7 @@ export function ContentStudioDashboardScreen({
                         background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
                         display: 'inline-flex', alignItems: 'center', gap: '4px',
                         fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
-                        color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                        color: '#1a1a1a', opacity: 0.7, borderRadius: '4px',
                       }}
                       onMouseEnter={(e) => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
                       onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
@@ -1058,7 +1082,7 @@ export function ContentStudioDashboardScreen({
                       Im Finder
                     </button>
                   ) : <span />}
-                  <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                  <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
                     Klicken zum Öffnen →
                   </div>
                 </div>
@@ -1086,7 +1110,7 @@ export function ContentStudioDashboardScreen({
                 >
                   <p
                     style={{
-                      fontSize: '9px',
+                      fontSize: '10px',
                       color: '#7a7060',
                       fontFamily: 'IBM Plex Mono, monospace',
                       margin: '0 0 4px 0',
@@ -1107,7 +1131,7 @@ export function ContentStudioDashboardScreen({
                         style={{
                           borderRadius: '6px',
                           border: '0.5px solid rgba(172, 142, 102, 0.3)',
-                          background: 'rgba(255,255,255,0.4)',
+                          background: '#d0cbb8/20',
                           padding: '8px 10px',
                           cursor: 'pointer',
                         }}
@@ -1130,7 +1154,7 @@ export function ContentStudioDashboardScreen({
                           background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
                           display: 'inline-flex', alignItems: 'center', gap: '4px',
                           fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
-                          color: '#AC8E66', opacity: 0.7, borderRadius: '4px',
+                          color: '#1a1a1a', opacity: 0.7, borderRadius: '4px',
                         }}
                         onMouseEnter={(e) => { e.stopPropagation(); e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
                         onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
@@ -1139,7 +1163,7 @@ export function ContentStudioDashboardScreen({
                         Im Finder
                       </button>
                     ) : <span />}
-                    <div style={{ fontSize: '9px', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
+                    <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
                       Klicken zum Öffnen →
                     </div>
                   </div>
@@ -1236,18 +1260,24 @@ export function ContentStudioDashboardScreen({
         </div>
 
         <div>
-          <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#BEBEBE', fontFamily: 'IBM Plex Mono, monospace' }}>
+          <p style={{ 
+            margin: '0 0 10px 0', 
+            fontSize: '12px', 
+            color: '#d0cbb8', 
+            fontFamily: 'IBM Plex Mono, monospace' 
+            }}
+            >
             Letzte Dokumente
           </p>
           {recent.length === 0 ? (
             <div
               style={{
-                borderRadius: '10px',
+                borderRadius: '8px',
                 border: '0.5px solid #2F2F2F',
                 padding: '12px',
                 color: '#7E7E7E',
                 fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
+                fontSize: '11px',
               }}
             >
               Noch keine letzten Dokumente.
@@ -1261,7 +1291,7 @@ export function ContentStudioDashboardScreen({
                   onMouseEnter={() => setHoveredDocId(doc.id)}
                   onMouseLeave={() => setHoveredDocId(null)}
                   style={{
-                    borderRadius: '10px',
+                    borderRadius: '5px',
                     border: hoveredDocId === doc.id ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
                     background: hoveredDocId === doc.id ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
                     padding: '10px 12px',
@@ -1271,7 +1301,7 @@ export function ContentStudioDashboardScreen({
                     alignItems: 'center',
                     justifyContent: 'space-between',
                     gap: '12px',
-                    transform: hoveredDocId === doc.id ? 'translateX(3px)' : 'translateX(0)',
+                    transform: hoveredDocId === doc.id ? 'translateX(5px)' : 'translateX(0)',
                     transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
                   }}
                 >
@@ -1300,7 +1330,7 @@ export function ContentStudioDashboardScreen({
 
         {onOpenServerArticle && (serverArticles === undefined || serverArticles !== null) && (
           <div style={{ marginTop: '24px' }}>
-            <p style={{ margin: '0 0 10px 0', fontSize: '11px', color: '#BEBEBE', fontFamily: 'IBM Plex Mono, monospace' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace' }}>
               Server Artikel{serverName ? ` · ${serverName}` : ''}
               {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '8px' }}>Lädt…</span>}
             </p>
@@ -1327,8 +1357,8 @@ export function ContentStudioDashboardScreen({
               <span
                 title={hasServerCachePath ? (serverLocalCachePath ?? '') : 'Nicht gesetzt'}
                 style={{
-                  fontSize: '9px',
-                  color: hasServerCachePath ? '#8E8E8E' : '#cf6679',
+                  fontSize: '11px',
+                  color: hasServerCachePath ? '#888' : '#cf6679',
                   fontFamily: 'IBM Plex Mono, monospace',
                   maxWidth: '620px',
                   overflow: 'hidden',
@@ -1345,7 +1375,7 @@ export function ContentStudioDashboardScreen({
                   onClick={() => onOpenApiSettings?.()}
                   style={{
                     border: '0.5px solid rgba(179,38,30,0.45)',
-                    borderRadius: '8px',
+                    borderRadius: '4px',
                     background: 'rgba(179,38,30,0.08)',
                     color: '#cf6679',
                     fontFamily: 'IBM Plex Mono, monospace',
@@ -1399,7 +1429,11 @@ export function ContentStudioDashboardScreen({
               </div>
             )}
             {!serverArticles && !serverArticlesLoading && !serverError && (
-              <div style={{ borderRadius: '10px', border: '0.5px solid #2F2F2F', padding: '12px', color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px' }}>
+              <div style={{ 
+              borderRadius: '5px', 
+              border: '0.5px solid #2F2F2F', 
+              padding: '12px', 
+              color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px' }}>
                 Keine Server-URL konfiguriert.
               </div>
             )}
@@ -1422,12 +1456,13 @@ export function ContentStudioDashboardScreen({
                       onMouseEnter={() => setHoveredArticleSlug(slug || String(i))}
                       onMouseLeave={() => setHoveredArticleSlug(null)}
                       style={{
-                        borderRadius: '10px',
+                        borderRadius: '5px',
+                         padding: '5px 5px 0 0',
                         border: hoveredArticleSlug === (slug || String(i)) ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
                         background: hoveredArticleSlug === (slug || String(i)) ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
                         display: 'flex',
                         alignItems: 'center',
-                        transform: hoveredArticleSlug === (slug || String(i)) ? 'translateX(3px)' : 'translateX(0)',
+                        transform: hoveredArticleSlug === (slug || String(i)) ? 'translateX(5px)' : 'translateX(0)',
                         transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
                       }}
                     >

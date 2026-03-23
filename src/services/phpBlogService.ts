@@ -37,6 +37,32 @@ export async function phpBlogImageUpload(
 }
 
 /**
+ * Updates only manifest.json on the server (e.g. after deleting a post).
+ * Requires a PHP script that supports manifest-only updates (no filename/content).
+ * Returns an error string on failure, null on success.
+ */
+export async function phpBlogManifestUpdate(
+  manifest: unknown,
+  config: PhpBlogConfig,
+): Promise<string | null> {
+  try {
+    const response = await fetch(config.apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': config.apiKey },
+      body: JSON.stringify({ manifest }),
+    });
+    if (!response.ok) {
+      let detail = '';
+      try { detail = (await response.json() as { error?: string }).error ?? ''; } catch { /* ignore */ }
+      return `Server Fehler ${response.status}${detail ? `: ${detail}` : ''}`;
+    }
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
+/**
  * Uploads a blog post to a PHP upload endpoint.
  * Returns an error string on failure, null on success.
  */
@@ -202,6 +228,13 @@ if (isset($body['imageData'])) {
     $scriptDir = rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? ''), '/');
     $url = ($host !== '' ? $scheme . '://' . $host : '') . $scriptDir . '/_assets/' . rawurlencode($safeName);
     echo json_encode(['success' => true, 'url' => $url, 'fileName' => $safeName]);
+    exit;
+}
+
+// ── Manifest-only update (e.g. post deletion) ───────────────────────────────
+if (!isset($body['filename']) && !isset($body['content']) && isset($body['manifest'])) {
+    file_put_contents(MANIFEST_PATH, json_encode($body['manifest'], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+    echo json_encode(['success' => true]);
     exit;
 }
 

@@ -1583,7 +1583,10 @@ function AppContent() {
     const fileItems: GettingStartedRecentItem[] = contentStudioAllFiles.map((file) => {
       const normalizedPath = file.path.replace(/\\/g, "/").toLowerCase();
       const isArticleFile =
-        normalizedPath.includes("/publishing/articles/") || articleFileNames.has(file.name.toLowerCase());
+        normalizedPath.includes("/publishing/articles/") ||
+        normalizedPath.includes("/posts/") ||
+        normalizedPath.includes("/blog/") ||
+        articleFileNames.has(file.name.toLowerCase());
 
       return {
         id: `file:${file.path}`,
@@ -1923,7 +1926,7 @@ function AppContent() {
   // Hilfefunktion für Header-Text
   const getLeftText = () => {
     if (currentScreen === "welcome") {
-      return <span style={{ color: "#AC8E66" }}>禅 ZenPost Studio</span>;
+      return <span style={{ color: "#AC8E66",  }}>禅 ZenPost Studio</span>;
     }
 
     const studioNames: Record<Exclude<Screen, "welcome">, string> = {
@@ -2380,7 +2383,7 @@ function AppContent() {
                 ZenPost Studio
               </span>
             </div>
-            <div style={{ fontSize: "10px", color: "#383028", letterSpacing: "0.08em", paddingLeft: "34px" }}>
+            <div style={{ fontSize: "10px", color: "#EFE7DC", letterSpacing: "0.08em", paddingLeft: "34px" }}>
               v0.1 · Building in Public
             </div>
           </div>
@@ -2406,7 +2409,7 @@ function AppContent() {
               style={{
                 fontSize: "12px",
                 lineHeight: 1.95,
-                color: "#7a7060",
+                color: "#EFE7DC",
                 borderLeft: "1px solid #222",
                 paddingLeft: "16px",
                 marginBottom: "40px",
@@ -2418,7 +2421,12 @@ function AppContent() {
               <br />
 
               1 mal Schreiben. 9mal Transformieren.<br />
-              Eine Mobil App entsteht gerade<br />
+              Eine Mobil App entsteht gerade —<br />
+              noch nicht für Mobile verfügbar.<br />
+              <br />
+              <span style={{ color: "#AC8E66" }}>Jetzt testen:</span> Web Desktop<br />
+              oder Desktop App (Mac / Windows / Linux).<br />
+              <br />
               Die Geschichte dahinter...<br />
               Öffentlich. Ehrlich. Zeile für Zeile.
               <br />
@@ -2437,7 +2445,7 @@ function AppContent() {
               onClick={() => openExternal("https://zenpostmobil.denisbitter.de")}
               style={{
                 padding: "14px 18px",
-                background: "rgba(172,142,102,0.08)",
+                background: "rgba(172,142,102,)",
                 border: "1px solid #AC8E66",
                 borderRadius: "6px",
                 color: "#AC8E66",
@@ -2459,7 +2467,7 @@ function AppContent() {
                 style={{
                   background: "none",
                   border: "none",
-                  color: "#504840",
+                  color: "#EFE7DC",
                   fontFamily: "IBM Plex Mono, monospace",
                   fontSize: "11px",
                   cursor: "pointer",
@@ -2475,7 +2483,7 @@ function AppContent() {
                 style={{
                   background: "none",
                   border: "none",
-                  color: "#504840",
+                  color: "#EFE7DC",
                   fontFamily: "IBM Plex Mono, monospace",
                   fontSize: "11px",
                   cursor: "pointer",

@@ -25,6 +25,8 @@ interface ZenModalProps {
   theme?: "dark" | "paper";
   /** Erhöhter z-Index wenn Modal über einem anderen Modal liegt */
   zIndex?: number;
+  /** Überschreibt den Style des Content-Wrappers (z.B. overflowY: 'hidden') */
+  bodyStyle?: React.CSSProperties;
 }
 
 export const ZenModal = ({
@@ -41,6 +43,7 @@ export const ZenModal = ({
   footer,
   theme = "paper",
   zIndex,
+  bodyStyle,
 }: ZenModalProps) => {
   const modalRoot = document.getElementById("zen-modal-root");
 
@@ -206,7 +209,7 @@ export const ZenModal = ({
           {header && <div style={{ flexShrink: 0 }}>{header}</div>}
 
           {/* Content */}
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto", minHeight: 0, ...bodyStyle }}>
             {children}
           </div>
 

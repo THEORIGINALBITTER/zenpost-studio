@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck, faGlobe, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faCheck } from '@fortawesome/free-solid-svg-icons';
 import { open } from '@tauri-apps/plugin-dialog';
 import { exists, readTextFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
@@ -90,16 +90,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
     }
   };
 
-  const handleSelectBlogFolder = async () => {
-    if (!isTauri()) return;
-    try {
-      const result = await open({ directory: true, multiple: false, title: 'zenpostmobil Ordner wählen' });
-      if (typeof result !== 'string') return;
-      update({ zenpostmobilPath: result });
-    } catch (error) {
-      console.error('[ZenStudioSettings] Ordnerauswahl fehlgeschlagen:', error);
-    }
-  };
+
 
   return (
     <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
@@ -153,7 +144,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
               style={pathButtonStyle}
             >
              
-              Gedanken auswaehlen
+             Zen auswaehlen
             </button>
           </div>
 
@@ -193,29 +184,11 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
             ZEN Gedanken oeffnen
           </button>
 
-          <div className="border-b border-[0.7px] border-[#AC8E66]" />
+       
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
-            <FontAwesomeIcon icon={faGlobe} style={{ color: '#AC8E66', fontSize: '11px' }} />
-            zenpostmobil Blog-Ordner:
-          </div>
+        
 
-          <div style={pathRowStyle}>
-            <div style={pathTextStyle}>
-              {settings.zenpostmobilPath ?? 'Kein Ordner konfiguriert'}
-            </div>
-            {isTauri() && (
-              <button
-                type="button"
-                onClick={handleSelectBlogFolder}
-                title="Ordner auswählen"
-                style={pathButtonStyle}
-              >
-                <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
-                Ordner wählen
-              </button>
-            )}
-          </div>
+        
 
         </div>
       </div>
@@ -292,7 +265,7 @@ const pathButtonStyle: React.CSSProperties = {
   width: 'auto',
   height: '28px',
   background: 'transparent',
-  color: '#AC8E66',
+  color: '#1a1a1a',
   cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',

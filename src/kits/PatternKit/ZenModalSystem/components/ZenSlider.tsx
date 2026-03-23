@@ -35,8 +35,8 @@ export const ZenSlider = ({
   showValue = true,
   valueFormatter = (v) => v.toFixed(1),
   className = "",
-  labelSize = "11px",
-  labelColor = "#999",
+  labelSize = "10px",
+  labelColor = "#1a1a1a",
   disabled = false,
   widthClassName = "max-w-[300px]",
 }: ZenSliderProps) => {

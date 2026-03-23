@@ -24,10 +24,14 @@ import {
   faBolt,
   faPenNib,
   faTriangleExclamation,
+  faCopy,
+  faExternalLinkAlt,
+  faImage,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { useZenIdle } from '../../hooks/useZenIdle';
+import { useOpenExternal } from '../../hooks/useOpenExternal';
 import {
   ContentPlatform,
   improveText,
@@ -48,6 +52,7 @@ import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
 import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import { EDITOR_SETTINGS_STORAGE_KEY } from '../../constants/settingsKeys';
 import { applySteuerFormatConfig, autoFixSteuerFormatContent, validateSteuerFormatContent } from '../../config/formatConfigTrans';
+import { preparePostContent } from '../../config/platformPostRules';
 import { optimizeImagesInMarkdown } from '../../utils/exportLayer';
 
 interface Step4TransformResultProps {
@@ -280,6 +285,9 @@ export const Step4TransformResult = ({
   const [_isMultiPosting, setIsMultiPosting] = useState(false);
   const [multiPostResults, setMultiPostResults] = useState<PostResult[]>([]);
   const [isAITransformMode, setIsAITransformMode] = useState(false);
+  // LinkedIn cover image
+  const [linkedInCoverImage, setLinkedInCoverImage] = useState<File | null>(null);
+  const [linkedInCoverPreview, setLinkedInCoverPreview] = useState<string | null>(null);
 
   // Text-AI State
   const [showTextAI, setShowTextAI] = useState(false);
@@ -680,6 +688,7 @@ export const Step4TransformResult = ({
 
  
  
+  const { openExternal } = useOpenExternal();
   const socialPlatform = platformMapping[platform];
   const config = loadSocialConfig();
   const hasConfig = socialPlatform ? isPlatformConfigured(socialPlatform, config) : false;
@@ -784,31 +793,34 @@ const handleDownload = async () => {
       let postContent: any;
 
       switch (platform) {
-        case 'twitter':
-          // Split into tweets if content is long
-          const tweets = formattedContent.split('\n\n').filter((t) => t.trim());
+        case 'twitter': {
+          const preparedTwitter = preparePostContent('twitter', formattedContent, {});
+          const tweets = preparedTwitter.text.split('\n\n').filter((t) => t.trim());
           postContent = {
             text: tweets[0],
             thread: tweets.length > 1 ? tweets.slice(1) : undefined,
           };
           break;
+        }
 
-        case 'reddit':
-          // Extract title from first line
-          const lines = formattedContent.split('\n');
-          const title = lines[0].replace(/^#\s*/, '').substring(0, 300);
-          const text = lines.slice(1).join('\n').trim();
+        case 'reddit': {
+          const redditLines = formattedContent.split('\n');
+          const redditTitle = redditLines[0].replace(/^#\s*/, '').substring(0, 300);
+          const redditBody = redditLines.slice(1).join('\n').trim();
+          const preparedReddit = preparePostContent('reddit', redditBody, { title: redditTitle });
           postContent = {
-            subreddit: 'test', // User should specify this
-            title,
-            text,
+            subreddit: 'test',
+            title: preparedReddit.title ?? redditTitle,
+            text: preparedReddit.text,
           };
           break;
+        }
 
         case 'linkedin':
           postContent = {
             text: formattedContent,
             visibility: 'PUBLIC',
+            ...(linkedInCoverImage ? { coverImageFile: linkedInCoverImage } : {}),
           };
           break;
 
@@ -857,8 +869,7 @@ const handleDownload = async () => {
       setPostResult(result);
 
       if (result.success && result.url) {
-        // Open the post in a new tab
-        window.open(result.url, '_blank');
+        try { await openExternal(result.url); } catch { window.open(result.url, '_blank'); }
       }
     } catch (error) {
       setPostResult({
@@ -905,22 +916,27 @@ const handleDownload = async () => {
     const body = lines.slice(1).join('\n').trim();
 
     switch (targetPlatform) {
-      case 'twitter':
-        const tweets = preparedContent.split('\n\n').filter((t) => t.trim());
+      case 'twitter': {
+        const preparedTwit = preparePostContent('twitter', preparedContent, {});
+        const tweets = preparedTwit.text.split('\n\n').filter((t) => t.trim());
         return {
           text: tweets[0],
           thread: tweets.length > 1 ? tweets.slice(1) : undefined,
         };
-      case 'reddit':
+      }
+      case 'reddit': {
+        const preparedRed = preparePostContent('reddit', body, { title: title.substring(0, 300) });
         return {
           subreddit: 'test',
-          title: title.substring(0, 300),
-          text: body,
+          title: preparedRed.title ?? title.substring(0, 300),
+          text: preparedRed.text,
         };
+      }
       case 'linkedin':
         return {
           text: preparedContent,
           visibility: 'PUBLIC',
+          ...(linkedInCoverImage ? { coverImageFile: linkedInCoverImage } : {}),
         };
       case 'devto':
         return {
@@ -999,7 +1015,7 @@ const handleDownload = async () => {
         results.push(result);
 
         if (result.success && result.url) {
-          window.open(result.url, '_blank');
+          try { await openExternal(result.url); } catch { window.open(result.url, '_blank'); }
         }
       } catch (error) {
         results.push({
@@ -1297,7 +1313,7 @@ const handleDownload = async () => {
                 ))}
               </div>
 
-              <div style={{ marginTop: 10, marginLeft: 10 }}>
+              <div style={{ marginTop: 10, marginLeft: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={() => onOpenSettings(preferredSettingsPlatform)}
@@ -1314,6 +1330,38 @@ const handleDownload = async () => {
                 >
                   Einstellungen öffnen
                 </button>
+                {/* Copy & Open fallback — always useful when API fails */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const platformOpenUrls: Record<SocialPlatform, string> = {
+                      linkedin: 'https://www.linkedin.com/feed/?shareActive=true',
+                      twitter: 'https://twitter.com/compose/tweet',
+                      reddit: 'https://www.reddit.com/submit',
+                      devto: 'https://dev.to/new',
+                      medium: 'https://medium.com/new-story',
+                      github: 'https://github.com',
+                    };
+                    try { await navigator.clipboard.writeText(currentContent.substring(0, 3000)); } catch {}
+                    const url = (socialPlatform && platformOpenUrls[socialPlatform]) || '#';
+                    try { await openExternal(url); } catch { window.open(url, '_blank', 'noopener,noreferrer'); }
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    border: '1px solid rgba(172,142,102,0.5)',
+                    background: 'rgba(172,142,102,0.12)',
+                    color: '#AC8E66',
+                    borderRadius: '8px',
+                    padding: '7px 12px',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <FontAwesomeIcon icon={faCopy} style={{ fontSize: '9px' }} />
+                  Kopieren &amp; Öffnen
+                  <FontAwesomeIcon icon={faExternalLinkAlt} style={{ fontSize: '8px' }} />
+                </button>
               </div>
             </div>
           </div>
@@ -1325,41 +1373,39 @@ const handleDownload = async () => {
           {/* Left vertical panel buttons */}
           {currentContent && currentContent.trim() && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '48px', marginLeft:'25px', flexShrink: 0 }}>
-              {hasComparison && (
-                <button
-                  onClick={() => togglePanel('vergleich')}
-                  style={{
-                    padding: '10px 7px',
-                    backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#151515',
-                    border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
-                    borderRadius: '0 6px 6px 0',
-                    cursor: 'pointer',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '8px',
-                    fontWeight: activePanel === 'vergleich' ? 200 : 400,
-                    color: activePanel === 'vergleich' ? '#151515' : '#888',
-                    transition: 'all 0.2s',
-                    writingMode: 'vertical-rl',
-                    transform: 'rotate(180deg)',
-                    whiteSpace: 'nowrap',
-                    letterSpacing: '0.05em',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (activePanel !== 'vergleich') {
-                      e.currentTarget.style.color = '#AC8E66';
-                      e.currentTarget.style.borderColor = '#AC8E66';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (activePanel !== 'vergleich') {
-                      e.currentTarget.style.color = '#888';
-                      e.currentTarget.style.borderColor = '#3A3A3A';
-                    }
-                  }}
-                >
-                  Vergleich
-                </button>
-              )}
+              <button
+                onClick={() => togglePanel('vergleich')}
+                style={{
+                  padding: '10px 7px',
+                  backgroundColor: activePanel === 'vergleich' ? '#d9d4c5' : '#1a1a1a',
+                  border: activePanel === 'vergleich' ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                  borderRadius: '0 6px 6px 0',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  fontWeight: activePanel === 'vergleich' ? 200 : 400,
+                  color: activePanel === 'vergleich' ? '#151515' : '#888',
+                  transition: 'all 0.2s',
+                  writingMode: 'vertical-rl',
+                  transform: 'rotate(180deg)',
+                  whiteSpace: 'nowrap',
+                  letterSpacing: '0.05em',
+                }}
+                onMouseEnter={(e) => {
+                  if (activePanel !== 'vergleich') {
+                    e.currentTarget.style.color = '#AC8E66';
+                    e.currentTarget.style.borderColor = '#AC8E66';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (activePanel !== 'vergleich') {
+                    e.currentTarget.style.color = '#888';
+                    e.currentTarget.style.borderColor = '#3A3A3A';
+                  }
+                }}
+              >
+                Vergleich
+              </button>
               <button
                 onClick={() => togglePanel('engine')}
                 style={{
@@ -1369,9 +1415,9 @@ const handleDownload = async () => {
                   borderRadius: '0 6px 6px 0',
                   cursor: 'pointer',
                   fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '8px',
+                  fontSize: '10px',
                   fontWeight: activePanel === 'engine' ? 200 : 400,
-                  color: activePanel === 'engine' ? '#151515' : '#888',
+                  color: activePanel === 'engine' ? '#1a1a1a' : '#dbd9ce',
                   transition: 'all 0.2s',
                   writingMode: 'vertical-rl',
                   transform: 'rotate(180deg)',
@@ -1403,7 +1449,7 @@ const handleDownload = async () => {
                      borderRadius: '0 6px 6px 0',
                     cursor: 'pointer',
                     fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '8px',
+                    fontSize: '10px',
                     fontWeight: activePanel === 'qa' ? 200 : 400,
                     color: activePanel === 'qa' ? '#151515' : '#888',
                     transition: 'all 0.2s',
@@ -1471,113 +1517,186 @@ const handleDownload = async () => {
             style={{
               flex: 1,
               minWidth: 0,
-              backgroundColor: "#151515",
+              backgroundColor: "#d0cbb8",
               border: "0.5px solid #AC8E66",
               borderRadius: "1.5rem",
               padding: '0.9rem 0',
             }}
           >
-          <div className="flex justify-between items-center"
-             style={{ padding: '0.5rem 2rem 0.25rem 2rem' }}
-          >
-            {currentContent && currentContent.trim() ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
-                <div className="flex items-center gap-3 flex-wrap" style={{ rowGap: 4 }}>
-                  <span className="font-mono text-[11px] text-[#AC8E66]">{platformLabels[activeQaPlatform]}</span>
-                  {socialPlatform !== null && (
+          {/* ── Header: platform + status + stats ─────────────────── */}
+          <div style={{ padding: '0.75rem 1.5rem 0.75rem 1.75rem', display: 'flex', flexDirection: 'column', gap: 6 }}>
+
+            {/* Row 1: platform name + status badge + image picker */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
+
+                {/* Platform label */}
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', fontWeight: 600, color: '#AC8E66', letterSpacing: '0.04em' }}>
+                  {platformLabels[activeQaPlatform]}     <span color="#dbd9ce"  > | Preview Theme {PREVIEW_THEME_LABELS[activePreviewTheme]}</span>
+                 
+                </span>
+                
+                 
+             
+                                                    
+
+                {/* Status badge */}
+                {socialPlatform !== null && (
+                  postResult?.success ? (
+                    <a
+                      href={postResult.url ?? '#'}
+                      onClick={async (e) => {
+                        e.preventDefault();
+                        if (postResult.url) {
+                          try { await openExternal(postResult.url); } catch { window.open(postResult.url, '_blank'); }
+                        }
+                      }}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '3px 8px', borderRadius: '20px',
+                        border: '1px solid rgba(76,175,80,0.5)',
+                        background: 'rgba(76,175,80,0.12)',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                        color: '#4caf50', letterSpacing: '0.03em', textDecoration: 'none',
+                        cursor: postResult.url ? 'pointer' : 'default',
+                      }}
+                    >
+                      <FontAwesomeIcon icon={faCheck} style={{ fontSize: '7px' }} />
+                      Gepostet!{postResult.url ? ' →' : ''}
+                    </a>
+                  ) : hasConfig ? (
                     <span style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '2px 7px',
-                      borderRadius: '999px',
-                      border: hasConfig ? '1px solid rgba(74,163,104,0.4)' : '1px solid rgba(172,142,102,0.3)',
-                      background: hasConfig ? 'rgba(74,163,104,0.08)' : 'rgba(172,142,102,0.06)',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '9px',
-                      color: hasConfig ? '#4aa368' : '#AC8E66',
-                      letterSpacing: '0.03em',
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 8px', borderRadius: '8px',
+                      border: '1px solid rgba(74,163,104,0.35)',
+                      background: 'rgba(74,163,104,0.07)',
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                      color: '#1a1a1a', letterSpacing: '0.03em',
                     }}>
-                      <FontAwesomeIcon icon={hasConfig ? faCheck : faArrowRight} style={{ fontSize: '7px' }} />
-                      {hasConfig ? 'Bereit zum Posten' : 'API einrichten'}
+                      <FontAwesomeIcon icon={faCheck} style={{ fontSize: '7px' }} />
+                      Bereit zum Posten
                     </span>
-                  )}
-                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
-                  <span className="font-mono text-[9px] text-[#999]">
-                    {(engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length).toLocaleString('de-DE')} Wörter
-                  </span>
-                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
-                  {(() => {
-                    const words = engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length;
-                    const mins = Math.max(1, Math.ceil(words / 200));
-                    return (
-                      <span className="font-mono text-[9px] text-[#D4C5A9]">
-                        {mins} Min. Lesezeit
-                      </span>
-                    );
-                  })()}
-                  {engineStats?.line_count ? (
-                    <>
-                      <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
-                      <span className="font-mono text-[9px] text-[#999]">
-                        {engineStats.line_count} Zeilen
-                      </span>
-                    </>
-                  ) : null}
-                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
-                  {(() => {
-                    const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
-                    const chars = engineStats?.char_count ?? currentContent.length;
-                    const over = limit ? chars > limit : false;
-                    return (
-                      <span className="font-mono text-[9px]" style={{ color: over ? '#c97a3a' : '#D4C5A9' }}>
-                        {chars.toLocaleString('de-DE')} Zeichen{limit ? ` / ${limit.toLocaleString('de-DE')}` : ''}
-                      </span>
-                    );
-                  })()}
-                  <span className="font-mono text-[9px] text-[#3A3A3A]">·</span>
-                  <span className="font-mono text-[9px] text-[#777]">
-                    {PREVIEW_THEME_LABELS[activePreviewTheme]}
-                  </span>
-                  {comparisonSourceOptions.length > 1 && (
-                    <div style={{ width: '220px', marginLeft: 8 }}>
-                      <ZenDropdown
-                        value={comparisonSource}
-                        onChange={setComparisonSource}
-                        options={comparisonSourceOptions}
-                        variant="compact"
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenSettings(socialPlatform)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '3px 8px', borderRadius: '8px',
+                        border: '1px solid rgba(172,142,102,0.35)',
+                        background: 'rgba(172,142,102,0.06)',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                        color: '#AC8E66', letterSpacing: '0.03em',
+                        cursor: 'pointer', transition: 'background 0.15s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(172,142,102,0.14)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(172,142,102,0.06)'; }}
+                    >
+                      <FontAwesomeIcon icon={faCog} style={{ fontSize: '7px' }} />
+                      API einrichten
+                    </button>
+                  )
+                )}
+
+                {/* LinkedIn cover image picker */}
+                {socialPlatform === 'linkedin' && hasConfig && (
+                  linkedInCoverPreview ? (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <img
+                        src={linkedInCoverPreview}
+                        alt="Cover"
+                        style={{ width: 32, height: 20, objectFit: 'cover', borderRadius: 4, border: '1px solid rgba(172,142,102,0.4)' }}
                       />
-                    </div>
-                  )}
-                </div>
-                {/* Character limit progress bar */}
-                {(() => {
-                  const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
-                  if (!limit) return null;
-                  const chars = engineStats?.char_count ?? currentContent.length;
-                  const pct = Math.min(100, (chars / limit) * 100);
-                  const over = chars > limit;
-                  return (
-                    <div style={{ height: 2, background: '#2a2a2a', borderRadius: 1, overflow: 'hidden', width: '100%', maxWidth: 320 }}>
-                      <div style={{
-                        height: '100%',
-                        width: `${pct}%`,
-                        background: over ? '#c97a3a' : pct > 80 ? '#8a7a3a' : '#3a5a3a',
-                        borderRadius: 1,
-                        transition: 'width 0.3s ease, background 0.3s ease',
-                      }} />
-                    </div>
-                  );
-                })()}
-                {/* File save feedback */}
-                {downloadFeedback && (
-                  <span className="font-mono text-[9px]" style={{ color: downloadFeedback.ok ? '#4caf50' : '#c97a3a' }}>
-                    {downloadFeedback.ok ? '✓ ' : '✗ '}{downloadFeedback.msg}
-                  </span>
+                      <button
+                        type="button"
+                        onClick={() => { setLinkedInCoverImage(null); setLinkedInCoverPreview(null); }}
+                        style={{
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                          color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                        }}
+                      >×</button>
+                    </span>
+                  ) : (
+                    <label style={{
+                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                      padding: '3px 8px', borderRadius: '8px',
+                      border: '1px solid #2e2e2e',
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555',
+                    }}>
+                      <FontAwesomeIcon icon={faImage} style={{ fontSize: '8px' }} />
+                      Titelbild
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,image/webp"
+                        style={{ display: 'none' }}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setLinkedInCoverImage(file);
+                          setLinkedInCoverPreview(URL.createObjectURL(file));
+                          e.target.value = '';
+                        }}
+                      />
+                    </label>
+                  )
                 )}
               </div>
-            ) : <div />}
-            <ZenCloseButton onClick={onBack} size="sm" />
+
+              {/* Right: close only */}
+              <ZenCloseButton onClick={onBack} size="sm" />
+            </div>
+
+            {/* Row 2: stats — muted, smaller */}
+            {currentContent && currentContent.trim() ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap' }}>
+                {(() => {
+                  const words = engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length;
+                  const mins = Math.max(1, Math.ceil(words / 200));
+                  const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
+                  const chars = engineStats?.char_count ?? currentContent.length;
+                  const lines = engineStats?.line_count;
+                  const over = limit ? chars > limit : false;
+                  const pct = limit ? Math.min(100, (chars / limit) * 100) : 0;
+
+                  const Dot = () => <span style={{ color: '#1a1a1a', padding: '10px 6px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px' }}>·</span>;
+                  const Stat = ({ children, color }: { children: React.ReactNode; color?: string }) => (
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: color ?? '#1a1a1a' }}>{children}</span>
+                  );
+
+                  return (
+                    <>
+                      <Stat>{words.toLocaleString('de-DE')} Wörter</Stat>
+                      <Dot /><Stat>{mins} Min.</Stat>
+                      {lines ? <><Dot /><Stat>{lines} Zeilen</Stat></> : null}
+                      <Dot />
+                      <Stat color={over ? '#1a1a1a' : '#1a1a1a'}>
+                        {chars.toLocaleString('de-DE')}{limit ? ` / ${limit.toLocaleString('de-DE')}` : ''} Zeichen
+                      </Stat>
+                      {limit && (
+                        <>
+                          <Dot />
+                          <div style={{ width: 48, height: 3, background: '#222', borderRadius: 2, overflow: 'hidden', alignSelf: 'center' }}>
+                            <div style={{
+                              height: '100%', width: `${pct}%`,
+                              background: over ? '#c97a3a' : pct > 80 ? '#7a6a2a' : '#2a4a2a',
+                              borderRadius: 2, transition: 'width 0.3s, background 0.3s',
+                            }} />
+                          </div>
+                        </>
+                      )}
+                   
+                      {downloadFeedback && (
+                        <><Dot /><Stat color={downloadFeedback.ok ? '#4caf50' : '#c97a3a'}>{downloadFeedback.ok ? '✓ ' : '✗ '}{downloadFeedback.msg}</Stat></>
+                      )}
+                   
+                    
+
+                    </>
+                    
+                  );
+                })()}
+              </div>
+            ) : null}
           </div>
 
     {/* Text-AI Tab Bar */}
@@ -1916,7 +2035,7 @@ const handleDownload = async () => {
                     style={{
                       width: '20px',
                       height: '20px',
-                      border: '2px solid #AC8E66',
+                      border: '1px solid #AC8E66',
                       borderTopColor: 'transparent',
                       borderRadius: '50%',
                       animation: 'spin 1s linear infinite',
@@ -2009,7 +2128,7 @@ const handleDownload = async () => {
                       style={{
                         flex: '0 0 auto',
                         padding: '12px 16px',
-                        backgroundColor: isActive ? '#d9d4c5' : '#151515',
+                        backgroundColor: isActive ? '#d9d4c5' : '#2a2a2a',
                         border: isActive ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
                         borderRadius: '8px 8px 0px 0px',
                         borderBottom: 'none',
@@ -2017,8 +2136,9 @@ const handleDownload = async () => {
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: isActive ? '9px' : '10px',
                         fontWeight: isActive ? '200' : '400',
-                        color: isActive ? '#151515' : '#333',
-                        transition: 'all 0.2s',
+                        color: isActive ? '#1a1a1a' : '#999',
+                        transition: 'all 0.1s',
+                        transform: isActive ? 'translateY(0)' : 'translateY(12px)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'left',
@@ -2028,12 +2148,16 @@ const handleDownload = async () => {
                         if (!isActive) {
                           e.currentTarget.style.color = '#AC8E66';
                           e.currentTarget.style.borderColor = '#AC8E66';
+                          e.currentTarget.style.transform = 'translateY(0)';
+                      
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (!isActive) {
                           e.currentTarget.style.color = '#888';
                           e.currentTarget.style.borderColor = '#3A3A3A';
+                          e.currentTarget.style.transform = 'translateY(12px)';
+
                         }
                       }}
                     >
@@ -2069,27 +2193,42 @@ const handleDownload = async () => {
 
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
+            {activePanel === 'vergleich' && !hasComparison && (
+              <div style={{ marginBottom: '0.5px', padding: '10px 14px', border: '0.5px solid #3a3a3a', borderRadius: '0 0 0 0', backgroundColor: '#d0cbb8' }}>
+                <span className="font-mono text-[10px] text-[#555]">Keine Vergleichsquelle verfügbar — öffne mehrere Dokumente als Tabs.</span>
+              </div>
+            )}
             {activePanel === 'vergleich' && hasComparison && (
               <div
                 style={{
                   marginBottom: '12px',
                   padding: '10px',
                   border: '0.5px solid #3a3a3a',
-                  borderRadius: '10px',
-                  backgroundColor: '#101010',
+                  borderRadius: '0 0 10px 10px',
+                  backgroundColor: '#d0cbb8',
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px' }}>
-                  <div className="font-mono text-[10px] text-[#AC8E66]">
-                    Vorher: {activeComparisonLabel}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span className="font-mono text-[10px] text-[#1a1a1a]">Vorher:</span>
+                    {comparisonSourceOptions.length > 1 ? (
+                      <ZenDropdown
+                        value={comparisonSource}
+                        onChange={setComparisonSource}
+                        options={comparisonSourceOptions}
+                        variant="compact"
+                      />
+                    ) : (
+                      <span className="font-mono text-[10px] text-[#1a1a1a]">{activeComparisonLabel}</span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <div className="font-mono text-[10px] text-[#777]">
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">
                       Zeichen Δ {currentContent.length - activeComparisonContent.length}
                     </div>
                     <button
                       onClick={onBack}
-                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] hover:bg-[#AC8E66]/10 transition-colors"
+                      className="font-mono bg-transparent text-[9px]  px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] hover:bg-[#dbd9ce]/90 transition-colors"
                       title="Änderungen als neue Version in den Editor übernehmen"
                     >
                       Änderungen übernehmen
@@ -2113,8 +2252,8 @@ const handleDownload = async () => {
                           padding: '3px 8px',
                           minHeight: '18px',
                           borderBottom: '0.5px solid #202020',
-                          backgroundColor: (row.status === 'removed' || row.status === 'modified') ? 'rgba(239,68,68,0.12)' : '#171717',
-                          color: (row.status === 'removed' || row.status === 'modified') ? '#fca5a5' : '#888',
+                          backgroundColor: (row.status === 'removed' || row.status === 'modified') ? 'rgba(239,68,68)' : '#171717',
+                          color: (row.status === 'removed' || row.status === 'modified') ? '#1a1a1a' : '#888',
                           fontFamily: 'monospace',
                           fontSize: '10px',
                           whiteSpace: 'pre-wrap',
@@ -2132,8 +2271,8 @@ const handleDownload = async () => {
                           padding: '3px 8px',
                           minHeight: '18px',
                           borderBottom: '0.5px solid #202020',
-                          backgroundColor: (row.status === 'added' || row.status === 'modified') ? 'rgba(34,197,94,0.12)' : '#171717',
-                          color: (row.status === 'added' || row.status === 'modified') ? '#86efac' : '#d9d4c5',
+                          backgroundColor: (row.status === 'added' || row.status === 'modified') ? 'rgba(34,197,94)' : '#171717',
+                          color: (row.status === 'added' || row.status === 'modified') ? '#1a1a1a' : '#d9d4c5',
                           fontFamily: 'monospace',
                           fontSize: '10px',
                           whiteSpace: 'pre-wrap',
@@ -2149,10 +2288,10 @@ const handleDownload = async () => {
             {activePanel === 'qa' && (qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
               <div
                 style={{
-                  marginBottom: '12px',
+                  marginBottom: '0.1px',
                   padding: '10px',
                   border: '0.5px solid #3a3a3a',
-                  borderRadius: '10px',
+                  borderRadius: '0 0 0 0',
                   backgroundColor: '#101010',
                 }}
               >
@@ -2161,17 +2300,18 @@ const handleDownload = async () => {
                     padding: '12px 16px',
                     borderRadius: '8px',
                     border: qaResult.errors.length > 0 ? '1px solid #ef4444' : '1px solid #AC8E66',
-                    backgroundColor: qaResult.errors.length > 0 ? 'rgba(127,29,29,0.25)' : 'rgba(172,142,102,0.14)',
+                    backgroundColor: qaResult.errors.length > 0 ? 'rgba(127,29,29,1)' : '#d0cbb8',
                   }}
                 >
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center border-b border-[#1a1a1a] justify-between gap-3">
                     <p
                       style={{
                         margin: 0,
-                        fontSize: '11px',
+                        fontSize: '12px',
                         fontFamily: 'monospace',
-                        color: qaResult.errors.length > 0 ? '#fca5a5' : '#AC8E66',
-                        fontWeight: 600,
+                       
+                        color: qaResult.errors.length > 0 ? '#fca5a5' : '#1a1a1a',
+                        fontWeight: 100,
                       }}
                     >
                       QA Check · {platformLabels[activeQaPlatform]}
@@ -2186,7 +2326,7 @@ const handleDownload = async () => {
                         borderRadius: '6px',
                         border: '1px solid #AC8E66',
                         background: 'transparent',
-                        color: '#AC8E66',
+                        color: '#AC8e66',
                         cursor: 'pointer',
                       }}
                     >
@@ -2211,9 +2351,9 @@ const handleDownload = async () => {
                       key={`warn-${issue.code}-${issue.message}`}
                       style={{
                         margin: '6px 0 0 0',
-                        fontSize: '10px',
+                        fontSize: '12px',
                         fontFamily: 'monospace',
-                        color: '#f5deb3',
+                        color: '#1a1a1a',
                       }}
                     >
                       Hinweis: {issue.message}
@@ -2237,38 +2377,39 @@ const handleDownload = async () => {
             {activePanel === 'engine' && (
               <div
                 style={{
-                  marginBottom: '12px',
+                  marginBottom: '0.1px',
                   padding: '10px',
-                  border: '0.5px solid #3a3a3a',
-                  borderRadius: '10px',
-                  backgroundColor: '#101010',
+                  border: '0.5px solid #1a1a1a',
+                  borderRadius: '0 ',
+                  backgroundColor: '#cfcbbc',
                 }}
               >
                 <div
-                  className="rounded-[6px] border border-[#3a3a2a]/30 overflow-hidden"
-                  style={{ background: 'rgba(172,142,102,0.04)' }}
+                  className="rounded-[6px] border border-[#1a1a1a] overflow-hidden"
+                  style={{ background: '#d0cbb8' }}
                 >
-                  <div className="px-3 py-1.5 border-b border-[#3a3a2a]/20 flex items-center justify-between">
-                    <span className="font-mono text-[9px] text-[#888] tracking-wider uppercase">
+                  <div className="px-[3px] py-[1.5px]  border-b 
+                  border-[#1a1a1a] flex items-center  justify-between">
+                    <span className="font-mono text-[11px] text-[#1a1a1a] tracking-wider uppercase">
                       ZenEngine Analyse
                     </span>
                     {qualityAnalysis && (
-                      <span className="font-mono text-[9px]" style={{ color: qualityAnalysis.match_count > 3 ? '#c97a3a' : '#5a7a5a' }}>
+                      <span className="font-mono text-[12px]" style={{ color: qualityAnalysis.match_count > 3 ? '#c97a3a' : '#5a7a5a' }}>
                         {qualityAnalysis.match_count === 0 ? 'Keine Hinweise' : `${qualityAnalysis.match_count} Hinweis${qualityAnalysis.match_count !== 1 ? 'e' : ''}`}
                       </span>
                     )}
                   </div>
                   {engineSuggestions.length > 0 ? (
-                    <div className="divide-y divide-[#3a3a2a]/10">
+                    <div className="px-[3px] divide-y divide-[#3a3a2a]">
                       {engineSuggestions.slice(0, 8).map((s, i) => (
-                          <div key={i} className="flex items-start gap-2 px-3 py-1.5">
+                          <div key={i} className="flex items-start gap-2 px-[3px] py-[1.5px]">
                             <span
-                              className="font-mono text-[9px] mt-0.5 shrink-0"
+                              className="font-mono text-[12px] mt-[0.5px] shrink-0"
                               style={{ color: s.confidence >= 0.9 ? '#c97a3a' : '#888860' }}
                             >
                               {Math.round(s.confidence * 100)}%
                             </span>
-                            <span className="font-mono text-[9px] text-[#666]">
+                            <span className="px-[3px] px-[3px] font-mono text-[12px] text-[#666]">
                               <span className="text-[#888]">{' · '}</span>
                               <span className="text-[#AC8E66]">
                                 {s.rule.replace(/_/g, ' ')}
@@ -2281,13 +2422,13 @@ const handleDownload = async () => {
                           </div>
                         ))}
                       {engineSuggestions.length > 8 && (
-                        <div className="px-3 py-1 font-mono text-[9px] text-[#555]">
+                        <div className="px-[3px] py-[1.5px] font-mono text-[9px] text-[#555]">
                           +{engineSuggestions.length - 8} weitere Hinweise
                         </div>
                       )}
                     </div>
                   ) : (
-                    <div className="px-3 py-2 font-mono text-[9px] text-[#5a7a5a]">
+                    <div className="px-[3px] py-[2px] font-mono text-[9px] text-[#5a7a5a]">
                       Keine Stilprobleme gefunden.
                     </div>
                   )}
@@ -2481,6 +2622,7 @@ const handleDownload = async () => {
         onClose={() => setShowPostenModal(false)}
         onSelectPlatforms={handlePlatformSelection}
         currentPlatform={socialPlatform}
+        initialSelectedPlatforms={selectedPostPlatforms.length > 0 ? selectedPostPlatforms : undefined}
       />
 
       {/* Posten Method Choice Modal */}

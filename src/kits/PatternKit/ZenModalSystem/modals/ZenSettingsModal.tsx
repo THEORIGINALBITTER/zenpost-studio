@@ -59,8 +59,8 @@ export const ZenSettingsModal = ({
 
   const handleExportAll = () => {
     exportAllSettingsAsFile();
-    setBackupMsg('Backup gespeichert');
-    setTimeout(() => setBackupMsg(null), 3000);
+    setBackupMsg('Backup gespeichert unter Download');
+    setTimeout(() => setBackupMsg(null), 5000);
   };
 
   const handleImportAll = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,6 +98,7 @@ export const ZenSettingsModal = ({
       subtitle={content.subtitle}
       headerAlign="center"
       showCloseButton={true}
+      bodyStyle={{ overflowY: 'hidden', display: 'flex', flexDirection: 'column' }}
     >
       <div
         style={{
@@ -118,9 +119,34 @@ export const ZenSettingsModal = ({
             flexDirection: 'column',
             paddingTop: 8,
             paddingBottom: 8,
-            overflowY: 'auto',
+            overflow: 'hidden',
+            flexShrink: 0,
+            alignSelf: 'stretch',
           }}
         >
+          {/* Backup — oben in Sidebar */}
+          <div style={{ padding: '8px 10px 10px', borderBottom: '1px solid rgba(172,142,102,0.25)' }}>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#d0cbb8', marginBottom: 5, 
+              letterSpacing: '0.12em', fontWeight: 600 }}>Alle Einstellungen sichern</div>
+            <button
+              onClick={handleExportAll}
+              style={{ width: '100%', padding: '6px 10px', marginBottom: 4, background: 'transparent', border: '1px solid rgba(172,142,102,0.45)', borderRadius: 4, color: '#C8A87A', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, cursor: 'pointer', textAlign: 'left' }}
+            >
+              ↓ Export
+            </button>
+            <label style={{ width: '100%', display: 'block', padding: '6px 10px', background: 'transparent', border: '1px solid rgba(172,142,102,0.25)', borderRadius: 4, 
+              color: '#888', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, cursor: 'pointer' }}>
+              ↑ Import
+              <input ref={importInputRef} type="file" accept=".json" onChange={handleImportAll} style={{ display: 'none' }} />
+            </label>
+            {backupMsg && (
+              <div style={{ marginTop: 5, fontFamily: 'IBM Plex Mono, monospace', 
+              fontSize: 10, color: backupMsg.includes('Fehler') ? '#c0392b' : '#d0cbb8', lineHeight: 1.4 }}>
+                {backupMsg}
+              </div>
+            )}
+          </div>
+
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
             const isHovered = hoveredTab === tab.id && !isActive;
@@ -136,26 +162,27 @@ export const ZenSettingsModal = ({
                   gap: 10,
                   padding: '11px 20px',
                   background: isActive
-                    ? 'rgba(172, 142, 102, 0.12)'
+                    ? '#d0cbb8'
                     : isHovered
                     ? 'rgba(172, 142, 102, 0.06)'
                     : 'transparent',
                   borderTop: 'none',
                   borderRight: 'none',
                   borderBottom: 'none',
-                  borderLeft: `3px solid ${isActive ? '#AC8E66' : isHovered ? 'rgba(172,142,102,0.35)' : 'transparent'}`,
-                  color: isActive ? '#AC8E66' : isHovered ? '#aaaaaa' : '#777777',
+                  borderLeft: `5px solid ${isActive ? '#AC8E66' : isHovered ? 'rgba(172,142,102,0.35)' : 'transparent'}`,
+                  color: isActive ? '#1a1a1a' : isHovered ? '#aaaaaa' : '#777777',
                   cursor: 'pointer',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: 11,
                   textAlign: 'left',
                   width: '100%',
                   transition: 'all 0.15s',
+                  borderRadius: '3px 0 0 3px',
                 }}
               >
                 <FontAwesomeIcon
                   icon={tab.icon}
-                  style={{ width: 14, flexShrink: 0, color: isActive ? '#AC8E66' : isHovered ? '#999' : '#555' }}
+                  style={{ width: 14, flexShrink: 0, color: isActive ? '#1a1a1a' : isHovered ? '#999' : '#555' }}
                 />
                 <div style={{ position: 'relative', overflow: 'hidden', height: '16px', flex: 1 }}>
                   <span style={{
@@ -180,25 +207,6 @@ export const ZenSettingsModal = ({
             );
           })}
 
-          {/* Backup / Restore */}
-          <div style={{ marginTop: 'auto', padding: '12px 14px 8px', borderTop: '1px solid rgba(172,142,102,0.15)' }}>
-            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, color: '#555', marginBottom: 6, letterSpacing: '0.05em' }}>BACKUP</div>
-            <button
-              onClick={handleExportAll}
-              style={{ width: '100%', padding: '5px 8px', marginBottom: 4, background: 'rgba(172,142,102,0.1)', border: '1px solid rgba(172,142,102,0.3)', borderRadius: 4, color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, cursor: 'pointer', textAlign: 'left' }}
-            >
-              ↓ Alle Settings exportieren
-            </button>
-            <label style={{ width: '100%', display: 'block', padding: '5px 8px', background: 'rgba(172,142,102,0.06)', border: '1px solid rgba(172,142,102,0.2)', borderRadius: 4, color: '#888', fontFamily: 'IBM Plex Mono, monospace', fontSize: 8, cursor: 'pointer' }}>
-              ↑ Backup importieren
-              <input ref={importInputRef} type="file" accept=".json" onChange={handleImportAll} style={{ display: 'none' }} />
-            </label>
-            {backupMsg && (
-              <div style={{ marginTop: 6, fontFamily: 'IBM Plex Mono, monospace', fontSize: 7, color: backupMsg.includes('Fehler') ? '#c0392b' : '#AC8E66', lineHeight: 1.4 }}>
-                {backupMsg}
-              </div>
-            )}
-          </div>
         </nav>
 
         {/* Content Panel */}

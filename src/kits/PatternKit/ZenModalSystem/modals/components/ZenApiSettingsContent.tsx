@@ -407,7 +407,7 @@ export const ZenApiSettingsContent = () => {
           setResult(`Server-Paket gespeichert: ${savePath}`, 'success');
         }
       } else {
-        const blob = new Blob([uint8], { type: 'application/zip' });
+        const blob = new Blob([uint8.buffer as ArrayBuffer], { type: 'application/zip' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = 'zenpost-server-api.zip';
@@ -454,8 +454,8 @@ export const ZenApiSettingsContent = () => {
                     padding: '6px 10px',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '11px',
-                    color: idx === activeIdx ? '#AC8E66' : '#666',
-                    backgroundColor: idx === activeIdx ? '#1e1a14' : 'rgba(255,255,255,0.2)',
+                    color: idx === activeIdx ? '#1a1a1a' : '#666',
+                    backgroundColor: idx === activeIdx ? 'transparent' : 'rgba(255,255,255,0.2)',
                     cursor: 'pointer',
                     fontWeight: idx === activeIdx ? 700 : 400,
                   }}
@@ -489,13 +489,13 @@ export const ZenApiSettingsContent = () => {
               onClick={addServer}
               title="Neuen Server hinzufügen"
               style={{
-                border: '1px solid #AC8E66',
+                border: '1px dotted #AC8E66',
                 borderRadius: '8px',
                 padding: '6px 11px',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '13px',
                 lineHeight: 1,
-                color: '#AC8E66',
+                color: '#1a1a1a',
                 backgroundColor: 'transparent',
                 cursor: 'pointer',
               }}
@@ -791,7 +791,7 @@ const inlineButtonStyle: React.CSSProperties = {
   padding: '10px 12px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '9px',
-  color: '#AC8E66',
+  color: '#1a1a1a',
   backgroundColor: 'transparent',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
@@ -803,7 +803,7 @@ const testButtonStyle: React.CSSProperties = {
   padding: '10px 14px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '9px',
-  color: '#AC8E66',
+  color: '#1a1a1a',
   backgroundColor: 'transparent',
   cursor: 'pointer',
   width: 'fit-content',
@@ -826,7 +826,7 @@ const TestButton = ({
       disabled={disabled}
       style={{
         ...testButtonStyle,
-        borderColor: hovered && !disabled ? '#AC8E66' : '#3A3A3A',
+        borderColor: hovered && !disabled ? '#AC8E66' : '#1a1a1a',
         backgroundColor: hovered && !disabled ? 'rgba(172,142,102,0.08)' : 'transparent',
         transition: 'border-color 0.15s, background-color 0.15s',
         opacity: disabled ? 0.5 : 1,
@@ -934,6 +934,6 @@ const copyButtonStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
   color: '#AC8E66',
-  backgroundColor: '#151515',
+  backgroundColor: 'trasnparent',
   cursor: 'pointer',
 };

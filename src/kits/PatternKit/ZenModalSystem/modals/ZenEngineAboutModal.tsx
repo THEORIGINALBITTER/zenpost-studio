@@ -84,13 +84,14 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, monospace' };
   const gold = '#AC8E66';
   const dimmed = 'rgba(172,142,102,0.5)';
+  const black = '#1a1a1a';
   const border = 'rgba(172,142,102,0.2)';
 
   return (
     <ZenModal
       isOpen={isOpen}
       onClose={onClose}
-      size="md"
+      size="xl"
       theme="paper"
       zIndex={20000}
       title="ZenEngine"
@@ -149,7 +150,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
 
         {/* Built-in Rules */}
         <div>
-          <p style={{ ...mono, fontSize: 9, color: dimmed, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>
+          <p style={{ ...mono, fontSize: 9, color: black, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>
             Eingebaute Regeln · {BUILT_IN_RULES.reduce((s, r) => s + r.count, 0)} gesamt
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -175,11 +176,11 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
 
         {/* User Rules */}
         <div>
-          <p style={{ ...mono, fontSize: 9, color: dimmed, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>
+          <p style={{ ...mono, fontSize: 9, color: black, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>
             Gelernte Regeln · {userRules.length} gesamt
           </p>
           {userRules.length === 0 ? (
-            <p style={{ ...mono, fontSize: 10, color: '#bbb', margin: 0 }}>
+            <p style={{ ...mono, fontSize: 10, color: '#1a1a1a', margin: 0 }}>
               Noch keine — klicke im Editor auf „+ Wort / Phrase lernen".
             </p>
           ) : (
@@ -192,7 +193,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
                 }}>
                   <span style={{
                     ...mono, fontSize: 10,
-                    background: 'rgba(172,142,102,0.12)', color: gold,
+                    background: 'rgba(172,142,102,0.12)', color: black,
                     borderRadius: 4, padding: '1px 6px', border: `1px solid rgba(172,142,102,0.3)`,
                     flexShrink: 0,
                   }}>
@@ -221,41 +222,67 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
 
         {/* Feedback / Lernstatus */}
         <div>
-          <p style={{ ...mono, fontSize: 9, color: dimmed, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 10px' }}>
+          <p style={{ ...mono, fontSize: 9, color: black, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 6px' }}>
             Lernstatus
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 10 }}>
+          <p style={{ ...mono, fontSize: 9, color: '#888', margin: '0 0 10px', lineHeight: 1.6 }}>
+            ZenEngine merkt sich welche Vorschläge du annimmst oder ignorierst — und passt sich an deinen Schreibstil an.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12 }}>
             {[
-              { label: 'Angenommen', value: feedbackStats.totalAccepted },
-              { label: 'Ignoriert',  value: feedbackStats.totalIgnored },
-              { label: 'Stumm',      value: feedbackStats.suppressed },
+              { label: 'Angenommen', value: feedbackStats.totalAccepted, hint: 'Vorschläge die du übernommen hast' },
+              { label: 'Ignoriert',  value: feedbackStats.totalIgnored,  hint: 'Einmal weggeklickt' },
+              { label: 'Stumm',      value: feedbackStats.suppressed,    hint: 'Dauerhaft ausgeblendet' },
             ].map(stat => (
-              <div key={stat.label} style={{
+              <div key={stat.label} title={stat.hint} style={{
                 padding: '7px 10px', borderRadius: 6,
                 border: `1px solid ${border}`, background: 'rgba(172,142,102,0.04)',
-                textAlign: 'center',
+                textAlign: 'center', cursor: 'default',
               }}>
                 <div style={{ ...mono, fontSize: 16, color: gold, fontWeight: 700 }}>{stat.value}</div>
-                <div style={{ ...mono, fontSize: 8, color: '#999', marginTop: 2 }}>{stat.label}</div>
+                <div style={{ ...mono, fontSize: 8, color: black, marginTop: 2 }}>{stat.label}</div>
               </div>
             ))}
           </div>
+
+          {/* Hilfe-Hinweise */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+            {[
+              { icon: '✓', text: 'Vorschlag annehmen → ZenEngine schlägt ihn öfter vor' },
+              { icon: '×', text: 'Einmal ignorieren → wird seltener angezeigt' },
+              { icon: '–', text: '"Nie wieder" → dauerhaft stumm geschaltet' },
+            ].map(h => (
+              <div key={h.icon} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{ ...mono, fontSize: 10, color: gold, flexShrink: 0, width: 12 }}>{h.icon}</span>
+                <span style={{ ...mono, fontSize: 9, color: '#666', lineHeight: 1.5 }}>{h.text}</span>
+              </div>
+            ))}
+          </div>
+
           {feedbackStats.suppressed > 0 && (
             <button
               type="button"
-              onClick={() => { resetFeedback(); setFeedbackStats(getFeedbackStats(getFeedback())); }}
-              style={{
-                ...mono, fontSize: 9, background: 'transparent', border: `1px solid ${border}`,
-                borderRadius: 4, color: dimmed, padding: '3px 10px', cursor: 'pointer', width: '100%',
+              onClick={() => {
+                const ok = window.confirm(
+                  'Lernhistorie wirklich zurücksetzen?\n\nAlle stumm geschalteten Vorschläge werden wieder aktiv. Das lässt sich nicht rückgängig machen.'
+                );
+                if (ok) { resetFeedback(); setFeedbackStats(getFeedbackStats(getFeedback())); }
               }}
+              style={{
+                ...mono, fontSize: 9, background: 'rgba(239,68,68,0.7)',
+                border: '1px solid rgba(239,68,68,0.35)',
+                borderRadius: 4, color: '#1a1a1a', padding: '6px 10px', cursor: 'pointer', width: '100%',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.7)'; e.currentTarget.style.color = 'rgba(239,68,68,0.7)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.35)'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = 'transparent' }}
             >
-              Lernhistorie zurücksetzen
+              Lernhistorie zurücksetzen — {feedbackStats.suppressed} stummgeschaltete Vorschläge werden reaktiviert
             </button>
           )}
         </div>
 
         {/* Footer note */}
-        <p style={{ ...mono, fontSize: 9, color: dimmed, margin: 0, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <p style={{ ...mono, fontSize: 9, color: black, margin: 0, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: 9 }} />
           Phase 2 geplant: LLVM JIT · Regex-Regeln · Sprachmodell-Integration
         </p>

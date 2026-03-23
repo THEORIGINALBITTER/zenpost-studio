@@ -1527,7 +1527,32 @@ export const ContentTransformScreen = ({
     }
 
     if (isTauri() && activeTab?.kind === 'file' && activeTab.filePath) {
-      await writeTextFile(activeTab.filePath, contentToSave);
+      // Convert base64 coverImage in YAML frontmatter to _assets/ file before writing
+      let contentToWrite = contentToSave;
+      const fmBase64Match = contentToWrite.match(/^(---[\s\S]*?coverImage:\s*")(data:image\/([a-zA-Z0-9.+-]+);base64,([^"]+))("[\s\S]*?---)/);
+      if (fmBase64Match) {
+        try {
+          const { writeFile: wf, mkdir: mk } = await import('@tauri-apps/plugin-fs');
+          const { dirname: dn } = await import('@tauri-apps/api/path');
+          const assetsDir = `${await dn(activeTab.filePath)}/_assets`;
+          await mk(assetsDir, { recursive: true });
+          const ext = fmBase64Match[3].toLowerCase() === 'jpeg' ? 'jpg' : fmBase64Match[3].toLowerCase();
+          const stem = activeTab.filePath.split(/[\\/]/).pop()?.replace(/\.md$/i, '') ?? 'cover';
+          const imgFilename = `${stem}-cover.${ext}`;
+          const base64Data = fmBase64Match[4];
+          const binaryStr = atob(base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+          await wf(`${assetsDir}/${imgFilename}`, bytes);
+          const newPath = `_assets/${imgFilename}`;
+          contentToWrite = contentToWrite.replace(fmBase64Match[2], newPath);
+          // Also update postMeta in UI so the field no longer shows base64
+          setPostMeta((prev) => ({ ...prev, imageUrl: newPath }));
+        } catch (imgErr) {
+          console.warn('[ZenPost] Cover-Bild base64-Konvertierung beim Speichern fehlgeschlagen:', imgErr);
+        }
+      }
+      await writeTextFile(activeTab.filePath, contentToWrite);
       const savedName = activeTab.filePath.split(/[\\/]/).pop() || activeTab.title || 'Dokument.md';
 
       // FTP Upload für bestehende Blog-Post-Dateien

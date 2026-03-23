@@ -31,7 +31,9 @@ import {
 // ── Design tokens ──────────────────────────────────────────
 const paper   = '#E8E1D2';
 const gold    = '#AC8E66';
+const black   = '#1a1a1a';
 const goldDim = 'rgba(172,142,102,0.45)';
+const blackDim = 'rgba(11,11,11,0.45';
 const mono    = 'IBM Plex Mono, monospace';
 const sans    = 'IBM Plex Sans, sans-serif';
 
@@ -109,7 +111,7 @@ const InputField = ({
   const [show, setShow] = useState(false);
   return (
     <div style={{ marginBottom: 16 }}>
-      <div style={{ fontFamily: mono, fontSize: 9, color: gold, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
+      <div style={{ fontFamily: mono, fontSize: 9, color: black, letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>
         {label}
       </div>
       <div style={{ position: 'relative' }}>
@@ -168,7 +170,7 @@ export const ZenNewsletterSettingsContent = () => {
   // ── Step 0: Choose provider ─────────────────────────────
   const renderStep0 = () => (
     <div>
-      <div style={{ fontFamily: mono, fontSize: 10, color: gold, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 16 }}>
+      <div style={{ fontFamily: mono, fontSize: 10, color: black, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 16 }}>
         Wähle dein Newsletter-System
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -211,7 +213,7 @@ export const ZenNewsletterSettingsContent = () => {
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
             background: nl.provider === 'none' ? '#ccc' : gold,
-            color: '#fff', border: 'none', borderRadius: 6,
+            color: '#1a1a1a', border: 'none', borderRadius: 6,
             padding: '9px 20px', fontFamily: mono, fontSize: 11,
             cursor: nl.provider === 'none' ? 'not-allowed' : 'pointer',
           }}
@@ -261,7 +263,7 @@ export const ZenNewsletterSettingsContent = () => {
     };
 
     const sectionLabel = (label: string) => (
-      <div style={{ fontFamily: mono, fontSize: 9, color: gold, letterSpacing: 2, textTransform: 'uppercase' as const, marginBottom: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div style={{ fontFamily: mono, fontSize: 9, color: black, letterSpacing: 2, textTransform: 'uppercase' as const, marginBottom: 12, marginTop: 4, display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ flex: 1, height: 1, background: `${gold}33` }} />
         {label}
         <div style={{ flex: 1, height: 1, background: `${gold}33` }} />
@@ -301,10 +303,10 @@ export const ZenNewsletterSettingsContent = () => {
 
         {/* Method Toggle */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: mono, fontSize: 9, color: gold, letterSpacing: 1.5, textTransform: 'uppercase' as const, marginBottom: 6 }}>
+          <div style={{ fontFamily: mono, fontSize: 9, color: black, letterSpacing: 1.5, textTransform: 'uppercase' as const, marginBottom: 6 }}>
             E-Mail Methode
           </div>
-          <div style={{ display: 'flex', gap: 0, border: `1px solid ${goldDim}`, borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ display: 'flex', gap: 0,  borderRadius: 6, overflow: 'hidden' }}>
             {([['php-mail', 'IONOS / Shared Hosting'], ['smtp', 'SMTP (andere Anbieter)']] as const).map(([val, label]) => {
               const active = g.emailMethod === val;
               return (
@@ -315,7 +317,7 @@ export const ZenNewsletterSettingsContent = () => {
                   style={{
                     flex: 1, padding: '8px 12px', fontFamily: mono, fontSize: 10,
                     background: active ? 'rgba(172,142,102,0.15)' : 'transparent',
-                    color: active ? gold : '#888', border: 'none', cursor: 'pointer',
+                    color: active ? black : '#888', border: 'none', cursor: 'pointer',
                     borderRight: val === 'php-mail' ? `1px solid ${goldDim}` : 'none',
                     transition: 'all 0.15s',
                   }}
@@ -384,7 +386,7 @@ export const ZenNewsletterSettingsContent = () => {
                 <div style={{
                   width: 16, height: 16, borderRadius: '50%', flexShrink: 0, marginTop: 2,
                   border: `1.5px solid ${active ? gold : goldDim}`,
-                  background: active ? gold : 'transparent',
+                  background: active ? black : 'transparent',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>
                   {active && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 7, color: '#fff' }} />}
@@ -433,7 +435,7 @@ export const ZenNewsletterSettingsContent = () => {
         {sectionLabel('URLs & Sicherheit')}
 
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: mono, fontSize: 9, color: gold, letterSpacing: 1.5, textTransform: 'uppercase' as const, marginBottom: 6 }}>API Key</div>
+          <div style={{ fontFamily: mono, fontSize: 9, color: black, letterSpacing: 1.5, textTransform: 'uppercase' as const, marginBottom: 6 }}>API Key</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <div style={{ flex: 1 }}>
               <InputField label="" value={g.apiKey} onChange={v => patchGen({ apiKey: v })} placeholder="mein-geheimer-key" secret />
@@ -442,7 +444,11 @@ export const ZenNewsletterSettingsContent = () => {
               type="button"
               onClick={() => patchGen({ apiKey: randomKey() })}
               title="Zufälligen Key generieren"
-              style={{ height: 32, padding: '0 12px', background: 'transparent', border: `1px solid ${goldDim}`, borderRadius: 6, color: gold, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: mono, fontSize: 9, display: 'flex', alignItems: 'center', gap: 5 }}
+              style={{ height: 32, 
+                padding: '0 12px', 
+                marginTop: '4px',
+                background: 'transparent', 
+                border: `1px solid ${black}`, borderRadius: 6, color: black, cursor: 'pointer', whiteSpace: 'nowrap', fontFamily: mono, fontSize: 9, display: 'flex', alignItems: 'center', gap: 5 }}
             >
               <FontAwesomeIcon icon={faDice} style={{ fontSize: 10 }} /> generieren
             </button>
@@ -452,12 +458,12 @@ export const ZenNewsletterSettingsContent = () => {
             const blogKey = settings.blogs.find(b => b.phpApiKey)?.phpApiKey;
             if (!blogKey) return null;
             return (
-              <div style={{ marginTop: 7, fontFamily: mono, fontSize: 9, color: '#888', lineHeight: 1.6 }}>
+              <div style={{ marginTop: 9, fontFamily: mono, fontSize: 9, color: '#888', lineHeight: 1.6 }}>
                 Empfohlen: denselben Key wie dein Blog-PHP verwenden — beide Endpunkte werden von ZenPost Studio aufgerufen.{' '}
                 <button
                   type="button"
                   onClick={() => patchGen({ apiKey: blogKey })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: gold, fontFamily: mono, fontSize: 9, padding: 0, textDecoration: 'underline' }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: black, fontFamily: mono, fontSize: 9, padding: 6,  }}
                 >
                   Blog-Key übernehmen →
                 </button>
@@ -482,8 +488,8 @@ export const ZenNewsletterSettingsContent = () => {
             onClick={handleGenerate}
             style={{
               display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
-              background: !canGenerate || generating ? '#1a1a1a' : gold,
-              color: '#fff', border: 'none', borderRadius: 6,
+              background: !canGenerate || generating ? 'transparent' : gold,
+              color: '#1a1a1a', border: 'none', borderRadius: 6,
               padding: '10px 22px', fontFamily: mono, fontSize: 11,
               cursor: !canGenerate || generating ? 'not-allowed' : 'pointer',
               transition: 'background 0.2s',
@@ -542,14 +548,14 @@ export const ZenNewsletterSettingsContent = () => {
           gap: 6, 
           background: 'none', 
           border: 'none', cursor: 'pointer', 
-          color: gold, 
+          color: black, 
           fontFamily: mono, 
           fontSize: 10, 
           marginBottom: 20, 
           padding: 0 
         }}
       >
-        <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: 9 }} /> Zurück
+        <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: 9, color: black }} /> Zurück
       </button>
 
       <div style={{ fontFamily: mono, fontSize: 10, color: gold, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
@@ -715,13 +721,13 @@ export const ZenNewsletterSettingsContent = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <div style={{
                     width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: step > i ? gold : step === i ? 'rgba(172,142,102,0.2)' : 'transparent',
-                    border: `1px solid ${step >= i ? gold : goldDim}`,
-                    fontFamily: mono, fontSize: 8, color: step > i ? '#fff' : step === i ? gold : '#aaa',
+                    background: step > i ? gold : step === i ? 'transparent' : 'transparent',
+                    border: `1px solid ${step >= i ? black : blackDim}`,
+                    fontFamily: mono, fontSize: 8, color: step > i ? '#1a1a1a' : step === i ? black : '#aaa',
                   }}>
                     {step > i ? <FontAwesomeIcon icon={faCheck} style={{ fontSize: 7 }} /> : i + 1}
                   </div>
-                  <span style={{ fontFamily: mono, fontSize: 8, color: step === i ? gold : '#aaa' }}>{label}</span>
+                  <span style={{ fontFamily: mono, fontSize: 8, color: step === i ? black : '#aaa' }}>{label}</span>
                 </div>
                 {i < 2 && <div style={{ width: 16, height: 1, background: step > i ? gold : goldDim }} />}
               </React.Fragment>

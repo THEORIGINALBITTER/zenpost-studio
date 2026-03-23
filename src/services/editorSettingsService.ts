@@ -8,6 +8,8 @@ export interface EditorSettings {
   autoSaveEnabled: boolean;
   autoSaveIntervalSec: number;
   autoSaveCustomPath?: string;
+  autosaveMaxVersions: number;
+  autosaveRetentionDays: number;
   wrapLines: boolean;
   showLineNumbers: boolean;
   theme: EditorTheme;
@@ -22,6 +24,8 @@ export const defaultEditorSettings: EditorSettings = {
   autoSaveEnabled: false,
   autoSaveIntervalSec: 30,
   autoSaveCustomPath: undefined,
+  autosaveMaxVersions: 10,
+  autosaveRetentionDays: 30,
   wrapLines: true,
   showLineNumbers: true,
   theme: 'light',
@@ -138,7 +142,7 @@ const ensureDraftAutosavesDir = async (projectPath: string, customBasePath?: str
   return autosavesRoot;
 };
 
-const MAX_AUTOSAVE_VERSIONS = 5;
+const MAX_AUTOSAVE_VERSIONS = 10;
 
 const getDraftAutosavesDirPath = async (projectPath: string, customBasePath?: string): Promise<string> => {
   if (customBasePath) return customBasePath;
@@ -175,7 +179,8 @@ export const saveDraftAutosave = async (
   projectPath: string,
   key: string,
   content: string,
-  customBasePath?: string
+  customBasePath?: string,
+  maxVersions?: number,
 ): Promise<DraftAutosaveRecord> => {
   const autosavesRoot = await ensureDraftAutosavesDir(projectPath, customBasePath);
   const safeKey = sanitizeKey(key);
@@ -189,14 +194,16 @@ export const saveDraftAutosave = async (
   };
   await writeTextFile(`${autosavesRoot}/${base}.md`, content);
   await writeTextFile(`${autosavesRoot}/${base}.json`, JSON.stringify(meta, null, 2));
-  await pruneOldVersions(autosavesRoot, safeKey, MAX_AUTOSAVE_VERSIONS);
+  await pruneOldVersions(autosavesRoot, safeKey, maxVersions ?? MAX_AUTOSAVE_VERSIONS);
   return { content, meta };
 };
 
 export const listDraftAutosaves = async (
   projectPath: string,
   key: string,
-  customBasePath?: string
+  customBasePath?: string,
+  maxVersions?: number,
+  retentionDays?: number,
 ): Promise<DraftAutosaveRecord[]> => {
   try {
     const autosavesRoot = await getDraftAutosavesDirPath(projectPath, customBasePath);
@@ -204,12 +211,20 @@ export const listDraftAutosaves = async (
     const entries = await readDir(autosavesRoot);
     const safeKey = sanitizeKey(key);
     const pattern = new RegExp(`^${safeKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_\\d+\\.md$`);
+    const cutoffMs = (retentionDays ?? 30) * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - cutoffMs);
+    const limit = maxVersions ?? MAX_AUTOSAVE_VERSIONS;
     const mdFiles = entries
-      .filter((e) => e.name && pattern.test(e.name))
+      .filter((e) => {
+        if (!e.name || !pattern.test(e.name)) return false;
+        const tsMatch = e.name.match(/_(\d+)\.md$/);
+        if (!tsMatch) return true;
+        return new Date(Number(tsMatch[1])) > cutoffDate;
+      })
       .map((e) => e.name!)
       .sort()
       .reverse() // neueste zuerst
-      .slice(0, MAX_AUTOSAVE_VERSIONS);
+      .slice(0, limit);
 
     const records: DraftAutosaveRecord[] = [];
     for (const name of mdFiles) {
