@@ -613,8 +613,9 @@ function buildPage({ title, description, content, nav, breadcrumb, prevNext, slu
 
     <div class="header-right">
       <nav class="header-links">
-        <a href="${SITE.github}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="https://zenpost.denisbitter.de" target="_blank" rel="noopener noreferrer">App ↗</a>
         <a href="${SITE.github}/releases" target="_blank" rel="noopener noreferrer">Download ↗</a>
+        <a href="${SITE.github}" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
       </nav>
       <button class="theme-toggle" id="themeToggle" aria-label="Farbschema wechseln">
         <span class="icon-dark">◑ Dark</span>
