@@ -611,11 +611,59 @@ function build() {
   writeFileSync(join(DIST, 'robots.txt'), robots);
   console.log(`  ✓  robots.txt`);
 
+  // .htaccess
+  const htaccess = `# ZenPost Docs — Apache config
+
+Options -Indexes
+Options +FollowSymLinks
+
+# Clean URLs: /ai/overview → /ai/overview.html
+RewriteEngine On
+RewriteBase /docs/
+
+# Skip real files and directories
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Append .html if no extension
+RewriteCond %{REQUEST_URI} !\\.(html|xml|txt|css|js|png|jpg|webp|svg|gif)$
+RewriteRule ^(.+)$ $1.html [L]
+
+# 404 → custom page
+ErrorDocument 404 /docs/index.html
+
+# Cache static assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType text/html             "access plus 1 hour"
+  ExpiresByType text/css              "access plus 1 month"
+  ExpiresByType application/javascript "access plus 1 month"
+  ExpiresByType image/png             "access plus 1 year"
+  ExpiresByType image/jpeg            "access plus 1 year"
+  ExpiresByType image/webp            "access plus 1 year"
+  ExpiresByType image/svg+xml        "access plus 1 year"
+</IfModule>
+
+# Gzip compression
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript
+</IfModule>
+
+# Security headers
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set X-Frame-Options "SAMEORIGIN"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+`;
+  writeFileSync(join(DIST, '.htaccess'), htaccess);
+  console.log(`  ✓  .htaccess`);
+
   // Copy image assets
   copyDir(join(DOCS_SRC, '_assets'), join(DIST, '_assets'));
 
   console.log(`\n✅ Done — ${pages.length} pages built to docs-dist/`);
-  console.log(`   Deploy: rsync -avz docs-dist/ user@server:/path/to/docs/\n`);
+  console.log(`   Deploy: rsync -avz docs-dist/ user@server:/var/www/zenpostapp/docs/\n`);
 }
 
 build();
