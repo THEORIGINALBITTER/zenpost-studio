@@ -119,6 +119,8 @@ export const ZenSocialMediaSettingsContent = ({
   const [scanResult, setScanResult] = useState<{ id: string; count: number } | null>(null);
   const [ftpTestState, setFtpTestState] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'error'>>({});
   const [ftpTestMsg, setFtpTestMsg] = useState<Record<string, string>>({});
+  const [phpTestState, setPhpTestState] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'error'>>({});
+  const [phpTestMsg, setPhpTestMsg] = useState<Record<string, string>>({});
   const [wizardStep, setWizardStep] = useState<'hidden' | 'name' | 'folder'>('hidden');
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
   const [wizardName, setWizardName] = useState('');
@@ -229,6 +231,36 @@ export const ZenSocialMediaSettingsContent = ({
       console.error('[FTP Test]', e);
       setFtpTestState((p) => ({ ...p, [blog.id]: 'error' }));
       setFtpTestMsg((p) => ({ ...p, [blog.id]: msg }));
+    }
+  };
+
+  const handlePhpTest = async (blog: BlogConfig) => {
+    if (!blog.phpApiUrl || !blog.phpApiKey) return;
+    setPhpTestState((p) => ({ ...p, [blog.id]: 'testing' }));
+    setPhpTestMsg((p) => ({ ...p, [blog.id]: '' }));
+    try {
+      // Derive ping.php URL from upload URL
+      const pingUrl = blog.phpApiUrl
+        .replace(/zenpost-upload\.php(\?.*)?$/, '')
+        .replace(/\/$/, '') + '/ping.php?api_key=' + encodeURIComponent(blog.phpApiKey);
+      const response = await fetch(pingUrl, { method: 'GET' });
+      if (!response.ok) {
+        setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
+        setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server antwortete mit ${response.status}` }));
+        return;
+      }
+      const json = await response.json() as { success?: boolean; version?: string; postsCount?: number };
+      if (json.success) {
+        const info = json.postsCount !== undefined ? ` — ${json.postsCount} Posts` : '';
+        setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
+        setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
+      } else {
+        setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
+        setPhpTestMsg((p) => ({ ...p, [blog.id]: 'ping.php nicht gefunden oder falscher API Key' }));
+      }
+    } catch (e) {
+      setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
+      setPhpTestMsg((p) => ({ ...p, [blog.id]: 'Endpoint nicht erreichbar' }));
     }
   };
 
@@ -1224,6 +1256,37 @@ export const ZenSocialMediaSettingsContent = ({
                           placeholder="Upload URL (z.B. https://meinserver.de/zenpostapp/zenpost-upload.php)"
                           style={{ width: '100%', padding: '6px 10px', border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
                         />
+
+                        {/* PHP Server testen */}
+                        {blog.phpApiUrl && blog.phpApiKey && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => handlePhpTest(blog)}
+                              disabled={phpTestState[blog.id] === 'testing'}
+                              style={{
+                                padding: '5px 12px', border: '1px solid rgba(172,142,102,0.5)',
+                                borderRadius: '5px', background: 'transparent',
+                                cursor: phpTestState[blog.id] === 'testing' ? 'default' : 'pointer',
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 600,
+                                opacity: phpTestState[blog.id] === 'testing' ? 0.6 : 1,
+                              }}
+                            >
+                              <FontAwesomeIcon icon={faArrowsRotate} style={{ marginRight: '5px', animation: phpTestState[blog.id] === 'testing' ? 'spin 1s linear infinite' : 'none' }} />
+                              {phpTestState[blog.id] === 'testing' ? 'Teste…' : 'Server testen'}
+                            </button>
+                            {phpTestState[blog.id] === 'ok' && (
+                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#1F8A41', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <FontAwesomeIcon icon={faCheck} />
+                                {phpTestMsg[blog.id]}
+                              </span>
+                            )}
+                            {phpTestState[blog.id] === 'error' && (
+                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#B3261E', flex: 1 }}>
+                                {phpTestMsg[blog.id]}
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {/* Lokaler Ordner für Desktop — Posts werden hier gespeichert/geöffnet */}
                         {isTauri() && (
