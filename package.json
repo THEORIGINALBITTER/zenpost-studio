@@ -10,6 +10,7 @@
     "dev": "node scripts/check-port.mjs && TAURI_DEV_HOST=127.0.0.1 vite",
     "build": "tsc && vite build",
     "build:docs": "node scripts/build-docs.js",
+    "dev:docs": "node scripts/build-docs.js && npx concurrently \"npx nodemon --watch docs --ext md,css --exec 'node scripts/build-docs.js'\" \"npx serve docs-dist -p 3456 --no-clipboard\"",
     "build:clean": "rm -rf dist src-tauri/target && npm run tauri build",
     "build:all": "bash scripts/build-all.sh",
     "release": "bash scripts/release.sh",
