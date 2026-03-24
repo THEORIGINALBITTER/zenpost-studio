@@ -77,9 +77,11 @@ function parseSidebar(sidebarPath) {
 
     const itemMatch = line.match(/^\s+- \[(.+?)\]\((.+?)\)$/);
     if (itemMatch && current) {
-      current.items.push({ label: itemMatch[1], href: itemMatch[2] });
+      const isExt = /^https?:\/\//.test(itemMatch[2]);
+      current.items.push({ label: itemMatch[1], href: itemMatch[2], ...(isExt && { external: true }) });
     }
 
+    // Top-level external links (not indented)
     const extMatch = line.match(/^- \[(.+?)\]\((https?:\/\/.+?)\)$/);
     if (extMatch) {
       if (!current) { current = { title: 'Links', items: [] }; sections.push(current); }

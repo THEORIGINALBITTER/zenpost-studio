@@ -8,8 +8,8 @@
 /* ── LIGHT MODE (default) ── */
 :root, [data-theme="light"] {
   --bg-dark:        #0d0d0d;
-  --bg-sidebar:     #111111;
-  --bg-header:      #151515;
+  --bg-sidebar:     #1a1a1a;
+  --bg-header:      #1a1a1a;
   --bg-content:     linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%);
   --gold:           #AC8E66;
   --gold-dim:       rgba(172,142,102,0.35);
