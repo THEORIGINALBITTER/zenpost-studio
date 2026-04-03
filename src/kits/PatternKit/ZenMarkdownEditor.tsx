@@ -16,6 +16,8 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
+import { ZenNotePanel } from './ZenNotePanel';
+import { faNoteSticky } from '@fortawesome/free-solid-svg-icons';
 import { textToMarkdown } from '../../services/aiService';
 import { isTauri } from '@tauri-apps/api/core';
 import {
@@ -23,6 +25,8 @@ import {
   EDITOR_IMAGE_MAX_FILE_SIZE_MB,
   isEditorImageOversized,
 } from '../../utils/editorImageCompression';
+import { uploadCloudDocument } from '../../services/cloudStorageService';
+import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -42,6 +46,7 @@ interface ZenMarkdownEditorProps {
 
   onTitleChange?: (title: string) => void;
   onSubtitleChange?: (subtitle: string) => void;
+  showZenNoteButton?: boolean;
 }
 
 interface ToolbarButton {
@@ -79,7 +84,10 @@ export const ZenMarkdownEditor = ({
   theme = 'light',
   focusLineRequest = null,
   onActiveLineChange,
+  onTitleChange,
+  showZenNoteButton = false,
 }: ZenMarkdownEditorProps) => {
+  const [showZenNotePanel, setShowZenNotePanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -189,6 +197,8 @@ export const ZenMarkdownEditor = ({
   const [activeLine, setActiveLine] = useState(0);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
   const handledFocusTokenRef = useRef<number | null>(null);
+  const lastCursorPosRef = useRef<number>(0);
+  const lastScrollTopRef = useRef<number>(0);
 
   const [lineMetrics, setLineMetrics] = useState({ lineHeight: 19, paddingTop: 12 });
 
@@ -229,6 +239,38 @@ export const ZenMarkdownEditor = ({
       paddingTop: Number.isNaN(paddingTop) ? 12 : paddingTop,
     });
   }, []);
+
+  // Insert-Bridge: ZenNote Studio → einfügen an Cursor-Position
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const snippet = (e as CustomEvent<{ content: string }>).detail?.content;
+      if (!snippet) return;
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        // Fallback: ans Ende anhängen
+        onChange(value + '\n\n' + snippet);
+        return;
+      }
+      // After focus loss selectionStart resets to 0 — use last known position
+      const rawStart = textarea.selectionStart;
+      const start = rawStart > 0 ? rawStart : lastCursorPosRef.current;
+      const end = rawStart > 0 ? textarea.selectionEnd : lastCursorPosRef.current;
+      const savedScrollTop = lastScrollTopRef.current;
+      const newValue = value.slice(0, start) + '\n\n' + snippet + '\n\n' + value.slice(end);
+      onChange(newValue);
+      setTimeout(() => {
+        textarea.focus();
+        const pos = start + snippet.length + 4;
+        textarea.setSelectionRange(pos, pos);
+        textarea.scrollTop = savedScrollTop;
+        if (showLineNumbers && lineNumbersRef.current) {
+          lineNumbersRef.current.scrollTop = savedScrollTop;
+        }
+      }, 0);
+    };
+    window.addEventListener('zenpost:insert-snippet', handler);
+    return () => window.removeEventListener('zenpost:insert-snippet', handler);
+  }, [value, onChange]);
 
   useEffect(() => {
     if (!focusLineRequest) return;
@@ -748,6 +790,13 @@ const makeStrikethrough = () => insertText('~~', '~~');
       ]
     },
     { id: 'quote', label: 'Quote', icon: faQuoteRight, description: 'Zitat', action: makeQuote },
+    ...(showZenNoteButton ? [{
+      id: 'zennote',
+      label: 'ZenNote',
+      icon: faNoteSticky,
+      description: 'Notiz aus ZenNote einfügen',
+      action: () => setShowZenNotePanel((v) => !v),
+    }] : []),
   ];
 
   // Filter commands based on user input
@@ -1103,6 +1152,25 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       }
 
       const lines: string[] = [];
+      const cloudSettings = loadZenStudioSettings();
+      const canCloudUpload = !!(cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId);
+
+      if (canCloudUpload) {
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const uploaded = await uploadCloudDocument(imageFile);
+          if (uploaded?.url) {
+            lines.push(`![${safeStem}](${uploaded.url})`);
+          }
+        }
+        if (lines.length > 0) {
+          setFormatError(null);
+          appendImageMarkdown(lines);
+          return;
+        }
+        setFormatError('Cloud Upload fehlgeschlagen – verwende lokalen Speicher.');
+      }
+
       if (isTauri()) {
         // Tauri: neben Dokument oder ~/Documents/zenpost-images/, kein Canvas
         const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
@@ -1176,17 +1244,42 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       {showHeader && (title || subtitle) && (
         <div style={{ marginBottom: '16px' }}>
           {title && (
-            <h2
-              style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '16px',
-                color: '#e5e5e5',
-                margin: 0,
-                marginBottom: subtitle ? '6px' : 0,
-              }}
-            >
-              {title}
-            </h2>
+            onTitleChange ? (
+              <input
+                value={title}
+                onChange={(e) => onTitleChange(e.target.value)}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '16px',
+                  color: '#e5e5e5',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '1px solid transparent',
+                  outline: 'none',
+                  margin: 0,
+                  marginBottom: subtitle ? '6px' : 0,
+                  display: 'block',
+                  width: '100%',
+                  padding: '2px 0',
+                  cursor: 'text',
+                  transition: 'border-color 0.15s',
+                }}
+                onFocus={(e) => { e.currentTarget.style.borderBottomColor = '#AC8E66'; }}
+                onBlur={(e) => { e.currentTarget.style.borderBottomColor = 'transparent'; }}
+              />
+            ) : (
+              <h2
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '16px',
+                  color: '#e5e5e5',
+                  margin: 0,
+                  marginBottom: subtitle ? '6px' : 0,
+                }}
+              >
+                {title}
+              </h2>
+            )
           )}
           {subtitle && (
             <p
@@ -1345,6 +1438,10 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       position: 'relative',
     }}
   >
+      {/* ZenNote Panel overlay */}
+      {showZenNotePanel && (
+        <ZenNotePanel onClose={() => setShowZenNotePanel(false)} />
+      )}
   {/* Active line highlight Hintegrund wo man schreibt  */}
   <div
     style={{
@@ -1415,13 +1512,17 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             onFocus={() => {
   setTimeout(updateActiveLine, 0);
 }}
-onClick={() => {
+onClick={(e) => {
+  lastCursorPosRef.current = (e.currentTarget as HTMLTextAreaElement).selectionStart;
   setTimeout(updateActiveLine, 0);
 }}
-onKeyUp={() => {
+onKeyUp={(e) => {
+  lastCursorPosRef.current = (e.currentTarget as HTMLTextAreaElement).selectionStart;
   setTimeout(updateActiveLine, 0);
 }}
-            onBlur={() => {
+            onBlur={(e) => {
+              lastCursorPosRef.current = e.currentTarget.selectionStart;
+              lastScrollTopRef.current = e.currentTarget.scrollTop;
               setTimeout(() => {
                 setShowToolbar(false);
                 setShowCommandMenu(false);
@@ -1501,7 +1602,6 @@ onKeyUp={() => {
 
           {/* Right Side: Character Count */}
           <div className="flex items-center gap-3 mr-[10px] mt-[3px]">
-            {/* Character Count */}
             {showCharCount && (
               <span className="text-[#AC8E66] font-mono text-[10px]">
                 {value.length} <span className="text-[#777]">Zeichen</span>

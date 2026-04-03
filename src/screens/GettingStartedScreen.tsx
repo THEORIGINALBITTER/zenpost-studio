@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useOpenExternal } from '../hooks/useOpenExternal';
 import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
+import { listCloudDocuments } from '../services/cloudStorageService';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -12,6 +13,7 @@ import {
   faFileLines,
   faFolderOpen,
   faMobileScreen,
+  faNoteSticky,
   faPencil,
   faQrcode,
   faServer,
@@ -41,6 +43,7 @@ interface GettingStartedScreenProps {
   onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site') => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
+  onOpenZenNote?: () => void;
   onOpenMobileInbox?: () => void;
   onOpenMobileSettings?: () => void;
   onOpenApiSettings?: () => void;
@@ -49,7 +52,7 @@ interface GettingStartedScreenProps {
   onOpenServerArticle?: (slug: string) => void;
 }
 
-type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile';
+type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile' | 'zen-note';
 const MOBILE_DEV_BLOG_URL = 'https://zenpostapp.denisbitter.de';
 const MOBILE_DEV_BLOG_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_DEV_BLOG_URL)}`;
 
@@ -148,6 +151,7 @@ export function GettingStartedScreen({
   onOpenDocStudioWizard,
   onOpenContentAI,
   onOpenConverter,
+  onOpenZenNote,
   onOpenMobileInbox,
   onOpenMobileSettings,
   onOpenApiSettings,
@@ -172,6 +176,8 @@ export function GettingStartedScreen({
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
   const [deleteToast, setDeleteToast] = useState<string | null>(null);
   const [devBlogQrSrc, setDevBlogQrSrc] = useState(MOBILE_DEV_BLOG_QR_FALLBACK_SRC);
+  const [zenNoteRecent, setZenNoteRecent] = useState<Array<{ id: number; title: string; tag: string; folder: string }>>([]);
+  const [zenNoteRecentLoading, setZenNoteRecentLoading] = useState(false);
 
   const getFriendlyServerError = (rawError: string | null): string => {
     if (!rawError) return '';
@@ -288,6 +294,33 @@ export function GettingStartedScreen({
   }, []);
 
   useEffect(() => {
+    if (activeStudio !== 'zen-note') return;
+    const settings = loadZenStudioSettings();
+    const projectId = settings.cloudProjectId;
+    if (!projectId) return;
+    setZenNoteRecentLoading(true);
+    listCloudDocuments(projectId).then((docs) => {
+      if (!docs) { setZenNoteRecentLoading(false); return; }
+      const parsed = docs
+        .filter((d) => d.fileName.endsWith('.zennote'))
+        .map((d) => {
+          const base = d.fileName.replace(/\.zennote$/, '');
+          let folder = '';
+          let rest = base;
+          const atIdx = base.indexOf('@@');
+          if (atIdx !== -1) { folder = base.slice(0, atIdx); rest = base.slice(atIdx + 2); }
+          const sep = rest.lastIndexOf('__');
+          const tag = sep !== -1 && /^[a-zA-Z0-9_-]+$/.test(rest.slice(sep + 2)) ? rest.slice(sep + 2) : '';
+          const title = sep !== -1 && tag ? rest.slice(0, sep) : rest;
+          return { id: d.id, title, tag, folder };
+        })
+        .slice(0, 8);
+      setZenNoteRecent(parsed);
+      setZenNoteRecentLoading(false);
+    });
+  }, [activeStudio]);
+
+  useEffect(() => {
     let isMounted = true;
     void QRCode.toDataURL(MOBILE_DEV_BLOG_URL, {
       margin: 1,
@@ -342,16 +375,16 @@ export function GettingStartedScreen({
       shortLabel: 'Doc Studio',
       description: 'Technische Dokumentation, README und Code-Doku erstellen',
       useCases: [
+          {
+          title: 'Dokumenten Dahsboard',
+          description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
+          icon: faFolderOpen,
+          action: () => onOpenDocStudio?.(),
+        },
         {
           title: 'Code dokumentieren',
           description: 'README, API-Docs, Changelog und technische Doku erstellen',
           icon: faBook,
-          action: () => onOpenDocStudio?.(),
-        },
-        {
-          title: 'Dokumente verwalten',
-          description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
-          icon: faFolderOpen,
           action: () => onOpenDocStudio?.(),
         },
         {
@@ -363,8 +396,22 @@ export function GettingStartedScreen({
       ],
     },
     {
+      id: 'zen-note',
+      label: 'ZenNote',
+      shortLabel: 'ZenNote',
+      description: 'Cloud-Notizen & Code-Snippets — direkt in den Editor einfügen',
+      useCases: [
+        {
+          title: 'Notizen & Snippets',
+          description: 'Markdown-Notizen und Code-Snippets in der Cloud speichern',
+          icon: faNoteSticky,
+          action: () => onOpenZenNote?.(),
+        },
+      ],
+    },
+    {
       id: 'converter',
-      label: 'Converter',
+      label: 'Zen Converter',
       shortLabel: 'Converter',
       description: 'Dateiformate bereinigen, konvertieren und transformieren',
       useCases: [
@@ -415,19 +462,21 @@ export function GettingStartedScreen({
           }}
         >
           Was möchtest du heute machen?
-        </p>
-
-        <p style={{
+          <br />
+           <span style={{
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '11px',
-          fontWeight: 400,
-          color: '#AC8E66',
+          fontWeight: 100,
+          color: '#d0cbb8',
           letterSpacing: '0.3px',
-          margin: '0 0 0 15px',
+          margin: '0 0 0 0px',
           padding: 0,
         }}>
-          1× schreiben · 9× transformieren · lokal · deine KI
+          1mal schreiben · 9mal transformieren · lokal · deine KI
+        </span>
         </p>
+
+       
 
         <ZenThoughtLine
           thoughts={zenStudioSettings.thoughts}
@@ -783,6 +832,72 @@ export function GettingStartedScreen({
                     color: '#1F6F3F',
                   }}>
                     {deleteToast}
+                  </div>
+                )}
+
+                {/* ZenNote recent list */}
+                {activeStudio === 'zen-note' && (
+                  <div style={{
+                    border: '0.5px solid rgba(172,142,102,0.3)',
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    background: 'rgba(255,255,255,0.3)',
+                  }}>
+                    <div style={{
+                      padding: '10px 16px',
+                      borderBottom: '0.5px solid rgba(172,142,102,0.2)',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '9px',
+                      color: '#7a7060',
+                      letterSpacing: '0.08em',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}>
+                      <FontAwesomeIcon icon={faNoteSticky} style={{ color: '#AC8E66', fontSize: 10 }} />
+                      LETZTE NOTIZEN
+                      {zenNoteRecentLoading && <FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: 9, color: '#AC8E66' }} />}
+                    </div>
+                    {zenNoteRecent.length === 0 && !zenNoteRecentLoading ? (
+                      <div style={{ padding: '12px 16px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#aaa' }}>
+                        {loadZenStudioSettings().cloudProjectId ? 'Keine Notizen vorhanden' : 'Nicht eingeloggt — ZenCloud in Einstellungen konfigurieren'}
+                      </div>
+                    ) : (
+                      zenNoteRecent.map((note) => (
+                        <button
+                          key={note.id}
+                          onClick={() => onOpenZenNote?.()}
+                          style={{
+                            width: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 10,
+                            padding: '9px 16px',
+                            background: 'transparent',
+                            border: 'none',
+                            borderBottom: '0.5px solid rgba(172,142,102,0.12)',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.08)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                        >
+                          <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 11, color: '#AC8E66', flexShrink: 0 }} />
+                          <span style={{ flex: 1, fontSize: '10px', color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {note.folder ? <span style={{ color: '#AC8E66', marginRight: 4 }}>{note.folder} /</span> : null}
+                            {note.title}
+                          </span>
+                          {note.tag && (
+                            <span style={{ fontSize: '8px', color: '#7a7060', background: 'rgba(172,142,102,0.15)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>
+                              {note.tag}
+                            </span>
+                          )}
+                          <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: 9, color: '#AC8E66', opacity: 0.5, flexShrink: 0 }} />
+                        </button>
+                      ))
+                    )}
                   </div>
                 )}
 
