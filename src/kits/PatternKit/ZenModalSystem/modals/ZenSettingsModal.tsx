@@ -12,31 +12,35 @@ import { ZenMobileSettingsContent } from './components/ZenMobileSettingsContent'
 import { ZenApiSettingsContent } from './components/ZenApiSettingsContent';
 import { ZenEngineSettingsContent } from './components/ZenEngineSettingsContent';
 import { ZenNewsletterSettingsContent } from './components/ZenNewsletterSettingsContent';
+import { ZenConverterSettingsContent } from './components/ZenConverterSettingsContent';
+import { ZenCloudSettingsContent } from './components/ZenCloudSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope, faArrowsRotate, faCloud } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: () => void;
-  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile';
+  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud';
   defaultSocialTab?: 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
   showMissingSocialHint?: boolean;
   missingSocialLabel?: string;
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter' | 'converter' | 'cloud';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'ai', label: 'AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
   { id: 'api', label: 'Server API', icon: faPlug },
+  { id: 'cloud', label: 'Zen Post Login', icon: faCloud },
   { id: 'social', label: 'Media Transformation', icon: faShareNodes },
   { id: 'editor', label: 'Editor', icon: faPenNib },
   { id: 'mobile', label: 'Mobile APP', icon: faMobileScreen },
   { id: 'zenengine', label: 'ZenEngine', icon: faBolt },
   { id: 'newsletter', label: 'Newsletter', icon: faEnvelope },
+  { id: 'converter', label: 'Converter', icon: faArrowsRotate },
   { id: 'zenstudio', label: 'ZenGedanken', icon: faLightbulb },
   { id: 'license', label: 'Lizenz', icon: faIdCard },
 ];
@@ -127,7 +131,8 @@ export const ZenSettingsModal = ({
           {/* Backup — oben in Sidebar */}
           <div style={{ padding: '8px 10px 10px', borderBottom: '1px solid rgba(172,142,102,0.25)' }}>
             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#d0cbb8', marginBottom: 5, 
-              letterSpacing: '0.12em', fontWeight: 600 }}>Alle Einstellungen sichern</div>
+              letterSpacing: '0.12em', fontWeight: 600 }}>
+        Einstellungen sichern</div>
             <button
               onClick={handleExportAll}
               style={{ width: '100%', padding: '6px 10px', marginBottom: 4, background: 'transparent', border: '1px solid rgba(172,142,102,0.45)', borderRadius: 4, color: '#C8A87A', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, cursor: 'pointer', textAlign: 'left' }}
@@ -225,6 +230,7 @@ export const ZenSettingsModal = ({
           )}
           {activeTab === 'localai' && <ZenLocalAISetupContent />}
           {activeTab === 'api' && <ZenApiSettingsContent />}
+          {activeTab === 'cloud' && <ZenCloudSettingsContent />}
           {activeTab === 'social' && (
             <ZenSocialMediaSettingsContent
               initialTab={defaultSocialTab}
@@ -239,6 +245,7 @@ export const ZenSettingsModal = ({
           )}
           {activeTab === 'zenengine' && <ZenEngineSettingsContent />}
           {activeTab === 'newsletter' && <ZenNewsletterSettingsContent />}
+          {activeTab === 'converter' && <ZenConverterSettingsContent />}
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

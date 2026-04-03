@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
-import { readTextFile, writeTextFile, writeFile, exists, mkdir } from '@tauri-apps/plugin-fs';
+import { readFile, readTextFile, writeTextFile, writeFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { join } from '@tauri-apps/api/path';
 import {
@@ -57,6 +57,8 @@ import {
 } from '../services/zenStudioSettingsService';
 import { ftpUpload } from '../services/ftpService';
 import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../services/phpBlogService';
+import { uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
+import { isCloudProjectPath } from '../services/cloudProjectService';
 import ZenEngine from '../services/zenEngineService';
 
 interface PlatformOption {
@@ -174,6 +176,7 @@ interface ContentTransformScreenProps {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      activeTabDisplayPath?: string;
       activeTabSubtitle?: string;
       activeTabImageUrl?: string;
       tags?: string[];
@@ -198,6 +201,7 @@ type ContentDocTab = {
   title: string;
   kind: 'draft' | 'file' | 'article' | 'derived';
   filePath?: string;
+  displayPath?: string;
   articleId?: string;
   platform?: ContentPlatform;
 };
@@ -240,6 +244,52 @@ const normalizeDateForInput = (rawDate?: string): string => {
   const parsed = new Date(trimmed);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toISOString().slice(0, 10);
+};
+
+/**
+ * Fügt oder aktualisiert einzelne YAML-Frontmatter-Felder im Content.
+ * Bestehende Felder die NICHT in `updates` sind bleiben unberührt (z.B. readingTime, slug).
+ * Wert `null` = Feld aus Frontmatter entfernen.
+ */
+const mergeFrontmatterFields = (content: string, updates: Record<string, string | null>): string => {
+  const hasFm = /^---\n/.test(content);
+  if (!hasFm) {
+    const entries = Object.entries(updates).filter(([, v]) => v !== null && v !== '');
+    if (entries.length === 0) return content;
+    const lines = entries.map(([k, v]) => `${k}: "${(v as string).replace(/"/g, '\\"')}"`);
+    return `---\n${lines.join('\n')}\n---\n\n${content}`;
+  }
+  let result = content;
+  for (const [key, value] of Object.entries(updates)) {
+    const existing = new RegExp(`^${key}:.*$`, 'm').test(result);
+    if (value === null || value === '') {
+      // Remove field if empty
+      result = result.replace(new RegExp(`^${key}:[^\n]*\n?`, 'm'), '');
+    } else if (existing) {
+      // Update existing field
+      result = result.replace(new RegExp(`^(${key}:\\s*).*$`, 'm'), `${key}: "${value.replace(/"/g, '\\"')}"`);
+    } else {
+      // Insert before closing ---
+      result = result.replace(/^(---\n[\s\S]*?)(^---)/m, `$1${key}: "${value.replace(/"/g, '\\"')}"\n$2`);
+    }
+  }
+  return result;
+};
+
+/** Schreibt alle Metadaten-Felder in den YAML-Frontmatter des Contents */
+const buildContentWithMeta = (content: string, meta: PostMeta): string => {
+  const lines: string[] = [];
+  if (meta.title) lines.push(`title: "${meta.title.replace(/"/g, '\\"')}"`);
+  if (meta.subtitle) lines.push(`subtitle: "${meta.subtitle.replace(/"/g, '\\"')}"`);
+  if (meta.imageUrl) lines.push(`coverImage: "${meta.imageUrl.replace(/"/g, '\\"')}"`);
+  if (meta.date) lines.push(`date: ${meta.date}`);
+  if (meta.tags.length > 0) {
+    lines.push(`tags: [${meta.tags.join(', ')}]`);
+    lines.push(`keywords: ${meta.tags.join(', ')}`);
+  }
+  const bodyWithoutFm = content.replace(/^---\n[\s\S]*?\n---\n*/, '');
+  if (lines.length === 0) return bodyWithoutFm;
+  return `---\n${lines.join('\n')}\n---\n\n${bodyWithoutFm}`;
 };
 
 const extractPostMetaFromContent = (
@@ -289,9 +339,11 @@ const loadMetaFromManifest = async (filePath: string): Promise<Partial<PostMeta>
     const manifest = JSON.parse(raw) as { posts?: Array<Record<string, unknown>> };
     if (!Array.isArray(manifest.posts)) return null;
     const fileName = parts[parts.length - 1].replace(/\.md$/i, '');
-    const entry = manifest.posts.find(
-      (p) => typeof p.slug === 'string' && (p.slug === fileName || p.slug === fileName.toLowerCase())
-    );
+    const entry = manifest.posts.find((p) => {
+      const slug = typeof p.slug === 'string' ? p.slug : '';
+      const localFileName = typeof p.localFileName === 'string' ? p.localFileName.replace(/\.md$/i, '') : '';
+      return slug === fileName || slug === fileName.toLowerCase() || localFileName === fileName;
+    });
     if (!entry) return null;
     return {
       title: typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : undefined,
@@ -363,6 +415,76 @@ const isInlineOrBlobImageUrl = (value?: string): boolean => {
   const candidate = (value ?? '').trim();
   if (!candidate) return false;
   return /^data:image\//i.test(candidate) || /^blob:/i.test(candidate) || candidate.startsWith('opfs://');
+};
+
+const isLocalFilesystemImageUrl = (value?: string): boolean => {
+  const candidate = (value ?? '').trim();
+  if (!candidate) return false;
+  if (/^https?:\/\//i.test(candidate)) return false;
+  if (/^data:image\//i.test(candidate)) return false;
+  if (/^blob:/i.test(candidate)) return false;
+  if (candidate.startsWith('opfs://')) return false;
+  if (candidate.startsWith('asset://')) return false;
+  if (candidate.startsWith('file://')) return true;
+  if (/^[a-zA-Z]:[\\/]/.test(candidate)) return true;
+  return candidate.startsWith('/');
+};
+
+const normalizeLocalImagePath = (rawPath: string): string =>
+  rawPath.replace(/^file:\/\//i, '');
+
+const inferImageMimeTypeFromPath = (pathValue: string): string => {
+  const normalized = pathValue.split('?')[0].split('#')[0].toLowerCase();
+  if (normalized.endsWith('.png')) return 'image/png';
+  if (normalized.endsWith('.webp')) return 'image/webp';
+  if (normalized.endsWith('.gif')) return 'image/gif';
+  if (normalized.endsWith('.bmp')) return 'image/bmp';
+  if (normalized.endsWith('.svg')) return 'image/svg+xml';
+  if (normalized.endsWith('.avif')) return 'image/avif';
+  return 'image/jpeg';
+};
+
+const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...chunk);
+  }
+  return btoa(binary);
+};
+
+const localImagePathToDataUrl = async (rawPath: string): Promise<string> => {
+  const normalizedPath = normalizeLocalImagePath(rawPath);
+  const bytes = await readFile(normalizedPath);
+  const mimeType = inferImageMimeTypeFromPath(normalizedPath);
+  return `data:${mimeType};base64,${uint8ArrayToBase64(bytes)}`;
+};
+
+const extractMarkdownImageUrls = (markdown: string): string[] => {
+  const urls: string[] = [];
+  const mdRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+  const htmlRe = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = mdRe.exec(markdown)) !== null) {
+    const raw = (match[1] ?? '').trim();
+    if (raw) urls.push(raw);
+  }
+  while ((match = htmlRe.exec(markdown)) !== null) {
+    const raw = (match[1] ?? '').trim();
+    if (raw) urls.push(raw);
+  }
+  return urls;
+};
+
+const replaceMarkdownImageUrls = (markdown: string, map: Map<string, string>): string => {
+  let next = markdown;
+  map.forEach((replacement, original) => {
+    const safeOriginal = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    next = next.replace(new RegExp(`(!\\[[^\\]]*\\]\\()${safeOriginal}(\\))`, 'g'), `$1${replacement}$2`);
+    next = next.replace(new RegExp(`(<img\\b[^>]*\\bsrc=["'])${safeOriginal}(["'][^>]*>)`, 'gi'), `$1${replacement}$2`);
+  });
+  return next;
 };
 
 const normalizeServerUrlValue = (url: string): string => (
@@ -903,8 +1025,11 @@ export const ContentTransformScreen = ({
     () => contentTransformSessionCache?.postMetaByTab ?? {}
   );
   const [analysisKeywords, setAnalysisKeywords] = useState<string[]>([]);
+  const pendingContentOwnerTabIdRef = useRef<string | null>(null);
+  const lastProgrammaticLoadAtRef = useRef<number>(0);
 
   const handleMetaChange = useCallback((newMeta: PostMeta) => {
+    postMetaRef.current = newMeta;
     setPostMeta(prev => {
       if (JSON.stringify(prev.tags) !== JSON.stringify(newMeta.tags)) {
         setSourceContent(sc => upsertFrontmatterTags(sc, newMeta.tags));
@@ -925,6 +1050,8 @@ export const ContentTransformScreen = ({
     () => contentTransformSessionCache?.activeDocTabId ?? null
   );
   const activeDocTabIdRef = useRef<string | null>(null);
+  const openDocTabsRef = useRef<ContentDocTab[]>([]);
+  const docTabContentsRef = useRef<Record<string, string>>({});
   const [docTabContents, setDocTabContents] = useState<Record<string, string>>(
     () => contentTransformSessionCache?.docTabContents ?? {}
   );
@@ -946,6 +1073,7 @@ export const ContentTransformScreen = ({
     }
     return { ...defaultEditorSettings };
   });
+  const postMetaRef = useRef<PostMeta>(EMPTY_POST_META);
   const lastAutosaveRef = useRef<Record<string, string>>({});
   const [step1AutosaveStatus, setStep1AutosaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [step1AutosaveAt, setStep1AutosaveAt] = useState<string | null>(null);
@@ -967,6 +1095,7 @@ export const ContentTransformScreen = ({
       activeTabKind: resolvedTab?.kind,
       activeTabFilePath: resolvedTab?.filePath,
       activeTabTitle: resolvedTab?.title,
+      activeTabDisplayPath: resolvedTab?.displayPath ?? resolvedTab?.filePath ?? null,
       activeTabSubtitle: postMeta.subtitle || undefined,
       activeTabImageUrl: postMeta.imageUrl || undefined,
       tags: postMeta.tags,
@@ -976,6 +1105,14 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     activeDocTabIdRef.current = activeDocTabId;
   }, [activeDocTabId]);
+
+  useEffect(() => {
+    openDocTabsRef.current = openDocTabs;
+  }, [openDocTabs]);
+
+  useEffect(() => {
+    docTabContentsRef.current = docTabContents;
+  }, [docTabContents]);
 
   useEffect(() => {
     if (!activeDocTabId) return;
@@ -1271,7 +1408,7 @@ export const ContentTransformScreen = ({
         setOpenDocTabs((prev) =>
           prev.map((tab) =>
             tab.id === activeDocTabId
-              ? { ...tab, kind: 'file' as const, filePath, title: savedName }
+              ? { ...tab, kind: 'file' as const, filePath, displayPath: filePath, title: savedName }
               : tab
           )
         );
@@ -1346,6 +1483,15 @@ export const ContentTransformScreen = ({
     }
 
     const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
+    const activeDisplayPath = activeTab?.displayPath ?? activeTab?.filePath ?? projectPath ?? null;
+
+    // ── Cloud-Projekt: Upload zu ZenPost Cloud Storage ──
+    if (activeDisplayPath && isCloudProjectPath(activeDisplayPath)) {
+      const suggestedName = (activeTab?.title || fileName || 'Entwurf').trim().replace(/\.md$/i, '');
+      setCloudSaveInputName(suggestedName);
+      setCloudSaveDialog({ content: contentToSave, suggestedName });
+      return;
+    }
 
     // Blog-aware save: write to posts/ + update manifest.json
     if (isTauri() && blogSaveTarget && (!activeTab || activeTab.kind !== 'file')) {
@@ -1373,8 +1519,14 @@ export const ContentTransformScreen = ({
         const readingTime = Math.max(1, Math.round(wordCount / 220));
         const postsDir = await join(blogSaveTarget.path, 'posts');
         if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
-        // If meta image is base64, extract and save as image file next to the post
+        // If meta image is base64 or local path, extract and save as image file next to the post
         let coverImageValue = postMeta.imageUrl.trim();
+        let localCoverImagePath: string | null = null;
+        if (coverImageValue && isTauri() && isLocalFilesystemImageUrl(coverImageValue)) {
+          localCoverImagePath = normalizeLocalImagePath(coverImageValue);
+          const fileName = localCoverImagePath.split(/[\\/]/).pop() || `${slug}-cover.jpg`;
+          coverImageValue = `_assets/${fileName}`;
+        }
         if (coverImageValue && /^data:image\//i.test(coverImageValue)) {
           try {
             const assetsDir = await join(postsDir, '_assets');
@@ -1392,6 +1544,87 @@ export const ContentTransformScreen = ({
             console.warn('[ZenPost] Cover-Bild konnte nicht als Datei gespeichert werden:', imgErr);
           }
         }
+        // Inline editor images: local paths/data URLs -> _assets (and upload on FTP/PHP)
+        let processedContent = actualContent;
+        const assetsToUpload: Array<{ localPath: string; fileName: string }> = [];
+        if (isTauri()) {
+          const assetsDir = await join(postsDir, '_assets');
+          if (!(await exists(assetsDir))) await mkdir(assetsDir, { recursive: true });
+          const imageUrls = extractMarkdownImageUrls(actualContent);
+          const replacements = new Map<string, string>();
+          let imgIndex = 1;
+          const phpCfg = (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey)
+            ? { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey }
+            : null;
+
+          for (const rawUrl of imageUrls) {
+            if (replacements.has(rawUrl)) continue;
+            let dataUrl: string | null = null;
+            let localPath: string | null = null;
+            let ext = '';
+
+            if (/^data:image\//i.test(rawUrl)) {
+              dataUrl = rawUrl;
+              const extM = rawUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);/i);
+              ext = extM?.[1]?.toLowerCase() === 'jpeg' ? 'jpg' : (extM?.[1] ?? 'jpg');
+            } else if (rawUrl.startsWith('opfs://')) {
+              try {
+                const { loadOpfsImageAsBlobUrl } = await import('../utils/editorImageCompression');
+                const blobUrl = await loadOpfsImageAsBlobUrl(rawUrl);
+                dataUrl = await blobUrlToDataImageUrl(blobUrl);
+                URL.revokeObjectURL(blobUrl);
+              } catch {
+                dataUrl = null;
+              }
+              const extM = dataUrl?.match(/^data:image\/([a-zA-Z0-9.+-]+);/i);
+              ext = extM?.[1]?.toLowerCase() === 'jpeg' ? 'jpg' : (extM?.[1] ?? 'jpg');
+            } else if (rawUrl.startsWith('_assets/')) {
+              localPath = await join(postsDir, rawUrl);
+              ext = (localPath.split('.').pop() ?? 'jpg').toLowerCase();
+            } else if (isLocalFilesystemImageUrl(rawUrl)) {
+              localPath = normalizeLocalImagePath(rawUrl);
+              ext = (localPath.split('.').pop() ?? 'jpg').toLowerCase();
+              try {
+                dataUrl = await localImagePathToDataUrl(localPath);
+              } catch {
+                dataUrl = null;
+              }
+            }
+
+            if (!dataUrl && !localPath) continue;
+
+            const baseName = `img-${slug}-${imgIndex}.${ext || 'jpg'}`;
+            imgIndex += 1;
+
+            if (phpCfg && dataUrl) {
+              const uploadedUrl = await phpBlogImageUpload(dataUrl, baseName, phpCfg);
+              if (!uploadedUrl) {
+                throw new Error('Bild-Upload fehlgeschlagen (PHP).');
+              }
+              replacements.set(rawUrl, uploadedUrl);
+              continue;
+            }
+
+            // Local/FTP path: ensure file exists in _assets and link relatively
+            const targetPath = await join(assetsDir, baseName);
+            if (dataUrl) {
+              const base64Data = dataUrl.split(',')[1] ?? '';
+              const binaryStr = atob(base64Data);
+              const bytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+              await writeFile(targetPath, bytes);
+            } else if (localPath) {
+              const bytes = await readFile(localPath);
+              await writeFile(targetPath, bytes);
+            }
+            assetsToUpload.push({ localPath: targetPath, fileName: baseName });
+            replacements.set(rawUrl, `_assets/${baseName}`);
+          }
+
+          if (replacements.size > 0) {
+            processedContent = replaceMarkdownImageUrls(actualContent, replacements);
+          }
+        }
         const fmLines = [
           '---',
           `title: "${titleText.replace(/"/g, '\\"')}"`,
@@ -1403,7 +1636,7 @@ export const ContentTransformScreen = ({
           '---', '', '',
         ].filter((l): l is string => l !== null).join('\n');
         const filePath = await join(postsDir, localFilename);
-        await writeTextFile(filePath, fmLines + actualContent);
+        await writeTextFile(filePath, fmLines + processedContent);
         // Update manifest.json
         const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
         let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
@@ -1424,7 +1657,7 @@ export const ContentTransformScreen = ({
             }
           } catch { /* server fetch non-fatal */ }
         }
-        const entry: Record<string, unknown> = { slug, title: titleText, date, readingTime };
+        const entry: Record<string, unknown> = { slug, title: titleText, date, readingTime, localFileName: localFilename };
         if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
         if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
         if (coverImageValue) entry.coverImage = coverImageValue;
@@ -1442,6 +1675,22 @@ export const ContentTransformScreen = ({
             remotePath: blogRoot + '/posts/',
             protocol: blogSaveTarget.ftpProtocol ?? 'ftp',
           };
+          let ftpImageErr: string | null = null;
+          if (localCoverImagePath) {
+            const imageFileName = coverImageValue.replace(/^_assets\//, '') || `cover-${slug}.jpg`;
+            ftpImageErr = await ftpUpload(localCoverImagePath, imageFileName, {
+              ...ftpConfig,
+              remotePath: blogRoot + '/_assets/',
+            });
+          }
+          for (const asset of assetsToUpload) {
+            await ftpUpload(asset.localPath, asset.fileName, {
+              ...ftpConfig,
+              remotePath: blogRoot + '/_assets/',
+            }).catch((err) => {
+              if (!ftpImageErr) ftpImageErr = err;
+            });
+          }
           const ftpErr = await ftpUpload(filePath, `${slug}.md`, ftpConfig);
           // Also upload manifest.json so server stays in sync
           if (!ftpErr) {
@@ -1466,9 +1715,14 @@ export const ContentTransformScreen = ({
             setSavedFilePaths([
               `Blog: ${blogSaveTarget.name}`,
               `FTP: ${blogSaveTarget.ftpHost}${blogRoot}/posts/${slug}.md`,
+              ...(ftpImageErr ? [`Bild: Upload fehlgeschlagen (${ftpImageErr})`] : []),
               ...(viewUrl ? [`Ansicht: ${viewUrl}`] : []),
             ]);
-            setSaveSuccessMessage('Artikel lokal gespeichert und per FTP hochgeladen.');
+            setSaveSuccessMessage(
+              ftpImageErr
+                ? `Artikel lokal gespeichert und per FTP hochgeladen. Bild-Upload fehlgeschlagen: ${ftpImageErr}`
+                : 'Artikel lokal gespeichert und per FTP hochgeladen.'
+            );
             setSaveSuccessPathsLabel('Details:');
             setSaveSuccessPrimaryActionLabel(viewUrl ? 'Im Blog anschauen' : undefined);
             setSaveSuccessPrimaryActionUrl(viewUrl ?? null);
@@ -1493,7 +1747,7 @@ export const ContentTransformScreen = ({
             }
           }
           const phpErr = await phpBlogUpload(
-            { filename: `${slug}.md`, content: fmLines + actualContent, manifest },
+            { filename: `${slug}.md`, content: fmLines + processedContent, manifest },
             phpCfg,
           );
           const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/#/post/${slug}` : undefined;
@@ -1520,15 +1774,22 @@ export const ContentTransformScreen = ({
           return;
         }
 
-        finalizeSavedSource(filePath, `${slug}.md`, actualContent, { markAsFile: true });
+        finalizeSavedSource(filePath, `${slug}.md`, processedContent, { markAsFile: true });
         onBlogPostSaved?.(slug);
         return;
       } catch { /* fall through to normal save */ }
     }
 
     if (isTauri() && activeTab?.kind === 'file' && activeTab.filePath) {
+      // Merge postMeta fields back into frontmatter before writing
+      // (subtitle + imageUrl are stored in postMeta state, not automatically in sourceContent)
+      let contentToWrite = mergeFrontmatterFields(contentToSave, {
+        subtitle: postMeta.subtitle.trim() || null,
+        coverImage: postMeta.imageUrl.trim() || null,
+        title: postMeta.title.trim() || null,
+        date: postMeta.date.trim() || null,
+      });
       // Convert base64 coverImage in YAML frontmatter to _assets/ file before writing
-      let contentToWrite = contentToSave;
       const fmBase64Match = contentToWrite.match(/^(---[\s\S]*?coverImage:\s*")(data:image\/([a-zA-Z0-9.+-]+);base64,([^"]+))("[\s\S]*?---)/);
       if (fmBase64Match) {
         try {
@@ -1605,6 +1866,7 @@ export const ContentTransformScreen = ({
               title: postMeta.title.trim() || slug,
               date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
               readingTime: readingTimeFtp,
+              localFileName: savedName,
             };
             if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
             const ftpImgUrl = postMeta.imageUrl.trim();
@@ -1668,10 +1930,14 @@ export const ContentTransformScreen = ({
             title: postMeta.title.trim() || slug2,
             date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
             readingTime: readingTimePhp,
+            localFileName: savedName,
           };
           if (postMeta.subtitle.trim()) entry2.subtitle = postMeta.subtitle.trim();
           const phpImgUrl = postMeta.imageUrl.trim();
-          if (phpImgUrl && !phpImgUrl.startsWith('data:image/')) entry2.coverImage = phpImgUrl;
+          // Nur https:// URLs direkt übernehmen — lokale Pfade werden unten nach Upload ersetzt
+          if (phpImgUrl && !phpImgUrl.startsWith('data:image/') && !isLocalFilesystemImageUrl(phpImgUrl)) {
+            entry2.coverImage = phpImgUrl;
+          }
           if (postMeta.tags.length > 0) entry2.tags = postMeta.tags;
           const idx2 = manifest.posts.findIndex((p) => p.slug === slug2);
           if (idx2 >= 0) manifest.posts[idx2] = entry2; else manifest.posts.unshift(entry2);
@@ -1679,15 +1945,27 @@ export const ContentTransformScreen = ({
           phpManifest = manifest;
         } catch { /* manifest update non-fatal */ }
         const cleanFilename = `${sanitizeBlogFilename(savedName)}.md`;
-        // Cover-Image: base64 → hochladen → URL in manifest entry ersetzen
+        // Cover-Image hochladen → URL in manifest entry ersetzen
         const phpCfg2 = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
         const rawImg2 = postMeta.imageUrl.trim();
-        if (phpManifest && rawImg2.startsWith('data:image/')) {
-          const extM2 = rawImg2.match(/^data:image\/(png|jpe?g|webp|gif);/i);
-          const ext3 = extM2 ? (extM2[1].toLowerCase() === 'jpeg' ? 'jpg' : extM2[1].toLowerCase()) : 'jpg';
+        if (phpManifest && rawImg2) {
+          let uploadedUrl2: string | null = null;
           const slugForImg = sanitizeBlogFilename(savedName);
-          const imgName2 = `cover-${slugForImg}.${ext3}`;
-          const uploadedUrl2 = await phpBlogImageUpload(rawImg2, imgName2, phpCfg2);
+          if (rawImg2.startsWith('data:image/')) {
+            // Base64 → hochladen
+            const extM2 = rawImg2.match(/^data:image\/(png|jpe?g|webp|gif);/i);
+            const ext3 = extM2 ? (extM2[1].toLowerCase() === 'jpeg' ? 'jpg' : extM2[1].toLowerCase()) : 'jpg';
+            const imgName2 = `cover-${slugForImg}.${ext3}`;
+            uploadedUrl2 = await phpBlogImageUpload(rawImg2, imgName2, phpCfg2);
+          } else if (isLocalFilesystemImageUrl(rawImg2)) {
+            // Lokaler Pfad → lesen → hochladen
+            try {
+              const dataUrl2 = await localImagePathToDataUrl(rawImg2);
+              const localPath2 = normalizeLocalImagePath(rawImg2);
+              const imgFileName2 = localPath2.split(/[\\/]/).pop() || `cover-${slugForImg}.jpg`;
+              uploadedUrl2 = await phpBlogImageUpload(dataUrl2, imgFileName2, phpCfg2);
+            } catch { /* non-fatal */ }
+          }
           if (uploadedUrl2 && phpManifest.posts) {
             const pi = phpManifest.posts.findIndex((p: Record<string, unknown>) => p.slug === slugForImg);
             if (pi >= 0) phpManifest.posts[pi] = { ...phpManifest.posts[pi], coverImage: uploadedUrl2 };
@@ -1990,6 +2268,40 @@ export const ContentTransformScreen = ({
     }
   };
 
+  const handleCloudSaveConfirm = async () => {
+    if (!cloudSaveDialog) return;
+    const name = cloudSaveInputName.trim().replace(/\.md$/i, '') || cloudSaveDialog.suggestedName;
+    const docName = name + '.md';
+    setCloudSaveUploading(true);
+    try {
+      const file = new File([cloudSaveDialog.content], docName, { type: 'text/markdown' });
+      const result = await uploadCloudDocument(file);
+      if (!result) {
+        alert('Cloud-Upload fehlgeschlagen. Bitte prüfe Login und Verbindung.');
+        return;
+      }
+      // Update tab title
+      if (activeDocTabId) {
+        setOpenDocTabs((prev) => prev.map((tab) => tab.id === activeDocTabId ? { ...tab, title: name } : tab));
+      }
+      setFileName(docName);
+      setSavedFileName(docName);
+      setSavedFilePath(`@cloud:${result.id}`);
+      setSavedFilePaths([`Cloud-Dokument #${result.id}`, result.url]);
+      setSaveSuccessMessage('In der Cloud gespeichert.');
+      setSaveSuccessPathsLabel('Details:');
+      setSaveSuccessPrimaryActionLabel(undefined);
+      setSaveSuccessPrimaryActionUrl(null);
+      setShowSaveSuccess(true);
+      onFileSaved?.(`@cloud:${result.id}`, cloudSaveDialog.content, docName);
+      setCloudSaveDialog(null);
+    } catch (err) {
+      alert(`Cloud-Upload Fehler: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setCloudSaveUploading(false);
+    }
+  };
+
   // Track initial content load to prevent re-loading
   const loadedInitialKeyRef = useRef<string | null>(null);
   const lastRequestedArticleIdRef = useRef<string | null>(null);
@@ -2018,15 +2330,18 @@ export const ContentTransformScreen = ({
         if (placeholderDraftTab) {
           return prev.map((tab) =>
             tab.id === placeholderDraftTab.id
-              ? { ...tab, title: tabTitle, kind: 'draft' as const }
+              ? { ...tab, title: tabTitle, kind: 'draft' as const, displayPath: projectPath ? `${projectPath}/${tabTitle}` : undefined }
               : tab
           );
         }
-        return [...prev, { id: targetTabId, title: tabTitle, kind: 'draft' }];
+        return [...prev, { id: targetTabId, title: tabTitle, kind: 'draft', displayPath: projectPath ? `${projectPath}/${tabTitle}` : undefined }];
       });
 
       setDocTabContents((prev) => ({ ...prev, [targetTabId]: initialContent }));
+      activeDocTabIdRef.current = targetTabId;
       setActiveDocTabId(targetTabId);
+      pendingContentOwnerTabIdRef.current = targetTabId;
+      lastProgrammaticLoadAtRef.current = Date.now();
       setSourceContent(initialContent);
       setFileName(tabTitle);
       const extractedMeta = extractPostMetaFromContent(initialContent, tabTitle);
@@ -2040,6 +2355,7 @@ export const ContentTransformScreen = ({
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
+      emitExternalContentChange(initialContent, 'step1', targetTabId);
       loadedInitialKeyRef.current = initialKey;
     }
   }, [initialContent, initialFileName, initialPostMeta, openDocTabs]);
@@ -2103,15 +2419,34 @@ export const ContentTransformScreen = ({
 
   useEffect(() => {
     if (!projectPath || !editorSettings.autoSaveEnabled) return;
-    if (!isTauri() || projectPath.startsWith('@web:')) return; // Autosave nur in Tauri mit echtem Dateisystem
     if (!sourceContent.trim()) return;
+
+    const isCloudDoc = projectPath.startsWith('@cloud:');
+    const cloudDocId = isCloudDoc ? parseInt(projectPath.slice('@cloud:'.length).split('/')[0], 10) : NaN;
+    const isLocalTauri = isTauri() && !projectPath.startsWith('@web:') && !isCloudDoc;
+
+    if (!isCloudDoc && !isLocalTauri) return; // @web: und unbekannte Pfade überspringen
+
     const autosaveKey = getStep1AutosaveKey();
     const debounceMs = Math.max(5, editorSettings.autoSaveIntervalSec) * 1000;
+
     const timeout = setTimeout(() => {
       const trimmed = sourceContent.trim();
       if (lastAutosaveRef.current[autosaveKey] === trimmed) return;
       setStep1AutosaveStatus('saving');
-      saveDraftAutosave(projectPath, autosaveKey, sourceContent, editorSettings.autoSaveCustomPath)
+
+      const doSave = isCloudDoc && !isNaN(cloudDocId)
+        ? (() => {
+            const fileName = (activeDocTabId ?? 'Entwurf').replace(/^@cloud:\d+\//, '');
+            const contentWithMeta = buildContentWithMeta(sourceContent, postMetaRef.current);
+            const file = new File([contentWithMeta], fileName, { type: 'text/markdown' });
+            return updateCloudDocument(cloudDocId, file).then((ok) => {
+              if (!ok) throw new Error('Cloud-Update fehlgeschlagen');
+            });
+          })()
+        : saveDraftAutosave(projectPath, autosaveKey, sourceContent, editorSettings.autoSaveCustomPath);
+
+      doSave
         .then(() => {
           lastAutosaveRef.current[autosaveKey] = trimmed;
           setStep1AutosaveStatus('saved');
@@ -2120,7 +2455,6 @@ export const ContentTransformScreen = ({
         .catch((error) => {
           console.error('[ContentTransform] Autosave fehlgeschlagen:', error);
           setStep1AutosaveStatus('error');
-          // Fehlerstatus nach 8 Sekunden automatisch zurücksetzen
           setTimeout(() => setStep1AutosaveStatus('idle'), 8000);
         });
     }, debounceMs);
@@ -2183,11 +2517,13 @@ export const ContentTransformScreen = ({
       setOpenDocTabs((prev) =>
         prev.some((tab) => tab.id === tabId)
           ? prev
-          : [...prev, { id: tabId, title, kind: 'article', articleId: requestedArticleId }]
+          : [...prev, { id: tabId, title, kind: 'article', articleId: requestedArticleId, displayPath: projectPath ? `${projectPath}/${article.fileName}` : undefined }]
       );
       setDocTabContents((prev) => ({ ...prev, [tabId]: content }));
       setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
       setActiveDocTabId(tabId);
+      pendingContentOwnerTabIdRef.current = tabId;
+      lastProgrammaticLoadAtRef.current = Date.now();
       setSourceContent(content);
       setFileName(title);
       const nextMeta = {
@@ -2214,12 +2550,15 @@ export const ContentTransformScreen = ({
     if (!requestedFilePath) return;
     const tabId = `file:${requestedFilePath}`;
     const existingFileTab =
-      openDocTabs.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
-      openDocTabs.find((tab) => tab.id === tabId);
+      openDocTabsRef.current.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
+      openDocTabsRef.current.find((tab) => tab.id === tabId);
     const targetTabId = existingFileTab?.id ?? tabId;
     if (requestedFilePath === lastRequestedFilePathRef.current && existingFileTab) {
-      const content = docTabContents[targetTabId] ?? '';
+      const content = docTabContentsRef.current[targetTabId] ?? '';
+      activeDocTabIdRef.current = targetTabId;
       setActiveDocTabId(targetTabId);
+      pendingContentOwnerTabIdRef.current = targetTabId;
+      lastProgrammaticLoadAtRef.current = Date.now();
       setSourceContent(content);
       const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
@@ -2250,7 +2589,7 @@ export const ContentTransformScreen = ({
         const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
         const resolvedTabId =
           existingFileTab?.id ||
-          openDocTabs.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
+          openDocTabsRef.current.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
           tabId;
         const extractedMeta = extractPostMetaFromContent(content, fileNameFromPath);
         const nextMeta: PostMeta = {
@@ -2267,20 +2606,25 @@ export const ContentTransformScreen = ({
             prev.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
             prev.find((tab) => tab.id === tabId);
           if (!match) {
-            return [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }];
+            return [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }];
           }
-          if (match.title === fileNameFromPath && match.kind === 'file' && match.filePath === requestedFilePath) {
+          if (match.title === fileNameFromPath && match.kind === 'file' && match.filePath === requestedFilePath && match.displayPath === requestedFilePath) {
             return prev;
           }
           return prev.map((tab) =>
             tab.id === match.id
-              ? { ...tab, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath }
+              ? { ...tab, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }
               : tab
           );
         });
         setDocTabContents((prev) => ({ ...prev, [resolvedTabId]: content }));
         setDirtyDocTabs((prev) => ({ ...prev, [resolvedTabId]: false }));
+        // Sync ref BEFORE setActiveDocTabId so handleSourceContentChange sees the correct tab
+        // immediately when the editor fires onChange in response to setSourceContent below.
+        activeDocTabIdRef.current = resolvedTabId;
         setActiveDocTabId(resolvedTabId);
+        pendingContentOwnerTabIdRef.current = resolvedTabId;
+        lastProgrammaticLoadAtRef.current = Date.now();
         setSourceContent(content);
         setFileName(fileNameFromPath);
         setPostMeta(nextMeta);
@@ -2296,7 +2640,7 @@ export const ContentTransformScreen = ({
     return () => {
       isMounted = false;
     };
-  }, [requestedFilePath, openDocTabs, docTabContents, onFileRequestHandled]);
+  }, [requestedFilePath, onFileRequestHandled]);
 
   // Step 2: Platform Selection
   const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin');
@@ -2376,6 +2720,9 @@ export const ContentTransformScreen = ({
   // Save Success Modal
   const [showSaveSuccess, setShowSaveSuccess] = useState(false);
   const [savedFileName, setSavedFileName] = useState('');
+  const [cloudSaveDialog, setCloudSaveDialog] = useState<{ content: string; suggestedName: string } | null>(null);
+  const [cloudSaveInputName, setCloudSaveInputName] = useState('');
+  const [cloudSaveUploading, setCloudSaveUploading] = useState(false);
   const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
   const [savedFilePaths, setSavedFilePaths] = useState<string[] | undefined>(undefined);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | undefined>(undefined);
@@ -2659,6 +3006,8 @@ export const ContentTransformScreen = ({
     activeDocTabIdRef.current = tabId;
     setActiveDocTabId(tabId);
     const nextContent = docTabContents[tabId] ?? '';
+    pendingContentOwnerTabIdRef.current = tabId;
+    lastProgrammaticLoadAtRef.current = Date.now();
     setSourceContent(nextContent);
     emitExternalContentChange(nextContent, 'step1', tabId);
     const selectedTab = openDocTabs.find((tab) => tab.id === tabId);
@@ -2744,16 +3093,22 @@ export const ContentTransformScreen = ({
 
   const handleNewDraft = () => {
     const draftCount = openDocTabs.filter((t) => t.kind === 'draft').length + 1;
-    const hasRealTabs = openDocTabs.some((t) => t.kind !== 'draft');
+    const hasExistingTabs = openDocTabs.length > 0;
     const draftTabId = `draft-${Date.now()}`;
-    // Never use plain 'Entwurf' when real tabs are open — Regel 1 would remove it
-    const title = hasRealTabs ? `Entwurf ${draftCount}` : 'Entwurf';
+    // Additional drafts need a distinct title, otherwise placeholder cleanup collapses them.
+    const title = hasExistingTabs ? `Entwurf ${draftCount}` : 'Entwurf';
+    lastRequestedFilePathRef.current = null;
+    lastRequestedArticleIdRef.current = null;
+    onFileRequestHandled?.();
+    onArticleRequestHandled?.();
     setOpenDocTabs((prev) => [...prev, { id: draftTabId, title, kind: 'draft' }]);
     setDocTabContents((prev) => ({ ...prev, [draftTabId]: '' }));
     setDirtyDocTabs((prev) => ({ ...prev, [draftTabId]: false }));
     setPostMetaByTab((prev) => ({ ...prev, [draftTabId]: EMPTY_POST_META }));
     activeDocTabIdRef.current = draftTabId;
     setActiveDocTabId(draftTabId);
+    pendingContentOwnerTabIdRef.current = draftTabId;
+    lastProgrammaticLoadAtRef.current = Date.now();
     setSourceContent('');
     setFileName(title);
     emitExternalContentChange('', 'step1', draftTabId);
@@ -2830,44 +3185,78 @@ export const ContentTransformScreen = ({
   };
 
   const handleSourceContentChange = (content: string) => {
+    if (
+      content.trim() === '' &&
+      sourceContentRef.current.trim() !== '' &&
+      Date.now() - lastProgrammaticLoadAtRef.current < 2000
+    ) {
+      return;
+    }
     sourceContentRef.current = content;
     setSourceContent(content);
 
     // Determine which tab to mark as dirty
-    // Priority: activeDocTabId > tab matching fileName > first tab
+    // Priority: activeDocTabId only (avoid filename/first-tab fallbacks to prevent cross-tab overwrites)
     let targetTabId: string | null = null;
     const activeTabIdNow = activeDocTabIdRef.current;
-
-    if (openDocTabs.length > 0) {
-      // First try: use activeDocTabId if it's valid
-      if (activeTabIdNow) {
-        const activeTab = openDocTabs.find((tab) => tab.id === activeTabIdNow);
-        if (activeTab) {
-          targetTabId = activeTabIdNow;
+    const pendingOwner = pendingContentOwnerTabIdRef.current;
+    if (pendingOwner) {
+      pendingContentOwnerTabIdRef.current = null;
+      setDocTabContents((prev) => ({ ...prev, [pendingOwner]: content }));
+      setDirtyDocTabs((prev) => ({ ...prev, [pendingOwner]: true }));
+      emitExternalContentChange(content, 'step1', pendingOwner);
+      if (multiPlatformMode && activeEditTab) {
+        setTransformedContents((prev) => ({ ...prev, [activeEditTab]: content }));
+        if (activeResultTab === activeEditTab) {
+          setTransformedContent(content);
         }
       }
+      return;
+    }
 
-      // Second try: find tab by filename
-      if (!targetTabId && fileName) {
-        const matchingTab = openDocTabs.find((tab) => tab.title === fileName);
-        if (matchingTab) {
-          targetTabId = matchingTab.id;
-          activeDocTabIdRef.current = targetTabId;
-          setActiveDocTabId(targetTabId);
+    // If the active tab is set but not yet registered in openDocTabs,
+    // still write into that tab id to avoid overwriting an older tab.
+    if (activeTabIdNow && !openDocTabs.some((tab) => tab.id === activeTabIdNow)) {
+      setDocTabContents((prev) => ({ ...prev, [activeTabIdNow]: content }));
+      setDirtyDocTabs((prev) => ({ ...prev, [activeTabIdNow]: true }));
+      emitExternalContentChange(content, 'step1', activeTabIdNow);
+      if (multiPlatformMode && activeEditTab) {
+        setTransformedContents((prev) => ({ ...prev, [activeEditTab]: content }));
+        if (activeResultTab === activeEditTab) {
+          setTransformedContent(content);
         }
       }
+      return;
+    }
 
-      // Third try: use first tab
-      if (!targetTabId) {
+    if (openDocTabs.length > 0 && activeTabIdNow) {
+      const activeTab = openDocTabs.find((tab) => tab.id === activeTabIdNow);
+      if (activeTab) {
+        targetTabId = activeTabIdNow;
+        const id = targetTabId;
+        setDocTabContents((prev) => ({ ...prev, [id]: content }));
+        setDirtyDocTabs((prev) => ({ ...prev, [id]: true }));
+      } else if (openDocTabs.length === 1) {
         targetTabId = openDocTabs[0].id;
         activeDocTabIdRef.current = targetTabId;
         setActiveDocTabId(targetTabId);
         setFileName(openDocTabs[0].title);
+        const id = targetTabId;
+        setDocTabContents((prev) => ({ ...prev, [id]: content }));
+        setDirtyDocTabs((prev) => ({ ...prev, [id]: true }));
+      } else {
+        return;
       }
-
-      // Mark the tab as dirty and update content
-      setDocTabContents((prev) => ({ ...prev, [targetTabId as string]: content }));
-      setDirtyDocTabs((prev) => ({ ...prev, [targetTabId as string]: true }));
+    } else if (openDocTabs.length === 1) {
+      targetTabId = openDocTabs[0].id;
+      activeDocTabIdRef.current = targetTabId;
+      setActiveDocTabId(targetTabId);
+      setFileName(openDocTabs[0].title);
+      const id = targetTabId;
+      setDocTabContents((prev) => ({ ...prev, [id]: content }));
+      setDirtyDocTabs((prev) => ({ ...prev, [id]: true }));
+    } else {
+      return;
     }
 
     emitExternalContentChange(content, 'step1', targetTabId);
@@ -3481,10 +3870,10 @@ export const ContentTransformScreen = ({
               autosaveStatusText={
                 !editorSettings.autoSaveEnabled
                   ? 'Autosave · off'
-                  : (!isTauri() || projectPath?.startsWith('@web:'))
+                  : projectPath?.startsWith('@web:')
                     ? 'Autosave · nur Desktop'
                     : step1AutosaveStatus === 'saving'
-                      ? 'Autosave · speichert...'
+                      ? (projectPath?.startsWith('@cloud:') ? 'Autosave · Cloud...' : 'Autosave · speichert...')
                       : step1AutosaveStatus === 'error'
                         ? 'Autosave · Speichern fehlgeschlagen'
                         : step1AutosaveStatus === 'saved'
@@ -3847,6 +4236,78 @@ export const ContentTransformScreen = ({
         templateName={`${getPlatformLabel(selectedPlatform)} Content`}
         onClose={() => setIsTransforming(false)}
       />
+
+      {/* Cloud Save — Filename Dialog */}
+      {cloudSaveDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            border: '1px solid #AC8E66',
+            borderRadius: '12px',
+            padding: '24px 28px',
+            width: '340px',
+            display: 'flex', flexDirection: 'column', gap: '14px',
+          }}>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', color: '#AC8E66' }}>
+              In Cloud speichern
+            </div>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#7a7a7a' }}>
+              Dateiname für das Cloud-Dokument:
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                autoFocus
+                type="text"
+                value={cloudSaveInputName}
+                onChange={(e) => setCloudSaveInputName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleCloudSaveConfirm(); if (e.key === 'Escape') setCloudSaveDialog(null); }}
+                placeholder="Dokument-Name"
+                style={{
+                  flex: 1,
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px',
+                  padding: '8px 10px',
+                  background: '#111', color: '#d0cbb8',
+                  border: '1px solid #3A3A3A', borderRadius: '6px',
+                  outline: 'none',
+                }}
+              />
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#555' }}>.md</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setCloudSaveDialog(null)}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                  padding: '7px 14px', borderRadius: '6px',
+                  border: '1px solid #3A3A3A', background: 'transparent',
+                  color: '#777', cursor: 'pointer',
+                }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => void handleCloudSaveConfirm()}
+                disabled={cloudSaveUploading || !cloudSaveInputName.trim()}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                  padding: '7px 16px', borderRadius: '6px',
+                  border: '1px solid #AC8E66',
+                  background: cloudSaveUploading ? 'rgba(172,142,102,0.2)' : '#AC8E66',
+                  color: cloudSaveUploading ? '#AC8E66' : '#1a1a1a',
+                  cursor: cloudSaveUploading || !cloudSaveInputName.trim() ? 'not-allowed' : 'pointer',
+                  opacity: !cloudSaveInputName.trim() ? 0.5 : 1,
+                }}
+              >
+                {cloudSaveUploading ? 'Speichert…' : 'Speichern'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Save Success Modal */}
       <ZenSaveSuccessModal

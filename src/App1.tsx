@@ -16,6 +16,10 @@ import {
   faChevronDown,
   faRotateLeft,
   faPaperPlane,
+  faCloudArrowUp,
+  faSpinner,
+  faCheck,
+  faCircleExclamation,
 } from "@fortawesome/free-solid-svg-icons";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
@@ -23,6 +27,7 @@ import { ContentTransformScreen } from "./screens/ContentTransformScreen";
 import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStudioDashboardScreen";
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
+import { ZenNoteStudioScreen } from "./screens/ZenNoteStudio/ZenNoteStudioScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { MobileInboxScreen } from "./screens/MobileInboxScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
@@ -44,12 +49,14 @@ import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
-import { exists as fsExists, mkdir as fsMkdir, readDir, readFile, readTextFile, stat, writeTextFile } from "@tauri-apps/plugin-fs";
+import { exists as fsExists, mkdir as fsMkdir, readDir, readFile, readTextFile, remove as fsRemove, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
 import { ZenPublishingBanner } from "./components/ZenPublishingBanner";
 import { usePublishingEngine } from "./services/publishingEngine";
 import { pushDocsToGitHub } from "./services/githubDocsService";
+import { loadDocsServerConfig, syncDirectoryToFtp, saveDocsSyncTimestamp } from "./screens/DocStudio/components/DocsServerWizard";
+import { ftpUpload } from "./services/ftpService";
 import { loadSocialConfig } from "./services/socialMediaService";
 import { CornerRibbon } from "./components/CornerRibbon";
 import { isTauri } from "@tauri-apps/api/core";
@@ -62,6 +69,8 @@ import {
   getDirectoryHandle, readMarkdownFiles,
   type WebProject,
 } from "./services/webProjectService";
+import { encodeCloudProjectPath, decodeCloudProjectId, isCloudProjectPath, type CloudProject } from "./services/cloudProjectService";
+import { deleteCloudDocument, downloadCloudDocumentText, listCloudDocuments, type CloudDocumentInfo } from "./services/cloudStorageService";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 
@@ -153,7 +162,25 @@ const extractFirstImageUrlFromBlocks = (
 };
 
 
-type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox";
+type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox" | "zen-note";
+
+// Files that make no sense to open as text documents in Content AI Studio
+const BINARY_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'svg', 'ico', 'avif', 'heic', 'heif',
+  'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'm4v',
+  'mp3', 'wav', 'flac', 'aac', 'ogg', 'm4a', 'wma',
+  'zip', 'tar', 'gz', 'rar', '7z', 'dmg', 'pkg', 'deb', 'exe', 'msi',
+  'pdf',
+  'ttf', 'otf', 'woff', 'woff2', 'eot',
+  'psd', 'ai', 'eps', 'indd', 'sketch', 'fig',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'db', 'sqlite', 'sql',
+  'zennote',
+]);
+function isTextDocument(fileName: string): boolean {
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  return !BINARY_EXTENSIONS.has(ext);
+}
 
 // Doc Studio state interface is shared in DocStudio types
 
@@ -208,6 +235,7 @@ function AppContent() {
   const [contentStudioRecentArticles, setContentStudioRecentArticles] = useState<ZenArticle[]>([]);
   const [contentStudioAllFiles, setContentStudioAllFiles] = useState<StudioFile[]>([]);
   const [webDocuments, setWebDocuments] = useState<WebStoredDocument[]>([]);
+  const [cloudDocuments, setCloudDocuments] = useState<CloudDocumentInfo[]>([]);
   const [contentStudioServerArticles, setContentStudioServerArticles] = useState<unknown[] | undefined>(undefined);
   const [contentStudioServerArticlesLoading, setContentStudioServerArticlesLoading] = useState(false);
   const [contentStudioServerArticlesError, setContentStudioServerArticlesError] = useState<string | null>(null);
@@ -249,6 +277,10 @@ function AppContent() {
   const [_contentTransformShowBackToPosting, setContentTransformShowBackToPosting] = useState(false);
   const [contentTransformStep2SelectionCount, setContentTransformStep2SelectionCount] = useState(0);
   const [contentTransformStep2CanProceed, setContentTransformStep2CanProceed] = useState(false);
+  const [contentEditorActiveTabDisplayPath, setContentEditorActiveTabDisplayPath] = useState<string | null>(null);
+  const [contentEditorActiveTabKind, setContentEditorActiveTabKind] = useState<string | null>(null);
+  const activeTabIsCloud = !!contentEditorActiveTabDisplayPath && contentEditorActiveTabDisplayPath.startsWith('@cloud:');
+  const activeTabIsServer = contentEditorActiveTabKind === 'article';
   const [contentStudioMetadata, setContentStudioMetadata] = useState<ProjectMetadata>({
     authorName: "",
     authorEmail: "",
@@ -499,6 +531,19 @@ function AppContent() {
     setIsEditingZenThoughts(false);
     setCurrentScreen("converter");
   };
+
+  useEffect(() => {
+    const applyHashRoute = () => {
+      if (typeof window === "undefined") return;
+      if (window.location.hash === "#converter") {
+        setIsEditingZenThoughts(false);
+        setCurrentScreen("converter");
+      }
+    };
+    applyHashRoute();
+    window.addEventListener("hashchange", applyHashRoute);
+    return () => window.removeEventListener("hashchange", applyHashRoute);
+  }, []);
   const handleSelectContentTransform = () => {
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
@@ -580,6 +625,7 @@ function AppContent() {
     setTransferPostMeta(null);
     setActiveServerArticleSlug(null);
     setContentStudioServerCachePath(null);
+    setActiveBlogForEditor(null);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
@@ -587,6 +633,21 @@ function AppContent() {
     setContentTransformStep(1);
     setCurrentScreen("content-transform");
     setShowContentStudioModal(false);
+  };
+
+  const handleLoadCloudDocument = async (docId: number, fileName: string) => {
+    try {
+      const content = await downloadCloudDocumentText(docId);
+      if (!content) {
+        setCloudToast(`Dokument konnte nicht geladen werden: ${fileName}`);
+        setTimeout(() => setCloudToast(null), 4000);
+        return;
+      }
+      handleLoadWebDocument(content, fileName);
+    } catch (err) {
+      setCloudToast(`Cloud-Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`);
+      setTimeout(() => setCloudToast(null), 4000);
+    }
   };
 
   const handleEditScheduledPost = async (post: ScheduledPost) => {
@@ -854,8 +915,72 @@ function AppContent() {
     };
   }, [currentScreen, docStudioState?.projectPath]);
 
+  const [docSyncState, setDocSyncState] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle');
+  const [docSyncMsg, setDocSyncMsg] = useState('');
+
+  const handleDocStudioFullSync = async () => {
+    const projectPath = docStudioState?.projectPath;
+    if (!projectPath || !isTauri()) return;
+    const serverConfig = loadDocsServerConfig(projectPath);
+    if (!serverConfig) return;
+    setDocSyncState('syncing');
+    setDocSyncMsg('');
+    try {
+      const { uploaded, errors } = await syncDirectoryToFtp(projectPath, {
+        host: serverConfig.host,
+        user: serverConfig.user,
+        password: serverConfig.password,
+        remotePath: serverConfig.remotePath,
+        protocol: serverConfig.protocol,
+      });
+      if (errors.length > 0) {
+        setDocSyncState('error');
+        setDocSyncMsg(`${uploaded} hochgeladen, ${errors.length} Fehler`);
+      } else {
+        setDocSyncState('ok');
+        setDocSyncMsg(`${uploaded} Dateien synchronisiert`);
+        saveDocsSyncTimestamp(projectPath);
+        setTimeout(() => setDocSyncState('idle'), 4000);
+      }
+    } catch (e) {
+      setDocSyncState('error');
+      setDocSyncMsg(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Auto-sync saved Doc Studio file to FTP server if configured
+  const handleDocStudioFileSaved = async (filePath: string, _content: string, fileName: string) => {
+    // Only in Tauri + only for real file paths (not web: or template:)
+    if (!isTauri() || filePath.startsWith('web:') || !filePath.includes('/')) return;
+    const projectPath = docStudioState?.projectPath;
+    if (!projectPath) return;
+    const serverConfig = loadDocsServerConfig(projectPath);
+    if (!serverConfig) return;
+    // Calculate the correct remote subdirectory based on the file's position within the project
+    const normalizedProject = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
+    const normalizedFile = filePath.replace(/\\/g, '/');
+    const relativeDir = normalizedFile.startsWith(normalizedProject)
+      ? normalizedFile.slice(normalizedProject.length, normalizedFile.lastIndexOf('/'))
+      : '';
+    const baseRemote = serverConfig.remotePath.replace(/\/$/, '');
+    const remoteDir = relativeDir ? `${baseRemote}${relativeDir}` : baseRemote;
+
+    // Upload the saved file silently in the background
+    ftpUpload(filePath, fileName, {
+      host: serverConfig.host,
+      user: serverConfig.user,
+      password: serverConfig.password,
+      remotePath: remoteDir,
+      protocol: serverConfig.protocol,
+    }).then((err) => {
+      if (!err) saveDocsSyncTimestamp(projectPath);
+    }).catch(() => { /* silent */ });
+  };
+
   // Handle file saved from Doc Studio/Content AI Studio - update scheduled post if one is being edited
   const handleFileSavedWhileEditing = async (filePath: string, content: string, fileName: string) => {
+    // Trigger Doc Studio server sync if configured
+    void handleDocStudioFileSaved(filePath, content, fileName);
     if (!editingScheduledPostId) return;
 
     console.log('[App] File saved while editing scheduled post:', editingScheduledPostId, fileName, filePath);
@@ -911,6 +1036,10 @@ function AppContent() {
       console.error('[PublishingService] Failed to reload scheduled posts:', error);
     }
   };
+  const handleSelectZenNote = () => {
+    setCurrentScreen("zen-note");
+  };
+
   const handleSelectDocStudio = () => {
     setIsEditingZenThoughts(false);
     // Locked Doc Studio should open upgrade modal directly (no intermediate lock screen)
@@ -1385,6 +1514,7 @@ function AppContent() {
       activeTabKind?: 'draft' | 'file' | 'article' | 'derived';
       activeTabFilePath?: string;
       activeTabTitle?: string;
+      activeTabDisplayPath?: string;
       activeTabSubtitle?: string;
       activeTabImageUrl?: string;
       tags?: string[];
@@ -1394,6 +1524,12 @@ function AppContent() {
     if (meta?.tags) setExportTags(meta.tags);
     if (meta?.activeTabSubtitle !== undefined) setExportSubtitle(meta.activeTabSubtitle ?? '');
     if (meta?.activeTabImageUrl !== undefined) setExportImageUrl(meta.activeTabImageUrl ?? '');
+    if (meta?.activeTabDisplayPath !== undefined) {
+      setContentEditorActiveTabDisplayPath(meta.activeTabDisplayPath ?? null);
+    }
+    if (meta?.activeTabKind !== undefined) {
+      setContentEditorActiveTabKind(meta.activeTabKind ?? null);
+    }
     if (!isEditingZenThoughts && meta?.source === 'step1' && meta.activeTabId) {
       const trimmed = content.trim();
       if (trimmed.length >= 20) {
@@ -1439,6 +1575,7 @@ function AppContent() {
   };
 
   const [homeToast, setHomeToast] = useState(false);
+  const [cloudToast, setCloudToast] = useState<string | null>(null);
   const handleHomeClick = () => {
     const hasDirty = Object.values(docStudioState?.dirtyTabs ?? {}).some(Boolean);
     if (hasDirty) {
@@ -1868,9 +2005,20 @@ function AppContent() {
     if (!isWebProjectPath(path)) {
       setWebDocuments([]);
     }
+    if (!isCloudProjectPath(path)) {
+      setCloudDocuments([]);
+    }
     setContentStudioProjectPath(path);
-    if (isTauri()) {
+    if (isTauri() && !isCloudProjectPath(path) && !isWebProjectPath(path)) {
       await updateLastProjectPath(path);
+    }
+    if (isCloudProjectPath(path)) {
+      const id = decodeCloudProjectId(path);
+      if (id) {
+        const docs = await listCloudDocuments(id);
+        if (docs) setCloudDocuments(docs);
+      }
+      return;
     }
     if (!isWebProjectPath(path)) {
       await refreshContentStudioData(path);
@@ -1923,6 +2071,46 @@ function AppContent() {
     }
   };
 
+  const handleCloudProjectSelected = async (project: CloudProject) => {
+    const path = encodeCloudProjectPath(project.id);
+    patchZenStudioSettings({ cloudProjectId: project.id, cloudProjectName: project.name });
+    rememberProjectPath(path);
+    setContentStudioRecentProjectPaths(getRecentProjectPaths());
+    setContentStudioProjectPath(path);
+    setContentStudioAllFiles([]);
+    setWebDocuments([]);
+    const docs = await listCloudDocuments(project.id);
+    if (docs) setCloudDocuments(docs);
+  };
+
+  // Auto-select cloud project after login (dispatched by ZenCloudSettingsContent)
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const { projectId, projectName } = (event as CustomEvent<{ projectId: number; projectName: string }>).detail;
+      void handleCloudProjectSelected({ id: projectId, name: projectName });
+    };
+    window.addEventListener('zenpost:cloud-login', handler);
+    return () => window.removeEventListener('zenpost:cloud-login', handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const screen = (e as CustomEvent<{ screen: string }>).detail?.screen;
+      if (screen === 'zen-note') setCurrentScreen('zen-note');
+    };
+    window.addEventListener('zenpost:navigate', handler);
+    return () => window.removeEventListener('zenpost:navigate', handler);
+  }, []);
+
+  // On startup: if user is already logged in and has a saved cloud project but no project path set, auto-restore it
+  useEffect(() => {
+    const settings = loadZenStudioSettings();
+    if (settings.cloudAuthToken && settings.cloudProjectId && !contentStudioProjectPath) {
+      const name = settings.cloudProjectName ?? 'Cloud-Projekt';
+      void handleCloudProjectSelected({ id: settings.cloudProjectId, name });
+    }
+  }, []);
+
   // Hilfefunktion für Header-Text
   const getLeftText = () => {
     if (currentScreen === "welcome") {
@@ -1935,11 +2123,12 @@ function AppContent() {
       "doc-studio": "Doc Studio",
       "getting-started": "Getting Started",
       "mobile-inbox": "Mobile Inbox",
+      "zen-note": "ZenNote Studio",
     };
 
     return (
       <>
-        禅 ZenPost Studio · <span style={{ color: "#AC8E66" }}>{studioNames[currentScreen]}</span>
+       <span style={{color: "#d0cbb8"}}>禅 ZenPost Studio</span>  · <span style={{ color: "#AC8E66" , font: "10px" }}>{studioNames[currentScreen]}</span>
       
      
       </>
@@ -1972,9 +2161,11 @@ function AppContent() {
           </>
         );
       case "getting-started":
-        return <>Getting Started · <span style={{ color: "#AC8E66" }}>Was möchtest du tun?</span></>;
+        return <> <span style={{ color: "#d0cbb8" }}>Getting Started</span> · <span style={{ color: "#AC8E66", fontWeight: 100 }}>Was möchtest du tun?</span></>;
       case "mobile-inbox":
         return <>Mobile · <span style={{ color: "#AC8E66" }}>iPhone Entwürfe</span></>;
+      case "zen-note":
+        return <>ZenNote · <span style={{ color: "#AC8E66" }}>Notizen & Snippets</span></>;
       default:
         return "";
     }
@@ -2046,6 +2237,42 @@ function AppContent() {
               onClick={() => setDocStudioHeaderAction("save")}
               disabled={lockStudioBarForPreview}
             />
+            {isTauri() && docStudioState?.projectPath && loadDocsServerConfig(docStudioState.projectPath) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <StudioBarButton
+                  label={
+                    docSyncState === 'syncing' ? 'Sync…' :
+                    docSyncState === 'ok' ? 'Synced' :
+                    docSyncState === 'error' ? 'Sync-Fehler' :
+                    'Sync'
+                  }
+                  icon={
+                    <FontAwesomeIcon
+                      icon={
+                        docSyncState === 'syncing' ? faSpinner :
+                        docSyncState === 'ok' ? faCheck :
+                        docSyncState === 'error' ? faCircleExclamation :
+                        faCloudArrowUp
+                      }
+                      spin={docSyncState === 'syncing'}
+                    />
+                  }
+                  onClick={handleDocStudioFullSync}
+                  disabled={docSyncState === 'syncing' || lockStudioBarForPreview}
+                  active={docSyncState === 'ok'}
+                />
+                {(docSyncState === 'ok' || docSyncState === 'error') && docSyncMsg && (
+                  <span style={{
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    color: docSyncState === 'ok' ? '#4caf50' : '#c8503c',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {docSyncMsg}
+                  </span>
+                )}
+              </div>
+            )}
             <StudioBarButton
               label={docStudioPreviewMode ? "Nachbearbeiten" : "Preview"}
               icon={<FontAwesomeIcon icon={faFileLines} />}
@@ -2156,16 +2383,19 @@ function AppContent() {
               />
             </div>
           )}
-          {contentTransformStep === 1 && (
-            <div className="flex flex-wrap gap-2 ml-auto">
+        {contentTransformStep === 1 && (
+          <div className="flex flex-wrap gap-2 ml-auto">
               <StudioBarButton
-                label="AI für Plattformen"
+                label="Transformieren"
                 icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
                 onClick={handleNavigateToMultiPlatformTransform}
               />
               <div ref={contentSaveMenuRef} style={{ position: "relative" }}>
                 <StudioBarButton
-                  label={showContentSaveMenu ? "Speichern ▲" : "Speichern ▾"}
+                  label={showContentSaveMenu
+                    ? (activeTabIsCloud ? "Cloud ▲" : activeTabIsServer ? "Server ▲" : "Speichern ▲")
+                    : (activeTabIsCloud ? "Cloud ▾" : activeTabIsServer ? "Server ▾" : "Speichern ▾")
+                  }
                   icon={<FontAwesomeIcon icon={faChevronDown} style={{ transform: showContentSaveMenu ? "rotate(180deg)" : "none" }} />}
                   onClick={() => setShowContentSaveMenu((prev) => !prev)}
                   active={showContentSaveMenu}
@@ -2185,26 +2415,28 @@ function AppContent() {
                       overflow: "hidden",
                     }}
                   >
+                    {/* Primäre Speichern-Aktion — je nach Tab-Typ */}
                     <button
                       type="button"
                       onClick={() => {
                         setShowContentSaveMenu(false);
-                        setContentTransformHeaderAction("save");
+                        setContentTransformHeaderAction(activeTabIsServer ? "save_server" : "save");
                       }}
-                      style={saveMenuItemStyle}
+                      style={{ ...saveMenuItemStyle, color: activeTabIsCloud || activeTabIsServer ? '#AC8E66' : '#EFEBDC', borderBottom: '1px solid rgba(172,142,102,0.15)' }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = "rgba(172, 142, 102, 0.16)";
                         e.currentTarget.style.color = "#F4E8D5";
-                        e.currentTarget.style.border = "0 0 12px 12px";
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = "#121212";
-                        e.currentTarget.style.color = "#EFEBDC";
+                        e.currentTarget.style.color = activeTabIsCloud || activeTabIsServer ? '#AC8E66' : '#EFEBDC';
                       }}
                     >
-                      <FontAwesomeIcon icon={faSave} />
-                      <span>Speichern</span>
+                      <FontAwesomeIcon icon={activeTabIsCloud ? faCloudArrowUp : activeTabIsServer ? faFileExport : faSave} />
+                      <span>{activeTabIsCloud ? 'Auf Cloud speichern' : activeTabIsServer ? 'Auf Server speichern' : 'Speichern'}</span>
                     </button>
+                    {/* Speichern unter — nur für lokale + Server-Tabs */}
+                    {!activeTabIsCloud && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2224,6 +2456,9 @@ function AppContent() {
                       <FontAwesomeIcon icon={faSave} />
                       <span>Speichern unter...</span>
                     </button>
+                    )}
+                    {/* "Auf Server speichern" als extra Option nur für lokale Tabs */}
+                    {!activeTabIsCloud && !activeTabIsServer && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2243,6 +2478,7 @@ function AppContent() {
                       <FontAwesomeIcon icon={faFileExport} />
                       <span>Auf Server speichern</span>
                     </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2693,6 +2929,7 @@ function AppContent() {
                 projectPath={contentStudioProjectPath}
                 allFiles={contentStudioAllFiles}
                 webDocuments={webDocuments}
+                cloudDocuments={cloudDocuments}
                 onBack={() => setContentStudioDashboardView("dashboard")}
                 onStartWriting={() => {
                   setContentStudioDashboardView("dashboard");
@@ -2706,13 +2943,18 @@ function AppContent() {
                 onLoadWebDocument={(content, fileName) => {
                   handleLoadWebDocument(content, fileName);
                 }}
+                onOpenCloudDocument={(docId, fileName) => {
+                  void handleLoadCloudDocument(docId, fileName);
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
               />
             ) : (
               <ContentStudioDashboardScreen
                 projectPath={contentStudioProjectPath}
                 recentProjectPaths={contentStudioRecentProjectPaths}
                 documents={[
-                  ...contentStudioAllFiles.map((file) => ({
+                  ...contentStudioAllFiles.filter((file) => isTextDocument(file.name)).map((file) => ({
                     id: `file:${file.path}`,
                     name: file.name,
                     path: file.path,
@@ -2721,12 +2963,20 @@ function AppContent() {
                     updatedAt: file.modifiedAt,
                   })),
                   // Web-Dokumente nur anzeigen wenn das aktive Projekt ein Web-Projekt ist
-                  ...(isWebProjectPath(contentStudioProjectPath ?? '') ? webDocuments.map((doc) => ({
+                  ...(isWebProjectPath(contentStudioProjectPath ?? '') ? webDocuments.filter((doc) => isTextDocument(doc.name)).map((doc) => ({
                     id: `web:${doc.id}`,
                     name: doc.name,
                     projectPath: contentStudioProjectPath ?? undefined,
                     subtitle: 'Web-Dokument',
                     updatedAt: doc.updatedAt,
+                  })) : []),
+                  // Cloud-Dokumente nur anzeigen wenn das aktive Projekt ein Cloud-Projekt ist
+                  ...(isCloudProjectPath(contentStudioProjectPath ?? '') ? cloudDocuments.filter((doc) => isTextDocument(doc.fileName)).map((doc) => ({
+                    id: `cloud:${doc.id}`,
+                    name: doc.fileName,
+                    projectPath: contentStudioProjectPath ?? undefined,
+                    subtitle: 'Cloud-Dokument',
+                    updatedAt: Date.parse(doc.createdAt),
                   })) : []),
                 ]}
                 onSelectProjectPath={(path) => {
@@ -2750,6 +3000,13 @@ function AppContent() {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
                   setActiveBlogForEditor(blog);
+                  setContentStudioProjectPath(blog.path);
+                  setContentStudioRequestedArticleId(null);
+                  setTransferContent(null);
+                  setTransferFileName(null);
+                  setTransferPostMeta(null);
+                  setCameFromDocStudio(false);
+                  setCameFromDashboard(false);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
@@ -2757,6 +3014,13 @@ function AppContent() {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
                   setActiveBlogForEditor(blog);
+                  setContentStudioProjectPath(blog.path);
+                  setContentStudioRequestedArticleId(null);
+                  setTransferContent(null);
+                  setTransferFileName(null);
+                  setTransferPostMeta(null);
+                  setCameFromDocStudio(false);
+                  setCameFromDashboard(false);
                   setContentStudioRequestedFilePath(filePath);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
@@ -2782,9 +3046,17 @@ function AppContent() {
                     }
                     return;
                   }
+                  if (doc.id.startsWith("cloud:")) {
+                    const cloudId = Number(doc.id.replace(/^cloud:/, ""));
+                    if (Number.isFinite(cloudId) && cloudId > 0) {
+                      void handleLoadCloudDocument(cloudId, doc.name);
+                    }
+                    return;
+                  }
                 }}
                 onOpenDocuments={(path) => {
                   if (path) void handleSwitchContentStudioProject(path);
+                  if (path && isCloudProjectPath(path)) return;
                   setContentStudioDashboardView("project-map");
                 }}
                 onOpenPlanner={() => {
@@ -2818,6 +3090,19 @@ function AppContent() {
                     const remaining = getRecentProjectPaths();
                     setContentStudioProjectPath(remaining[0] ?? null);
                   }
+                }}
+                onDeleteDocument={async (doc) => {
+                  if (doc.id.startsWith('cloud:')) {
+                    const cloudId = parseInt(doc.id.replace('cloud:', ''), 10);
+                    if (!isNaN(cloudId)) {
+                      await deleteCloudDocument(cloudId);
+                      setCloudDocuments((prev) => prev.filter((d) => d.id !== cloudId));
+                    }
+                  } else if (doc.id.startsWith('file:') && doc.path) {
+                    try { await fsRemove(doc.path); } catch { /* ignore */ }
+                    setContentStudioAllFiles((prev) => prev.filter((f) => f.path !== doc.path));
+                  }
+                  // web: Dokumente werden nur aus webDocuments entfernt (kein echter Delete nötig)
                 }}
                 blogs={loadZenStudioSettings().blogs ?? []}
               />
@@ -2953,6 +3238,7 @@ function AppContent() {
             }}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
+            onOpenZenNote={handleSelectZenNote}
             onOpenMobileInbox={handleSelectMobileInbox}
             onOpenMobileSettings={() => {
               setSettingsDefaultTab('mobile');
@@ -2970,8 +3256,37 @@ function AppContent() {
         {currentScreen === "mobile-inbox" && (
           <MobileInboxScreen onOpenInContentAI={handleOpenMobileDraftInContentAI} />
         )}
+        {currentScreen === "zen-note" && (
+          <ZenNoteStudioScreen
+            insertTargetActive={true}
+          />
+        )}
       </div>
 
+
+      {/* Cloud error toast */}
+      {cloudToast && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: '28px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: '#1a1a1a',
+            border: '0.5px solid #B3261E',
+            borderRadius: '10px',
+            padding: '10px 20px',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            color: '#e07070',
+            zIndex: 9999,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+            pointerEvents: 'none',
+          }}
+        >
+          {cloudToast}
+        </div>
+      )}
 
       {/* Unsaved-changes toast */}
       {homeToast && (
@@ -3034,6 +3349,7 @@ function AppContent() {
         isOpen={showWebProjectPicker}
         onClose={() => setShowWebProjectPicker(false)}
         onCreated={(project, initialDocs) => { void handleWebProjectCreated(project, initialDocs); }}
+        onCloudSelected={(project) => { void handleCloudProjectSelected(project); }}
       />
 
       <ZenContentStudioModal
@@ -3125,6 +3441,17 @@ function AppContent() {
         subtitle={exportSubtitle || undefined}
         imageUrl={exportImageUrl || undefined}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
+        onBlogPublished={({ blogPath }) => {
+          // If this blog is a docs project (has FTP config), go to Doc Studio dashboard
+          setShowExportModal(false);
+          const isDocsProject = !!loadDocsServerConfig(blogPath);
+          if (isDocsProject) {
+            setCurrentScreen('doc-studio');
+            setDocStudioStep(0);
+          } else {
+            setCurrentScreen('content-transform');
+          }
+        }}
       />
 
       {/* Upgrade Modal - triggered by FeatureGate or manual */}
@@ -3279,12 +3606,14 @@ const StudioBarButton = ({
     onMouseEnter={(e) => {
       if (!disabled) {
         e.currentTarget.style.borderColor = "#AC8E66";
+      
         e.currentTarget.style.transform = "translateY(-1px)";
       }
     }}
     onMouseLeave={(e) => {
       if (!disabled) {
         e.currentTarget.style.borderColor = active ? "#AC8E66" : "#3A3A3A";
+       
         e.currentTarget.style.transform = "translateY(0)";
       }
     }}

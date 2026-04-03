@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowDownAZ, faCalendarDays, faFileImport, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faArrowDownAZ, faCalendarDays, faCloud, faFileImport, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
 import { importDocumentToMarkdown } from '../../services/documentImportService';
+import { isCloudProjectPath } from '../../services/cloudProjectService';
 
 type StudioFile = {
   path: string;
@@ -21,10 +22,12 @@ type ContentStudioProjectMapScreenProps = {
   projectPath: string | null;
   allFiles: StudioFile[];
   webDocuments: WebDocument[];
+  cloudDocuments: Array<{ id: number; fileName: string; createdAt: string }>;
   onBack: () => void;
   onStartWriting: () => void;
   onOpenFile: (filePath: string) => void;
   onLoadWebDocument: (content: string, fileName: string) => void;
+  onOpenCloudDocument: (docId: number, fileName: string) => void;
 };
 
 export function ContentStudioProjectMapScreen({
@@ -32,10 +35,12 @@ export function ContentStudioProjectMapScreen({
   projectPath,
   allFiles,
   webDocuments,
+  cloudDocuments,
   onBack,
   onStartWriting: _onStartWriting,
   onOpenFile,
   onLoadWebDocument,
+  onOpenCloudDocument,
 }: ContentStudioProjectMapScreenProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragActive, setIsDragActive] = useState(false);
@@ -43,7 +48,7 @@ export function ContentStudioProjectMapScreen({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState('');
   const [fileSort, setFileSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('name-asc');
-  const [activeTab, setActiveTab] = useState<'files' | 'web'>(isDesktopRuntime ? 'files' : 'web');
+  const [activeTab, setActiveTab] = useState<'files' | 'web' | 'cloud'>(isDesktopRuntime ? 'files' : 'web');
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
   const [titleHovered, setTitleHovered] = useState(false);
 
@@ -84,6 +89,19 @@ export function ContentStudioProjectMapScreen({
     () => webDocuments.filter((doc) => matchesFileSearch(doc.name, doc.name, fileSearch)),
     [webDocuments, fileSearch]
   );
+
+  const filteredCloudDocuments = useMemo(
+    () => cloudDocuments.filter((doc) => matchesFileSearch(doc.fileName, doc.fileName, fileSearch)),
+    [cloudDocuments, fileSearch]
+  );
+
+  useEffect(() => {
+    if (projectPath && isCloudProjectPath(projectPath)) {
+      setActiveTab('cloud');
+      return;
+    }
+    setActiveTab(isDesktopRuntime ? 'files' : 'web');
+  }, [projectPath, isDesktopRuntime]);
 
   const handleWebFile = async (file: File) => {
     setLoadError(null);
@@ -260,11 +278,30 @@ export function ContentStudioProjectMapScreen({
           >
             Web · {webDocuments.length}
           </button>
+          <button
+            onClick={() => setActiveTab('cloud')}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${activeTab === 'cloud' ? '#AC8E66' : '#3A3A3A'}`,
+              background: activeTab === 'cloud' ? '#d0cbb8' : 'transparent',
+              color: activeTab === 'cloud' ? '#1a1a1a' : '#777',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            <FontAwesomeIcon icon={faCloud} style={{ fontSize: '10px' }} />
+            Cloud · {cloudDocuments.length}
+          </button>
         </div>
 
         <div style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#BEBEBE' }}>
-            {activeTab === 'files' ? 'Projektdateien' : 'Web-Dokumente'}
+            {activeTab === 'files' ? 'Projektdateien' : activeTab === 'cloud' ? 'Cloud-Dokumente' : 'Web-Dokumente'}
           </span>
           {activeTab === 'files' && isDesktopRuntime && (
             <button
@@ -345,6 +382,35 @@ export function ContentStudioProjectMapScreen({
                   </div>
                 </button>
               ))
+            : activeTab === 'cloud'
+            ? filteredCloudDocuments.map((doc) => (
+                <button
+                  key={doc.id}
+                  onClick={() => onOpenCloudDocument(doc.id, doc.fileName)}
+                  onMouseEnter={() => setHoveredItemId(String(doc.id))}
+                  onMouseLeave={() => setHoveredItemId(null)}
+                  style={{
+                    border: hoveredItemId === String(doc.id) ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    background: hoveredItemId === String(doc.id) ? 'rgba(172,142,102,0.10)' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    color: '#7a7a7a',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    transform: hoveredItemId === String(doc.id) ? 'translateX(3px)' : 'translateX(0)',
+                    transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', color: '#d3d3d3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faCloud} style={{ fontSize: '9px', color: '#AC8E66' }} />
+                    {doc.fileName}
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#7a7a7a' }}>
+                    {new Date(doc.createdAt).toLocaleString('de-DE')}
+                  </div>
+                </button>
+              ))
             : filteredWebDocuments.map((doc) => (
                 <button
                   key={doc.id}
@@ -372,11 +438,19 @@ export function ContentStudioProjectMapScreen({
               ))}
         </div>
 
-        {((activeTab === 'files' && isDesktopRuntime && filteredAllFiles.length === 0) || (activeTab === 'web' && filteredWebDocuments.length === 0)) && (
+        {activeTab === 'files' && isDesktopRuntime && filteredAllFiles.length === 0 && (
           <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
-            {activeTab === 'files'
-              ? (allFiles.length === 0 ? 'Keine Dateien gefunden.' : 'Keine Treffer.')
-              : (webDocuments.length === 0 ? 'Noch keine Web-Dokumente geladen.' : 'Keine Treffer.')}
+            {allFiles.length === 0 ? 'Keine Dateien gefunden.' : 'Keine Treffer.'}
+          </div>
+        )}
+        {activeTab === 'web' && filteredWebDocuments.length === 0 && (
+          <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+            {webDocuments.length === 0 ? 'Noch keine Web-Dokumente geladen.' : 'Keine Treffer.'}
+          </div>
+        )}
+        {activeTab === 'cloud' && filteredCloudDocuments.length === 0 && (
+          <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+            {cloudDocuments.length === 0 ? 'Keine Cloud-Dokumente gefunden.' : 'Keine Treffer.'}
           </div>
         )}
       </div>

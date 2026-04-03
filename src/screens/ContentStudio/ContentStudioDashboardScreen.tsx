@@ -8,15 +8,19 @@ import {
   faGlobe,
   faPlus,
   faPenNib,
+  faCloud,
+  faTrash,
+  faSpinner,
 } from '@fortawesome/free-solid-svg-icons';
 import { isWebProjectPath, getWebProjectName, getWebProjectType } from '../../services/webProjectService';
+import { isCloudProjectPath, getCloudProjectName } from '../../services/cloudProjectService';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isTauri } from '@tauri-apps/api/core';
 import { readTextFile, writeTextFile, exists, readDir, remove } from '@tauri-apps/plugin-fs';
 import { ftpUpload } from '../../services/ftpService';
 import { phpBlogManifestUpdate } from '../../services/phpBlogService';
 import { join } from '@tauri-apps/api/path';
-import { type BlogConfig } from '../../services/zenStudioSettingsService';
+import { loadZenStudioSettings, type BlogConfig } from '../../services/zenStudioSettingsService';
 
 type DashboardDocument = {
   id: string;
@@ -47,6 +51,7 @@ type ContentStudioDashboardScreenProps = {
   onDeleteServerArticle?: (slug: string) => Promise<void>;
   onOpenApiSettings?: () => void;
   onRemoveProject?: (path: string) => void;
+  onDeleteDocument?: (doc: DashboardDocument) => Promise<void>;
   blogs?: BlogConfig[];
   onStartWritingToBlog?: (blog: BlogConfig) => void;
   onOpenBlogPost?: (filePath: string, blog: BlogConfig) => void;
@@ -154,6 +159,7 @@ export function ContentStudioDashboardScreen({
   onStartWritingToBlog,
   onOpenBlogPost,
   onActiveContextChange,
+  onDeleteDocument,
 }: ContentStudioDashboardScreenProps) {
   const blogPaths = new Set(blogs.map((b) => b.path));
   const visibleRecentProjects = recentProjectPaths.filter((p) => !blogPaths.has(p)).slice(0, 6);
@@ -168,7 +174,7 @@ export function ContentStudioDashboardScreen({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedTab, setSelectedTab] = useState<string | 'server'>('');
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
-  const [blogPosts, setBlogPosts] = useState<Array<{ slug: string; title: string; date?: string; synced: boolean; localPath?: string }>>([]);
+  const [blogPosts, setBlogPosts] = useState<Array<{ slug: string; title: string; date?: string; synced: boolean; localPath?: string; localFileName?: string }>>([]);
   const [blogPostsLoading, setBlogPostsLoading] = useState(false);
   const [confirmingDeleteSlug, setConfirmingDeleteSlug] = useState<string | null>(null);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
@@ -191,7 +197,69 @@ export function ContentStudioDashboardScreen({
   };
   const [cardHovered, setCardHovered] = useState(false);
   const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
+  const [hoveredProjectDocId, setHoveredProjectDocId] = useState<string | null>(null);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [hoveredArticleSlug, setHoveredArticleSlug] = useState<string | null>(null);
+
+  const normalizeBlogPostStem = (value: string) => value
+    .replace(/\.md$/i, '')
+    .toLowerCase()
+    .replace(/[äöüß]/g, (char: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[char] ?? char))
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  const readLocalTitle = async (filePath: string, slug: string): Promise<string> => {
+    try {
+      const content = await readTextFile(filePath);
+      const lines = content.split('\n');
+      if (lines[0]?.trim() === '---') {
+        for (let i = 1; i < Math.min(lines.length, 20); i++) {
+          if (lines[i]?.trim() === '---') break;
+          const m = lines[i]?.match(/^title:\s*["']?(.+?)["']?\s*$/);
+          if (m) return m[1];
+        }
+      }
+      for (const line of lines.slice(0, 10)) {
+        const m = line?.match(/^#+\s+(.+)$/);
+        if (m) return m[1];
+      }
+    } catch { /* use slug */ }
+    return slug;
+  };
+
+  const resolveLocalBlogPostPath = async (blogPath: string, post: { slug: string; title: string; localFileName?: string }) => {
+    const postsDir = await join(blogPath, 'posts');
+    const fallbackPath = await join(postsDir, `${post.slug}.md`);
+    if (!(await exists(postsDir))) return fallbackPath;
+
+    const entries = await readDir(postsDir);
+    const normalizedSlug = normalizeBlogPostStem(post.slug);
+    const normalizedTitle = normalizeBlogPostStem(post.title);
+    const mdEntries = entries.filter((entry) => entry.name?.endsWith('.md'));
+
+    const exactMatch = mdEntries.find((entry) => entry.name?.replace(/\.md$/i, '') === post.slug);
+    if (exactMatch?.name) return join(postsDir, exactMatch.name);
+
+    if (post.localFileName) {
+      const explicitMatch = mdEntries.find((entry) => entry.name === post.localFileName);
+      if (explicitMatch?.name) return join(postsDir, explicitMatch.name);
+    }
+
+    const normalizedMatch = mdEntries.find((entry) => {
+      const normalizedEntry = normalizeBlogPostStem(entry.name ?? '');
+      return normalizedEntry === normalizedSlug || normalizedEntry === normalizedTitle;
+    });
+    if (normalizedMatch?.name) return join(postsDir, normalizedMatch.name);
+
+    for (const entry of mdEntries) {
+      if (!entry.name) continue;
+      const candidatePath = await join(postsDir, entry.name);
+      const candidateTitle = await readLocalTitle(candidatePath, post.slug);
+      if (candidateTitle.trim() === post.title.trim()) return candidatePath;
+    }
+
+    return fallbackPath;
+  };
 
   // Load blog manifest when a blog tab is selected
   useEffect(() => {
@@ -208,27 +276,9 @@ export function ContentStudioDashboardScreen({
         slug: String(p.slug ?? ''),
         title: String(p.title ?? p.slug ?? ''),
         date: p.date ? String(p.date) : undefined,
+        localFileName: typeof p.localFileName === 'string' ? p.localFileName : undefined,
         synced: true as const,
       }));
-    };
-
-    const readLocalTitle = async (filePath: string, slug: string): Promise<string> => {
-      try {
-        const content = await readTextFile(filePath);
-        const lines = content.split('\n');
-        if (lines[0]?.trim() === '---') {
-          for (let i = 1; i < Math.min(lines.length, 20); i++) {
-            if (lines[i]?.trim() === '---') break;
-            const m = lines[i]?.match(/^title:\s*["']?(.+?)["']?\s*$/);
-            if (m) return m[1];
-          }
-        }
-        for (const line of lines.slice(0, 10)) {
-          const m = line?.match(/^#+\s+(.+)$/);
-          if (m) return m[1];
-        }
-      } catch { /* use slug */ }
-      return slug;
     };
 
     (async () => {
@@ -248,23 +298,46 @@ export function ContentStudioDashboardScreen({
             if (res.ok) serverPosts = parsePosts(await res.json());
           } catch { /* fall through */ }
         }
-        // Local manifest fallback
-        if (serverPosts.length === 0 && isTauri()) {
-          const manifestPath = await join(blog.path, 'manifest.json');
-          if (await exists(manifestPath)) serverPosts = parsePosts(JSON.parse(await readTextFile(manifestPath)));
+
+        // Load local manifest and merge: local data overrides server data for matching slugs
+        // (local manifest is updated on every save, so it reflects unsaved-to-server changes)
+        let localManifestPosts: Array<{ slug: string; title: string; date?: string; synced: true }> = [];
+        if (isTauri() && blog.path) {
+          try {
+            const manifestPath = await join(blog.path, 'manifest.json');
+            if (await exists(manifestPath)) localManifestPosts = parsePosts(JSON.parse(await readTextFile(manifestPath)));
+          } catch { /* non-fatal */ }
+        }
+        if (serverPosts.length === 0) {
+          serverPosts = localManifestPosts;
+        } else if (localManifestPosts.length > 0) {
+          // Merge: for slugs in both, prefer local manifest data (title/date up-to-date after local save)
+          const localBySlug = new Map(localManifestPosts.map((p) => [p.slug, p]));
+          serverPosts = serverPosts.map((sp) => localBySlug.get(sp.slug) ?? sp);
+          // Add local-manifest-only entries that server doesn't know about yet
+          const serverSlugsSet = new Set(serverPosts.map((p) => p.slug));
+          for (const lp of localManifestPosts) {
+            if (!serverSlugsSet.has(lp.slug)) serverPosts.push(lp);
+          }
         }
 
-        // Scan local posts folder for unsynced files (Tauri only)
+        // Scan local posts folder for unsynced files not in any manifest (Tauri only)
         const localOnlyPosts: Array<{ slug: string; title: string; synced: false; localPath: string }> = [];
         if (isTauri() && blog.path) {
-          const serverSlugs = new Set(serverPosts.map((p) => p.slug));
+          const sanitize = (name: string) => name.replace(/\.md$/i, '').toLowerCase()
+            .replace(/[äöüß]/g, (c: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
+            .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          const knownSlugs = new Set([
+            ...serverPosts.map((p) => p.slug),
+            ...localManifestPosts.map((p) => p.slug),
+          ]);
           const postsDir = await join(blog.path, 'posts');
           if (await exists(postsDir)) {
             const entries = await readDir(postsDir);
             for (const entry of entries) {
               if (!entry.name?.endsWith('.md')) continue;
-              const slug = entry.name.slice(0, -3);
-              if (serverSlugs.has(slug)) continue;
+              const slug = sanitize(entry.name);
+              if (knownSlugs.has(slug)) continue;
               const fp = await join(postsDir, entry.name);
               const title = await readLocalTitle(fp, slug);
               localOnlyPosts.push({ slug, title, synced: false, localPath: fp });
@@ -295,12 +368,17 @@ export function ContentStudioDashboardScreen({
   }, [selectedTab, serverLocalCachePath, blogs, activeProjectPath, onActiveContextChange]);
 
   const activeProjectName = activeProjectPath
-    ? (isWebProjectPath(activeProjectPath)
-        ? (getWebProjectName(activeProjectPath) ?? 'Web-Projekt')
-        : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Projekt')
+    ? (isCloudProjectPath(activeProjectPath)
+        ? (getCloudProjectName(activeProjectPath) ?? 'Cloud-Projekt')
+        : isWebProjectPath(activeProjectPath)
+          ? (getWebProjectName(activeProjectPath) ?? 'Web-Projekt')
+          : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Projekt')
     : 'Projekt';
   const activeProjectIsWeb = activeProjectPath ? isWebProjectPath(activeProjectPath) : false;
+  const activeProjectIsCloud = activeProjectPath ? isCloudProjectPath(activeProjectPath) : false;
   const activeProjectWebType = activeProjectPath ? getWebProjectType(activeProjectPath) : null;
+  const cloudLoggedIn = !!loadZenStudioSettings().cloudAuthToken;
+  const showWebWarning = !cloudLoggedIn && !isTauri();
 
   const recent = documents
     .slice()
@@ -317,7 +395,7 @@ export function ContentStudioDashboardScreen({
           maxWidth: '1020px',
           borderRadius: '14px',
           border: '0.5px solid #2F2F2F',
-          background: 'transparent',
+          background: '#262525',
           padding: 'clamp(18px, 4vw, 40px)',
           textAlign: 'left',
         }}
@@ -337,10 +415,26 @@ export function ContentStudioDashboardScreen({
             Content AI Studio starten
           </h2>
         </div>
+        {showWebWarning && (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '10px 12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(172,142,102,0.4)',
+              background: 'rgba(172,142,102,0.08)',
+              color: '#d0cbb8',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+            }}
+          >
+            Nicht eingeloggt: Daten werden nur im Browser gespeichert. Für Cloud-Speicher bitte im Zen Post Login anmelden.
+          </div>
+        )}
 
         <p
           style={{
-            color: '#999',
+            color: '#d0cbb8',
             marginBottom: '24px',
             maxWidth: '760px',
             fontSize: '11px',
@@ -373,7 +467,11 @@ export function ContentStudioDashboardScreen({
               }}
             >
               {allProjects.map((path) => {
-                const tabName = isWebProjectPath(path)
+                const isCloud = isCloudProjectPath(path);
+                const isWeb = isWebProjectPath(path);
+                const tabName = isCloud
+                  ? (getCloudProjectName(path) ?? 'Cloud')
+                  : isWeb
                   ? (getWebProjectName(path) ?? 'Web')
                   : (path.split(/[\\/]/).filter(Boolean).pop() || path);
                 const tabLabel = tabName.length > 6 ? tabName.slice(0, 5) + '…' : tabName;
@@ -392,26 +490,36 @@ export function ContentStudioDashboardScreen({
                         setSelectedPath(path);
                         onSelectProjectPath(path);
                       }}
-                      title={path}
+                      title={isCloud ? `Cloud: ${tabName}` : isWeb ? `Web: ${tabName}` : path}
+                      onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = '#2a2a2a'; e.currentTarget.style.transform = 'translateX(-3px)'; } }}
+                      onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = '#1a1a1a'; e.currentTarget.style.transform = 'translateX(0)'; } }}
                       style={{
-                        width: '36px',
+                        width: '35px',
                         height: '80px',
                         borderRadius: '10px 0 0 10px',
-                        borderTop: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                        borderLeft: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
-                        borderBottom: isActive ? '1px solid #b8b0a0' : '0.5px solid #3A3A3A',
+                        borderTop: isActive ? `1px solid ${isCloud ? '#AC8E66' : '#b8b0a0'}` : '0.5px solid #3A3A3A',
+                        borderLeft: isActive ? `1px solid ${isCloud ? '#AC8E66' : '#b8b0a0'}` : '0.5px solid #3A3A3A',
+                        borderBottom: isActive ? `1px solid ${isCloud ? '#AC8E66' : '#b8b0a0'}` : '0.5px solid #3A3A3A',
                         borderRight: 'none',
-                        background: isActive ? '#d0cbb8' : isHovered ? '#2a2a2a' : '#1a1a1a',
+                        background: isActive ? '#e1d8c6' : '#1a1a1a',
                         cursor: 'pointer',
                         display: 'flex',
+                        flexDirection: 'column',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        gap: '4px',
                         padding: 0,
-                        transition: 'background 0.2s',
+                        transition: 'background 0.2s, transform 0.15s ease',
                         position: 'relative',
                         zIndex: isActive ? 20 : 10,
                       }}
                     >
+                      {isCloud && (
+                        <FontAwesomeIcon
+                          icon={faCloud}
+                          style={{ fontSize: '8px', color: isActive ? '#AC8E66' : '#5a5a5a' }}
+                        />
+                      )}
                       <span
                         style={{
                           writingMode: 'vertical-rl',
@@ -419,10 +527,10 @@ export function ContentStudioDashboardScreen({
                           transform: 'rotate(180deg)',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
-                          color: isActive ? '#1a1a1a' : '#8E8E8E',
+                          color: isActive ? '#1a1a1a' : '#d0cbb8',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
-                          maxHeight: '70px',
+                          maxHeight: isCloud ? '55px' : '70px',
                           letterSpacing: '0.3px',
                         }}
                       >
@@ -501,7 +609,7 @@ export function ContentStudioDashboardScreen({
                       transform: 'rotate(180deg)',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '9px',
-                      color: selectedTab === 'server' ? '#1a1a1a' : '#8E8E8E',
+                      color: selectedTab === 'server' ? '#1a1a1a' : '#d0cbb8',
                       whiteSpace: 'nowrap',
                       letterSpacing: '0.3px',
                     }}
@@ -552,7 +660,7 @@ export function ContentStudioDashboardScreen({
                         transform: 'rotate(180deg)',
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: '9px',
-                        color: isActive ? '#1a1a1a' : '#8E8E8E',
+                        color: isActive ? '#1a1a1a' : '#d0cbb8',
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
                         maxHeight: '60px',
@@ -567,7 +675,7 @@ export function ContentStudioDashboardScreen({
             </div>
 
             <div
-              style={{ position: 'relative', width: '280px', minHeight: '320px', zIndex: 15, display: 'flex', flexDirection: 'column' }}
+              style={{ position: 'relative', width: '300px', minHeight: '0', maxHeight: '340px', zIndex: 15, display: 'flex', flexDirection: 'column' }}
               onMouseEnter={() => selectedTab !== 'server' && !selectedTab.startsWith('blog:') && hasDocs && setCardHovered(true)}
               onMouseLeave={() => setCardHovered(false)}
             >
@@ -579,6 +687,7 @@ export function ContentStudioDashboardScreen({
                     style={{
                       width: '100%',
                       flex: 1,
+                      minHeight: 0,
                       borderRadius: '0 12px 12px 0',
                       padding: '14px 16px',
                       borderTop: '1px solid #b8b0a0',
@@ -600,7 +709,7 @@ export function ContentStudioDashboardScreen({
                        https://{activeBlog.siteUrl}
                       </div>
                     )}
-                    <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       {!blogPostsLoading && blogPosts.length === 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: '10px', padding: '16px 0' }}>
                           <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: 0, textAlign: 'center' }}>
@@ -659,7 +768,7 @@ export function ContentStudioDashboardScreen({
                                 onOpenBlogPost?.(post.localPath, activeBlog);
                                 return;
                               }
-                              const fp = await join(activeBlog.path, 'posts', `${post.slug}.md`);
+                              const fp = await resolveLocalBlogPostPath(activeBlog.path, post);
                               // If local file missing, fetch from server and save locally
                               if (!(await exists(fp))) {
                                 try {
@@ -1030,7 +1139,7 @@ export function ContentStudioDashboardScreen({
                   </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                     <FontAwesomeIcon
-                      icon={activeProjectIsWeb ? faGlobe : faFolderOpen}
+                      icon={activeProjectIsCloud ? faCloud : activeProjectIsWeb ? faGlobe : faFolderOpen}
                       style={{ color: '#AC8E66', fontSize: '16px' }}
                     />
                     <span
@@ -1059,13 +1168,15 @@ export function ContentStudioDashboardScreen({
                       wordBreak: 'break-all',
                     }}
                   >
-                    {activeProjectIsWeb
-                      ? (activeProjectWebType === 'directory' ? 'Ordner-Projekt (Browser)' : 'Virtuelles Projekt (Browser)')
-                      : (activeProjectPath || 'Noch kein Projekt ausgewählt')}
+                    {activeProjectIsCloud
+                      ? 'Cloud-Projekt (Server)'
+                      : activeProjectIsWeb
+                        ? (activeProjectWebType === 'directory' ? 'Ordner-Projekt (Browser)' : 'Virtuelles Projekt (Browser)')
+                        : (activeProjectPath || 'Noch kein Projekt ausgewählt')}
                   </p>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  {activeProjectPath && !activeProjectIsWeb ? (
+                  {activeProjectPath && !activeProjectIsWeb && !activeProjectIsCloud ? (
                     <button
                       title="Im Finder öffnen"
                       onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
@@ -1120,20 +1231,24 @@ export function ContentStudioDashboardScreen({
                   >
                     Projekt Dokumente
                   </p>
-                  <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    {projectDocs.slice(0, 8).map((doc) => (
+                  <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                    {projectDocs.map((doc) => (
                       <div
                         key={doc.id}
+                        onMouseEnter={() => setHoveredProjectDocId(doc.id)}
+                        onMouseLeave={() => setHoveredProjectDocId(null)}
+                        style={{
+                          position: 'relative',
+                          borderRadius: '6px',
+                          border: `0.5px solid ${hoveredProjectDocId === doc.id ? 'rgba(172,142,102,0.6)' : 'rgba(172, 142, 102, 0.3)'}`,
+                          background: hoveredProjectDocId === doc.id ? 'rgba(172,142,102,0.08)' : 'transparent',
+                          padding: '8px 32px 8px 10px',
+                          cursor: 'pointer',
+                          transition: 'border-color 0.15s, background 0.15s',
+                        }}
                         onClick={(event) => {
                           event.stopPropagation();
                           onOpenDashboardDocument?.(doc);
-                        }}
-                        style={{
-                          borderRadius: '6px',
-                          border: '0.5px solid rgba(172, 142, 102, 0.3)',
-                          background: '#d0cbb8/20',
-                          padding: '8px 10px',
-                          cursor: 'pointer',
                         }}
                       >
                         <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1142,11 +1257,25 @@ export function ContentStudioDashboardScreen({
                         <p style={{ margin: '2px 0 0 0', fontSize: '8px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {doc.path ? doc.path.split(/[\\/]/).slice(-2).join('/') : (doc.subtitle || 'Dokument')}
                         </p>
+                        {(hoveredProjectDocId === doc.id || deletingDocId === doc.id) && onDeleteDocument && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              setDeletingDocId(doc.id);
+                              await onDeleteDocument(doc);
+                              setDeletingDocId(null);
+                            }}
+                            title="Dokument löschen"
+                            style={{ position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', cursor: 'pointer', color: '#b55', fontSize: 11, padding: '4px 5px' }}
+                          >
+                            {deletingDocId === doc.id ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faTrash} />}
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
-                    {activeProjectPath && !activeProjectIsWeb ? (
+                    {activeProjectPath && !activeProjectIsWeb && !activeProjectIsCloud ? (
                       <button
                         title="Im Finder öffnen"
                         onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
@@ -1261,6 +1390,7 @@ export function ContentStudioDashboardScreen({
 
         <div>
           <p style={{ 
+            paddingTop: '20px',
             margin: '0 0 10px 0', 
             fontSize: '12px', 
             color: '#d0cbb8', 
@@ -1283,46 +1413,63 @@ export function ContentStudioDashboardScreen({
               Noch keine letzten Dokumente.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
               {recent.map((doc) => (
-                <button
+                <div
                   key={doc.id}
-                  onClick={() => { onOpenDashboardDocument?.(doc); }}
                   onMouseEnter={() => setHoveredDocId(doc.id)}
                   onMouseLeave={() => setHoveredDocId(null)}
-                  style={{
-                    borderRadius: '5px',
-                    border: hoveredDocId === doc.id ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
-                    background: hoveredDocId === doc.id ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
-                    padding: '10px 12px',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '12px',
-                    transform: hoveredDocId === doc.id ? 'translateX(5px)' : 'translateX(0)',
-                    transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
-                  }}
+                  style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ color: '#E7CCAA', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {doc.name}
+                  <button
+                    onClick={() => { onOpenDashboardDocument?.(doc); }}
+                    style={{
+                      flex: 1,
+                      borderRadius: '5px',
+                      border: hoveredDocId === doc.id ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
+                      background: hoveredDocId === doc.id ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
+                      padding: '10px 12px',
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      transform: hoveredDocId === doc.id ? 'translateX(2px)' : 'translateX(0)',
+                      transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: '#E7CCAA', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.name}
+                      </div>
+                      <div style={{ color: '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {doc.subtitle || 'Dokument öffnen'}
+                      </div>
                     </div>
-                    <div style={{ color: '#8E8E8E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {doc.subtitle || 'Dokument öffnen'}
+                    <div style={{ color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
+                      {doc.updatedAt
+                        ? new Date(doc.updatedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+                        : '—'}
                     </div>
-                  </div>
-                  <div style={{ color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
-                    {doc.updatedAt
-                      ? new Date(doc.updatedAt).toLocaleDateString('de-DE', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric',
-                        })
-                      : '—'}
-                  </div>
-                </button>
+                  </button>
+                  {(hoveredDocId === doc.id || deletingDocId === doc.id) && onDeleteDocument && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        setDeletingDocId(doc.id);
+                        await onDeleteDocument(doc);
+                        setDeletingDocId(null);
+                      }}
+                      title="Dokument löschen"
+                      style={{ background: 'transparent', border: '0.5px solid #3a3a3a', borderRadius: 5, cursor: 'pointer', color: '#c06060', fontSize: 11, padding: '9px 10px', flexShrink: 0, transition: 'color 0.15s' }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#e07070'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#c06060'; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#c06060'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#3a3a3a'; }}
+                    >
+                      {deletingDocId === doc.id ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faTrash} />}
+                    </button>
+                  )}
+                </div>
               ))}
             </div>
           )}
@@ -1357,8 +1504,8 @@ export function ContentStudioDashboardScreen({
               <span
                 title={hasServerCachePath ? (serverLocalCachePath ?? '') : 'Nicht gesetzt'}
                 style={{
-                  fontSize: '11px',
-                  color: hasServerCachePath ? '#888' : '#cf6679',
+                  fontSize: '12px',
+                  color: hasServerCachePath ? '#1F8A41' : '#cf6679',
                   fontFamily: 'IBM Plex Mono, monospace',
                   maxWidth: '620px',
                   overflow: 'hidden',
@@ -1487,7 +1634,7 @@ export function ContentStudioDashboardScreen({
                             {title}
                           </div>
                           {title !== slug && slug && (
-                            <div style={{ color: '#8E8E8E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px' }}>
+                            <div style={{ color: '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px' }}>
                               {slug}
                             </div>
                           )}

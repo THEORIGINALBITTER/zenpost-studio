@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
-import { convertFileSrc, isTauri } from '@tauri-apps/api/core';
+import { isTauri } from '@tauri-apps/api/core';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 import { ZenRoughButton, ZenModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
@@ -22,6 +22,8 @@ import {
   EDITOR_IMAGE_MAX_FILE_SIZE_MB,
   isEditorImageOversized,
 } from '../../utils/editorImageCompression';
+import { uploadCloudDocument } from '../../services/cloudStorageService';
+import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
@@ -65,7 +67,7 @@ interface Step1SourceInputProps {
   showInlineActions?: boolean;
   onOpenConverter?: () => void;
   showDockedEditorToggle?: boolean;
-  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' | 'derived' }>;
+  docTabs?: Array<{ id: string; title: string; kind: 'draft' | 'file' | 'article' | 'derived'; filePath?: string; displayPath?: string }>;
   activeDocTabId?: string | null;
   dirtyDocTabs?: Record<string, boolean>;
   onDocTabChange?: (tabId: string) => void;
@@ -431,6 +433,30 @@ export const Step1SourceInput = ({
   const metaImageIsInlineData = /^data:image\//i.test(currentMetaImageUrl);
   const metaImageIsBlob = /^blob:/i.test(currentMetaImageUrl);
   const metaImageInvalidForServer = metaImageIsInlineData || metaImageIsBlob;
+
+  // Blob URL für lokale Bild-Vorschau (Tauri: readFile statt convertFileSrc)
+  const [metaImageBlobUrl, setMetaImageBlobUrl] = useState<string | null>(null);
+  const metaImageBlobUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    const isLocalPath = /^(file:\/\/|\/|[a-zA-Z]:[\\/])/i.test(currentMetaImageUrl);
+    if (!isTauri() || !isLocalPath) {
+      if (metaImageBlobUrlRef.current) { URL.revokeObjectURL(metaImageBlobUrlRef.current); metaImageBlobUrlRef.current = null; }
+      setMetaImageBlobUrl(null);
+      return;
+    }
+    let cancelled = false;
+    const filePath = currentMetaImageUrl.replace(/^file:\/\//i, '');
+    import('@tauri-apps/plugin-fs').then(({ readFile }) => readFile(filePath)).then((bytes) => {
+      if (cancelled) return;
+      const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png';
+      const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+      const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      if (metaImageBlobUrlRef.current) URL.revokeObjectURL(metaImageBlobUrlRef.current);
+      metaImageBlobUrlRef.current = url;
+      setMetaImageBlobUrl(url);
+    }).catch(() => { if (!cancelled) setMetaImageBlobUrl(null); });
+    return () => { cancelled = true; };
+  }, [currentMetaImageUrl]);
   const contentDiagnostics = useMemo(() => {
     const raw = sourceContent ?? '';
     const byteSize = new TextEncoder().encode(raw).length;
@@ -618,9 +644,28 @@ export const Step1SourceInput = ({
       const markdownImageLines: string[] = [];
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
-      if (isTauri()) {
-        // Tauri: Datei auf Disk schreiben → absoluter Pfad, kein Canvas, kein base64
-        // Speicherort: neben dem Dokument (_assets/) oder ~/Documents/zenpost-images/
+      // Cloud-Projekt: immer zum Server hochladen (Desktop + Web)
+      const isCloudProject = typeof projectPath === 'string' && projectPath.startsWith('@cloud:');
+      const cloudSettings = loadZenStudioSettings();
+      const canCloudUpload = !!(cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId);
+
+      if (isCloudProject && canCloudUpload) {
+        for (const imageFile of limitedFiles) {
+          const safeStem = sanitizeFileStem(imageFile.name);
+          const uploaded = await uploadCloudDocument(imageFile);
+          if (uploaded?.url) {
+            if (editorType === 'block' && blockImageInserterRef.current) {
+              blockImages.push({ url: uploaded.url, alt: safeStem });
+            } else {
+              markdownImageLines.push(`![${safeStem}](${uploaded.url})`);
+            }
+          }
+        }
+        if (blockImages.length === 0 && markdownImageLines.length === 0) {
+          onError?.('Cloud Upload fehlgeschlagen.');
+        }
+      } else if (isTauri()) {
+        // Tauri lokales Projekt: Datei auf Disk schreiben → absoluter Pfad
         const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
         let imagesDir: string;
         if (projectPath) {
@@ -637,13 +682,13 @@ export const Step1SourceInput = ({
           const filePath = `${imagesDir}/${Date.now()}-${safeName}`;
           await writeFile(filePath, new Uint8Array(await imageFile.arrayBuffer()));
           if (editorType === 'block' && blockImageInserterRef.current) {
-            blockImages.push({ url: filePath, alt: safeStem }); // roher Pfad → _buildPreview konvertiert zu asset://
+            blockImages.push({ url: filePath, alt: safeStem });
           } else {
             markdownImageLines.push(`![${safeStem}](${filePath})`);
           }
         }
       } else {
-        // Web: OPFS speichern → kein base64, kein Canvas-Crash
+        // Web lokales Projekt: OPFS
         for (const imageFile of limitedFiles) {
           const safeStem = sanitizeFileStem(imageFile.name);
           const opfsPath = await saveImageToOpfs(imageFile);
@@ -692,19 +737,33 @@ export const Step1SourceInput = ({
       const markdownImageLines: string[] = [];
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
-      if (isTauri()) {
+      const isCloudProject = typeof projectPath === 'string' && projectPath.startsWith('@cloud:');
+      const cloudSettings = loadZenStudioSettings();
+      const canCloudUpload = !!(cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId);
+
+      if (isCloudProject && canCloudUpload) {
+        // Cloud-Projekt: Datei einlesen und hochladen
+        const { readFile } = await import('@tauri-apps/plugin-fs');
         for (const sourcePath of normalized) {
           const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
           const safeStem = sanitizeFileStem(sourceName);
-          if (editorType === 'block' && blockImageInserterRef.current) {
-            // Roher Pfad → _buildPreview in ZenBlockEditor konvertiert zu asset:// für <img>
-            blockImages.push({ url: sourcePath, alt: safeStem });
-          } else {
-            // Markdown: ZenMarkdownPreview ruft convertFileSrc beim Rendern
-            markdownImageLines.push(`![${safeStem}](${sourcePath})`);
-          }
+          try {
+            const bytes = await readFile(sourcePath);
+            const ext = sourceName.split('.').pop()?.toLowerCase() ?? 'jpg';
+            const mime = ext === 'png' ? 'image/png' : ext === 'svg' ? 'image/svg+xml' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+            const file = new File([bytes], sourceName, { type: mime });
+            const uploaded = await uploadCloudDocument(file);
+            if (uploaded?.url) {
+              if (editorType === 'block' && blockImageInserterRef.current) {
+                blockImages.push({ url: uploaded.url, alt: safeStem });
+              } else {
+                markdownImageLines.push(`![${safeStem}](${uploaded.url})`);
+              }
+            }
+          } catch { /* einzelnes Bild überspringen */ }
         }
       } else {
+        // Lokales Projekt: roher Pfad (Tauri konvertiert zu asset:// beim Rendern)
         for (const sourcePath of normalized) {
           const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
           const safeStem = sanitizeFileStem(sourceName);
@@ -743,23 +802,28 @@ export const Step1SourceInput = ({
   const dragContainsImages = (event: DragEvent<HTMLElement>) => {
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) return false;
-    if (Array.from(dataTransfer.types || []).includes('Files')) {
-      if (!dataTransfer.files || dataTransfer.files.length === 0) return false;
-    }
-    if (dataTransfer.files && dataTransfer.files.length > 0) {
-      return Array.from(dataTransfer.files).some(isImageFile);
-    }
+
+    // items prüfen: in den meisten Browsern während dragover verfügbar
     if (dataTransfer.items && dataTransfer.items.length > 0) {
-      return Array.from(dataTransfer.items).some((item) => {
+      const hasImage = Array.from(dataTransfer.items).some((item) => {
         if (item.type.startsWith('image/')) return true;
         if (item.kind === 'file') {
           const file = item.getAsFile();
-          if (file && isImageFile(file)) return true;
+          // file ist null in WKWebView/Tauri während dragover (Security) → optimistisch akzeptieren
+          return !file || isImageFile(file);
         }
         return false;
       });
+      if (hasImage) return true;
     }
-    return false;
+
+    // files prüfen: in Chrome während dragover direkt zugänglich
+    if (dataTransfer.files && dataTransfer.files.length > 0) {
+      return Array.from(dataTransfer.files).some(isImageFile);
+    }
+
+    // Fallback: wenn 'Files' im types-Array steht aber files noch nicht zugänglich sind (Tauri/WebKit dragover)
+    return Array.from(dataTransfer.types || []).includes('Files');
   };
 
   const extractImagePathsFromDataTransfer = (event: DragEvent<HTMLElement>): string[] => {
@@ -869,6 +933,8 @@ export const Step1SourceInput = ({
 
   const contentTitle = extractTitleFromContent(sourceContent);
   const displayFileName = activeDocTab?.title || contentTitle || (sourceContent ? 'Dokument' : 'Neues Dokument');
+  const displayPath = activeDocTab?.displayPath || (projectPath ? `${projectPath}/${displayFileName}` : displayFileName);
+  const revealPath = activeDocTab?.filePath || (projectPath && !projectPath.startsWith('@') ? projectPath : null);
   const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
   const comparisonRows = useMemo<LineDiffRow[]>(() => {
     if (comparisonBaseContent === undefined) return [];
@@ -1041,12 +1107,12 @@ export const Step1SourceInput = ({
                 <p className="font-mono fontWeight-[200] text-[10px] text-[#888]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                    <FontAwesomeIcon
                      icon={faFolderOpen}
-                     style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: projectPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
-                     onClick={() => projectPath && revealItemInDir(projectPath)}
-                     onMouseEnter={(e) => { if (projectPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
+                     style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: revealPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
+                     onClick={() => revealPath && revealItemInDir(revealPath)}
+                     onMouseEnter={(e) => { if (revealPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
                    />
-                   {projectPath ? `${projectPath}/` : ''}{displayFileName}
+                   {displayPath}
                 </p>
                 {autosaveStatusText ? (
                   <div ref={autosaveHistoryRef} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '20px', position: 'relative' }}>
@@ -1217,7 +1283,9 @@ export const Step1SourceInput = ({
                         flex: '0 0 auto',
                         padding: '10px 16px',
                         backgroundColor: isActive ? '#d0cbb8' : '#1a1a1a',
-                        border: isActive ? '1px solid #AC8E66' : '1px dotted #777',
+                        borderTop: isActive ? '1px solid #AC8E66' : '1px dotted #777',
+                        borderLeft: isActive ? '1px solid #AC8E66' : '1px dotted #777',
+                        borderRight: isActive ? '1px solid #AC8E66' : '1px dotted #777',
                         borderRadius: '8px 8px 0px 0px',
                         borderBottom: 'none',
                         cursor: 'pointer',
@@ -1275,7 +1343,9 @@ export const Step1SourceInput = ({
                       flex: '0 0 auto',
                       padding: '10px 12px',
                       backgroundColor: '#151515',
-                      border: '1px dotted #555',
+                      borderTop: '1px dotted #555',
+                      borderLeft: '1px dotted #555',
+                      borderRight: '1px dotted #555',
                       borderRadius: '8px 8px 0px 0px',
                       borderBottom: 'none',
                       cursor: 'pointer',
@@ -1341,7 +1411,7 @@ export const Step1SourceInput = ({
                   ? '1.5px dashed #AC8E66'
                   : '1px dashed #1a1a1a',
                 background: isDragActive
-                  ? 'rgba(172,142,102,1)'
+                  ? 'rgba(172,142,102,0.1)'
                   : '#d0cbb8',
                 padding: '36px 20px',
                 display: 'flex',
@@ -1362,10 +1432,10 @@ export const Step1SourceInput = ({
                 style={{ fontSize: '22px', color: isDragActive ? '#AC8E66' : '#1a1a1a' }}
               />
               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: isDragActive ? '#AC8E66' : '#1a1a1a' }}>
-                {isDragActive ? 'Loslassen zum Laden' : 'Datei hier ablegen'}
+                {isDragActive ? 'Loslassen zum Laden' : 'Datei hier ablegen oder klicken zum Auswählen'}
               </span>
               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#1a1a1a' }}>
-                .md · .txt · .docx · .html — oder klicken zum Auswählen
+                .md · .txt · .docx · .html · .pdf
               </span>
             </div>
           )}
@@ -1573,7 +1643,7 @@ export const Step1SourceInput = ({
                 top: showOutline ? 60 : 190,
                 transform: showOutline ? 'rotate(0deg)' : 'rotate(-90deg)',
                 backgroundColor: '#1a1a1a',
-                border: '1px solid #AC8E66',
+                border: '0.5px solid #AC8E66',
               }}
               label={showOutline ? 'Gliederung ausblenden' : 'Gliederung'}
               hoverLabel={showOutline ? 'Schließen ×' : 'Öffnen →'}
@@ -1588,7 +1658,7 @@ export const Step1SourceInput = ({
                 top: showComparison ? 295 : 300,
                 transform: 'rotate(-90deg)',
                 backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#1a1a1a',
-                border: !canUseComparison ? '1px solid #3A3A3A' : '1px solid #AC8E66',
+                border: !canUseComparison ? '1px solid #3A3A3A' : '0.5px solid #AC8E66',
                 cursor: !canUseComparison ? 'not-allowed' : 'pointer',
               }}
               label={`Vergleich ${showComparison ? 'an' : 'aus'}`}
@@ -1605,7 +1675,7 @@ export const Step1SourceInput = ({
                 top: 420,
                 transform: 'rotate(-90deg)',
                 backgroundColor: showMeta ? '#d0cbb8' : '#1a1a1a',
-                border: '1px solid #AC8E66',
+                border: '0.5px solid #AC8E66',
               }}
               label="Post Metadaten"
               hoverLabel={showMeta ? 'Schließen ×' : 'Öffnen →'}
@@ -1836,13 +1906,9 @@ export const Step1SourceInput = ({
                           </div>
                         )}
                         {(postMeta?.imageUrl ?? '').trim() &&
-                          /^(https?:\/\/|data:image\/|blob:|file:\/\/|\/)/i.test((postMeta?.imageUrl ?? '').trim()) && (
+                          (metaImageBlobUrl || /^(https?:\/\/|data:image\/|blob:)/i.test((postMeta?.imageUrl ?? '').trim())) && (
                             <img
-                              src={
-                                isTauri() && /^\//.test((postMeta?.imageUrl ?? '').trim())
-                                  ? convertFileSrc((postMeta?.imageUrl ?? '').trim())
-                                  : (postMeta?.imageUrl ?? '').trim()
-                              }
+                              src={metaImageBlobUrl ?? (postMeta?.imageUrl ?? '').trim()}
                               alt="Meta Bild Vorschau"
                               style={{
                                 width: '100%',
@@ -2134,6 +2200,7 @@ export const Step1SourceInput = ({
                   height="calc(100vh - 210px)"
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  showZenNoteButton={true}
                 />
               )}
            {showDockedEditorToggle && (
@@ -2150,7 +2217,7 @@ export const Step1SourceInput = ({
                    transformOrigin: "left center",
                    padding: "10px 12px",
                    backgroundColor: "#121212",
-                   border: "1px solid #AC8E66",
+                   border: "0.5px solid #AC8E66",
                    borderRadius: '8px 8px 0px 0px',
                    cursor: "pointer",
                    fontFamily: "IBM Plex Mono, monospace",
@@ -2205,7 +2272,7 @@ export const Step1SourceInput = ({
                      gap: "6px",
                      padding: "6px 6px",
                      backgroundColor: "#0A0A0A",
-                     border: "1px solid #AC8E66",
+                     border: "0.5px solid #AC8E66",
                      borderRadius: '8px 8px 0px 0px',
                      fontFamily: "IBM Plex Mono, monospace",
                      fontSize: "10px",
