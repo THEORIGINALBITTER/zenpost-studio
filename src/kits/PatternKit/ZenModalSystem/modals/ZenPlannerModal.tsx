@@ -2736,7 +2736,7 @@ export function ZenPlannerModal({
           gap: '4px',
         }}
       >
-        {weeks.flatMap((week, weekIndex) => {
+        {(calendarView === 'week' ? [weekDays] : weeks).flatMap((week, weekIndex) => {
           const kw = getISOWeek(week[0]);
           return [
             // Kalenderwoche-Zelle
@@ -2750,7 +2750,7 @@ export function ZenPlannerModal({
                 background: '#d0cbb8',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '8px',
-              
+
                 color: '#444',
                 userSelect: 'none',
               }}
@@ -2760,7 +2760,7 @@ export function ZenPlannerModal({
             // 7 Tages-Zellen
             ...week.map((date, dayIndex) => {
               const postsOnDate = getScheduledPostsForDate(date);
-              const isCurrent = isCurrentMonth(date);
+              const isCurrent = calendarView === 'week' ? true : isCurrentMonth(date);
               const isTodayDate = isToday(date);
               const hasPosts = postsOnDate.length > 0;
               const dateKey = toLocalDateKey(date);
@@ -2801,7 +2801,7 @@ export function ZenPlannerModal({
                     setDragOverDateSafe(null);
                   }}
                   style={{
-                    minHeight: '76px',
+                    minHeight: calendarView === 'week' ? '320px' : '76px',
                     padding: '6px',
                     backgroundColor: isDragOver
                       ? '#1a1a1a'
@@ -2858,7 +2858,7 @@ export function ZenPlannerModal({
                         setDragOverDateSafe(null);
                       }}
                     >
-                      {postsOnDate.slice(0, 2).map(post => {
+                      {postsOnDate.slice(0, calendarView === 'week' ? 10 : 2).map(post => {
                         const info = getPlatformInfo(post.platform);
                         const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
                         const isManualMoveSelected = manualMovePostId === post.id;
