@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback, type DragEvent } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { exists, readTextFile, writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
 
 // Import Checklist Templates
@@ -9,30 +9,16 @@ import { getChecklistTasksForPlatform } from '../../../../utils/getChecklistForP
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCalendarDays,
-  faClipboardList,
   faClock,
   faLightbulb,
   faCheck,
   faImage,
-
   faCirclePlus,
-  faCircleQuestion,
   faDownload,
   faChevronDown,
   faChevronRight,
   faChevronLeft,
-
 } from '@fortawesome/free-solid-svg-icons';
-import {
-  faLinkedin,
-  faReddit,
-  faGithub,
-  faDev,
-  faMedium,
-  faHashnode,
-  faTwitter,
-} from '@fortawesome/free-brands-svg-icons';
-import { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { ZenModal } from '../components/ZenModal';
 import { MODAL_CONTENT } from '../config/ZenModalConfig';
 import { ZenRoughButton } from '../components/ZenRoughButton';
@@ -56,219 +42,20 @@ import {
   exportPayloadToMarkdown,
   exportPayloadToPdf,
 } from '../../../../utils/exportLayer';
+// ── Planner modules ──────────────────────────────────────────────────────────
+import type { ZenPlannerModalProps, TabType, CalendarView, PostSchedule, PlannerPost } from './plannerTypes';
+import {
+  PLATFORM_INFO, getPlatformInfo,
+  MONTH_NAMES, DAY_NAMES, DEFAULT_TASKS, TABS,
+  DEFAULT_CHECKLIST_COLLAPSED, DEFAULT_WORKFLOW_COLLAPSED,
+  WORKFLOW_COLLAPSED_KEY, CHECKLIST_COLLAPSED_KEY, WORKFLOW_SCOPE_KEY,
+  buildStableContentId, getDefaultTime, getTodayDate,
+  sanitizeBaseName, resolvePlannerSavePath,
+  buildScheduleMap, toLocalDateKey, fromDateKey,
+  fileToDataUrl, extractDroppedImageUrl,
+} from './plannerUtils';
+import { usePlannerStorage } from './hooks/usePlannerStorage';
 
-// ==================== TYPES ====================
-
-interface ZenPlannerModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  scheduledPosts: ScheduledPost[];
-  projectPath?: string | null;
-  projectName?: string | null;
-  onReloadSchedule?: () => void;
-  posts?: Array<{
-    platform: SocialPlatform;
-    title: string;
-    subtitle?: string;
-    content: string;
-    characterCount: number;
-    wordCount: number;
-  }>;
-  onScheduleSave?: (scheduledPosts: ScheduledPost[]) => void;
-  onScheduledPostsChange?: (posts: ScheduledPost[]) => void;
-  onEditPost?: (post: ScheduledPost) => void;
-  onAddPost?: (date: Date) => void;
-  preSelectedDate?: Date;
-  initialSchedules?: Partial<Record<SocialPlatform, { date: string; time: string }>>;
-  defaultTab?: 'planen' | 'kalender' | 'checklist';
-  suggestedEditorPost?: {
-    key: string;
-    title: string;
-    subtitle?: string;
-    imageUrl?: string;
-    content: string;
-    platform?: string;
-  };
-}
-
-type TabType = 'planen' | 'kalender' | 'checklist';
-type CalendarView = 'month' | 'week';
-
-type PostSchedule = { date: string; time: string };
-type ScheduleMap = Record<string, PostSchedule>;
-type PlannerPost = {
-  id: string;
-  platform: SocialPlatform;
-  title: string;
-  subtitle?: string;
-  imageUrl?: string;
-  content: string;
-  characterCount: number;
-  wordCount: number;
-  source: 'content' | 'manual' | 'scheduled';
-};
-
-type PlannerStorage = {
-  version: '1.0.0';
-  updatedAt: string;
-  manualPosts: PlannerPost[];
-  schedules: ScheduleMap;
-  checklistItems: ChecklistItem[];
-};
-
-// ==================== CONSTANTS ====================
-
-
-
-const PLATFORM_INFO: Record<SocialPlatform, { name: string; color: string; icon: IconDefinition; bg: string; }> = {
-     
-  linkedin: { name: 'LinkedIn', color: '#0077B5', icon: faLinkedin, bg: '#0077B51A',  },
-  reddit: { name: 'Reddit', color: '#FF4500', icon: faReddit, bg: '#FF45001A1A', },
-  github: { name: 'GitHub', color: '#181717', icon: faGithub, bg: '#1817171A', },
-  devto: { name: 'Dev.to', color: '#0A0A0A', icon: faDev, bg: '#0A0A0A1A', },
-  medium: { name: 'Medium', color: '#00AB6C', icon: faMedium, bg: '#00AB6C1A', },
-  hashnode: { name: 'Hashnode', color: '#2962FF', icon: faHashnode, bg: '#2962FF1A', },
-  twitter: { name: 'Twitter/X', color: '#1DA1F2', icon: faTwitter, bg: '#1DA1F21A', },
-};
-
-
-
-const UNKNOWN_PLATFORM_INFO = { name: 'Unbekannt', color: '#888', icon: faCircleQuestion, bg: '#8888881A' };
-
-const getPlatformInfo = (platform: SocialPlatform | undefined) =>
-  (platform ? PLATFORM_INFO[platform] : undefined) ?? UNKNOWN_PLATFORM_INFO;
-
-const MONTH_NAMES = [
-  'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-  'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
-];
-
-const DAY_NAMES = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
-
-const DEFAULT_TASKS = [
-  'Content erstellt und überprüft',
-  'Hashtags und Keywords recherchiert',
-  'Bilder/Grafiken vorbereitet',
-  'Beste Posting-Zeit festgelegt',
-  'Cross-Posting geplant',
-  'Engagement-Strategie definiert',
-  'Analytics-Ziele gesetzt',
-  'Community-Interaktion geplant',
-];
-
-const TABS: { id: TabType; label: string; icon: IconDefinition }[] = [
-  { id: 'planen', label: 'Planen', icon: faClock },
-  { id: 'kalender', label: 'Kalender', icon: faCalendarDays },
-  { id: 'checklist', label: 'ToDo', icon: faClipboardList },
-];
-
-const DEFAULT_CHECKLIST_COLLAPSED = false;
-const DEFAULT_WORKFLOW_COLLAPSED = false;
-const WORKFLOW_COLLAPSED_KEY = 'zenpost_checklist_workflow_collapsed';
-const CHECKLIST_COLLAPSED_KEY = 'zenpost_checklist_all_collapsed';
-const WORKFLOW_SCOPE_KEY = 'zenpost_checklist_workflow_scope';
-
-// ==================== HELPER FUNCTIONS ====================
-const buildStableContentId = (platform: string, content: string, title: string): string => {
-  const source = `${platform}-${title}-${content.substring(0, 100)}`;
-  let hash = 0;
-  for (let i = 0; i < source.length; i++) {
-    const char = source.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return `content-${platform}-${Math.abs(hash).toString(36)}`;
-};
-
-const resolvePlannerStorageInfo = async (projectPath?: string | null) => {
-  const storedPath =
-    projectPath ?? (typeof window !== 'undefined' ? localStorage.getItem('zenpost_last_project_path') : null);
-
-  if (!storedPath) return null;
-
-  const paths = await getPublishingPaths(storedPath);
-  return {
-    projectPath: storedPath,
-    storagePath: `${paths.root}/planner_posts.json`,
-  };
-};
-
-
-
-// Helper Helper: Default-Time generieren (z.B. “nächste 15 Minuten”)
-
-
-const getDefaultTime = () => {
-  const now = new Date();
-  const minutes = now.getMinutes();
-  const rounded = Math.ceil(minutes / 15) * 15; // 0, 15, 30, 45, 60
-
-  if (rounded === 60) {
-    now.setHours(now.getHours() + 1);
-    now.setMinutes(0);
-  } else {
-    now.setMinutes(rounded);
-  }
-
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
-};
-
-const sanitizeBaseName = (input: string): string =>
-  input
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'Post';
-
-const buildPlannerFileName = (base: string, dateStr: string, version: number) =>
-  `${base}_${dateStr}_v${version}.md`;
-
-const resolvePlannerSavePath = async (
-  projectPath: string,
-  baseName: string,
-  dateStr: string
-): Promise<string> => {
-  let version = 1;
-  let candidate = buildPlannerFileName(baseName, dateStr, version);
-  while (await exists(`${projectPath}/${candidate}`)) {
-    version += 1;
-    candidate = buildPlannerFileName(baseName, dateStr, version);
-  }
-  return `${projectPath}/${candidate}`;
-};
-
-
-
-const buildScheduleMap = (
-  posts: PlannerPost[],
-  date: string,
-  overrides?: Partial<Record<SocialPlatform, PostSchedule>>,
-): ScheduleMap => {
-  const map: ScheduleMap = {};
-  posts.forEach((post) => {
-    const override = overrides?.[post.platform];
-    map[post.id] = {
-      date: override?.date ?? date,
-      time: override?.time ?? '',
-    };
-  });
-  return map;
-};
-
-const toLocalDateKey = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const fromDateKey = (dateKey: string): Date => {
-  const [year, month, day] = dateKey.split('-').map((v) => Number(v));
-  return new Date(year, (month || 1) - 1, day || 1);
-};
 
 // ==================== MAIN COMPONENT ====================
 
@@ -289,11 +76,7 @@ export function ZenPlannerModal({
   suggestedEditorPost,
 }: ZenPlannerModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
-  const [plannerLoaded, setPlannerLoaded] = useState(false);
   const [showPlanenScheduledPosts, setShowPlanenScheduledPosts] = useState(false);
-  const [plannerStoragePath, setPlannerStoragePath] = useState<string | null>(null);
-  const [plannerProjectPath, setPlannerProjectPath] = useState<string | null>(null);
-  const lastLoadedPathRef = useRef<string | null>(null);
   const [reschedulePost, setReschedulePost] = useState<ScheduledPost | null>(null);
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
@@ -308,8 +91,18 @@ export function ZenPlannerModal({
   // ==================== PLANEN STATE ====================
   const initialDate = preSelectedDate ? preSelectedDate.toISOString().split('T')[0] : '';
 
+  // ── Planner storage: load / autosave via hook ────────────────────────────────
+  const {
+    plannerProjectPath,
+    manualPosts,
+    setManualPosts,
+    schedules,
+    setSchedules,
+    checklistItems,
+    setChecklistItems,
+  } = usePlannerStorage({ isOpen, projectPath, posts, scheduledPosts, initialDate, initialSchedules });
+
   // ==================== MANUAL PLAN POSTS ====================
-  const [manualPosts, setManualPosts] = useState<PlannerPost[]>([]);
   const [newPostPlatform, setNewPostPlatform] = useState<SocialPlatform>('linkedin');
   const [newPostTitle, setNewPostTitle] = useState('');
   const [newPostSubtitle, setNewPostSubtitle] = useState('');
@@ -370,28 +163,9 @@ export function ZenPlannerModal({
     return [...fromEditor, ...manualPosts, ...fromScheduled];
   }, [posts, manualPosts, scheduledPosts]);
 
-  const [schedules, setSchedules] = useState<ScheduleMap>(() => {
-    const base = buildScheduleMap(planningPosts, initialDate, initialSchedules);
-    // Add schedules from scheduledPosts (they already have date/time)
-    scheduledPosts.forEach(post => {
-      if (post.scheduledDate || post.scheduledTime) {
-        let dateStr = '';
-        if (post.scheduledDate) {
-          const d = post.scheduledDate;
-          dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
-        }
-        base[post.id] = {
-          date: dateStr,
-          time: post.scheduledTime ?? '',
-        };
-      }
-    });
-    return base;
-  });
 
   // ==================== CHECKLIST STATE ====================
 
-  const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [checklistLoaded, setChecklistLoaded] = useState(false);
   const [showChecklistExportModal, setShowChecklistExportModal] = useState(false);
   const [customTask, setCustomTask] = useState('');
@@ -484,85 +258,6 @@ export function ZenPlannerModal({
     setActiveTab(defaultTab);
   }, [defaultTab, isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) {
-      lastLoadedPathRef.current = null;
-      setPlannerLoaded(false);
-      setPlannerStoragePath(null);
-      setPlannerProjectPath(null);
-      return;
-    }
-
-    const resolveInfo = async () => {
-      const info = await resolvePlannerStorageInfo(projectPath);
-      setPlannerStoragePath(info?.storagePath ?? null);
-      setPlannerProjectPath(info?.projectPath ?? null);
-    };
-    resolveInfo();
-  }, [isOpen, projectPath]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (!isTauri()) {
-      setPlannerLoaded(true);
-      return;
-    }
-
-    if (!plannerStoragePath || !plannerProjectPath) {
-      setPlannerLoaded(true);
-      return;
-    }
-
-    if (lastLoadedPathRef.current === plannerStoragePath) return;
-    lastLoadedPathRef.current = plannerStoragePath;
-    setPlannerLoaded(false);
-
-    const loadPlannerData = async () => {
-      try {
-        await initializePublishingProject(plannerProjectPath);
-        const fileExists = await exists(plannerStoragePath);
-        if (!fileExists) {
-          setPlannerLoaded(true);
-          return;
-        }
-
-        const raw = await readTextFile(plannerStoragePath);
-        const parsed = JSON.parse(raw) as Partial<PlannerStorage>;
-        const savedManualPosts = Array.isArray(parsed.manualPosts) ? parsed.manualPosts : [];
-        const savedSchedules = parsed.schedules && typeof parsed.schedules === 'object' ? parsed.schedules : {};
-        const savedChecklist = Array.isArray(parsed.checklistItems) ? parsed.checklistItems : [];
-
-        const nextPlanningPosts: PlannerPost[] = [
-          ...posts.map((post) => {
-            const existingId = scheduledPosts.find(
-              p => p.platform === post.platform && p.content === post.content
-            )?.id ?? null;
-            const id = existingId ?? buildStableContentId(post.platform, post.content, post.title);
-            return {
-              ...post,
-              id,
-              source: 'content' as const,
-            };
-          }),
-          ...savedManualPosts,
-        ];
-
-        const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
-        const mergedSchedules = { ...baseSchedules, ...savedSchedules };
-
-        setManualPosts(savedManualPosts);
-        setChecklistItems(savedChecklist);
-        setSchedules(mergedSchedules);
-      } catch (error) {
-        console.error('[Planner] Failed to load planner storage', error);
-      } finally {
-        setPlannerLoaded(true);
-      }
-    };
-
-    void loadPlannerData();
-  }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts]);
 
   useEffect(() => {
     if (!preSelectedDate) return;
@@ -775,31 +470,6 @@ export function ZenPlannerModal({
     }
   }, [calendarDetailDate, calendarStatusList, effectiveScheduledPosts]);
 
-  useEffect(() => {
-    if (!isOpen || !plannerLoaded) return;
-    if (!isTauri()) return;
-    if (!plannerStoragePath || !plannerProjectPath) return;
-
-    const timeout = setTimeout(async () => {
-      try {
-        await initializePublishingProject(plannerProjectPath);
-
-        const payload: PlannerStorage = {
-          version: '1.0.0',
-          updatedAt: new Date().toISOString(),
-          manualPosts,
-          schedules,
-          checklistItems,
-        };
-
-        await writeTextFile(plannerStoragePath, JSON.stringify(payload, null, 2));
-      } catch (error) {
-        console.error('[Planner] Failed to autosave planner storage', error);
-      }
-    }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [isOpen, plannerLoaded, plannerStoragePath, plannerProjectPath, manualPosts, schedules, checklistItems]);
 
   // Autosave scheduledPosts when they change
   useEffect(() => {
@@ -1167,8 +837,6 @@ export function ZenPlannerModal({
     }
   };
 
-  const getTodayDate = () => new Date().toISOString().split('T')[0];
-
   // ==================== KALENDER HANDLERS ====================
   const handleExportCalendar = async () => {
     try {
@@ -1296,6 +964,7 @@ export function ZenPlannerModal({
 
     return days;
   };
+
 
   const goToToday = () => setCurrentDate(new Date());
 
@@ -1487,26 +1156,6 @@ export function ZenPlannerModal({
   }, [suggestedEditorPost?.key]);
 
   // ==================== IMAGE DRAG & DROP ====================
-  const fileToDataUrl = (file: File): Promise<string> =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(reader.error ?? new Error('Datei konnte nicht gelesen werden.'));
-      reader.readAsDataURL(file);
-    });
-
-  const extractDroppedImageUrl = (event: DragEvent<HTMLElement>): string => {
-    const dt = event.dataTransfer;
-    if (!dt) return '';
-    const uriList = dt.getData('text/uri-list');
-    if (uriList) {
-      const first = uriList.split('\n').map(l => l.trim()).find(l => l && !l.startsWith('#'));
-      if (first) return first;
-    }
-    const text = dt.getData('text/plain');
-    if (text && /^https?:\/\//i.test(text.trim())) return text.trim();
-    return '';
-  };
 
   const handleNewPostImageDrop = useCallback(async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2525,295 +2174,6 @@ export function ZenPlannerModal({
     </div>
   );
 
-  const renderCalendarPostChip = (
-    post: ScheduledPost,
-    date: Date,
-    dateKey: string,
-    options?: { compact?: boolean }
-  ) => {
-    const compact = options?.compact ?? false;
-    const info = getPlatformInfo(post.platform);
-    const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
-    const isManualMoveSelected = manualMovePostId === post.id;
-    const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
-
-    return (
-      <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        {isMoveTimeEditorOpen && (
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '3px',
-              borderRadius: '5px',
-              border: '1px dashed #AC8E66',
-              backgroundColor: '#d0cbb8',
-            }}
-          >
-            <input
-              type="time"
-              value={postMoveTimeEditor.time}
-              onChange={(e) => handlePostMoveTimeEditorChange(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') setPostMoveTimeEditor(null); }}
-              style={{
-                width: '72px',
-                padding: '2px 4px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '4px',
-                color: '#1a1a1a',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '8px',
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setPostMoveTimeEditor(null)}
-              style={{
-                border: '1px solid #3A3A3A',
-                borderRadius: '4px',
-                backgroundColor: 'transparent',
-                color: '#1a1a1a',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '8px',
-                lineHeight: 1,
-                padding: '4px 10px',
-                cursor: 'pointer',
-              }}
-              title="Uhrzeit bestätigen"
-            >
-              OK
-            </button>
-          </div>
-        )}
-        <div
-          draggable
-          onDragStart={(e) => {
-            setDraggedPost(post.id);
-            setDragOverDateSafe(null);
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', post.id);
-          }}
-          onDragEnd={() => {
-            const draggedId = draggedPostIdRef.current;
-            const overDateKey = dragOverDateRef.current;
-            if (draggedId && overDateKey) {
-              applyCalendarDate(draggedId, fromDateKey(overDateKey));
-            }
-            setDraggedPost(null);
-            setDragOverDateSafe(null);
-          }}
-          onDragOver={(e) => {
-            if (!draggedPostIdRef.current || isDragging) return;
-            e.preventDefault();
-            setDragOverDateSafe(dateKey);
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const draggedId = resolveDraggedPostId(e);
-            if (!draggedId || isDragging) return;
-            applyCalendarDate(draggedId, date);
-            setDraggedPost(null);
-            setDragOverDateSafe(null);
-          }}
-          style={{
-            padding: compact ? '6px 8px' : '2px 5px',
-            backgroundColor: isDragging ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.1)',
-            borderRadius: '4px',
-            fontSize: compact ? '11px' : '10px',
-            fontFamily: 'IBM Plex Mono, monospace',
-            color: '#1a1a1a',
-            display: 'flex',
-            alignItems: 'center',
-            gap: compact ? '6px' : '3px',
-            cursor: isDragging ? 'grabbing' : 'grab',
-            opacity: isDragging ? 0.8 : 1,
-            border: isDragging || isManualMoveSelected ? '1px dashed #1a1a1a' : '1px solid rgba(172,142,102,1)',
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (isTauri()) {
-              setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-              return;
-            }
-            if (draggedPostIdRef.current) return;
-            setCalendarStatusList(null);
-            setCalendarDetailDate(date);
-          }}
-        >
-          <FontAwesomeIcon icon={info.icon} style={{ fontSize: compact ? '13px' : '12px', color: '#1a1a1a' }} />
-          <span style={{ fontSize: compact ? '11px' : '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {info.name} · {post.scheduledTime || '--:--'}
-          </span>
-          {isTauri() && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-              }}
-              style={{
-                marginLeft: 'auto',
-                border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
-                borderRadius: '4px',
-                background: 'transparent',
-                color: '#1a1a1a',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: compact ? '9px' : '8px',
-                lineHeight: 1,
-                padding: compact ? '6px 5px' : '5px 4px',
-                cursor: 'pointer',
-              }}
-              title="Post zum Verschieben markieren"
-            >
-              move
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  };
-
-  const renderCalendarDayCell = (
-    date: Date,
-    dayIndex: number,
-    options?: { showMonthOpacity?: boolean; minHeight?: number; postLimit?: number; compactPosts?: boolean }
-  ) => {
-    const showMonthOpacity = options?.showMonthOpacity ?? true;
-    const minHeight = options?.minHeight ?? 76;
-    const postLimit = options?.postLimit ?? 2;
-    const compactPosts = options?.compactPosts ?? true;
-    const postsOnDate = getScheduledPostsForDate(date);
-    const isCurrent = isCurrentMonth(date);
-    const isTodayDate = isToday(date);
-    const hasPosts = postsOnDate.length > 0;
-    const dateKey = toLocalDateKey(date);
-    const isDragOver = dragOverDate === dateKey && (showMonthOpacity ? isCurrent : true);
-    const isSelected = calendarDetailDate?.toDateString() === date.toDateString();
-    const isWeekend = dayIndex >= 5;
-
-    return (
-      <div
-        key={dateKey}
-        onClick={() => {
-          if (showMonthOpacity && !isCurrent) return;
-          if (isTauri() && manualMovePostId) {
-            applyCalendarDate(manualMovePostId, date);
-            setManualMovePostId(null);
-            setCalendarStatusList(null);
-            setCalendarDetailDate(date);
-            return;
-          }
-          setCalendarStatusList(null);
-          setCalendarDetailDate(prev => {
-            if (prev && prev.toDateString() === date.toDateString()) return null;
-            return date;
-          });
-        }}
-        onDragOver={(e) => {
-          if ((showMonthOpacity && !isCurrent) || !draggedPostIdRef.current) return;
-          e.preventDefault();
-          setDragOverDateSafe(dateKey);
-        }}
-        onDragLeave={() => { setDragOverDateSafe(null); }}
-        onDrop={(e) => {
-          e.preventDefault();
-          const draggedId = resolveDraggedPostId(e);
-          if ((showMonthOpacity && !isCurrent) || !draggedId) return;
-          applyCalendarDate(draggedId, date);
-          setDraggedPost(null);
-          setDragOverDateSafe(null);
-        }}
-        style={{
-          minHeight,
-          padding: compactPosts ? '6px' : '10px',
-          backgroundColor: isDragOver
-            ? '#1a1a1a'
-            : isSelected
-            ? 'rgba(172, 142, 102, 0.12)'
-            : isTodayDate
-            ? 'rgba(172, 142, 102, 0.08)'
-            : isWeekend && (!showMonthOpacity || isCurrent)
-            ? 'rgba(255,255,255,0.02)'
-            : 'transparent',
-          border: `1px solid ${
-            isDragOver ? '#AC8E66'
-            : isSelected ? '#AC8E66'
-            : isTodayDate ? 'rgba(172, 142, 102, 0.5)'
-            : '#2E2E2E'
-          }`,
-          borderRadius: '6px',
-          opacity: showMonthOpacity ? (isCurrent ? 1 : 0.25) : 1,
-          cursor: (showMonthOpacity ? isCurrent : true) ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
-          transition: 'all 0.15s ease',
-          transform: isDragOver ? 'scale(1.02)' : 'none',
-        }}
-      >
-        <div
-          style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: compactPosts ? '11px' : '12px',
-            color: isTodayDate ? '#AC8E66' : isWeekend && (!showMonthOpacity || isCurrent) ? 'rgba(172, 142, 102, 0.6)' : '#777',
-            fontWeight: isTodayDate || hasPosts ? '600' : 'normal',
-            marginBottom: compactPosts ? '4px' : '8px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}
-        >
-          <span>
-            {DAY_NAMES[dayIndex]} {date.getDate()}
-          </span>
-          {!compactPosts && (
-            <span style={{ fontSize: '9px', color: '#999' }}>
-              {date.toLocaleDateString('de-DE', { month: 'short' })}
-            </span>
-          )}
-        </div>
-
-        {hasPosts && (
-          <div
-            style={{ display: 'flex', flexDirection: 'column', gap: compactPosts ? '2px' : '6px' }}
-            onDragOver={(e) => {
-              if ((showMonthOpacity && !isCurrent) || !draggedPostIdRef.current) return;
-              e.preventDefault();
-              e.stopPropagation();
-              setDragOverDateSafe(dateKey);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const draggedId = resolveDraggedPostId(e);
-              if ((showMonthOpacity && !isCurrent) || !draggedId) return;
-              applyCalendarDate(draggedId, date);
-              setDraggedPost(null);
-              setDragOverDateSafe(null);
-            }}
-          >
-            {postsOnDate.slice(0, postLimit).map(post => renderCalendarPostChip(post, date, dateKey, { compact: compactPosts }))}
-            {postsOnDate.length > postLimit && (
-              <div
-                style={{
-                  fontSize: '8px',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  color: '#AC8E66',
-                  textAlign: 'center',
-                  opacity: 0.7,
-                  marginTop: '1px',
-                }}
-              >
-                +{postsOnDate.length - postLimit} mehr
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const renderKalenderContent = () => (
     <div style={{ padding: '24px' }}>
 
@@ -3264,111 +2624,351 @@ export function ZenPlannerModal({
         >
           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
             {manualMovePost
-              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag verschieben.`
+              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag auswählen.`
               : 'zum Verschieben drag & drop oder move klicken'}
           </div>
           
         </div>
       )}
 
-      {calendarView === 'month' ? (
-        <>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '28px repeat(7, 1fr)',
-              gap: '4px',
-              marginBottom: '4px',
-              borderBottom: '1px solid #3A3A3A',
-              paddingBottom: '8px',
-            }}
-          >
-            <div
-              style={{
-                padding: '4px',
-                textAlign: 'center',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '8px',
-                color: '#555',
-                letterSpacing: '0.03em',
-              }}
-            >
-              KW
-            </div>
-            {DAY_NAMES.map((day, i) => (
-              <div
-                key={day}
-                style={{
-                  padding: '4px',
-                  textAlign: 'center',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '10px',
-                  color: i >= 5 ? '#AC8E66' : '#777',
-                  fontWeight: 'normal',
-                  letterSpacing: '0.05em',
-                }}
-              >
-                {day}
-              </div>
-            ))}
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '28px repeat(7, 1fr)',
-              gap: '4px',
-            }}
-          >
-            {weeks.flatMap((week, weekIndex) => {
-              const kw = getISOWeek(week[0]);
-              return [
-                <div
-                  key={`kw-${weekIndex}`}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    justifyContent: 'center',
-                    paddingTop: '8px',
-                    background: '#d0cbb8',
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '8px',
-                    color: '#444',
-                    userSelect: 'none',
-                  }}
-                >
-                  {kw}
-                </div>,
-                ...week.map((date, dayIndex) =>
-                  renderCalendarDayCell(date, dayIndex, {
-                    showMonthOpacity: true,
-                    minHeight: 76,
-                    postLimit: 2,
-                    compactPosts: true,
-                  }),
-                ),
-              ];
-            })}
-          </div>
-        </>
-      ) : (
+      {/* Day Names Header — mit KW-Spalte */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '28px repeat(7, 1fr)',
+          gap: '4px',
+          marginBottom: '4px',
+          borderBottom: '1px solid #3A3A3A',
+          paddingBottom: '8px',
+        }}
+      >
+        {/* KW-Header */}
         <div
           style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(7, 1fr)',
-            gap: '8px',
+            padding: '4px',
+            textAlign: 'center',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '8px',
+            color: '#555',
+            letterSpacing: '0.03em',
           }}
         >
-          {weekDays.map((date, dayIndex) =>
-            renderCalendarDayCell(date, dayIndex, {
-              showMonthOpacity: false,
-              minHeight: 280,
-              postLimit: 8,
-              compactPosts: false,
-            }),
-          )}
+          KW
         </div>
-      )}
+        {DAY_NAMES.map((day, i) => (
+          <div
+            key={day}
+            style={{
+              padding: '4px',
+              textAlign: 'center',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              color: i >= 5 ? '#AC8E66' : '#777',
+              fontWeight: 'normal',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {day}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar Grid — mit KW-Spalte */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '28px repeat(7, 1fr)',
+          gap: '4px',
+        }}
+      >
+        {weeks.flatMap((week, weekIndex) => {
+          const kw = getISOWeek(week[0]);
+          return [
+            // Kalenderwoche-Zelle
+            <div
+              key={`kw-${weekIndex}`}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'center',
+                paddingTop: '8px',
+                background: '#d0cbb8',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '8px',
+              
+                color: '#444',
+                userSelect: 'none',
+              }}
+            >
+              {kw}
+            </div>,
+            // 7 Tages-Zellen
+            ...week.map((date, dayIndex) => {
+              const postsOnDate = getScheduledPostsForDate(date);
+              const isCurrent = isCurrentMonth(date);
+              const isTodayDate = isToday(date);
+              const hasPosts = postsOnDate.length > 0;
+              const dateKey = toLocalDateKey(date);
+              const isDragOver = dragOverDate === dateKey && isCurrent;
+              const isSelected = calendarDetailDate?.toDateString() === date.toDateString();
+              const isWeekend = dayIndex >= 5; // Sa=5, So=6
+
+              return (
+                <div
+                  key={`${weekIndex}-${dayIndex}`}
+                  onClick={() => {
+                    if (!isCurrent) return;
+                    if (isTauri() && manualMovePostId) {
+                      applyCalendarDate(manualMovePostId, date);
+                      setManualMovePostId(null);
+                      setCalendarStatusList(null);
+                      setCalendarDetailDate(date);
+                      return;
+                    }
+                    setCalendarStatusList(null);
+                    setCalendarDetailDate(prev => {
+                      if (prev && prev.toDateString() === date.toDateString()) return null;
+                      return date;
+                    });
+                  }}
+                  onDragOver={(e) => {
+                    if (!isCurrent || !draggedPostIdRef.current) return;
+                    e.preventDefault();
+                    setDragOverDateSafe(dateKey);
+                  }}
+                  onDragLeave={() => { setDragOverDateSafe(null); }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const draggedId = resolveDraggedPostId(e);
+                    if (!isCurrent || !draggedId) return;
+                    applyCalendarDate(draggedId, date);
+                    setDraggedPost(null);
+                    setDragOverDateSafe(null);
+                  }}
+                  style={{
+                    minHeight: '76px',
+                    padding: '6px',
+                    backgroundColor: isDragOver
+                      ? '#1a1a1a'
+                      : isSelected
+                      ? 'rgba(172, 142, 102, 0.12)'
+                      : isTodayDate
+                      ? 'rgba(172, 142, 102, 0.08)'
+                      : isWeekend && isCurrent
+                      ? 'rgba(255,255,255,0.02)'
+                      : 'transparent',
+                    border: `1px solid ${
+                      isDragOver ? '#AC8E66'
+                      : isSelected ? '#AC8E66'
+                      : isTodayDate ? 'rgba(172, 142, 102, 0.5)'
+                      : '#2E2E2E'
+                    }`,
+                    borderRadius: '6px',
+                    opacity: isCurrent ? 1 : 0.25,
+                    cursor: isCurrent ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
+                    transition: 'all 0.15s ease',
+                    transform: isDragOver ? 'scale(1.02)' : 'none',
+                  }}
+                >
+                  {/* Date Number */}
+                  <div
+                    style={{
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '11px',
+                      color: isTodayDate ? '#AC8E66' : isWeekend && isCurrent ? 'rgba(172, 142, 102, 0.2)' : '#777',
+                      fontWeight: isTodayDate || hasPosts ? '600' : 'normal',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    {date.getDate()}
+                  </div>
+
+                  {/* Posts */}
+                  {hasPosts && (
+                    <div
+                      style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
+                      onDragOver={(e) => {
+                        if (!isCurrent || !draggedPostIdRef.current) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setDragOverDateSafe(dateKey);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const draggedId = resolveDraggedPostId(e);
+                        if (!isCurrent || !draggedId) return;
+                        applyCalendarDate(draggedId, date);
+                        setDraggedPost(null);
+                        setDragOverDateSafe(null);
+                      }}
+                    >
+                      {postsOnDate.slice(0, 2).map(post => {
+                        const info = getPlatformInfo(post.platform);
+                        const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
+                        const isManualMoveSelected = manualMovePostId === post.id;
+                        const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
+                        return (
+                          <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {isMoveTimeEditorOpen && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '3px',
+                                  borderRadius: '5px',
+                                  border: '1px dashed #AC8E66',
+                                  backgroundColor: '#d0cbb8',
+                                }}
+                              >
+                                <input
+                                  type="time"
+                                  value={postMoveTimeEditor.time}
+                                  onChange={(e) => handlePostMoveTimeEditorChange(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter') setPostMoveTimeEditor(null); }}
+                                  style={{
+                                    width: '72px',
+                                    padding: '2px 4px',
+                                    backgroundColor: 'transparent',
+                                    border: '1px solid #3A3A3A',
+                                    borderRadius: '4px',
+                                    color: '#1a1a1a',
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    fontSize: '8px',
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setPostMoveTimeEditor(null)}
+                                  style={{
+                                    border: '1px solid #3A3A3A',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'transparent',
+                                    color: '#1a1a1a',
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    fontSize: '8px',
+                                    lineHeight: 1,
+                                    padding: '4px 10px',
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Uhrzeit bestätigen"
+                                >
+                                  OK
+                                </button>
+                              </div>
+                            )}
+                            <div
+                              draggable
+                              onDragStart={(e) => {
+                                setDraggedPost(post.id);
+                                setDragOverDateSafe(null);
+                                e.dataTransfer.effectAllowed = 'move';
+                                e.dataTransfer.setData('text/plain', post.id);
+                              }}
+                              onDragEnd={() => {
+                                const draggedId = draggedPostIdRef.current;
+                                const overDateKey = dragOverDateRef.current;
+                                if (draggedId && overDateKey) {
+                                  applyCalendarDate(draggedId, fromDateKey(overDateKey));
+                                }
+                                setDraggedPost(null);
+                                setDragOverDateSafe(null);
+                              }}
+                              onDragOver={(e) => {
+                                if (!draggedPostIdRef.current || isDragging) return;
+                                e.preventDefault();
+                                setDragOverDateSafe(dateKey);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const draggedId = resolveDraggedPostId(e);
+                                if (!isCurrent || !draggedId || isDragging) return;
+                                applyCalendarDate(draggedId, date);
+                                setDraggedPost(null);
+                                setDragOverDateSafe(null);
+                              }}
+                              style={{
+                                padding: '2px 5px',
+                                backgroundColor: isDragging ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.1)',
+                                borderRadius: '4px',
+                                fontSize: '10px',
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                color: '#1a1a1a',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                cursor: isDragging ? 'grabbing' : 'grab',
+                                opacity: isDragging ? 0.8 : 1,
+                                border: isDragging || isManualMoveSelected ? '1px dashed #1a1a1a' : '1px solid rgba(172,142,102,1)',
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (isTauri()) {
+                                  setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+                                  return;
+                                }
+                                if (draggedPostIdRef.current) return;
+                                setCalendarStatusList(null);
+                                setCalendarDetailDate(date);
+                              }}
+                            >
+                              <FontAwesomeIcon icon={info.icon} style={{ fontSize: '12px', color: '#1a1a1a' }} />
+                              <span style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {info.name} · {post.scheduledTime || '--:--'}
+                              </span>
+                              {isTauri() && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+                                  }}
+                                  style={{
+                                    marginLeft: 'auto',
+                                    border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
+                                    borderRadius: '4px',
+                                    background: 'transparent',
+                                    color: '#1a1a1a',
+                                    fontFamily: 'IBM Plex Mono, monospace',
+                                    fontSize: '8px',
+                                    lineHeight: 1,
+                                    padding: '5px 4px',
+                                    cursor: 'pointer',
+                                  }}
+                                  title="Post zum Verschieben markieren"
+                                >
+                                  move
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {postsOnDate.length > 2 && (
+                        <div
+                          style={{
+                            fontSize: '8px',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            color: '#AC8E66',
+                            textAlign: 'center',
+                            opacity: 0.7,
+                            marginTop: '1px',
+                          }}
+                        >
+                          +{postsOnDate.length - 2} mehr
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            }),
+          ];
+        })}
+      </div>
 
     </div>
   );
