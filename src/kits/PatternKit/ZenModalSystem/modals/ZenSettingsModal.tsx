@@ -14,8 +14,9 @@ import { ZenEngineSettingsContent } from './components/ZenEngineSettingsContent'
 import { ZenNewsletterSettingsContent } from './components/ZenNewsletterSettingsContent';
 import { ZenConverterSettingsContent } from './components/ZenConverterSettingsContent';
 import { ZenCloudSettingsContent } from './components/ZenCloudSettingsContent';
+import { ZenPlannerSettingsContent } from './components/ZenPlannerSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope, faArrowsRotate, faCloud } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope, faArrowsRotate, faCloud, faCalendarDays } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
@@ -28,19 +29,20 @@ interface ZenSettingsModalProps {
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter' | 'converter' | 'cloud';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter' | 'converter' | 'cloud' | 'planner';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'ai', label: 'AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
   { id: 'api', label: 'Server API', icon: faPlug },
-  { id: 'cloud', label: 'Zen Post Login', icon: faCloud },
+  { id: 'cloud', label: 'ZenCLoud', icon: faCloud },
   { id: 'social', label: 'Media Transformation', icon: faShareNodes },
   { id: 'editor', label: 'Editor', icon: faPenNib },
   { id: 'mobile', label: 'Mobile APP', icon: faMobileScreen },
   { id: 'zenengine', label: 'ZenEngine', icon: faBolt },
   { id: 'newsletter', label: 'Newsletter', icon: faEnvelope },
   { id: 'converter', label: 'Converter', icon: faArrowsRotate },
+  { id: 'planner', label: 'Planner', icon: faCalendarDays },
   { id: 'zenstudio', label: 'ZenGedanken', icon: faLightbulb },
   { id: 'license', label: 'Lizenz', icon: faIdCard },
 ];
@@ -246,6 +248,7 @@ export const ZenSettingsModal = ({
           {activeTab === 'zenengine' && <ZenEngineSettingsContent />}
           {activeTab === 'newsletter' && <ZenNewsletterSettingsContent />}
           {activeTab === 'converter' && <ZenConverterSettingsContent />}
+          {activeTab === 'planner' && <ZenPlannerSettingsContent />}
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

@@ -105,7 +105,7 @@ export const ZenLicenseSettingsContent = () => {
 
   return (
     <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
-    <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+    <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#1a1a1a]/60 overflow-hidden">
     <div style={{ padding: '32px 32px 32px 32px' }}>
       {/* Success Message */}
       {successMessage && (
@@ -114,7 +114,7 @@ export const ZenLicenseSettingsContent = () => {
             marginBottom: 16,
             padding: '12px 16px',
             backgroundColor: 'rgba(34, 197, 94, 0.1)',
-            border: '1px solid #AC8E66',
+            border: '1px solid #1a1a1a',
             borderRadius: 8,
             display: 'flex',
             alignItems: 'center',
@@ -135,7 +135,7 @@ export const ZenLicenseSettingsContent = () => {
           borderRadius: 12,
           padding: 24,
           marginBottom: 24,
-          border: isPro ? '1px dotted #AC8E66' : '1px solid #555',
+          border: isPro ? '1px dotted #1a1a1a' : '1px solid #555',
         }}
       >
         {/* Header with Badge */}
@@ -146,10 +146,10 @@ export const ZenLicenseSettingsContent = () => {
                 width: 48,
                 height: 48,
                 borderRadius: '50%',
-                border: '1px solid #AC8E66',
+                border: '1px solid #1a1a1a',
                 background: isPro
                   ? 'transparent'
-                  : 'linear-gradient(135deg, #555, #333)',
+                  : 'transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -157,11 +157,11 @@ export const ZenLicenseSettingsContent = () => {
             >
               <FontAwesomeIcon
                 icon={isPro ? faFolder : faUser}
-                style={{ fontSize: 20, color: isPro ? '#A18F55' : '#dbd9d5' }}
+                style={{ fontSize: 20, color: isPro ? '#1a1a1a' : '#dbd9d5' }}
               />
             </div>
             <div>
-              <h3 style={{ fontFamily: 'monospace', fontSize: 16, color: '#AC8E66', margin: 0 }}>
+              <h3 style={{ fontFamily: 'monospace', fontSize: 16, color: '#1a1a1a', margin: 0 }}>
                 ZenPost Studio {tier.toUpperCase()}
               </h3>
               <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#555', margin: '0px 0 0 0' }}>
@@ -175,11 +175,11 @@ export const ZenLicenseSettingsContent = () => {
             style={{
               padding: '6px 12px',
               borderRadius: 20,
-              backgroundColor: isPro ? 'rgba(172, 142, 102, 0.2)' : 'rgba(136, 136, 136, 0.2)',
-              border: `1px solid ${isPro ? '#AC8E66' : '#555'}`,
+              backgroundColor: isPro ? 'transparent' : 'rgba(136, 136, 136, 0.2)',
+              border: `1px solid ${isPro ? '#1a1a1a' : '#555'}`,
             }}
           >
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: isPro ? '#AC8E66' : '#888' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: 10, color: isPro ? '#1a1a1a' : '#888' }}>
               {isPro ? (isTrial ? 'TRIAL AKTIV' : 'PRO AKTIV') : 'FREE'}
             </span>
           </div>
@@ -470,7 +470,7 @@ export const ZenLicenseSettingsContent = () => {
               gap: 8,
               fontFamily: 'monospace',
               fontSize: 11,
-              color: '#AC8E66',
+              color: '#1a1a1a',
               textDecoration: 'none',
               background: 'transparent',
               border: 'none',
@@ -489,7 +489,7 @@ export const ZenLicenseSettingsContent = () => {
               gap: 8,
               fontFamily: 'monospace',
               fontSize: 11,
-              color: '#AC8E66',
+              color: '#1a1a1a',
               textDecoration: 'none',
               background: 'transparent',
               border: 'none',

@@ -411,7 +411,7 @@ export function GettingStartedScreen({
     },
     {
       id: 'converter',
-      label: 'Zen Converter',
+      label: 'Converter',
       shortLabel: 'Converter',
       description: 'Dateiformate bereinigen, konvertieren und transformieren',
       useCases: [
@@ -733,7 +733,7 @@ export function GettingStartedScreen({
                       onClick={uc.action}
                       style={{
                         borderRadius: '12px',
-                        border: '0.5px solid rgba(172,142,102,0.35)',
+                        border: '0.5px solid rgba(172,142,102,0.25)',
                         background: 'rgba(255,255,255,0.45)',
                         padding: '16px',
                         cursor: 'pointer',
@@ -745,13 +745,15 @@ export function GettingStartedScreen({
                         fontFamily: 'IBM Plex Mono, monospace',
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
+                        e.currentTarget.style.background = '#d0cbb8';
                         e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.border = '0.5px solid #1a1a1a'
                         e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
                         e.currentTarget.style.transform = 'translateY(0)';
+                         e.currentTarget.style.border = 'none'
                         e.currentTarget.style.boxShadow = 'none';
                       }}
                     >
@@ -760,7 +762,7 @@ export function GettingStartedScreen({
                         <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
                       </div>
                       <div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 400, color: '#1a1a1a' }}>
                           {uc.title}
                         </p>
                         <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
@@ -807,13 +809,13 @@ export function GettingStartedScreen({
                         <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#1F8A41', opacity: 0.6 }} />
                       </div>
                       <div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 100, color: '#1a1a1a' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 400, color: '#1a1a1a' }}>
                           Server Artikel
                         </p>
                         <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
                           {serverArticles !== null
                             ? `${serverArticles.length} Artikel gefunden`
-                            : 'Artikel vom Server laden'}
+                            : 'Artikel vom Server per API laden'}
                         </p>
                       </div>
                     </button>
@@ -860,7 +862,17 @@ export function GettingStartedScreen({
                     </div>
                     {zenNoteRecent.length === 0 && !zenNoteRecentLoading ? (
                       <div style={{ padding: '12px 16px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#aaa' }}>
-                        {loadZenStudioSettings().cloudProjectId ? 'Keine Notizen vorhanden' : 'Nicht eingeloggt — ZenCloud in Einstellungen konfigurieren'}
+                        {loadZenStudioSettings().cloudProjectId ? 'Keine Notizen vorhanden' : (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
+                            <span>Nicht eingeloggt — ZenCloud konfigurieren</span>
+                            <button
+                              className="zen-gold-btn"
+                              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+                            >
+                              Anmelden
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       zenNoteRecent.map((note) => (
@@ -907,6 +919,7 @@ export function GettingStartedScreen({
                     style={{
                       border: '0.5px solid rgba(31,138,65,0.3)',
                       borderRadius: '12px',
+                      padding: '20px',
                       overflow: 'hidden',
                       background: 'rgba(255,255,255,0.3)',
                     }}
@@ -955,7 +968,10 @@ export function GettingStartedScreen({
                       </div>
                     )}
                     {serverArticles.length === 0 && !serverError && (
-                      <p style={{ margin: 0, padding: '12px 16px', fontSize: '10px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>
+                      <p style={{ margin: 0, 
+                      padding: '12px 16px', 
+                      fontSize: '10px', 
+                      color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace' }}>
                         Keine Artikel gefunden.
                       </p>
                     )}

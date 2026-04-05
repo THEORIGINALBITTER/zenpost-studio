@@ -46,6 +46,7 @@ import type { ScheduledPost } from "./types/scheduling";
 import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
 import { initializePublishingProject, loadSchedule, saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
+import { isCloudLoggedIn, saveScheduleToCloud, loadScheduleFromCloud } from "./services/cloudScheduleService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -204,7 +205,7 @@ function AppContent() {
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile'>('ai');
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
   const [showMailSuccessModal, setShowMailSuccessModal] = useState(false);
@@ -296,7 +297,26 @@ function AppContent() {
   });
 
   // Publishing State (geteilt zwischen Doc Studio & Content AI Studio)
-  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
+  const SCHEDULED_POSTS_LS_KEY = 'zenpost_scheduled_posts_fallback';
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>(() => {
+    // Fallback: restore from localStorage if no project is open yet
+    try {
+      const raw = localStorage.getItem('zenpost_scheduled_posts_fallback');
+      if (raw) return JSON.parse(raw) as ScheduledPost[];
+    } catch { /* ignore */ }
+    return [];
+  });
+  // On mount: if logged into cloud, load from cloud (overrides localStorage fallback)
+  useEffect(() => {
+    if (!isCloudLoggedIn()) return;
+    void loadScheduleFromCloud().then((posts) => {
+      if (posts && posts.length > 0) {
+        setScheduledPosts(posts);
+        try { localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts)); } catch { /* ignore */ }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [plannerDefaultTab, setPlannerDefaultTab] = useState<'planen' | 'kalender' | 'checklist'>('planen');
   const [selectedDateFromCalendar, setSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
@@ -709,6 +729,14 @@ function AppContent() {
 
   const persistScheduledPosts = async (posts: ScheduledPost[]) => {
     setScheduledPosts(posts);
+    // Always keep a localStorage copy as fallback (survives restarts even without project)
+    try {
+      localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts));
+    } catch { /* ignore quota errors */ }
+    // Cloud sync if logged in (fire-and-forget, non-blocking)
+    if (isCloudLoggedIn()) {
+      void saveScheduleToCloud(posts);
+    }
     const projectPath =
       docStudioState?.projectPath ||
       contentStudioProjectPath ||
@@ -1032,6 +1060,10 @@ function AppContent() {
       await initializePublishingProject(projectPath);
       const project = await loadSchedule(projectPath);
       setScheduledPosts(project.posts);
+      // Keep localStorage fallback in sync with filesystem
+      try {
+        localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(project.posts));
+      } catch { /* ignore */ }
     } catch (error) {
       console.error('[PublishingService] Failed to reload scheduled posts:', error);
     }
@@ -1955,6 +1987,9 @@ function AppContent() {
         await initializePublishingProject(projectPath);
         const project = await loadSchedule(projectPath);
         setScheduledPosts(project.posts);
+        try {
+          localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(project.posts));
+        } catch { /* ignore */ }
       } catch (error) {
         console.error('[PublishingService] Failed to load scheduled posts:', error);
       }
@@ -2102,6 +2137,16 @@ function AppContent() {
     return () => window.removeEventListener('zenpost:navigate', handler);
   }, []);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab: string }>).detail?.tab;
+      if (tab) setSettingsDefaultTab(tab as 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud');
+      setShowAISettingsModal(true);
+    };
+    window.addEventListener('zenpost:open-settings', handler);
+    return () => window.removeEventListener('zenpost:open-settings', handler);
+  }, []);
+
   // On startup: if user is already logged in and has a saved cloud project but no project path set, auto-restore it
   useEffect(() => {
     const settings = loadZenStudioSettings();
@@ -2118,7 +2163,7 @@ function AppContent() {
     }
 
     const studioNames: Record<Exclude<Screen, "welcome">, string> = {
-      "converter": "Converter Studio",
+      "converter": "Zen Converter Studio",
       "content-transform": "Content AI Studio",
       "doc-studio": "Doc Studio",
       "getting-started": "Getting Started",
@@ -2161,7 +2206,7 @@ function AppContent() {
           </>
         );
       case "getting-started":
-        return <> <span style={{ color: "#d0cbb8" }}>Getting Started</span> · <span style={{ color: "#AC8E66", fontWeight: 100 }}>Was möchtest du tun?</span></>;
+        return <> <span style={{ color: "#d0cbb8" }}>Getting Started</span> · <span style={{ color: "#d0cbb8",  }}>Was möchtest du tun?</span></>;
       case "mobile-inbox":
         return <>Mobile · <span style={{ color: "#AC8E66" }}>iPhone Entwürfe</span></>;
       case "zen-note":
@@ -3259,6 +3304,14 @@ function AppContent() {
         {currentScreen === "zen-note" && (
           <ZenNoteStudioScreen
             insertTargetActive={true}
+            onAddToPlanner={(post) => {
+              setScheduledPosts((prev) => {
+                const without = prev.filter((p) => p.id !== post.id);
+                return [...without, post];
+              });
+              setPlannerDefaultTab('planen');
+              setShowPlannerModal(true);
+            }}
           />
         )}
       </div>
@@ -3405,6 +3458,12 @@ function AppContent() {
             ? docStudioState?.projectPath ?? contentStudioProjectPath
             : contentStudioProjectPath
         }
+        projectName={(() => {
+          const p = currentScreen === 'doc-studio'
+            ? docStudioState?.projectPath ?? contentStudioProjectPath
+            : contentStudioProjectPath;
+          return p ? p.split('/').pop() ?? null : null;
+        })()}
         onReloadSchedule={reloadScheduledPosts}
         onScheduledPostsChange={persistScheduledPosts}
         posts={schedulerPlatformPosts.map(p => ({
@@ -3465,6 +3524,19 @@ function AppContent() {
         results={publishingEngine.results}
         onPublish={publishingEngine.publish}
         onSkip={publishingEngine.skip}
+        onEdit={(post) => {
+          window.dispatchEvent(new CustomEvent('zenpost:open-as-draft', {
+            detail: { title: post.title, content: post.content },
+          }));
+          setCurrentScreen('content-transform');
+        }}
+        onReschedule={(post) => {
+          setScheduledPosts((prev) =>
+            prev.map((p) => p.id === post.id ? { ...p, status: 'draft' as const } : p)
+          );
+          setPlannerDefaultTab('kalender');
+          setShowPlannerModal(true);
+        }}
       />
       </div>
     </>

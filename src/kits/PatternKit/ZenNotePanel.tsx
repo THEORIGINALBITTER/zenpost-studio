@@ -274,8 +274,16 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
       {/* Note list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!isLoggedIn && (
-          <div style={{ padding: '20px 12px', color: '#555', fontSize: 10, textAlign: 'center', lineHeight: 1.6 }}>
-            ZenNote benötigt einen<br />ZenPost Cloud Account
+          <div style={{ padding: '20px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <div style={{ color: '#555', fontSize: 10, textAlign: 'center', lineHeight: 1.6, fontFamily: 'IBM Plex Mono, monospace' }}>
+              ZenNote benötigt einen<br />ZenCloud Account
+            </div>
+            <button
+              className="zen-gold-btn"
+              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+            >
+              Anmelden
+            </button>
           </div>
         )}
         {isLoggedIn && loading && (

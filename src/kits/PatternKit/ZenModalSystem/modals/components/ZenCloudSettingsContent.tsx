@@ -1,7 +1,8 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTrash, faSpinner, faTriangleExclamation } from '@fortawesome/free-solid-svg-icons';
+import { faTrash, faSpinner, faTriangleExclamation, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
+import { faGoogle as faGoogleBrand, faApple } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../../../../hooks/useOpenExternal';
 import {
   loadZenStudioSettings,
@@ -11,6 +12,82 @@ import {
 import { ZenDropdown } from '../../components/ZenDropdown';
 
 const DEFAULT_BASE_URL = 'https://denisbitter.de/stage02/api';
+const gold = '#AC8E66';
+const fontMono = 'IBM Plex Mono, monospace';
+
+const SectionLabel = ({ children }: { children: string }) => (
+  <div style={{
+    fontFamily: fontMono,
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: '0.12em',
+    color: '#1a1a1a',
+    textTransform: 'uppercase' as const,
+    marginBottom: 14,
+  }}>
+    {children}
+  </div>
+);
+
+const Divider = () => (
+  <div style={{ borderTop: '1px solid rgba(172,142,102,0.25)', margin: '4px 0' }} />
+);
+
+const FieldLabel = ({ children }: { children: string }) => (
+  <div style={{ fontFamily: fontMono, fontSize: 10, color: '#555', marginBottom: 6 }}>
+    {children}
+  </div>
+);
+
+const inputStyle: React.CSSProperties = {
+  width: '100%',
+  border: '1px solid rgba(172,142,102,0.4)',
+  borderRadius: 8,
+  padding: '10px 12px',
+  fontFamily: fontMono,
+  boxShadow: 'none',
+  fontSize: 11,
+  color: '#1a1a1a',
+  backgroundColor: 'transparent',
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+
+const primaryBtn: React.CSSProperties = {
+ border: `1px solid rgba(172,142,102,0.4)`,
+  borderRadius: 6,
+  padding: '9px 20px',
+  fontFamily: fontMono,
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#1a1a1a',
+  backgroundColor: 'transparent',
+  cursor: 'pointer',
+  letterSpacing: '0.05em',
+
+  boxShadow: 'none',
+
+};
+
+const ghostBtn: React.CSSProperties = {
+  border: `1px solid rgba(172,142,102,0.4)`,
+  borderRadius: 6,
+  padding: '9px 16px',
+  fontFamily: fontMono,
+  fontSize: 11,
+  color: '#444',
+  backgroundColor: 'transparent',
+  cursor: 'pointer',
+    boxShadow: 'none',
+};
+
+const ssoBtn: React.CSSProperties = {
+  ...ghostBtn,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '10px 18px',
+};
 
 export const ZenCloudSettingsContent = () => {
   const { openExternal } = useOpenExternal();
@@ -115,7 +192,6 @@ export const ZenCloudSettingsContent = () => {
     void autoSeedProject(token);
   }, [autoSeedProject]);
 
-  // Beim Öffnen der Settings: wenn bereits eingeloggt, Projektliste sofort laden
   useEffect(() => {
     const token = settings.cloudAuthToken;
     if (token) void loadUserProjects(token);
@@ -134,155 +210,70 @@ export const ZenCloudSettingsContent = () => {
   };
 
   const handleLogin = async () => {
-    if (!baseUrl) {
-      setResult('API Base URL fehlt.', 'error');
-      return;
-    }
-    if (!email.trim() || !password.trim()) {
-      setResult('Bitte E-Mail und Passwort eingeben.', 'error');
-      return;
-    }
-    setLoading(true);
-    setStatusMsg(null);
-    setStatusKind(null);
+    if (!email.trim() || !password.trim()) { setResult('Bitte E-Mail und Passwort eingeben.', 'error'); return; }
+    setLoading(true); setStatusMsg(null); setStatusKind(null);
     try {
-      const url = `${baseUrl}/login_api.php`;
-      const body = JSON.stringify({ email: email.trim(), password: password });
-      const { status, text } = await zenFetch(url, 'POST', { 'Content-Type': 'application/json' }, body);
-      if (status < 200 || status >= 300) {
-        setResult(`Login fehlgeschlagen (${status})`, 'error');
-        return;
-      }
+      const { status, text } = await zenFetch(`${baseUrl}/login_api.php`, 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ email: email.trim(), password }));
+      if (status < 200 || status >= 300) { setResult(`Login fehlgeschlagen (${status})`, 'error'); return; }
       const json = JSON.parse(text || '{}') as { success?: boolean; token?: string };
-      if (!json.success || !json.token) {
-        setResult('Login fehlgeschlagen: ungültige Antwort.', 'error');
-        return;
-      }
+      if (!json.success || !json.token) { setResult('Login fehlgeschlagen: ungültige Antwort.', 'error'); return; }
       const next = update({ cloudAuthToken: json.token, cloudUserEmail: email.trim() });
       setPassword('');
       setResult('Login erfolgreich. Projekt wird gesucht…', 'success');
-      // Auto-seed: Projekt anlegen/finden direkt nach Login
       try {
-        const seedUrl = `${baseUrl}/projects_seed.php`;
-        const { status: seedStatus, text: seedText } = await zenFetch(seedUrl, 'POST', { 'X-Auth-Token': json.token });
-        if (seedStatus >= 200 && seedStatus < 300) {
-          const seedJson = JSON.parse(seedText || '{}') as { success?: boolean; project?: { id?: number; name?: string } };
-          if (seedJson.success && seedJson.project?.id) {
-            update({ cloudProjectId: seedJson.project.id, cloudProjectName: seedJson.project.name ?? null });
-            setResult(`Eingeloggt · Projekt: ${seedJson.project.name ?? 'Projekt'}`, 'success');
-            window.dispatchEvent(new CustomEvent('zenpost:cloud-login', {
-              detail: { projectId: seedJson.project.id, projectName: seedJson.project.name ?? 'Projekt' },
-            }));
-          } else {
-            setResult('Login erfolgreich. Kein Projekt gefunden — bitte manuell anlegen.', 'success');
+        const { status: s, text: t } = await zenFetch(`${baseUrl}/projects_seed.php`, 'POST', { 'X-Auth-Token': json.token });
+        if (s >= 200 && s < 300) {
+          const seed = JSON.parse(t || '{}') as { success?: boolean; project?: { id?: number; name?: string } };
+          if (seed.success && seed.project?.id) {
+            update({ cloudProjectId: seed.project.id, cloudProjectName: seed.project.name ?? null });
+            setResult(`Eingeloggt · Projekt: ${seed.project.name ?? 'Projekt'}`, 'success');
+            window.dispatchEvent(new CustomEvent('zenpost:cloud-login', { detail: { projectId: seed.project.id, projectName: seed.project.name ?? 'Projekt' } }));
           }
-        } else {
-          setResult('Login erfolgreich.', 'success');
         }
-      } catch {
-        setResult('Login erfolgreich.', 'success');
-      }
-      // Mark settings as refreshed for dependent components
+      } catch { /* non-fatal */ }
       setSettings(next);
     } catch (err) {
       setResult(`Login Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const handleRegister = async () => {
-    if (!baseUrl) {
-      setResult('API Base URL fehlt.', 'error');
-      return;
-    }
-    if (!email.trim() || !password.trim()) {
-      setResult('Bitte E-Mail und Passwort eingeben.', 'error');
-      return;
-    }
-    setLoading(true);
-    setStatusMsg(null);
-    setStatusKind(null);
+    if (!email.trim() || !password.trim()) { setResult('Bitte E-Mail und Passwort eingeben.', 'error'); return; }
+    setLoading(true); setStatusMsg(null); setStatusKind(null);
     try {
-      const url = `${baseUrl}/register_api.php`;
-      const body = JSON.stringify({ email: email.trim(), password: password });
-      const { status, text } = await zenFetch(url, 'POST', { 'Content-Type': 'application/json' }, body);
-      if (status < 200 || status >= 300) {
-        setResult(`Registrierung fehlgeschlagen (${status})`, 'error');
-        return;
-      }
+      const { status, text } = await zenFetch(`${baseUrl}/register_api.php`, 'POST', { 'Content-Type': 'application/json' }, JSON.stringify({ email: email.trim(), password }));
+      if (status < 200 || status >= 300) { setResult(`Registrierung fehlgeschlagen (${status})`, 'error'); return; }
       const json = JSON.parse(text || '{}') as { success?: boolean; token?: string };
-      if (!json.success || !json.token) {
-        setResult('Registrierung fehlgeschlagen: ungültige Antwort.', 'error');
-        return;
-      }
+      if (!json.success || !json.token) { setResult('Registrierung fehlgeschlagen.', 'error'); return; }
       update({ cloudAuthToken: json.token, cloudUserEmail: email.trim() });
       setPassword('');
       setResult('Registrierung erfolgreich.', 'success');
     } catch (err) {
-      setResult(`Registrierung Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSeedProject = async () => {
-    if (!baseUrl) {
-      setResult('API Base URL fehlt.', 'error');
-      return;
-    }
-    if (!settings.cloudAuthToken) {
-      setResult('Bitte zuerst einloggen.', 'error');
-      return;
-    }
-    setLoading(true);
-    setStatusMsg(null);
-    setStatusKind(null);
-    try {
-      const url = `${baseUrl}/projects_seed.php`;
-      const { status, text } = await zenFetch(url, 'POST', { 'X-Auth-Token': settings.cloudAuthToken });
-      if (status < 200 || status >= 300) {
-        setResult(`Seed fehlgeschlagen (${status})`, 'error');
-        return;
-      }
-      const json = JSON.parse(text || '{}') as { success?: boolean; project?: { id?: number; name?: string } };
-      if (!json.success || !json.project?.id) {
-        setResult('Seed fehlgeschlagen: ungültige Antwort.', 'error');
-        return;
-      }
-      update({
-        cloudProjectId: json.project.id,
-        cloudProjectName: json.project.name ?? null,
-      });
-      setResult(`Projekt gesetzt: ${json.project.name ?? 'Projekt'}`, 'success');
-    } catch (err) {
-      setResult(`Seed Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
-    } finally {
-      setLoading(false);
-    }
+      setResult(`Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
+    } finally { setLoading(false); }
   };
 
   const handleLogout = () => {
     update({ cloudAuthToken: null, cloudUserEmail: null, cloudProjectId: null, cloudProjectName: null });
+    setEmail('');
     setPassword('');
+    setAvailableProjects([]);
     setResult('Logout erfolgreich.', 'info');
   };
 
   const startSsoPolling = useCallback((sessionKey: string) => {
     if (ssoPollingRef.current) clearInterval(ssoPollingRef.current);
     let attempts = 0;
-    const maxAttempts = 150; // 5 Minuten bei 2s Intervall
     ssoPollingRef.current = setInterval(async () => {
       attempts++;
-      if (attempts > maxAttempts) {
+      if (attempts > 150) {
         clearInterval(ssoPollingRef.current!);
         ssoPollingRef.current = null;
         setResult('SSO Timeout. Bitte erneut versuchen.', 'error');
         return;
       }
       try {
-        const pollUrl = `${baseUrl}/oauth_poll_session.php?session_key=${encodeURIComponent(sessionKey)}`;
-        const res = await fetch(pollUrl);
+        const res = await fetch(`${baseUrl}/oauth_poll_session.php?session_key=${encodeURIComponent(sessionKey)}`);
         const json = await res.json() as { success?: boolean; token?: string; email?: string };
         if (json.success && json.token) {
           clearInterval(ssoPollingRef.current!);
@@ -293,42 +284,43 @@ export const ZenCloudSettingsContent = () => {
           setResult('SSO Login erfolgreich. Projekt wird gesucht…', 'success');
           void autoSeedProject(json.token);
         }
-      } catch { /* Netzwerkfehler ignorieren, weiter pollen */ }
+      } catch { /* ignore */ }
     }, 2000);
   }, [baseUrl, autoSeedProject]);
+
+  const handleSso = (provider: 'google' | 'apple') => {
+    if (!baseUrl) { setResult('API Base URL fehlt.', 'error'); return; }
+    if (isTauri()) {
+      const sessionKey = crypto.randomUUID();
+      void openExternal(`${baseUrl}/oauth_${provider}_start.php?session_key=${encodeURIComponent(sessionKey)}`);
+      setResult('SSO im Browser geöffnet. Warte auf Anmeldung…', 'info');
+      startSsoPolling(sessionKey);
+    } else {
+      window.open(`${baseUrl}/oauth_${provider}_start.php?return_url=${encodeURIComponent(window.location.origin)}`, '_blank', 'noopener,noreferrer');
+      setResult('SSO im Browser geöffnet.', 'info');
+    }
+  };
 
   const handleSelectProject = (projectId: number) => {
     const project = availableProjects.find((p) => p.id === projectId);
     if (!project) return;
     patchZenStudioSettings({ cloudProjectId: project.id, cloudProjectName: project.name });
     setSettings(loadZenStudioSettings());
-    window.dispatchEvent(new CustomEvent('zenpost:cloud-login', {
-      detail: { projectId: project.id, projectName: project.name },
-    }));
+    window.dispatchEvent(new CustomEvent('zenpost:cloud-login', { detail: { projectId: project.id, projectName: project.name } }));
     setResult(`Projekt gewechselt: ${project.name}`, 'success');
   };
 
   const handleDeleteProject = async (projectId: number) => {
     if (!settings.cloudAuthToken) return;
-    setDeletingProject(true);
-    setConfirmDeleteProjectId(null);
+    setDeletingProject(true); setConfirmDeleteProjectId(null);
     try {
-      const url = `${baseUrl}/projects_delete.php`;
-      const body = JSON.stringify({ id: projectId });
-      const { status } = await zenFetch(url, 'POST', {
-        'Content-Type': 'application/json',
-        'X-Auth-Token': settings.cloudAuthToken,
-      }, body);
+      const { status } = await zenFetch(`${baseUrl}/projects_delete.php`, 'POST', { 'Content-Type': 'application/json', 'X-Auth-Token': settings.cloudAuthToken }, JSON.stringify({ id: projectId }));
       if (status >= 200 && status < 300) {
-        // Aus Liste + Settings entfernen
         setAvailableProjects((prev) => prev.filter((p) => p.id !== projectId));
         const remaining = availableProjects.filter((p) => p.id !== projectId);
         if (settings.cloudProjectId === projectId) {
           const next = remaining[0] ?? null;
-          patchZenStudioSettings({
-            cloudProjectId: next?.id ?? null,
-            cloudProjectName: next?.name ?? null,
-          });
+          patchZenStudioSettings({ cloudProjectId: next?.id ?? null, cloudProjectName: next?.name ?? null });
           setSettings(loadZenStudioSettings());
         }
         setResult(`Projekt #${projectId} gelöscht.`, 'success');
@@ -337,230 +329,149 @@ export const ZenCloudSettingsContent = () => {
       }
     } catch (err) {
       setResult(`Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
-    } finally {
-      setDeletingProject(false);
-    }
-  };
-
-  const handleSso = (provider: 'google' | 'apple') => {
-    if (!baseUrl) {
-      setResult('API Base URL fehlt.', 'error');
-      return;
-    }
-    if (isTauri()) {
-      // Desktop: session_key + polling — kein window.opener verfügbar
-      const sessionKey = crypto.randomUUID();
-      const url = `${baseUrl}/oauth_${provider}_start.php?session_key=${encodeURIComponent(sessionKey)}`;
-      void openExternal(url);
-      setResult('SSO im Browser geöffnet. Warte auf Anmeldung…', 'info');
-      startSsoPolling(sessionKey);
-    } else {
-      // Web: Popup + postMessage (bestehender Flow)
-      const returnUrl = window.location.origin;
-      const url = `${baseUrl}/oauth_${provider}_start.php?return_url=${encodeURIComponent(returnUrl)}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setResult('SSO im Browser geöffnet.', 'info');
-    }
+    } finally { setDeletingProject(false); }
   };
 
   const isLoggedIn = !!settings.cloudAuthToken;
 
   return (
     <div className="w-full flex justify-center" style={{ padding: '32px 32px' }}>
-      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#1a1a1a]/60 shadow-2xl overflow-hidden">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px' }}>
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
-            Zen Post Login
-          </div>
+      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden">
 
+        {/* Header */}
+        <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid rgba(172,142,102,0.3)', background: 'rgba(172,142,102,0.05)' }}>
+          <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: '0.12em', color: gold, textTransform: 'uppercase', marginBottom: 4 }}>
+            ZenCloud
+          </div>
+          <div style={{ fontFamily: fontMono, fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+            {isLoggedIn ? `Eingeloggt als ${settings.cloudUserEmail ?? 'User'}` : 'Anmelden'}
+          </div>
+          <div style={{ fontFamily: fontMono, fontSize: 10, color: '#777', marginTop: 3 }}>
+            {isLoggedIn ? `Aktives Projekt: ${settings.cloudProjectName ?? `#${settings.cloudProjectId}`}` : 'Mit ZenCloud verbinden für Cloud-Sync'}
+          </div>
+        </div>
+
+        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+
+          {/* Status */}
+          {statusMsg && (
+            <div style={{
+              fontFamily: fontMono,
+              fontSize: 10,
+              color: statusKind === 'error' ? '#B3261E' : statusKind === 'success' ? '#1F8A41' : '#555',
+              background: statusKind === 'error' ? 'rgba(179,38,30,0.06)' : statusKind === 'success' ? 'rgba(31,138,65,0.06)' : 'rgba(172,142,102,0.06)',
+              border: `1px solid ${statusKind === 'error' ? 'rgba(179,38,30,0.25)' : statusKind === 'success' ? 'rgba(31,138,65,0.25)' : 'rgba(172,142,102,0.25)'}`,
+              borderRadius: 6,
+              padding: '10px 14px',
+            }}>
+              {statusMsg}
+            </div>
+          )}
+
+          {/* Login-Form */}
           {!isLoggedIn && (
             <>
-              <div style={rowStyle}>
-                <label style={labelStyle}>E-Mail</label>
-                <input
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  style={inputStyle}
-                />
+              <div>
+                <SectionLabel>E-Mail & Passwort</SectionLabel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div>
+                    <FieldLabel>E-Mail</FieldLabel>
+                    <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" style={inputStyle} />
+                  </div>
+                  <div>
+                    <FieldLabel>Passwort</FieldLabel>
+                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleLogin()} placeholder="••••••••" style={inputStyle} />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    <button onClick={handleLogin} disabled={loading} style={primaryBtn}>
+                      {loading ? <FontAwesomeIcon icon={faSpinner} spin /> : 'Login'}
+                    </button>
+                    <button onClick={handleRegister} disabled={loading} style={ghostBtn}>Konto erstellen</button>
+                  </div>
+                </div>
               </div>
 
-              <div style={rowStyle}>
-                <label style={labelStyle}>Passwort</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  style={inputStyle}
-                />
-              </div>
+              <Divider />
 
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button onClick={handleLogin} disabled={loading} style={primaryBtn}>Login</button>
-                <button onClick={handleRegister} disabled={loading} style={ghostBtn}>Konto erstellen</button>
-                <button onClick={handleSeedProject} disabled={loading} style={ghostBtn}>Projekt anlegen/finden</button>
-              </div>
-
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#666' }}>
-                Oder anmelden mit:
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button type="button" onClick={() => handleSso('google')} style={ghostBtn}>Google</button>
-                <button type="button" onClick={() => handleSso('apple')} style={ghostBtn}>Apple</button>
-              </div>
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#888' }}>
-                SSO benötigt Provider-Keys im Backend.
+              <div>
+                <SectionLabel>Oder anmelden mit</SectionLabel>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button type="button" onClick={() => handleSso('google')} style={ssoBtn}>
+                    <FontAwesomeIcon icon={faGoogleBrand} style={{ fontSize: 12 }} />
+                    Google
+                  </button>
+                  <button type="button" onClick={() => handleSso('apple')} style={ssoBtn}>
+                    <FontAwesomeIcon icon={faApple} style={{ fontSize: 12 }} />
+                    Apple
+                  </button>
+                </div>
               </div>
             </>
           )}
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#666' }}>
-            Status:
-          </div>
-          <div style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '11px',
-            color: statusKind === 'error' ? '#B3261E' : statusKind === 'success' ? '#1F8A41' : '#1a1a1a',
-            border: '1px solid #3A3A3A',
-            borderRadius: '8px',
-            padding: '10px 12px',
-            backgroundColor: 'rgba(255,255,255,0.35)'
-          }}>
-            {statusMsg ?? (isLoggedIn ? `Eingeloggt als ${settings.cloudUserEmail ?? 'User'}` : 'Nicht eingeloggt')}
-          </div>
-
+          {/* Eingeloggt */}
           {isLoggedIn && (
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleLogout} disabled={loading} style={ghostDangerBtn}>Logout</button>
-            </div>
+            <>
+              <div>
+                <SectionLabel>Aktives Projekt</SectionLabel>
+                {availableProjects.length > 0 ? (
+                  <ZenDropdown
+                    value={String(settings.cloudProjectId ?? '')}
+                    onChange={(val: string) => {
+                      if (val === '__delete__') { setConfirmDeleteProjectId(settings.cloudProjectId ?? null); return; }
+                      handleSelectProject(Number(val));
+                    }}
+                    options={[
+                      ...availableProjects.map((p) => ({ value: String(p.id), label: `${p.name}` })),
+                      { value: '__delete__', label: '— Aktives Projekt löschen' },
+                    ]}
+                    theme="paper"
+                    variant="input"
+                    placeholder="Projekt wählen…"
+                  />
+                ) : (
+                  <div style={{ fontFamily: fontMono, fontSize: 11, color: '#555', border: '1px solid rgba(172,142,102,0.3)', borderRadius: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.35)' }}>
+                    {settings.cloudProjectId ? `${settings.cloudProjectName ?? 'Projekt'} (#${settings.cloudProjectId})` : 'Kein Projekt gesetzt'}
+                  </div>
+                )}
+              </div>
+
+              <Divider />
+
+              <div>
+                <button
+                  onClick={handleLogout}
+                  disabled={loading}
+                  style={{ ...ghostBtn, color: '#B3261E', borderColor: 'rgba(179,38,30,0.3)', display: 'flex', alignItems: 'center', gap: 8 }}
+                >
+                  <FontAwesomeIcon icon={faRightFromBracket} style={{ fontSize: 11 }} />
+                  Logout
+                </button>
+              </div>
+            </>
           )}
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#666' }}>
-            Aktives Projekt:
-          </div>
-          {availableProjects.length > 0 ? (
-            <ZenDropdown
-              value={String(settings.cloudProjectId ?? '')}
-              onChange={(val: string) => {
-                if (val === '__delete__') {
-                  setConfirmDeleteProjectId(settings.cloudProjectId ?? null);
-                  return;
-                }
-                handleSelectProject(Number(val));
-              }}
-              options={[
-                ...availableProjects.map((p) => ({ value: String(p.id), label: `#${p.id} — ${p.name}` })),
-                { value: '__delete__', label: '— Aktives Projekt löschen' },
-              ]}
-              theme="paper"
-              variant="input"
-              placeholder="Projekt wählen…"
-            />
-          ) : (
-            <div style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              color: '#151515',
-              border: '1px solid #3A3A3A',
-              borderRadius: '8px',
-              padding: '10px 12px',
-              backgroundColor: 'rgba(255,255,255,0.35)'
-            }}>
-              {settings.cloudProjectId
-                ? `#${settings.cloudProjectId} — ${settings.cloudProjectName ?? 'Projekt'}`
-                : 'Kein Projekt gesetzt'}
-            </div>
-          )}
-
-          {/* Inline-Bestätigung für Projekt löschen */}
+          {/* Projekt löschen Bestätigung */}
           {confirmDeleteProjectId !== null && (
-            <div style={{
-              border: '1px solid rgba(179,38,30,0.45)',
-              borderRadius: 8,
-              background: 'rgba(179,38,30,0.06)',
-              padding: '12px 14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 10,
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: 10,
-              color: '#8f1d16',
-            }}>
+            <div style={{ border: '1px solid rgba(179,38,30,0.4)', borderRadius: 8, background: 'rgba(179,38,30,0.05)', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, fontFamily: fontMono, fontSize: 10, color: '#8f1d16' }}>
               <FontAwesomeIcon icon={faTriangleExclamation} style={{ flexShrink: 0 }} />
               <span style={{ flex: 1 }}>
                 Projekt <strong>#{confirmDeleteProjectId}</strong> wirklich löschen?<br />
-                <span style={{ color: '#b55', fontSize: 9 }}>Alle Dokumente dieses Projekts werden unwiderruflich gelöscht.</span>
+                <span style={{ color: '#b55', fontSize: 9 }}>Alle Dokumente werden unwiderruflich gelöscht.</span>
               </span>
-              <button
-                onClick={() => { void handleDeleteProject(confirmDeleteProjectId); }}
-                disabled={deletingProject}
-                style={{ background: '#B3261E', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '5px 12px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, display: 'flex', alignItems: 'center', gap: 6 }}
-              >
-                {deletingProject
-                  ? <FontAwesomeIcon icon={faSpinner} spin />
-                  : <><FontAwesomeIcon icon={faTrash} /> Löschen</>}
+              <button onClick={() => { void handleDeleteProject(confirmDeleteProjectId); }} disabled={deletingProject}
+                style={{ background: '#B3261E', border: 'none', borderRadius: 6, color: '#fff', cursor: 'pointer', padding: '6px 14px', fontFamily: fontMono, fontSize: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                {deletingProject ? <FontAwesomeIcon icon={faSpinner} spin /> : <><FontAwesomeIcon icon={faTrash} /> Löschen</>}
               </button>
-              <button
-                onClick={() => setConfirmDeleteProjectId(null)}
-                disabled={deletingProject}
-                style={{ background: 'transparent', border: '1px solid #aaa', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '5px 10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: 10 }}
-              >
+              <button onClick={() => setConfirmDeleteProjectId(null)} disabled={deletingProject}
+                style={{ background: 'transparent', border: '1px solid rgba(172,142,102,0.4)', borderRadius: 6, color: '#555', cursor: 'pointer', padding: '6px 12px', fontFamily: fontMono, fontSize: 10 }}>
                 Abbrechen
               </button>
             </div>
           )}
+
         </div>
       </div>
     </div>
   );
-};
-
-const rowStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-};
-
-const labelStyle: React.CSSProperties = {
-  fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '10px',
-  color: '#555',
-};
-
-const inputStyle: React.CSSProperties = {
-  border: '1px solid #3A3A3A',
-  borderRadius: '8px',
-  padding: '10px 12px',
-  fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '11px',
-  color: '#1a1a1a',
-  backgroundColor: 'rgba(255,255,255,0.6)',
-};
-
-const primaryBtn: React.CSSProperties = {
-  border: '1px solid #3A3A3A',
-  borderRadius: '8px',
-  padding: '10px 14px',
-  fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '10px',
-  color: '#1a1a1a',
-  backgroundColor: '#d0cbb8',
-  cursor: 'pointer',
-};
-
-const ghostBtn: React.CSSProperties = {
-  border: '1px solid #3A3A3A',
-  borderRadius: '8px',
-  padding: '10px 14px',
-  fontFamily: 'IBM Plex Mono, monospace',
-  fontSize: '10px',
-  color: '#1a1a1a',
-  backgroundColor: 'transparent',
-  cursor: 'pointer',
-};
-
-const ghostDangerBtn: React.CSSProperties = {
-  ...ghostBtn,
-  color: '#B3261E',
 };

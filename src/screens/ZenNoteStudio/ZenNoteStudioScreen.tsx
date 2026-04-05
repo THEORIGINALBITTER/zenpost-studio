@@ -15,7 +15,10 @@ import {
   faLayerGroup,
   faXmark,
   faRightLeft,
+  faCalendarPlus,
+  faPenToSquare,
 } from '@fortawesome/free-solid-svg-icons';
+import type { ScheduledPost } from '../../types/scheduling';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 import {
   listCloudDocuments,
@@ -53,6 +56,29 @@ interface ZenNote {
 
 interface ZenNoteStudioScreenProps {
   insertTargetActive?: boolean;
+  onAddToPlanner?: (post: ScheduledPost) => void;
+}
+
+// ── Frontmatter helpers ────────────────────────────────────────────────────
+function readFrontmatterDate(content: string): string {
+  const match = content.match(/^---\n[\s\S]*?^planned:\s*(.+)$/m);
+  return match?.[1]?.trim() ?? '';
+}
+
+function writeFrontmatterDate(content: string, date: string): string {
+  const hasFm = /^---\n/.test(content);
+  if (!hasFm) {
+    const fm = date ? `---\nplanned: ${date}\n---\n\n` : '';
+    return fm + content;
+  }
+  const hasField = /^planned:\s*.+$/m.test(content);
+  if (!date) {
+    return content.replace(/^planned:[^\n]*\n?/m, '');
+  }
+  if (hasField) {
+    return content.replace(/^(planned:\s*).*$/m, `planned: ${date}`);
+  }
+  return content.replace(/^(---\n[\s\S]*?)(^---)/m, `$1planned: ${date}\n$2`);
 }
 
 type TabType = 'all' | 'quick' | 'folder' | 'tag';
@@ -106,17 +132,18 @@ function encodeFileName(title: string, tag: string, folder: string): string {
   return safeFolder ? `${safeFolder}@@${withTag}.zennote` : `${withTag}.zennote`;
 }
 
-export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudioScreenProps) {
+export function ZenNoteStudioScreen({ insertTargetActive = false, onAddToPlanner }: ZenNoteStudioScreenProps) {
   const [notes, setNotes] = useState<ZenNote[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<number | null>(null);
   const [editorContent, setEditorContent] = useState('');
   const [editorTitle, setEditorTitle] = useState('');
   const [editorTag, setEditorTag] = useState('');
   const [editorFolder, setEditorFolder] = useState('');
+  const [editorPlannedDate, setEditorPlannedDate] = useState('');
+  const [plannerAddOk, setPlannerAddOk] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
-  const [inserting, setInserting] = useState(false);
   const [insertOk, setInsertOk] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [hoveredNoteId, setHoveredNoteId] = useState<number | null>(null);
@@ -142,6 +169,8 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
     } catch { /* ignore */ }
     return {};
   });
+  const [showInsertMenu, setShowInsertMenu] = useState(false);
+  const insertMenuRef = useRef<HTMLDivElement>(null);
 
   // ── Close move dropdown on outside click ──────────────────────────────────
   useEffect(() => {
@@ -150,6 +179,18 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [moveDropdownNoteId]);
+
+  // ── Close insert menu on outside click ────────────────────────────────────
+  useEffect(() => {
+    if (!showInsertMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (insertMenuRef.current && !insertMenuRef.current.contains(e.target as Node)) {
+        setShowInsertMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showInsertMenu]);
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -246,7 +287,9 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
     setEditorContent('');
     setDirty(false);
     const content = await downloadCloudDocumentText(noteId);
-    setEditorContent(content ?? '');
+    const resolved = content ?? '';
+    setEditorContent(resolved);
+    setEditorPlannedDate(readFrontmatterDate(resolved));
   };
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -275,6 +318,39 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
   const saveCurrentNote = () => {
     if (activeNoteIdRef.current === null) return;
     void doSave(activeNoteIdRef.current, editorTitleRef.current, editorTagRef.current, editorFolderRef.current, editorContentRef.current);
+  };
+
+  // ── Planned date ───────────────────────────────────────────────────────────
+  const handlePlannedDateChange = (date: string) => {
+    setEditorPlannedDate(date);
+    const updated = writeFrontmatterDate(editorContentRef.current, date);
+    setEditorContent(updated);
+    editorContentRef.current = updated;
+    setDirty(true);
+  };
+
+  const handleAddToPlanner = () => {
+    if (!onAddToPlanner) return;
+    const dateToUse = editorPlannedDate || new Date().toISOString().split('T')[0];
+    const [year, month, day] = dateToUse.split('-').map(Number);
+    const scheduledDate = new Date(year, month - 1, day);
+    const content = editorContentRef.current;
+    const words = content.replace(/^---[\s\S]*?---\n*/m, '').trim().split(/\s+/).length;
+    const post: ScheduledPost = {
+      id: `zennote-${activeNoteIdRef.current ?? Date.now()}`,
+      platform: 'linkedin',
+      title: editorTitleRef.current || 'ZenNote',
+      content: content,
+      scheduledDate,
+      scheduledTime: '09:00',
+      status: 'draft',
+      characterCount: content.length,
+      wordCount: words,
+      createdAt: new Date(),
+    };
+    onAddToPlanner(post);
+    setPlannerAddOk(true);
+    setTimeout(() => setPlannerAddOk(false), 2500);
   };
 
   // ── Create ─────────────────────────────────────────────────────────────────
@@ -405,13 +481,22 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
   // ── Insert-Bridge ──────────────────────────────────────────────────────────
   const handleInsert = () => {
     if (!editorContent.trim()) return;
-    setInserting(true);
-    window.dispatchEvent(new CustomEvent('zenpost:insert-snippet', { detail: { content: editorContent } }));
-    setTimeout(() => {
-      setInserting(false);
-      setInsertOk(true);
-      setTimeout(() => setInsertOk(false), 2000);
-    }, 300);
+    window.dispatchEvent(new CustomEvent('zenpost:insert-snippet', {
+      detail: { content: editorContent, title: editorTitleRef.current },
+    }));
+    setInsertOk(true);
+    setTimeout(() => setInsertOk(false), 2000);
+  };
+
+  const [openAsDraftOk, setOpenAsDraftOk] = useState(false);
+
+  const handleOpenAsDraft = () => {
+    if (!editorContent.trim()) return;
+    window.dispatchEvent(new CustomEvent('zenpost:open-as-draft', {
+      detail: { content: editorContent, title: editorTitleRef.current },
+    }));
+    setOpenAsDraftOk(true);
+    setTimeout(() => setOpenAsDraftOk(false), 2500);
   };
 
   // ── New Folder ─────────────────────────────────────────────────────────────
@@ -503,7 +588,13 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16, fontFamily: fontMono }}>
         <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 32, color: textMuted }} />
         <p style={{ color: textMuted, fontSize: 12 }}>ZenNote Studio benötigt einen ZenPost Cloud Account.</p>
-        <p style={{ color: textMuted, fontSize: 11 }}>Einstellungen → Zen Post Login</p>
+        <button
+          className="zen-gold-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+          style={{ padding: '8px 20px', fontSize: 10 }}
+        >
+          Einstellungen → ZenCloud
+        </button>
       </div>
     );
   }
@@ -515,14 +606,94 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
   ];
 
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 80px)', fontFamily: fontMono, background: '#1a1a1a' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', fontFamily: fontMono, background: '#1a1a1a' }}>
+
+      {/* ── Studio Bar ──────────────────────────────────────────────────────── */}
+      <div style={{ position: 'relative', background: '#1a1a1a', display: 'flex', alignItems: 'flex-end', padding: '10px 16px 0', gap: 8, justifyContent: 'space-between', flexShrink: 0 }}>
+        {/* Goldene Linie über allen Tabs */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 1, background: '#AC8E66', zIndex: 10, pointerEvents: 'none' }} />
+        {/* Left: Notizen Tab */}
+        <div style={{ display: 'flex', gap: 8, zIndex: 1 }}>
+         
+        </div>
+        {/* Right: Action Tabs */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', zIndex: 1 }}>
+          {onAddToPlanner && (
+            <>
+              {/* Datum-Tab — steht allein links mit Auto-Margin */}
+              <div
+                style={{ position: 'relative', width: 130, height: 40, marginRight: '30px', marginBottom: '2px' }}
+                onMouseEnter={(e) => { if (activeNoteId) { const inner = e.currentTarget.querySelector('div') as HTMLElement | null; if (inner) inner.style.borderColor = '#AC8E66'; } }}
+                onMouseLeave={(e) => { const inner = e.currentTarget.querySelector('div') as HTMLElement | null; if (inner) inner.style.borderColor = editorPlannedDate ? gold : '#3A3A3A'; }}
+              >
+                <div style={{ width: '100%', height: '100%', borderTop: editorPlannedDate ? `1px solid ${gold}` : '1px dotted #3A3A3A', borderLeft: editorPlannedDate ? `1px solid ${gold}` : '1px dotted #3A3A3A', borderRight: editorPlannedDate ? `1px solid ${gold}` : '1px dotted #3A3A3A', borderBottom: 0, borderRadius: '10px 10px 0 0', background: editorPlannedDate ? 'rgba(172,142,102,0.08)' : '#121212', display: 'flex', alignItems: 'center', gap: 8, padding: '0 10px', fontFamily: fontMono, fontSize: 10, color: editorPlannedDate ? gold : '#a1a1a1', opacity: !activeNoteId ? 0.4 : 1, pointerEvents: 'none', transition: 'border-color 0.2s' }}>
+                  <span style={{ color: editorPlannedDate ? gold : '#555', display: 'inline-flex' }}><FontAwesomeIcon icon={faCalendarPlus} /></span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{editorPlannedDate || 'Datum'}</span>
+                </div>
+                <input type="date" value={editorPlannedDate} onChange={(e) => handlePlannedDateChange(e.target.value)} disabled={!activeNoteId} style={{ position: 'absolute', inset: 0, opacity: 0, cursor: !activeNoteId ? 'not-allowed' : 'pointer', width: '100%', height: '100%' }} />
+              </div>
+              {/* Planen-Tab */}
+              <button
+                onClick={handleAddToPlanner}
+                disabled={!activeNoteId}
+                style={{ width: 130, height: 40, borderTop: plannerAddOk ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderLeft: plannerAddOk ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderRight: plannerAddOk ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: plannerAddOk ? '#4caf50' : '#a1a1a1', cursor: !activeNoteId ? 'not-allowed' : 'pointer', opacity: !activeNoteId ? 0.4 : 1, transition: 'border-color 0.2s' }}
+                onMouseEnter={(e) => { if (activeNoteId && !plannerAddOk) e.currentTarget.style.borderColor = '#AC8E66'; }}
+                onMouseLeave={(e) => { if (activeNoteId && !plannerAddOk) e.currentTarget.style.borderColor = '#3A3A3A'; }}
+              >
+                <span style={{ color: plannerAddOk ? '#4caf50' : gold, display: 'inline-flex' }}><FontAwesomeIcon icon={plannerAddOk ? faCheck : faCalendarPlus} /></span>
+                <span>{plannerAddOk ? 'Geplant!' : 'Planen'}</span>
+              </button>
+            </>
+          )}
+          {/* Einfügen ▾ Dropdown */}
+          <div ref={insertMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => { if (!insertOk && !openAsDraftOk) setShowInsertMenu((prev) => !prev); }}
+              disabled={!editorContent.trim()}
+              style={{ width: 130, height: 40, borderTop: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderLeft: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderRight: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #3A3A3A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: (insertOk || openAsDraftOk) ? '#4caf50' : '#a1a1a1', cursor: !editorContent.trim() ? 'not-allowed' : 'pointer', opacity: !editorContent.trim() ? 0.4 : 1, transition: 'border-color 0.2s' }}
+              onMouseEnter={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) e.currentTarget.style.borderColor = '#AC8E66'; }}
+              onMouseLeave={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) e.currentTarget.style.borderColor = '#3A3A3A'; }}
+            >
+              <span style={{ color: insertOk || openAsDraftOk ? '#4caf50' : gold, display: 'inline-flex' }}><FontAwesomeIcon icon={insertOk || openAsDraftOk ? faCheck : faArrowRightToBracket} /></span>
+              <span>{insertOk ? 'Eingefügt!' : openAsDraftOk ? 'Geöffnet!' : `Einfügen ${showInsertMenu ? '▲' : '▾'}`}</span>
+            </button>
+            {showInsertMenu && (
+              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#1a1a1a', border: '1px solid #AC8E66', borderRadius: 8, overflow: 'hidden', minWidth: 200, zIndex: 200 }}>
+                {insertTargetActive && (
+                  <button
+                    onClick={() => { setShowInsertMenu(false); handleInsert(); }}
+                    style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', borderBottom: '1px solid #2a2a2a', color: '#EFEBDC', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <FontAwesomeIcon icon={faArrowRightToBracket} style={{ color: gold }} />
+                    In Editor einfügen
+                  </button>
+                )}
+                <button
+                  onClick={() => { setShowInsertMenu(false); handleOpenAsDraft(); }}
+                  style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#EFEBDC', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <FontAwesomeIcon icon={faPenToSquare} style={{ color: gold }} />
+                  Als Entwurf öffnen
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Main Content ─────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
       {/* ── Panel 1: Vertical Tabs ────────────────────────────────────────── */}
       <div style={{
         width: 56, minWidth: 56, background: bgSidebar,
         borderRight: `1px solid ${border}`,
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        paddingTop: 8, overflowY: 'auto', overflowX: 'hidden',
+        paddingTop: 100, paddingBottom: 16, overflowY: 'auto', overflowX: 'hidden',
       }}>
 
         {/* Fixed: Alle */}
@@ -600,7 +771,7 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
 
       {/* ── Panel 2: Notizen-Liste ─────────────────────────────────────────── */}
       <div style={{ width: 260, minWidth: 230, background: bgList, borderRight: `1px solid ${border}`, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '12px 12px 8px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '12px 12px 12px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 11, color: '#ccc', letterSpacing: '0.05em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontWeight: 600 }}>
             {activeTab.type === 'all' && 'Alle Notizen'}
             {activeTab.type === 'quick' && 'Quick Notes'}
@@ -862,17 +1033,6 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
               {saving && <FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: 10, color: textMuted }} />}
               {saveOk && !saving && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10, color: '#4caf50' }} />}
 
-              {/* Insert */}
-              {insertTargetActive && (
-                <button
-                  onClick={handleInsert}
-                  disabled={inserting}
-                  style={{ background: insertOk ? 'rgba(76,175,80,0.15)' : 'rgba(172,142,102,0.1)', border: `1px solid ${insertOk ? '#4caf50' : gold}`, borderRadius: 6, color: insertOk ? '#4caf50' : gold, cursor: 'pointer', padding: '3px 12px', fontSize: 10, fontFamily: fontMono }}
-                >
-                  <FontAwesomeIcon icon={insertOk ? faCheck : faArrowRightToBracket} style={{ marginRight: 4 }} />
-                  {insertOk ? 'Eingefügt!' : 'In Editor einfügen'}
-                </button>
-              )}
             </div>
 
             {/* ZenMarkdownEditor */}
@@ -894,6 +1054,7 @@ export function ZenNoteStudioScreen({ insertTargetActive = false }: ZenNoteStudi
           </div>
         )}
       </div>
+      </div>{/* Main Content */}
     </div>
   );
 }

@@ -378,7 +378,7 @@ export function ContentStudioDashboardScreen({
   const activeProjectIsCloud = activeProjectPath ? isCloudProjectPath(activeProjectPath) : false;
   const activeProjectWebType = activeProjectPath ? getWebProjectType(activeProjectPath) : null;
   const cloudLoggedIn = !!loadZenStudioSettings().cloudAuthToken;
-  const showWebWarning = !cloudLoggedIn && !isTauri();
+  const showWebWarning = !cloudLoggedIn;
 
   const recent = documents
     .slice()
@@ -419,16 +419,28 @@ export function ContentStudioDashboardScreen({
           <div
             style={{
               marginBottom: '16px',
-              padding: '10px 12px',
+              padding: '10px 14px',
               borderRadius: '8px',
               border: '1px solid rgba(172,142,102,0.4)',
               background: 'rgba(172,142,102,0.08)',
-              color: '#d0cbb8',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            Nicht eingeloggt: Daten werden nur im Browser gespeichert. Für Cloud-Speicher bitte im Zen Post Login anmelden.
+            <span style={{ color: '#d0cbb8' }}>
+              Nicht bei ZenCloud eingeloggt — Daten werden lokal gespeichert.
+            </span>
+            <button
+              className="zen-gold-btn"
+              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Anmelden
+            </button>
           </div>
         )}
 

@@ -94,7 +94,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
 
   return (
     <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
-      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#1a1a1a]/60 overflow-hidden">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '24px 32px' }}>
           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
             ZEN Gedanken anzeigen in:
@@ -124,7 +124,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
             Content AI Studio
           </label>
 
-          <div className="border-b border-[0.7px] border-[#AC8E66]" />
+          <div className="border-b border-[0.5px] border-[#1a1a1a] border-dotted" />
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px' }}>
@@ -159,7 +159,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
               border: '1px solid #3A3A3A',
               borderRadius: '8px',
               padding: '10px 12px',
-              backgroundColor: 'rgba(255,255,255,0.35)',
+              backgroundColor: 'transparent',
             }}
           >
             {settings.thoughts[0] ?? 'Kein Gedanke vorhanden'}
@@ -176,12 +176,13 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
               padding: '10px 14px',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '9px',
-              color: '#AC8E66',
+              color: '#1a1a1a',
               backgroundColor: 'transparent',
+              boxShadow: 'none',
               cursor: 'pointer',
             }}
           >
-            ZEN Gedanken oeffnen
+            ZEN Datei in Content AI oeffnen
           </button>
 
        
@@ -245,7 +246,7 @@ const pathRowStyle: React.CSSProperties = {
   border: '1px solid #3A3A3A',
   borderRadius: '8px',
   padding: '8px 10px',
-  backgroundColor: 'rgba(255,255,255,0.2)',
+  backgroundColor: 'transparent',
 };
 
 const pathTextStyle: React.CSSProperties = {
@@ -270,6 +271,8 @@ const pathButtonStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
+  boxShadow: 'none',
+
   fontSize: '10px',
   
 };

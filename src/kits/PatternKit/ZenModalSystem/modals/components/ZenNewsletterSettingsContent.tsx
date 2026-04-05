@@ -185,6 +185,7 @@ export const ZenNewsletterSettingsContent = () => {
                 display: 'flex', alignItems: 'flex-start', gap: 14,
                 background: selected ? 'rgba(172,142,102,0.12)' : 'rgba(172,142,102,0.04)',
                 border: `1px solid ${selected ? gold : goldDim}`,
+                boxShadow: 'none',
                 borderRadius: 8, padding: '14px 16px',
                 cursor: 'pointer', textAlign: 'left', transition: 'all 0.15s',
               }}
@@ -212,8 +213,9 @@ export const ZenNewsletterSettingsContent = () => {
           onClick={() => patch({ wizardStep: 1 })}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            background: nl.provider === 'none' ? '#ccc' : gold,
-            color: '#1a1a1a', border: 'none', borderRadius: 6,
+            background: nl.provider === 'none' ? '#ccc' : 'transparent',
+            boxShadow: 'none',
+            color: '#1a1a1a', border: '0.5px solid #1a1a1a', borderRadius: 6,
             padding: '9px 20px', fontFamily: mono, fontSize: 11,
             cursor: nl.provider === 'none' ? 'not-allowed' : 'pointer',
           }}
@@ -291,7 +293,7 @@ export const ZenNewsletterSettingsContent = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: gold, fontSize: 13 }} />
           <span style={{ fontFamily: mono, fontSize: 12, color: '#1a1a1a' }}>PHP Backend generieren</span>
-          <span style={{ background: gold, color: '#fff', fontFamily: mono, fontSize: 8, padding: '2px 7px', borderRadius: 10, letterSpacing: 0.5 }}>STARTER</span>
+          <span style={{ background: gold, color: '#fff', fontFamily: mono, fontSize: 8, padding: '2px 7px', borderRadius: 2, letterSpacing: 0.5 }}>STARTER</span>
         </div>
         <div style={{ fontFamily: sans, fontSize: 11, color: '#666', lineHeight: 1.6, marginBottom: 22 }}>
           Fülle die Felder aus — ZenPost Studio erstellt dein komplettes Newsletter-Backend als ZIP-Datei.
@@ -706,7 +708,7 @@ export const ZenNewsletterSettingsContent = () => {
   // ── Render ──────────────────────────────────────────────
   return (
     <div className="w-full flex justify-center" style={{ padding: '32px 32px' }}>
-      <div className="w-full max-w-[860px] rounded-[10px] shadow-2xl" style={{ background: paper, border: `1px solid ${goldDim}` }}>
+      <div className="w-full max-w-[860px] rounded-[10px]" style={{ background: paper, border: `1px solid ${goldDim}` }}>
 
         {/* Header */}
         <div style={{ borderBottom: `1px solid ${goldDim}`, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

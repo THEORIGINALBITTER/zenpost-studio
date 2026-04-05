@@ -7,16 +7,6 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistTemplateKey, string[]> = {
     "Content erstellt und überprüft",
     "Rechtschreibung/Links geprüft",
     "Bild/Assets vorbereitet",
-    "Todos aktualisiert für Phase 1",
-    "publishingService.ts mit CRUD-Operationen erstellt",
-    ".zenpost/publishing Ordnerstruktur erzeugt",
-    "Posts automatisch als .md-Dateien gespeichert",
-    "schedule.json lesen & schreiben implementiert",
-    "Auto-Save beim Zeitplan im DocStudio integriert",
-    "Success Modal zeigt korrekte Dateipfade",
-    "Auto-Save Funktionalität erfolgreich getestet",
-    "Dokumentation für Publishing-Service ergänzt",
-    "Publishing Workflow finalisiert",
   ],
 
   linkedin: [

@@ -70,7 +70,7 @@ return (
   <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
     {/* Paper Panel */}
     <div
-      className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden"
+      className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden"
       style={{ borderRadius: 10 }}
     >
       {/* Paper Header */}
@@ -154,6 +154,7 @@ return (
     </label>
 
     <input
+   
       type="url"
       value={aiConfig.baseUrl ?? ""}
       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -175,7 +176,7 @@ return (
         focus:outline-none focus:border-[#AC8E66]
         placeholder:text-[#7a6a52]/70
       "
-      style={{ padding: "8px 16px" }}
+      style={{ padding: "8px 16px", boxShadow: 'none' }}
     />
 
   </div>

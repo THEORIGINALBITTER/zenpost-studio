@@ -73,7 +73,7 @@ export const ZenMobileSettingsContent = () => {
 
   return (
     <div className="w-full flex justify-center" style={{ padding: '32px 32px' }}>
-      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: '24px 32px' }}>
           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
             Mobile Einstellungen
@@ -126,7 +126,7 @@ export const ZenMobileSettingsContent = () => {
               </div>
               {isTauri() && (
                 <button type="button" onClick={handleChangeMobileFolder} style={buttonStyle}>
-                  Aendern
+                  Ändern
                 </button>
               )}
               {!isTauri() && (
@@ -195,17 +195,19 @@ const codeRowStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  background: 'rgba(255,255,255,0.32)',
+  background: 'transparent',
 };
 
 const buttonStyle: React.CSSProperties = {
-  border: '1px solid #3A3A3A',
-  borderRadius: 8,
+  border: '0.5px solid #1a1a1a',
+  borderRadius: 4,
   padding: '7px 12px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
   color: '#1a1a1a',
-  backgroundColor: 'rgba(172,142,102,0.1)',
+  boxShadow: 'none',
+
+  backgroundColor: 'transparent',
   cursor: 'pointer',
 };
 

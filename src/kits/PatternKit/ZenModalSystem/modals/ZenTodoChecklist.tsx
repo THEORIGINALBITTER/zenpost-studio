@@ -23,6 +23,7 @@ import {
   saveChecklist,
   type ChecklistItem,
 } from '../../../../utils/checklistStorage';
+import { PLATFORM_TASKS } from '../../../../config/tasks/platformTasks';
 
 interface ZenTodoChecklistProps {
   isOpen: boolean;
@@ -41,18 +42,6 @@ const PLATFORM_INFO: Record<SocialPlatform, { icon: any; name: string; color: st
   twitter: { icon: faTwitter, name: 'Twitter/X', color: '#1DA1F2' },
 };
 
-const DEFAULT_TASKS = [
-  'Todos aktualisiert für Phase 1',
-  'publishingService.ts mit CRUD-Operationen erstellt',
-  '.zenpost/publishing Ordnerstruktur erzeugt',
-  'Posts automatisch als .md-Dateien gespeichert',
-  'schedule.json lesen & schreiben implementiert',
-  'Auto-Save beim Zeitplan im DocStudio integriert',
-  'Success Modal zeigt korrekte Dateipfade',
-  'Auto-Save Funktionalität erfolgreich getestet',
-  'Dokumentation für Publishing-Service ergänzt',
-  'Publishing Workflow finalisiert',
-];
 
 export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath }: ZenTodoChecklistProps) {
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
@@ -68,17 +57,31 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
     };
   }, [checklistItems]);
 
+  // Unique platforms from scheduled posts → platform-specific task groups
+  const platformGroups = useMemo(() => {
+    const unique = [...new Set(scheduledPosts.map(p => p.platform))];
+    return unique.map(platform => ({
+      platform,
+      tasks: PLATFORM_TASKS[platform] ?? [],
+    }));
+  }, [scheduledPosts]);
+
+  const defaultTasks = useMemo(
+    () => platformGroups.flatMap(g => g.tasks),
+    [platformGroups],
+  );
+
   useEffect(() => {
     if (!isOpen) return;
     setChecklistLoaded(false);
-    loadChecklist(DEFAULT_TASKS, projectPath)
+    loadChecklist(defaultTasks, projectPath)
       .then(items => {
         setChecklistItems(items);
         setChecklistLoaded(true);
       })
       .catch(() => {
         setChecklistItems(
-          DEFAULT_TASKS.map((task, index) => ({
+          defaultTasks.map((task, index) => ({
             id: `task-${index}`,
             text: task,
             completed: false,
@@ -87,12 +90,61 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
         );
         setChecklistLoaded(true);
       });
-  }, [isOpen, projectPath]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, projectPath]); // defaultTasks intentionally excluded: only reload on open/project-change
 
   useEffect(() => {
     if (!checklistLoaded) return;
     saveChecklist(checklistItems, projectPath).catch(() => {});
   }, [checklistItems, checklistLoaded, projectPath]);
+
+  const completeAll = () => {
+    setChecklistItems(prev => prev.map(item => ({ ...item, completed: true })));
+  };
+
+  const renderChecklistItem = (item: ChecklistItem) => {
+    const isCompleted = item.completed;
+    return (
+      <label
+        key={item.id}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          padding: '6px 8px',
+          backgroundColor: isCompleted ? '#1A1A1A' : '#0A0A0A',
+          border: `1px solid ${isCompleted ? '#AC8E66' : '#2A2A2A'}`,
+          borderRadius: '4px',
+          cursor: 'pointer',
+          marginBottom: '3px',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={isCompleted}
+          onChange={() => {
+            setChecklistItems(prev =>
+              prev.map(current =>
+                current.id === item.id ? { ...current, completed: !current.completed } : current,
+              ),
+            );
+          }}
+          style={{ width: '14px', height: '14px', cursor: 'pointer', accentColor: '#AC8E66', flexShrink: 0 }}
+        />
+        <span
+          style={{
+            fontFamily: 'monospace',
+            fontSize: '10px',
+            color: isCompleted ? '#555' : '#dbd9d5',
+            textDecoration: isCompleted ? 'line-through' : 'none',
+            flex: 1,
+          }}
+        >
+          {item.text}
+        </span>
+      </label>
+    );
+  };
 
   const addCustomTask = () => {
     if (!customTask.trim()) return;
@@ -317,76 +369,53 @@ export function ZenTodoChecklist({ isOpen, onClose, scheduledPosts, projectPath 
         </div>
 
         {/* Checklist */}
-        <div
-          style={{
-            marginBottom: '16px',
-          }}
-        >
-          <h4
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '11px',
-              color: '#dbd9d5',
-              margin: 0,
-              marginBottom: '10px',
-            }}
-          >
-            📋 Aufgaben
-          </h4>
+        <div style={{ marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h4 style={{ fontFamily: 'monospace', fontSize: '11px', color: '#dbd9d5', margin: 0 }}>
+              Aufgaben
+            </h4>
+            <button
+              onClick={completeAll}
+              style={{
+                padding: '3px 8px',
+                background: 'transparent',
+                border: '1px solid rgba(172,142,102,0.4)',
+                borderRadius: 3,
+                color: '#1a1a1a',
+                fontFamily: 'monospace',
+                fontSize: 9,
+                cursor: 'pointer',
+              }}
+            >
+              Alle abschliessen
+            </button>
+          </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {checklistItems.map((item) => {
-              const isCompleted = item.completed;
-
+          <div>
+            {platformGroups.map(({ platform, tasks }) => {
+              const info = PLATFORM_INFO[platform];
+              const platformItems = checklistItems.filter(i => tasks.includes(i.text));
+              if (platformItems.length === 0) return null;
               return (
-                <label
-                  key={item.id}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    padding: '8px 10px',
-                    backgroundColor: isCompleted ? '#1A1A1A' : '#0A0A0A',
-                    border: `1px solid ${isCompleted ? '#AC8E66' : '#3A3A3A'}`,
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isCompleted}
-                    onChange={() => {
-                      setChecklistItems(prev =>
-                        prev.map(current =>
-                          current.id === item.id
-                            ? { ...current, completed: !current.completed }
-                            : current,
-                        ),
-                      );
-                    }}
-                    style={{
-                      width: '16px',
-                      height: '16px',
-                      cursor: 'pointer',
-                      accentColor: '#AC8E66',
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontFamily: 'monospace',
-                      fontSize: '10px',
-                      color: isCompleted ? '#777' : '#dbd9d5',
-                      textDecoration: isCompleted ? 'line-through' : 'none',
-                      flex: 1,
-                    }}
-                  >
-                    {item.text}
-                  </span>
-                  {isCompleted && <span style={{ fontSize: '12px' }}>✓</span>}
-                </label>
+                <div key={platform} style={{ marginBottom: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4, paddingLeft: 2 }}>
+                    <FontAwesomeIcon icon={info.icon} style={{ fontSize: 9, color: '#555' }} />
+                    <span style={{ fontFamily: 'monospace', fontSize: 8, color: '#555', letterSpacing: '0.1em' }}>
+                      {info.name.toUpperCase()}
+                    </span>
+                  </div>
+                  {platformItems.map(renderChecklistItem)}
+                </div>
               );
             })}
+            {checklistItems.filter(i => i.source === 'custom').length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 8, color: '#555', letterSpacing: '0.1em', marginBottom: 4, paddingLeft: 2 }}>
+                  EIGENE
+                </div>
+                {checklistItems.filter(i => i.source === 'custom').map(renderChecklistItem)}
+              </div>
+            )}
           </div>
         </div>
 

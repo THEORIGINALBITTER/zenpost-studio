@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { ZenRoughButton } from "../../components/ZenRoughButton";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faCheck } from "@fortawesome/free-solid-svg-icons";
 import { ZenDropdown } from "../../components/ZenDropdown";
 import { ZenTerminal } from "../../components/ZenTerminal";
 import { loadAIConfig } from "../../../../../services/aiService";
@@ -88,6 +89,74 @@ function detectOS(): OSType {
   return "linux";
 }
 
+const HoverButton = ({
+  onClick,
+  children,
+  width,
+  active,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  width?: number;
+  active?: boolean;
+}) => {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        border: `1px solid ${hovered || active ? '#AC8E66' : '#3A3A3A'}`,
+        borderRadius: 8,
+        padding: '10px 14px',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: 9,
+        color: hovered || active ? '#AC8E66' : '#1a1a1a',
+        backgroundColor: hovered || active ? 'rgba(172,142,102,0.12)' : 'transparent',
+        cursor: 'pointer',
+        width: width ?? 'fit-content',
+        boxShadow: 'none',
+        transition: 'border-color 0.15s, background-color 0.15s, color 0.15s',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+      }}
+    >
+      {children}
+    </button>
+  );
+};
+
+const ServerCheckButton = ({ onClick, serverStatus }: { onClick: () => void; serverStatus: string }) => {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        border: `1px solid ${hovered ? '#AC8E66' : '#3A3A3A'}`,
+        borderRadius: 8,
+        padding: '10px 14px',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: 9,
+        color: hovered ? '#AC8E66' : '#1a1a1a',
+        backgroundColor: hovered ? 'rgba(172,142,102,0.12)' : 'transparent',
+        cursor: 'pointer',
+        width: 280,
+        boxShadow: 'none',
+        transition: 'border-color 0.15s, background-color 0.15s, color 0.15s',
+      }}
+    >
+      {serverStatus === 'checking' ? 'Prüfe...' : 'Verbindung prüfen'}
+    </button>
+  );
+};
+
 export const ZenLocalAISetupContent = () => {
   const isDesktop = isTauri();
 
@@ -110,7 +179,7 @@ export const ZenLocalAISetupContent = () => {
     return (
       <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
         <div
-          className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden"
+          className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden"
           style={{ borderRadius: 10 }}
         >
           {/* Header */}
@@ -181,13 +250,12 @@ export const ZenLocalAISetupContent = () => {
 
               {/* CTA */}
               <div className="flex flex-col items-center" style={{ gap: 8 }}>
-                <ZenRoughButton
-                  label="Desktop-Version herunterladen"
-                  size="small"
+                <HoverButton
                   onClick={() => window.open("https://github.com/theoriginalbitter/zenpost-studio/releases", "_blank", "noopener,noreferrer")}
                   width={280}
-                  height={42}
-                />
+                >
+                  Desktop-Version herunterladen
+                </HoverButton>
                 <div className="font-mono text-[9px] text-[#7a6a52] text-center">
                   Kostenlos für macOS, Windows & Linux
                 </div>
@@ -274,9 +342,9 @@ export const ZenLocalAISetupContent = () => {
   const allDone = SETUP_STEPS.every((_, i) => completedSteps.has(i));
 
   return (
-    <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
+    <div className="w-full flex justify-center" style={{ padding: "20px 20px" }}>
       <div
-        className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden"
+        className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden"
         style={{ borderRadius: 10 }}
       >
         {/* Header */}
@@ -393,6 +461,7 @@ export const ZenLocalAISetupContent = () => {
                         padding: "14px 0",
                         background: "none",
                         border: "none",
+                          boxShadow: 'none',
                         cursor: "pointer",
                         borderBottom: isOpen
                           ? "none"
@@ -401,28 +470,22 @@ export const ZenLocalAISetupContent = () => {
                     >
                       {/* Step Number */}
                       <span
-                        className="flex items-center justify-center rounded-full font-mono text-[10px] transition-all duration-200"
+                        className="flex items-center justify-center font-mono text-[10px] transition-all duration-200"
                         style={{
-                          width: 30,
-                          height: 30,
+                          width: 20,
+                          height: 20,
                           flexShrink: 0,
-                          background: isDone ? "#AC8E66" : "transparent",
-                          border: `2px solid ${isDone ? "#AC8E66" : "rgba(172,142,102,0.35)"}`,
-                          color: isDone ? "#1a1a1a" : "#AC8E66",
+                          borderRadius: 6,
+                          background: isDone ? "#AC8E66" : "#F4F1EA",
+                          border: `1px solid ${isDone ? "#AC8E66" : "#8A8A8A"}`,
+                          color: isDone ? "#151515" : "transparent",
+                          boxShadow: "none",
                         }}
                       >
                         {isDone ? (
-                          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                            <path
-                              d="M2.5 6.5L5.5 9.5L10.5 3.5"
-                              stroke="#fff"
-                              strokeWidth="1.8"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
+                          <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10, color: "#151515" }} />
                         ) : (
-                          <span>{index + 1}</span>
+                          <span style={{ fontSize: 0 }}>{index + 1}</span>
                         )}
                       </span>
 
@@ -476,13 +539,9 @@ export const ZenLocalAISetupContent = () => {
                         {/* Link Action (Steps 1 & 2) */}
                         {step.action === "link" && (
                           <div className="flex justify-center">
-                            <ZenRoughButton
-                              label={step.actionLabel!}
-                              size="small"
-                              onClick={() => openExternal(step.url!)}
-                              width={280}
-                              height={42}
-                            />
+                            <HoverButton onClick={() => openExternal(step.url!)} width={280}>
+                              {step.actionLabel!}
+                            </HoverButton>
                           </div>
                         )}
 
@@ -532,27 +591,16 @@ export const ZenLocalAISetupContent = () => {
 
                         {/* Done Toggle */}
                         <div className="flex justify-center">
-                          <ZenRoughButton
-                            label={isDone ? "Erledigt" : "Als erledigt markieren"}
-                            size="small"
-                            variant={isDone ? "active" : "default"}
-                            icon={
-                              isDone ? (
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                                  <path
-                                    d="M2 6L5 9L10 3"
-                                    stroke="#AC8E66"
-                                    strokeWidth="1.5"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
+                          <HoverButton onClick={() => toggleStep(index)} width={280} active={isDone}>
+                            {isDone ? (
+                              <>
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ marginRight: 6 }}>
+                                  <path d="M2 6L5 9L10 3" stroke="#AC8E66" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
-                              ) : null
-                            }
-                            onClick={() => toggleStep(index)}
-                            width={280}
-                            height={42}
-                          />
+                                Erledigt
+                              </>
+                            ) : "Als erledigt markieren"}
+                          </HoverButton>
                         </div>
                       </div>
                     )}
@@ -566,14 +614,7 @@ export const ZenLocalAISetupContent = () => {
 
             {/* Server Check */}
             <div className="flex flex-col items-center" style={{ gap: 12 }}>
-              <ZenRoughButton
-                label={serverStatus === "checking" ? "Prüfe..." : "Verbindung prüfen"}
-                size="small"
-                variant={serverStatus === "ok" ? "active" : "default"}
-                onClick={checkServer}
-                width={280}
-                height={42}
-              />
+              <ServerCheckButton onClick={checkServer} serverStatus={serverStatus} />
               <div className="font-mono text-[9px] text-[#7a6a52] text-center">
                 Prüft: {baseUrl}/api/tags
               </div>

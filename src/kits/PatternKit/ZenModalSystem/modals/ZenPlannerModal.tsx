@@ -64,6 +64,7 @@ interface ZenPlannerModalProps {
   onClose: () => void;
   scheduledPosts: ScheduledPost[];
   projectPath?: string | null;
+  projectName?: string | null;
   onReloadSchedule?: () => void;
   posts?: Array<{
     platform: SocialPlatform;
@@ -91,6 +92,7 @@ interface ZenPlannerModalProps {
 }
 
 type TabType = 'planen' | 'kalender' | 'checklist';
+type CalendarView = 'month' | 'week';
 
 type PostSchedule = { date: string; time: string };
 type ScheduleMap = Record<string, PostSchedule>;
@@ -118,17 +120,20 @@ type PlannerStorage = {
 
 
 
-const PLATFORM_INFO: Record<SocialPlatform, { name: string; color: string; icon: IconDefinition }> = {
-  linkedin: { name: 'LinkedIn', color: '#0077B5', icon: faLinkedin },
-  reddit: { name: 'Reddit', color: '#FF4500', icon: faReddit },
-  github: { name: 'GitHub', color: '#181717', icon: faGithub },
-  devto: { name: 'Dev.to', color: '#0A0A0A', icon: faDev },
-  medium: { name: 'Medium', color: '#00AB6C', icon: faMedium },
-  hashnode: { name: 'Hashnode', color: '#2962FF', icon: faHashnode },
-  twitter: { name: 'Twitter/X', color: '#1DA1F2', icon: faTwitter },
+const PLATFORM_INFO: Record<SocialPlatform, { name: string; color: string; icon: IconDefinition; bg: string; }> = {
+     
+  linkedin: { name: 'LinkedIn', color: '#0077B5', icon: faLinkedin, bg: '#0077B51A',  },
+  reddit: { name: 'Reddit', color: '#FF4500', icon: faReddit, bg: '#FF45001A1A', },
+  github: { name: 'GitHub', color: '#181717', icon: faGithub, bg: '#1817171A', },
+  devto: { name: 'Dev.to', color: '#0A0A0A', icon: faDev, bg: '#0A0A0A1A', },
+  medium: { name: 'Medium', color: '#00AB6C', icon: faMedium, bg: '#00AB6C1A', },
+  hashnode: { name: 'Hashnode', color: '#2962FF', icon: faHashnode, bg: '#2962FF1A', },
+  twitter: { name: 'Twitter/X', color: '#1DA1F2', icon: faTwitter, bg: '#1DA1F21A', },
 };
 
-const UNKNOWN_PLATFORM_INFO = { name: 'Unbekannt', color: '#888', icon: faCircleQuestion };
+
+
+const UNKNOWN_PLATFORM_INFO = { name: 'Unbekannt', color: '#888', icon: faCircleQuestion, bg: '#8888881A' };
 
 const getPlatformInfo = (platform: SocialPlatform | undefined) =>
   (platform ? PLATFORM_INFO[platform] : undefined) ?? UNKNOWN_PLATFORM_INFO;
@@ -272,7 +277,7 @@ export function ZenPlannerModal({
   onClose,
   scheduledPosts,
   projectPath,
- 
+  projectName,
   posts = [],
   onScheduleSave,
   onScheduledPostsChange,
@@ -295,6 +300,10 @@ export function ZenPlannerModal({
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Record<string, true>>({});
   const [suggestedImportPlatform, setSuggestedImportPlatform] = useState<SocialPlatform>('linkedin');
 
+  
+   // ==================== Alle Task Schliessen  STATE ====================
+
+
 
   // ==================== PLANEN STATE ====================
   const initialDate = preSelectedDate ? preSelectedDate.toISOString().split('T')[0] : '';
@@ -307,8 +316,8 @@ export function ZenPlannerModal({
   const [newPostImageUrl, setNewPostImageUrl] = useState('');
   const [isNewPostImageDragActive, setIsNewPostImageDragActive] = useState(false);
   const [newPostContent, setNewPostContent] = useState('');
-  const [newPostDate, setNewPostDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [newPostTime, setNewPostTime] = useState(() => getDefaultTime());
+  const [newPostDate, setNewPostDate] = useState('');
+  const [newPostTime, setNewPostTime] = useState('');
 
   useEffect(() => {
     if (!isOpen) {
@@ -381,6 +390,7 @@ export function ZenPlannerModal({
   });
 
   // ==================== CHECKLIST STATE ====================
+
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [checklistLoaded, setChecklistLoaded] = useState(false);
   const [showChecklistExportModal, setShowChecklistExportModal] = useState(false);
@@ -388,6 +398,7 @@ export function ZenPlannerModal({
   const [editingChecklistItemId, setEditingChecklistItemId] = useState<string | null>(null);
   const [editingChecklistText, setEditingChecklistText] = useState('');
   const [checklistTargetPostId, setChecklistTargetPostId] = useState<string | null>(null);
+  const [checklistBulkPostId, setChecklistBulkPostId] = useState<string | null>(null);
   const [collapsedChecklistPosts, setCollapsedChecklistPosts] = useState<Record<string, boolean>>({});
   const [highlightChecklistPostId, setHighlightChecklistPostId] = useState<string | null>(null);
   const highlightTimeoutRef = useRef<number | null>(null);
@@ -408,6 +419,36 @@ export function ZenPlannerModal({
     const postIds = new Set(planningPosts.map(post => post.id));
     return checklistItems.filter(item => !item.postId || postIds.has(item.postId));
   }, [checklistItems, planningPosts]);
+
+  const checklistBulkItems = useMemo(() => {
+    if (!checklistBulkPostId) return checklistVisibleItems;
+    return checklistVisibleItems.filter(item => item.postId === checklistBulkPostId);
+  }, [checklistVisibleItems, checklistBulkPostId]);
+
+  const allChecklistBulkItemsCompleted =
+    checklistBulkItems.length > 0 &&
+    checklistBulkItems.every(item => item.completed);
+
+  const selectedChecklistBulkPost = useMemo(
+    () => planningPosts.find(post => post.id === checklistBulkPostId) ?? null,
+    [planningPosts, checklistBulkPostId],
+  );
+
+  const toggleChecklistBulkItems = () => {
+    if (checklistBulkItems.length === 0) return;
+
+    setChecklistItems(prev =>
+      prev.map(item => {
+        const matchesScope = checklistBulkPostId
+          ? item.postId === checklistBulkPostId
+          : true;
+
+        return matchesScope
+          ? { ...item, completed: !allChecklistBulkItemsCompleted }
+          : item;
+      }),
+    );
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -555,6 +596,11 @@ export function ZenPlannerModal({
       const status: PublishingStatus = (schedule.date && schedule.time) ? 'scheduled' : 'draft';
       const existing = merged.get(post.id);
 
+      const resolvedProjectId = existing?.projectId ?? projectPath ?? undefined;
+      const resolvedProjectName = existing?.projectName
+        ?? projectName
+        ?? (projectPath ? projectPath.split('/').pop() ?? projectPath : undefined);
+
       merged.set(post.id, {
         id: post.id,
         platform: post.platform,
@@ -568,6 +614,8 @@ export function ZenPlannerModal({
         wordCount: post.wordCount || existing?.wordCount || 0,
         createdAt: existing?.createdAt ?? new Date(),
         savedFilePath: existing?.savedFilePath,
+        projectId: resolvedProjectId,
+        projectName: resolvedProjectName,
       });
     });
 
@@ -583,6 +631,7 @@ export function ZenPlannerModal({
   const [editContent, setEditContent] = useState('');
   const [editDate, setEditDate] = useState('');
   const [editTime, setEditTime] = useState('');
+  const [isPlanenInfoCollapsed, setIsPlanenInfoCollapsed] = useState(false);
 
   const openInlineEdit = (post: ScheduledPost) => {
     setEditingPost(post);
@@ -662,9 +711,26 @@ export function ZenPlannerModal({
 
   // ==================== KALENDER STATE ====================
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [calendarView, setCalendarView] = useState<CalendarView>('month');
   const [calendarDetailDate, setCalendarDetailDate] = useState<Date | null>(null);
   const [calendarEditMap, setCalendarEditMap] = useState<Record<string, PostSchedule>>({});
   const [calendarStatusList, setCalendarStatusList] = useState<'scheduled' | 'draft' | null>(null);
+  const [calendarProjectFilter, setCalendarProjectFilter] = useState<string | null>(null);
+
+  // Collect unique projects from all posts (for filter dropdown)
+  const availableProjects = useMemo(() => {
+    const map = new Map<string, string>(); // projectId → projectName
+    effectiveScheduledPosts.forEach((p) => {
+      if (p.projectId) map.set(p.projectId, p.projectName ?? p.projectId.split('/').pop() ?? p.projectId);
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [effectiveScheduledPosts]);
+
+  // Posts filtered by project (used in calendar rendering and status list)
+  const projectFilteredPosts = useMemo(() => {
+    if (!calendarProjectFilter) return effectiveScheduledPosts;
+    return effectiveScheduledPosts.filter((p) => p.projectId === calendarProjectFilter);
+  }, [effectiveScheduledPosts, calendarProjectFilter]);
   const [draggedPostId, setDraggedPostId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [manualMovePostId, setManualMovePostId] = useState<string | null>(null);
@@ -768,24 +834,30 @@ export function ZenPlannerModal({
       });
   }, [isOpen, projectPath]);
 
+  // Stable ref to avoid re-triggering the reload when the callback identity changes each render
+  const onScheduledPostsChangeRef = useRef(onScheduledPostsChange);
+  useEffect(() => { onScheduledPostsChangeRef.current = onScheduledPostsChange; }, [onScheduledPostsChange]);
+
   useEffect(() => {
     if (!isOpen) return;
     if (!isTauri()) return;
     if (!projectPath) return;
-    if (!onScheduledPostsChange) return;
+    if (!onScheduledPostsChangeRef.current) return;
 
     const reload = async () => {
       try {
         await initializePublishingProject(projectPath);
         const project = await loadSchedule(projectPath);
-        onScheduledPostsChange(project.posts);
+        onScheduledPostsChangeRef.current?.(project.posts);
       } catch (error) {
         console.error('[Planner] Failed to reload schedule', error);
       }
     };
 
     void reload();
-  }, [isOpen, projectPath, onScheduledPostsChange]);
+  // onScheduledPostsChange intentionally excluded — use ref to avoid re-firing on every render
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, projectPath]);
 
   useEffect(() => {
     if (!checklistLoaded) return;
@@ -848,6 +920,13 @@ export function ZenPlannerModal({
       setChecklistTargetPostId(planningPosts[0].id);
     }
   }, [planningPosts, checklistTargetPostId]);
+
+  useEffect(() => {
+    if (!checklistBulkPostId) return;
+    if (!planningPosts.some(post => post.id === checklistBulkPostId)) {
+      setChecklistBulkPostId(null);
+    }
+  }, [planningPosts, checklistBulkPostId]);
 
   useEffect(() => {
     if (planningPosts.length === 0) return;
@@ -949,19 +1028,24 @@ export function ZenPlannerModal({
     }
   };
 
-  const buildScheduledPostForEdit = (post: PlannerPost, schedule: PostSchedule): ScheduledPost => ({
-    id: post.id,
-    platform: post.platform,
-    title: post.title,
-    subtitle: post.subtitle,
-    content: post.content,
-    scheduledDate: schedule.date ? new Date(schedule.date) : undefined,
-    scheduledTime: schedule.time || undefined,
-    status: schedule.date && schedule.time ? 'scheduled' : 'draft',
-    characterCount: post.characterCount,
-    wordCount: post.wordCount,
-    createdAt: new Date(),
-  });
+  const buildScheduledPostForEdit = (post: PlannerPost, schedule: PostSchedule): ScheduledPost => {
+    const existing = effectiveScheduledPosts.find((p) => p.id === post.id);
+    return {
+      id: post.id,
+      platform: post.platform,
+      title: post.title,
+      subtitle: post.subtitle,
+      content: post.content,
+      scheduledDate: schedule.date ? new Date(schedule.date) : undefined,
+      scheduledTime: schedule.time || undefined,
+      status: schedule.date && schedule.time ? 'scheduled' : 'draft',
+      characterCount: post.characterCount,
+      wordCount: post.wordCount,
+      createdAt: existing?.createdAt ?? new Date(),
+      projectId: existing?.projectId ?? projectPath ?? undefined,
+      projectName: existing?.projectName ?? projectName ?? (projectPath ? projectPath.split('/').pop() : undefined),
+    };
+  };
 
   const upsertPostSchedule = (postId: string, dateStr: string, timeStr: string) => {
     setSchedules(prev => ({
@@ -1106,7 +1190,7 @@ export function ZenPlannerModal({
   };
 
   const getScheduledPostsForDate = (date: Date): ScheduledPost[] => {
-    return effectiveScheduledPosts.filter(post => {
+    return projectFilteredPosts.filter(post => {
       if (!post.scheduledDate) return false;
       const postDate = new Date(post.scheduledDate);
       return (
@@ -1213,15 +1297,49 @@ export function ZenPlannerModal({
     return days;
   };
 
-  const goToPreviousMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
-  };
-
-  const goToNextMonth = () => {
-    setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
-  };
-
   const goToToday = () => setCurrentDate(new Date());
+
+  const getStartOfWeek = (date: Date) => {
+    const base = new Date(date);
+    const day = base.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    base.setDate(base.getDate() + diff);
+    base.setHours(0, 0, 0, 0);
+    return base;
+  };
+
+  const weekDays = useMemo(() => {
+    const start = getStartOfWeek(currentDate);
+    return Array.from({ length: 7 }, (_, index) => {
+      const next = new Date(start);
+      next.setDate(start.getDate() + index);
+      return next;
+    });
+  }, [currentDate]);
+
+  const goToPreviousCalendarPeriod = () => {
+    setCurrentDate(prev => {
+      const next = new Date(prev);
+      if (calendarView === 'week') {
+        next.setDate(next.getDate() - 7);
+      } else {
+        next.setMonth(next.getMonth() - 1, 1);
+      }
+      return next;
+    });
+  };
+
+  const goToNextCalendarPeriod = () => {
+    setCurrentDate(prev => {
+      const next = new Date(prev);
+      if (calendarView === 'week') {
+        next.setDate(next.getDate() + 7);
+      } else {
+        next.setMonth(next.getMonth() + 1, 1);
+      }
+      return next;
+    });
+  };
 
   const isCurrentMonth = (date: Date): boolean => date.getMonth() === currentDate.getMonth();
 
@@ -1264,6 +1382,21 @@ export function ZenPlannerModal({
       setHighlightChecklistPostId(null);
       highlightTimeoutRef.current = null;
     }, 1200);
+  };
+
+  const focusChecklistPost = (postId: string) => {
+    setChecklistBulkPostId(postId);
+    setCollapsedChecklistPosts(() =>
+      Object.fromEntries(planningPosts.map(post => [post.id, post.id !== postId])),
+    );
+    window.setTimeout(() => {
+      scrollToChecklistPost(postId);
+    }, 0);
+  };
+
+  const showAllChecklistPosts = () => {
+    setChecklistBulkPostId(null);
+    setCollapsedChecklistPosts({});
   };
 
   const openedChecklistPosts = useMemo(() => {
@@ -1322,8 +1455,8 @@ export function ZenPlannerModal({
   const totalCount = workflowStats.total;
   const completionPercentage = workflowStats.percent;
 
-  const scheduledCount = effectiveScheduledPosts.filter(p => p.status === 'scheduled').length;
-  const draftCount = effectiveScheduledPosts.filter(p => p.status === 'draft').length;
+  const scheduledCount = projectFilteredPosts.filter(p => p.status === 'scheduled').length;
+  const draftCount = projectFilteredPosts.filter(p => p.status === 'draft').length;
   const suggestedPostExists = useMemo(() => {
     if (!suggestedEditorPost) return false;
     const normalize = (value: string) => value.trim().replace(/\s+/g, ' ');
@@ -1460,23 +1593,68 @@ export function ZenPlannerModal({
         style={{
           marginBottom: '24px',
           padding: '16px',
-         
           borderRadius: '8px',
           border: '1px solid #3A3A3A',
         }}
       >
-        <p
+        <div
           style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '10px',
-            color: '#777',
-            lineHeight: '1.6',
-            margin: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
           }}
         >
-          <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '8px' }} />
-          Plane deine Posts im Voraus. Wähle deine Plattform. Ein Überblick alle deiner geplanten Dinge findest du im Kalender.
-        </p>
+          <p
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              color: '#1a1a1a',
+              lineHeight: '1.6',
+              margin: 0,
+              flex: 1,
+            }}
+          >
+            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '8px' }} />
+            Planen Hinweise
+          </p>
+          <button
+            type="button"
+            onClick={() => setIsPlanenInfoCollapsed(prev => !prev)}
+            style={{
+              width: '28px',
+              height: '28px',
+              backgroundColor: 'transparent',
+              border: '1px solid rgba(172,142,102,0.4)',
+              borderRadius: '999px',
+              color: '#555',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+            }}
+            title={isPlanenInfoCollapsed ? 'Hinweis einblenden' : 'Hinweis ausblenden'}
+          >
+            <FontAwesomeIcon
+              icon={isPlanenInfoCollapsed ? faChevronRight : faChevronDown}
+              style={{ fontSize: '10px', color: '#AC8E66' }}
+            />
+          </button>
+        </div>
+        {!isPlanenInfoCollapsed && (
+          <p
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              color: '#1a1a1a',
+              lineHeight: '1.6',
+              margin: '10px 0 0 0',
+            }}
+          >
+            Plane deine Posts im Voraus. Wähle deine Plattform. Ein Überblick alle deiner geplanten Dinge findest du im Kalender.
+          </p>
+        )}
       </div>
 
       {showEditorSuggestion && suggestedEditorPost ? (
@@ -1595,7 +1773,7 @@ export function ZenPlannerModal({
               color: '#1a1a1a',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '13px',
-              fontWeight: '600',
+              fontWeight: '100',
               outline: 'none',
               boxSizing: 'border-box',
             }}
@@ -1611,7 +1789,7 @@ export function ZenPlannerModal({
               backgroundColor: 'transparent',
               border: '1px solid #2E2E2E',
               borderRadius: '6px',
-              color: '#AC8E66',
+              color: '#1a1a1a',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
               outline: 'none',
@@ -1645,7 +1823,7 @@ export function ZenPlannerModal({
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
-              padding: '6px 10px',
+              padding: '12px 10px',
               borderBottom: '1px solid #2A2A2A',
             }}>
               <img
@@ -1674,7 +1852,7 @@ export function ZenPlannerModal({
               placeholder={isNewPostImageDragActive ? 'Bild hier ablegen…' : 'Titelbild URL — oder Bild hierher ziehen'}
               style={{
                 flex: 1,
-                padding: '0',
+                padding: '12px',
                 backgroundColor: 'transparent',
                 border: 'none',
                 color: newPostImageUrl ? '#e5e5e5' : '#555',
@@ -1753,7 +1931,7 @@ export function ZenPlannerModal({
             placeholder="Schreibe hier deine ersten Gedanken-Inhalt..."
             height="220px"
             showPreview={false}
-            showLineNumbers={false}
+            showLineNumbers={true}
             showCharCount={true}
             title={newPostTitle || undefined}
             subtitle={newPostSubtitle || undefined}
@@ -1797,8 +1975,8 @@ export function ZenPlannerModal({
             setNewPostSubtitle('');
             setNewPostImageUrl('');
             setNewPostContent('');
-            setNewPostDate(new Date().toISOString().split('T')[0]);
-            setNewPostTime(getDefaultTime());
+            setNewPostDate('');
+            setNewPostTime('');
           }}
         />
       </div>
@@ -1985,28 +2163,27 @@ export function ZenPlannerModal({
                   </div>
 
                   {/* Status Badge */}
-                  {schedule.date && schedule.time && (
-                    <div
+                  <div
+                    style={{
+                      marginTop: '12px',
+                      padding: '6px 12px',
+                      backgroundColor: schedule.date && schedule.time ? '#151515' : 'transparent',
+                      borderRadius: '8px',
+                      textAlign: 'center',
+                      border: schedule.date && schedule.time ? 'none' : '1px dashed #3a3a3a',
+                    }}
+                  >
+                    <span
                       style={{
-                        marginTop: '12px',
-                        padding: '6px 12px',
-                        backgroundColor: '#151515',
-                        borderRadius: '8px',
-                        textAlign: 'center',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        color: schedule.date && schedule.time ? '#AC8E66' : '#555',
+                        fontWeight: 'normal',
                       }}
                     >
-                      <span
-                        style={{
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          color: '#AC8E66',
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        ✓ Geplant
-                      </span>
-                    </div>
-                  )}
+                      {schedule.date && schedule.time ? '✓ Geplant' : 'Datum & Uhrzeit eingeben zum Einplanen'}
+                    </span>
+                  </div>
 
                   <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
                     <ZenRoughButton
@@ -2180,7 +2357,7 @@ export function ZenPlannerModal({
                       </div>
                     </div>
                     <div style={{ 
-                       marginTop: '12px',
+                      marginTop: '12px',
                       padding: '6px 12px',
                       backgroundColor: 'transparent',
                       borderRadius: '4px',
@@ -2348,8 +2525,328 @@ export function ZenPlannerModal({
     </div>
   );
 
+  const renderCalendarPostChip = (
+    post: ScheduledPost,
+    date: Date,
+    dateKey: string,
+    options?: { compact?: boolean }
+  ) => {
+    const compact = options?.compact ?? false;
+    const info = getPlatformInfo(post.platform);
+    const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
+    const isManualMoveSelected = manualMovePostId === post.id;
+    const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
+
+    return (
+      <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        {isMoveTimeEditorOpen && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '3px',
+              borderRadius: '5px',
+              border: '1px dashed #AC8E66',
+              backgroundColor: '#d0cbb8',
+            }}
+          >
+            <input
+              type="time"
+              value={postMoveTimeEditor.time}
+              onChange={(e) => handlePostMoveTimeEditorChange(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setPostMoveTimeEditor(null); }}
+              style={{
+                width: '72px',
+                padding: '2px 4px',
+                backgroundColor: 'transparent',
+                border: '1px solid #3A3A3A',
+                borderRadius: '4px',
+                color: '#1a1a1a',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '8px',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setPostMoveTimeEditor(null)}
+              style={{
+                border: '1px solid #3A3A3A',
+                borderRadius: '4px',
+                backgroundColor: 'transparent',
+                color: '#1a1a1a',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '8px',
+                lineHeight: 1,
+                padding: '4px 10px',
+                cursor: 'pointer',
+              }}
+              title="Uhrzeit bestätigen"
+            >
+              OK
+            </button>
+          </div>
+        )}
+        <div
+          draggable
+          onDragStart={(e) => {
+            setDraggedPost(post.id);
+            setDragOverDateSafe(null);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', post.id);
+          }}
+          onDragEnd={() => {
+            const draggedId = draggedPostIdRef.current;
+            const overDateKey = dragOverDateRef.current;
+            if (draggedId && overDateKey) {
+              applyCalendarDate(draggedId, fromDateKey(overDateKey));
+            }
+            setDraggedPost(null);
+            setDragOverDateSafe(null);
+          }}
+          onDragOver={(e) => {
+            if (!draggedPostIdRef.current || isDragging) return;
+            e.preventDefault();
+            setDragOverDateSafe(dateKey);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const draggedId = resolveDraggedPostId(e);
+            if (!draggedId || isDragging) return;
+            applyCalendarDate(draggedId, date);
+            setDraggedPost(null);
+            setDragOverDateSafe(null);
+          }}
+          style={{
+            padding: compact ? '6px 8px' : '2px 5px',
+            backgroundColor: isDragging ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.1)',
+            borderRadius: '4px',
+            fontSize: compact ? '11px' : '10px',
+            fontFamily: 'IBM Plex Mono, monospace',
+            color: '#1a1a1a',
+            display: 'flex',
+            alignItems: 'center',
+            gap: compact ? '6px' : '3px',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            opacity: isDragging ? 0.8 : 1,
+            border: isDragging || isManualMoveSelected ? '1px dashed #1a1a1a' : '1px solid rgba(172,142,102,1)',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (isTauri()) {
+              setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+              return;
+            }
+            if (draggedPostIdRef.current) return;
+            setCalendarStatusList(null);
+            setCalendarDetailDate(date);
+          }}
+        >
+          <FontAwesomeIcon icon={info.icon} style={{ fontSize: compact ? '13px' : '12px', color: '#1a1a1a' }} />
+          <span style={{ fontSize: compact ? '11px' : '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {info.name} · {post.scheduledTime || '--:--'}
+          </span>
+          {isTauri() && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+              }}
+              style={{
+                marginLeft: 'auto',
+                border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
+                borderRadius: '4px',
+                background: 'transparent',
+                color: '#1a1a1a',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: compact ? '9px' : '8px',
+                lineHeight: 1,
+                padding: compact ? '6px 5px' : '5px 4px',
+                cursor: 'pointer',
+              }}
+              title="Post zum Verschieben markieren"
+            >
+              move
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderCalendarDayCell = (
+    date: Date,
+    dayIndex: number,
+    options?: { showMonthOpacity?: boolean; minHeight?: number; postLimit?: number; compactPosts?: boolean }
+  ) => {
+    const showMonthOpacity = options?.showMonthOpacity ?? true;
+    const minHeight = options?.minHeight ?? 76;
+    const postLimit = options?.postLimit ?? 2;
+    const compactPosts = options?.compactPosts ?? true;
+    const postsOnDate = getScheduledPostsForDate(date);
+    const isCurrent = isCurrentMonth(date);
+    const isTodayDate = isToday(date);
+    const hasPosts = postsOnDate.length > 0;
+    const dateKey = toLocalDateKey(date);
+    const isDragOver = dragOverDate === dateKey && (showMonthOpacity ? isCurrent : true);
+    const isSelected = calendarDetailDate?.toDateString() === date.toDateString();
+    const isWeekend = dayIndex >= 5;
+
+    return (
+      <div
+        key={dateKey}
+        onClick={() => {
+          if (showMonthOpacity && !isCurrent) return;
+          if (isTauri() && manualMovePostId) {
+            applyCalendarDate(manualMovePostId, date);
+            setManualMovePostId(null);
+            setCalendarStatusList(null);
+            setCalendarDetailDate(date);
+            return;
+          }
+          setCalendarStatusList(null);
+          setCalendarDetailDate(prev => {
+            if (prev && prev.toDateString() === date.toDateString()) return null;
+            return date;
+          });
+        }}
+        onDragOver={(e) => {
+          if ((showMonthOpacity && !isCurrent) || !draggedPostIdRef.current) return;
+          e.preventDefault();
+          setDragOverDateSafe(dateKey);
+        }}
+        onDragLeave={() => { setDragOverDateSafe(null); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          const draggedId = resolveDraggedPostId(e);
+          if ((showMonthOpacity && !isCurrent) || !draggedId) return;
+          applyCalendarDate(draggedId, date);
+          setDraggedPost(null);
+          setDragOverDateSafe(null);
+        }}
+        style={{
+          minHeight,
+          padding: compactPosts ? '6px' : '10px',
+          backgroundColor: isDragOver
+            ? '#1a1a1a'
+            : isSelected
+            ? 'rgba(172, 142, 102, 0.12)'
+            : isTodayDate
+            ? 'rgba(172, 142, 102, 0.08)'
+            : isWeekend && (!showMonthOpacity || isCurrent)
+            ? 'rgba(255,255,255,0.02)'
+            : 'transparent',
+          border: `1px solid ${
+            isDragOver ? '#AC8E66'
+            : isSelected ? '#AC8E66'
+            : isTodayDate ? 'rgba(172, 142, 102, 0.5)'
+            : '#2E2E2E'
+          }`,
+          borderRadius: '6px',
+          opacity: showMonthOpacity ? (isCurrent ? 1 : 0.25) : 1,
+          cursor: (showMonthOpacity ? isCurrent : true) ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
+          transition: 'all 0.15s ease',
+          transform: isDragOver ? 'scale(1.02)' : 'none',
+        }}
+      >
+        <div
+          style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: compactPosts ? '11px' : '12px',
+            color: isTodayDate ? '#AC8E66' : isWeekend && (!showMonthOpacity || isCurrent) ? 'rgba(172, 142, 102, 0.6)' : '#777',
+            fontWeight: isTodayDate || hasPosts ? '600' : 'normal',
+            marginBottom: compactPosts ? '4px' : '8px',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>
+            {DAY_NAMES[dayIndex]} {date.getDate()}
+          </span>
+          {!compactPosts && (
+            <span style={{ fontSize: '9px', color: '#999' }}>
+              {date.toLocaleDateString('de-DE', { month: 'short' })}
+            </span>
+          )}
+        </div>
+
+        {hasPosts && (
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: compactPosts ? '2px' : '6px' }}
+            onDragOver={(e) => {
+              if ((showMonthOpacity && !isCurrent) || !draggedPostIdRef.current) return;
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOverDateSafe(dateKey);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const draggedId = resolveDraggedPostId(e);
+              if ((showMonthOpacity && !isCurrent) || !draggedId) return;
+              applyCalendarDate(draggedId, date);
+              setDraggedPost(null);
+              setDragOverDateSafe(null);
+            }}
+          >
+            {postsOnDate.slice(0, postLimit).map(post => renderCalendarPostChip(post, date, dateKey, { compact: compactPosts }))}
+            {postsOnDate.length > postLimit && (
+              <div
+                style={{
+                  fontSize: '8px',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  color: '#AC8E66',
+                  textAlign: 'center',
+                  opacity: 0.7,
+                  marginTop: '1px',
+                }}
+              >
+                +{postsOnDate.length - postLimit} mehr
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderKalenderContent = () => (
     <div style={{ padding: '24px' }}>
+
+      {/* Projekt-Filter */}
+      {availableProjects.length > 1 && (
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#555' }}>Projekt:</span>
+          <button
+            onClick={() => setCalendarProjectFilter(null)}
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+              padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: 'none',
+              background: calendarProjectFilter === null ? '#AC8E66' : '#2a2a2a',
+              color: calendarProjectFilter === null ? '#0a0a0a' : '#aaa',
+            }}
+          >Alle</button>
+          {availableProjects.map(({ id, name }) => (
+            <button
+              key={id}
+              onClick={() => setCalendarProjectFilter(id)}
+              style={{
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
+                padding: '3px 10px', borderRadius: 4, cursor: 'pointer', border: 'none',
+                background: calendarProjectFilter === id ? '#AC8E66' : '#2a2a2a',
+                color: calendarProjectFilter === id ? '#0a0a0a' : '#aaa',
+                maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}
+              title={name}
+            >{name}</button>
+          ))}
+        </div>
+      )}
+
       {calendarStatusList && (
         <div
           style={{
@@ -2366,14 +2863,14 @@ export function ZenPlannerModal({
                 {calendarStatusList === 'scheduled' ? 'Geplante Posts' : 'Entwürfe'}
               </div>
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
-                {effectiveScheduledPosts.filter(p => p.status === calendarStatusList).length} <span style={{ color: '#555' }}>{calendarStatusList === 'scheduled' ? 'Posts geplant' : 'Entwürfe vorhanden'}</span>
+                {projectFilteredPosts.filter(p => p.status === calendarStatusList).length} <span style={{ color: '#555' }}>{calendarStatusList === 'scheduled' ? 'Posts geplant' : 'Entwürfe vorhanden'}</span>
               </div>
             </div>
             <ZenCloseButton onClick={() => setCalendarStatusList(null)} />
           </div>
 
           <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {effectiveScheduledPosts
+            {projectFilteredPosts
               .filter((post) => post.status === calendarStatusList)
               .map((post) => {
                 const info = getPlatformInfo(post.platform);
@@ -2411,16 +2908,19 @@ export function ZenPlannerModal({
                             openRescheduleModal(post);
                           }}
                           variant="default"
+                          size="small"
                         />
                         <ZenRoughButton
                           label="Post bearbeiten"
                           onClick={() => openInlineEdit(post)}
                           variant="default"
+                          size="small"
                         />
                         <ZenRoughButton
                           label="Weiterbearbeiten"
                           onClick={() => handleEditPostClick(post)}
                           variant="default"
+                          size="small"
                         />
                         <ZenRoughButton
                           label="Löschen"
@@ -2429,6 +2929,7 @@ export function ZenPlannerModal({
                             setCalendarStatusList(null);
                           }}
                           variant="default"
+                          size="small"
                         />
                       </div>
                     </div>
@@ -2475,7 +2976,7 @@ export function ZenPlannerModal({
                   </div>
                 );
               })}
-            {effectiveScheduledPosts.filter((post) => post.status === calendarStatusList).length === 0 && (
+            {projectFilteredPosts.filter((post) => post.status === calendarStatusList).length === 0 && (
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#777' }}>
                 Keine Einträge vorhanden.
               </div>
@@ -2632,13 +3133,13 @@ export function ZenPlannerModal({
       >
         <button
           type="button"
-          onClick={goToPreviousMonth}
+          onClick={goToPreviousCalendarPeriod}
           style={{
             padding: '6px 12px',
             backgroundColor: 'transparent',
             border: '1px solid #3A3A3A',
             borderRadius: '4px',
-            color: '#777',
+            color: '#d0cbb8',
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '11px',
             cursor: 'pointer',
@@ -2652,58 +3153,89 @@ export function ZenPlannerModal({
         </button>
 
         <div style={{ textAlign: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '6px', marginBottom: '10px' }}>
+            {([
+              { id: 'month', label: 'Monat' },
+              { id: 'week', label: 'Woche' },
+            ] as const).map((view) => {
+              const isActive = calendarView === view.id;
+              return (
+                <button
+                  key={view.id}
+                  type="button"
+                  onClick={() => setCalendarView(view.id)}
+                  style={{
+                    padding: '4px 8px',
+                    backgroundColor: isActive ? '#AC8E66' : 'transparent',
+                    border: '1px solid #3A3A3A',
+                    borderRadius: '4px',
+                    color: isActive ? '#1a1a1a' : '#d0cbb8',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {view.label}
+                </button>
+              );
+            })}
+          </div>
           <div
             style={{
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '18px',
               fontWeight: '600',
-              color: '#e5e5e5',
+              color: '#d0cbb8',
               letterSpacing: '0.04em',
               lineHeight: 1,
             }}
           >
-            {MONTH_NAMES[currentDate.getMonth()]}
+            {calendarView === 'month'
+              ? MONTH_NAMES[currentDate.getMonth()]
+              : `${weekDays[0].toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('de-DE', { day: 'numeric', month: 'short' })}`}
           </div>
           <div
             style={{
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
-              color: '#AC8E66',
+              color: '#d0cbb8',
               marginTop: '3px',
               letterSpacing: '0.08em',
             }}
           >
-            {currentDate.getFullYear()}
+            {calendarView === 'month'
+              ? currentDate.getFullYear()
+              : `KW ${getISOWeek(weekDays[0])} · ${weekDays[0].getFullYear()}`}
           </div>
           <button
             type="button"
             onClick={goToToday}
             style={{
               marginTop: '8px',
-              padding: '3px 14px',
+              padding: '5px 14px',
               backgroundColor: 'transparent',
-              border: '1px solid #AC8E66',
+              border: '0.5px solid #d0cbb8',
               borderRadius: '4px',
-              color: '#AC8E66',
+              color: '#d0cbb8',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '9px',
               cursor: 'pointer',
               letterSpacing: '0.05em',
             }}
           >
-            Heute
+            {`Heute, ${new Date().toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}`}
           </button>
         </div>
 
         <button
           type="button"
-          onClick={goToNextMonth}
+          onClick={goToNextCalendarPeriod}
           style={{
             padding: '6px 12px',
             backgroundColor: 'transparent',
             border: '1px solid #3A3A3A',
             borderRadius: '4px',
-            color: '#777',
+            color: '#d0cbb8',
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '11px',
             cursor: 'pointer',
@@ -2726,361 +3258,117 @@ export function ZenPlannerModal({
             borderRadius: '6px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'center',
             gap: '8px',
           }}
         >
           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
             {manualMovePost
-              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Wähle jetzt einen Ziel-Tag im Kalender.`
-              : '1. Klicke einen Post im Kalender an, 2. klicke den Ziel-Tag.'}
+              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag verschieben.`
+              : 'zum Verschieben drag & drop oder move klicken'}
           </div>
-          {manualMovePost && (
-            <ZenRoughButton
-              label="Abbrechen"
-              size="small"
-              onClick={() => setManualMovePostId(null)}
-            />
-          )}
+          
         </div>
       )}
 
-      {/* Day Names Header — mit KW-Spalte */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '28px repeat(7, 1fr)',
-          gap: '4px',
-          marginBottom: '4px',
-          borderBottom: '1px solid #3A3A3A',
-          paddingBottom: '8px',
-        }}
-      >
-        {/* KW-Header */}
-        <div
-          style={{
-            padding: '4px',
-            textAlign: 'center',
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '8px',
-            color: '#555',
-            letterSpacing: '0.03em',
-          }}
-        >
-          KW
-        </div>
-        {DAY_NAMES.map((day, i) => (
+      {calendarView === 'month' ? (
+        <>
           <div
-            key={day}
             style={{
-              padding: '4px',
-              textAlign: 'center',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '10px',
-              color: i >= 5 ? '#AC8E66' : '#777',
-              fontWeight: 'normal',
-              letterSpacing: '0.05em',
+              display: 'grid',
+              gridTemplateColumns: '28px repeat(7, 1fr)',
+              gap: '4px',
+              marginBottom: '4px',
+              borderBottom: '1px solid #3A3A3A',
+              paddingBottom: '8px',
             }}
           >
-            {day}
-          </div>
-        ))}
-      </div>
-
-      {/* Calendar Grid — mit KW-Spalte */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '28px repeat(7, 1fr)',
-          gap: '4px',
-        }}
-      >
-        {weeks.flatMap((week, weekIndex) => {
-          const kw = getISOWeek(week[0]);
-          return [
-            // Kalenderwoche-Zelle
             <div
-              key={`kw-${weekIndex}`}
               style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                justifyContent: 'center',
-                paddingTop: '8px',
+                padding: '4px',
+                textAlign: 'center',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '8px',
-                color: '#444',
-                userSelect: 'none',
+                color: '#555',
+                letterSpacing: '0.03em',
               }}
             >
-              {kw}
-            </div>,
-            // 7 Tages-Zellen
-            ...week.map((date, dayIndex) => {
-              const postsOnDate = getScheduledPostsForDate(date);
-              const isCurrent = isCurrentMonth(date);
-              const isTodayDate = isToday(date);
-              const hasPosts = postsOnDate.length > 0;
-              const dateKey = toLocalDateKey(date);
-              const isDragOver = dragOverDate === dateKey && isCurrent;
-              const isSelected = calendarDetailDate?.toDateString() === date.toDateString();
-              const isWeekend = dayIndex >= 5; // Sa=5, So=6
+              KW
+            </div>
+            {DAY_NAMES.map((day, i) => (
+              <div
+                key={day}
+                style={{
+                  padding: '4px',
+                  textAlign: 'center',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  color: i >= 5 ? '#AC8E66' : '#777',
+                  fontWeight: 'normal',
+                  letterSpacing: '0.05em',
+                }}
+              >
+                {day}
+              </div>
+            ))}
+          </div>
 
-              return (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '28px repeat(7, 1fr)',
+              gap: '4px',
+            }}
+          >
+            {weeks.flatMap((week, weekIndex) => {
+              const kw = getISOWeek(week[0]);
+              return [
                 <div
-                  key={`${weekIndex}-${dayIndex}`}
-                  onClick={() => {
-                    if (!isCurrent) return;
-                    if (isTauri() && manualMovePostId) {
-                      applyCalendarDate(manualMovePostId, date);
-                      setManualMovePostId(null);
-                      setCalendarStatusList(null);
-                      setCalendarDetailDate(date);
-                      return;
-                    }
-                    setCalendarStatusList(null);
-                    setCalendarDetailDate(prev => {
-                      if (prev && prev.toDateString() === date.toDateString()) return null;
-                      return date;
-                    });
-                  }}
-                  onDragOver={(e) => {
-                    if (!isCurrent || !draggedPostIdRef.current) return;
-                    e.preventDefault();
-                    setDragOverDateSafe(dateKey);
-                  }}
-                  onDragLeave={() => { setDragOverDateSafe(null); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const draggedId = resolveDraggedPostId(e);
-                    if (!isCurrent || !draggedId) return;
-                    applyCalendarDate(draggedId, date);
-                    setDraggedPost(null);
-                    setDragOverDateSafe(null);
-                  }}
+                  key={`kw-${weekIndex}`}
                   style={{
-                    minHeight: '76px',
-                    padding: '6px',
-                    backgroundColor: isDragOver
-                      ? '#1a1a1a'
-                      : isSelected
-                      ? 'rgba(172, 142, 102, 0.12)'
-                      : isTodayDate
-                      ? 'rgba(172, 142, 102, 0.08)'
-                      : isWeekend && isCurrent
-                      ? 'rgba(255,255,255,0.02)'
-                      : 'transparent',
-                    border: `1px solid ${
-                      isDragOver ? '#AC8E66'
-                      : isSelected ? '#AC8E66'
-                      : isTodayDate ? 'rgba(172, 142, 102, 0.5)'
-                      : '#2E2E2E'
-                    }`,
-                    borderRadius: '6px',
-                    opacity: isCurrent ? 1 : 0.25,
-                    cursor: isCurrent ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
-                    transition: 'all 0.15s ease',
-                    transform: isDragOver ? 'scale(1.02)' : 'none',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'center',
+                    paddingTop: '8px',
+                    background: '#d0cbb8',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '8px',
+                    color: '#444',
+                    userSelect: 'none',
                   }}
                 >
-                  {/* Date Number */}
-                  <div
-                    style={{
-                      fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '11px',
-                      color: isTodayDate ? '#AC8E66' : isWeekend && isCurrent ? 'rgba(172, 142, 102, 0.6)' : '#777',
-                      fontWeight: isTodayDate || hasPosts ? '600' : 'normal',
-                      marginBottom: '4px',
-                    }}
-                  >
-                    {date.getDate()}
-                  </div>
-
-                  {/* Posts */}
-                  {hasPosts && (
-                    <div
-                      style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
-                      onDragOver={(e) => {
-                        if (!isCurrent || !draggedPostIdRef.current) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDragOverDateSafe(dateKey);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const draggedId = resolveDraggedPostId(e);
-                        if (!isCurrent || !draggedId) return;
-                        applyCalendarDate(draggedId, date);
-                        setDraggedPost(null);
-                        setDragOverDateSafe(null);
-                      }}
-                    >
-                      {postsOnDate.slice(0, 2).map(post => {
-                        const info = getPlatformInfo(post.platform);
-                        const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
-                        const isManualMoveSelected = manualMovePostId === post.id;
-                        const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
-                        return (
-                          <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                            {isMoveTimeEditorOpen && (
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                  padding: '3px',
-                                  borderRadius: '5px',
-                                  border: '1px dashed #AC8E66',
-                                  backgroundColor: '#0F0F0F',
-                                }}
-                              >
-                                <input
-                                  type="time"
-                                  value={postMoveTimeEditor.time}
-                                  onChange={(e) => handlePostMoveTimeEditorChange(e.target.value)}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') setPostMoveTimeEditor(null); }}
-                                  style={{
-                                    width: '72px',
-                                    padding: '2px 4px',
-                                    backgroundColor: 'transparent',
-                                    border: '1px solid #3A3A3A',
-                                    borderRadius: '4px',
-                                    color: '#AC8E66',
-                                    fontFamily: 'IBM Plex Mono, monospace',
-                                    fontSize: '8px',
-                                  }}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setPostMoveTimeEditor(null)}
-                                  style={{
-                                    border: '1px solid #3A3A3A',
-                                    borderRadius: '4px',
-                                    backgroundColor: 'transparent',
-                                    color: '#AC8E66',
-                                    fontFamily: 'IBM Plex Mono, monospace',
-                                    fontSize: '8px',
-                                    lineHeight: 1,
-                                    padding: '2px 4px',
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Uhrzeit bestätigen"
-                                >
-                                  OK
-                                </button>
-                              </div>
-                            )}
-                            <div
-                              draggable
-                              onDragStart={(e) => {
-                                setDraggedPost(post.id);
-                                setDragOverDateSafe(null);
-                                e.dataTransfer.effectAllowed = 'move';
-                                e.dataTransfer.setData('text/plain', post.id);
-                              }}
-                              onDragEnd={() => {
-                                const draggedId = draggedPostIdRef.current;
-                                const overDateKey = dragOverDateRef.current;
-                                if (draggedId && overDateKey) {
-                                  applyCalendarDate(draggedId, fromDateKey(overDateKey));
-                                }
-                                setDraggedPost(null);
-                                setDragOverDateSafe(null);
-                              }}
-                              onDragOver={(e) => {
-                                if (!draggedPostIdRef.current || isDragging) return;
-                                e.preventDefault();
-                                setDragOverDateSafe(dateKey);
-                              }}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const draggedId = resolveDraggedPostId(e);
-                                if (!isCurrent || !draggedId || isDragging) return;
-                                applyCalendarDate(draggedId, date);
-                                setDraggedPost(null);
-                                setDragOverDateSafe(null);
-                              }}
-                              style={{
-                                padding: '2px 5px',
-                                backgroundColor: isDragging ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.1)',
-                                borderRadius: '4px',
-                                fontSize: '8px',
-                                fontFamily: 'IBM Plex Mono, monospace',
-                                color: '#AC8E66',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '3px',
-                                cursor: isDragging ? 'grabbing' : 'grab',
-                                opacity: isDragging ? 0.6 : 1,
-                                border: isDragging || isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid rgba(172,142,102,0.2)',
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (isTauri()) {
-                                  setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-                                  return;
-                                }
-                                if (draggedPostIdRef.current) return;
-                                setCalendarStatusList(null);
-                                setCalendarDetailDate(date);
-                              }}
-                            >
-                              <FontAwesomeIcon icon={info.icon} style={{ fontSize: '8px', color: '#AC8E66' }} />
-                              <span style={{ fontSize: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {info.name} · {post.scheduledTime || '--:--'}
-                              </span>
-                              {isTauri() && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-                                  }}
-                                  style={{
-                                    marginLeft: 'auto',
-                                    border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
-                                    borderRadius: '4px',
-                                    background: 'transparent',
-                                    color: '#AC8E66',
-                                    fontFamily: 'IBM Plex Mono, monospace',
-                                    fontSize: '8px',
-                                    lineHeight: 1,
-                                    padding: '1px 4px',
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Post zum Verschieben markieren"
-                                >
-                                  move
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {postsOnDate.length > 2 && (
-                        <div
-                          style={{
-                            fontSize: '8px',
-                            fontFamily: 'IBM Plex Mono, monospace',
-                            color: '#AC8E66',
-                            textAlign: 'center',
-                            opacity: 0.7,
-                            marginTop: '1px',
-                          }}
-                        >
-                          +{postsOnDate.length - 2} mehr
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
+                  {kw}
+                </div>,
+                ...week.map((date, dayIndex) =>
+                  renderCalendarDayCell(date, dayIndex, {
+                    showMonthOpacity: true,
+                    minHeight: 76,
+                    postLimit: 2,
+                    compactPosts: true,
+                  }),
+                ),
+              ];
+            })}
+          </div>
+        </>
+      ) : (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(7, 1fr)',
+            gap: '8px',
+          }}
+        >
+          {weekDays.map((date, dayIndex) =>
+            renderCalendarDayCell(date, dayIndex, {
+              showMonthOpacity: false,
+              minHeight: 280,
+              postLimit: 8,
+              compactPosts: false,
             }),
-          ];
-        })}
-      </div>
+          )}
+        </div>
+      )}
 
     </div>
   );
@@ -3502,7 +3790,7 @@ export function ZenPlannerModal({
           style={{
             marginBottom: '16px',
             padding: '12px',
-            backgroundColor: '#AC8E66',
+            backgroundColor: 'transparent',
             borderRadius: '6px',
             textAlign: 'center',
           }}
@@ -3518,7 +3806,7 @@ export function ZenPlannerModal({
             style={{
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
-              color: '#151515',
+              color: '#1a1a1a',
               fontWeight: 'bold',
               margin: 0,
             }}
@@ -3598,50 +3886,64 @@ export function ZenPlannerModal({
               Eigene Aufgabe hinzufügen
             </span>
           </h4>
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <ZenDropdown
-              value={checklistTargetPostId ?? planningPosts[0]?.id}
-              onChange={(value) => setChecklistTargetPostId(value as string)}
-              options={planningPosts.map(post => {
-                const info = getPlatformInfo(post.platform);
-                const label = `${info.name} · ${post.title || 'Post'}`;
-                return { value: post.id, label };
-              })}
-              variant="compact"
-            />
-            <input
-              type="text"
-              value={customTask}
-              onChange={(e) => setCustomTask(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addCustomTask()}
-              placeholder="Neue Aufgabe..."
-              style={{
-                flex: 1,
-                padding: '12px 10px',
-                backgroundColor: 'transparent',
-                border: '1px solid #3A3A3A',
-                borderRadius: '4px',
-                color: '#555',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-              }}
-            />
-            <button
-              onClick={addCustomTask}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#AC8E66',
-                border: 'none',
-                borderRadius: '4px',
-                color: '#151515',
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '10px',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-              }}
-            >
-              +
-            </button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '2px 2px 0 0' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '420px' }}>
+              <label
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '9px',
+                  color: '#777',
+                }}
+              >
+                Plattform
+              </label>
+              <ZenDropdown
+                value={checklistTargetPostId ?? planningPosts[0]?.id}
+                onChange={(value) => setChecklistTargetPostId(value as string)}
+                options={planningPosts.map(post => {
+                  const info = getPlatformInfo(post.platform);
+                  const label = `${info.name} · ${post.title || 'Post'}`;
+                  return { value: post.id, label };
+                })}
+                variant="compact"
+                fullWidth
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
+              <input
+                type="text"
+                value={customTask}
+                onChange={(e) => setCustomTask(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && addCustomTask()}
+                placeholder="Neue Aufgabe..."
+                style={{
+                  flex: 1,
+                  padding: '12px 10px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #3A3A3A',
+                  borderRadius: '4px',
+                  color: '#555',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                }}
+              />
+              <button
+                onClick={addCustomTask}
+                style={{
+                  padding: '6px 12px',
+                  backgroundColor: '#AC8E66',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: '#151515',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '10px',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                }}
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -3651,9 +3953,9 @@ export function ZenPlannerModal({
 
       {/* Platform Overview */}
       {planningPosts.length > 0 && (
-        <div
+        <div          
           style={{
-            marginBottom: '16px',
+            marginTop: '50px',
             padding: '12px',
           
             borderRadius: '6px',
@@ -3670,47 +3972,65 @@ export function ZenPlannerModal({
             flexWrap: 'wrap',
           }}
         >
-          <h4
-            style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              color: '#555',
-              margin: 0,
-              fontWeight: 'normal',
-            }}
-          >
-            Deine geplanten Post
-          </h4>
+       
           <div
             style={{
               display: 'flex',
               gap: '6px',
               flexWrap: 'wrap',
               justifyContent: 'flex-end',
+              alignItems: 'flex-end',
             }}
           >
+            <button
+              type="button"
+              onClick={showAllChecklistPosts}
+              style={{
+                padding: '8px 12px 9px',
+               
+                backgroundColor: checklistBulkPostId === null ? '#f6f1e6' : 'transparent',
+                border: '1px solid #3A3A3A',
+                borderBottom: checklistBulkPostId === null ? '2px solid #AC8E66' : '1px solid #3A3A3A',
+                borderRadius: '8px 8px 0 0',
+                color: checklistBulkPostId === null ? '#1a1a1a' : '#1a1a1a',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '9px',
+                cursor: 'pointer',
+                transform: 'translateY(-46px)',
+                minHeight: '34px',
+              }}
+              title="Alle geplanten Posts"
+            >
+              Alle
+            </button>
             {planningPosts.map(post => {
               const info = getPlatformInfo(post.platform);
+              const isActive = checklistBulkPostId === post.id;
               return (
-                <div
+                <button
                   key={post.id}
+                  type="button"
                   style={{
-                    padding: '6px 10px',
-                    backgroundColor: 'transparent',
-                    borderRadius: '4px',
+                    padding: '8px 12px 9px',
+                    backgroundColor: isActive ? '#f6f1e6' : 'transparent',
+                    borderRadius: '8px 8px 0 0',
                     border: '1px solid #3A3A3A',
+                    borderBottom: isActive ? '2px solid #AC8E66' : '1px solid #3A3A3A',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     cursor: 'pointer',
+                    transform: 'translateY(-45px) translateX(10px)',
+                    
+                    minHeight: '34px',
                   }}
-                  onClick={() => scrollToChecklistPost(post.id)}
+                  onClick={() => focusChecklistPost(post.id)}
                 >
-                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '14px', color: '#AC8E66' }} />
-                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555' }}>
+                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '14px', color: isActive ? '#AC8E66' : '#AC8E66' }} />
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: isActive ? '#1a1a1a' : '#555' }}>
                     {info.name}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -3721,10 +4041,53 @@ export function ZenPlannerModal({
 
 
 
-              {/* Checklist */}
+      {/* Checklist */}
       <div style={{ marginBottom: '16px' }}>
-       
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            gap: '10px',
+            marginTop: '8px',
+            marginRight: '3px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <button
+            type="button"
+            onClick={toggleChecklistBulkItems}
+            disabled={checklistBulkItems.length === 0}
+            style={{
+              padding: '6px 10px',
+              background: 'transparent',
+              border: '1px solid rgba(172,142,102,0.4)',
+              borderRadius: 3,
+              color: checklistBulkItems.length === 0 ? '#777' : '#555',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: 9,
+              cursor: checklistBulkItems.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: checklistBulkItems.length === 0 ? 0.5 : 1,
+            }}
+            title={
+              selectedChecklistBulkPost
+                ? `Nur Tasks für ${getPlatformInfo(selectedChecklistBulkPost.platform).name}`
+                : 'Alle sichtbaren Tasks'
+            }
+          >
+            {allChecklistBulkItemsCompleted
+              ? selectedChecklistBulkPost
+                ? 'Post-Tasks öffnen'
+                : 'Alle Tasks öffnen'
+              : selectedChecklistBulkPost
+                ? 'Post-Tasks abschließen'
+                : 'Alle Tasks abschließen'}
+          </button>
+        </div>
 
+        
+
+        
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {checklistSections.orderedSections.map(({ post, items }) => {
@@ -3747,10 +4110,11 @@ export function ZenPlannerModal({
                 }}
                 style={{
                   padding: '10px',
-                  backgroundColor: isHighlighted ? '#142015' : 'transparent',
+                  backgroundColor: isHighlighted ? '#d0cbb8' : 'transparent',
                   borderRadius: '6px',
-                  border: `1px solid ${isHighlighted ? '#3FB950' : '#3A3A3A'}`,
-                  boxShadow: isHighlighted ? '0 0 0 1px #3FB950 inset' : 'none',
+                  
+                  border: `1px solid ${isHighlighted ? '#AC8E66' : info.color}`,
+                  boxShadow: isHighlighted ? '0 0 0 10px # inset' : 'none',
                   transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
                 }}
               >
@@ -3759,7 +4123,11 @@ export function ZenPlannerModal({
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
+                    background: info.bg,
                     marginBottom: '8px',
+                    borderRadius:'5px',
+                    padding: '5px',
+                    minHeight: '50px',
                     cursor: 'pointer',
                   }}
                   onClick={() => {
@@ -3770,25 +4138,32 @@ export function ZenPlannerModal({
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <FontAwesomeIcon icon={info.icon} style={{ color: '#AC8E66', fontSize: '12px' }} />
+                    <FontAwesomeIcon icon={info.icon} style={{ color: info.color, fontSize: '12px' }} />
                     <div>
                       <div
                         style={{
                           fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          color: '#555',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          color: '#1a1a1a',
                         }}
                       >
                         {info.name} · {postTitle}
                       </div>
                       {postSubtitle && (
-                        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>
+                        <div style={{ 
+                          fontFamily: 'IBM Plex Mono, monospace', 
+                          fontSize: '10px', 
+                          color: '#1a1a1a' }}>
                           {postSubtitle}
                         </div>
                       )}
                     </div>
                   </div>
-                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>
+                  <div style={{ 
+                    fontFamily: 'IBM Plex Mono, monospace', 
+                    fontSize: '9px', 
+                    color: '#1a1a1a' }}>
                     {dateLabel}{timeLabel} {isCollapsed ? '▸' : '▾'}
                   </div>
                 </div>
@@ -3812,10 +4187,10 @@ export function ZenPlannerModal({
                           transition: 'all 0.2s ease',
                         }}
                       >
-                        <input
-                          type="checkbox"
-                          checked={isCompleted}
-                          onChange={() => {
+                        <button
+                          type="button"
+                          aria-label={isCompleted ? 'Aufgabe als offen markieren' : 'Aufgabe als erledigt markieren'}
+                          onClick={() => {
                             setChecklistItems(prev =>
                               prev.map(current =>
                                 current.id === item.id
@@ -3825,12 +4200,26 @@ export function ZenPlannerModal({
                             );
                           }}
                           style={{
-                            width: '16px',
-                            height: '16px',
+                            width: '20px',
+                            height: '20px',
+                            minWidth: '20px',
+                            borderRadius: '6px',
+                            border: `1px solid ${isCompleted ? '#AC8E66' : '#8A8A8A'}`,
+                            backgroundColor: isCompleted ? '#AC8E66' : '#F4F1EA',
+                            color: isCompleted ? '#151515' : 'transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             cursor: 'pointer',
-                            accentColor: '#AC8E66',
+                            boxShadow: isCompleted
+                              ? '0 1px 3px rgba(172,142,102,0.28)'
+                              : 'inset 0 1px 2px rgba(0,0,0,0.12)',
+                            transition: 'all 0.2s ease',
+                            padding: 0,
                           }}
-                        />
+                        >
+                          <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />
+                        </button>
                         {editingChecklistItemId === item.id ? (
                           <input
                             type="text"
@@ -3892,19 +4281,20 @@ export function ZenPlannerModal({
                             style={{
                               background: 'transparent',
                               border: '#AC8E66',
-                              padding: 0,
+                              borderRadius: '2px',
+                              padding: '4px 10px',
                               marginLeft: '6px',
                               color: '#555',
                               fontFamily: 'IBM Plex Mono, monospace',
                               fontSize: '10px',
                               cursor: 'pointer',
-                              textDecoration: 'underline',
+                              boxShadow: '1px',
+                             
                             }}
                           >
-                            bearbeiten
+                            todo bearbeiten
                           </button>
                         )}
-                        {isCompleted && <span style={{ fontSize: '12px' , color: '#555' }}>✓</span>}
                       </div>
                     );
                   })}
@@ -3956,10 +4346,10 @@ export function ZenPlannerModal({
                         transition: 'all 0.2s ease',
                       }}
                     >
-                      <input
-                        type="checkbox"
-                        checked={isCompleted}
-                        onChange={() => {
+                      <button
+                        type="button"
+                        aria-label={isCompleted ? 'Aufgabe als offen markieren' : 'Aufgabe als erledigt markieren'}
+                        onClick={() => {
                           setChecklistItems(prev =>
                             prev.map(current =>
                               current.id === item.id
@@ -3969,12 +4359,26 @@ export function ZenPlannerModal({
                           );
                         }}
                         style={{
-                          width: '16px',
-                          height: '16px',
+                          width: '20px',
+                          height: '20px',
+                          minWidth: '20px',
+                          borderRadius: '6px',
+                          border: `1px solid ${isCompleted ? '#AC8E66' : '#8A8A8A'}`,
+                          backgroundColor: isCompleted ? '#AC8E66' : '#F4F1EA',
+                          color: isCompleted ? '#151515' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           cursor: 'pointer',
-                          accentColor: '#AC8E66',
+                          boxShadow: isCompleted
+                            ? '0 1px 3px rgba(172,142,102,0.28)'
+                            : 'inset 0 1px 2px rgba(0,0,0,0.12)',
+                          transition: 'all 0.2s ease',
+                          padding: 0,
                         }}
-                      />
+                      >
+                        <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />
+                      </button>
                       {editingChecklistItemId === item.id ? (
                         <input
                           type="text"
@@ -4112,7 +4516,7 @@ export function ZenPlannerModal({
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '11px',
-                      color: activeTab === tab.id ? '#AC8E66' : '#777',
+                      color: activeTab === tab.id ? '#d0cbb8' : '#777',
                       fontWeight: activeTab === tab.id ? '600' : 'normal',
                       transition: 'all 0.2s',
                     }}
@@ -4141,7 +4545,7 @@ export function ZenPlannerModal({
 
                  borderRadius: '8px 8px 0 0',
 
-                  color: showPlanenScheduledPosts ? '#777' : '#AC8E66',
+                  color: showPlanenScheduledPosts ? '#777' : '#d0cbb8',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '10px',
                   fontWeight: showPlanenScheduledPosts ? 'normal' : 'normal',
@@ -4173,7 +4577,7 @@ export function ZenPlannerModal({
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '11px',
-                      color: '#AC8E66',
+                      color: '#d0cbb8',
                       fontWeight: '200',
                       transition: 'all 0.2s',
                     }}
@@ -4210,8 +4614,8 @@ export function ZenPlannerModal({
                     fontFamily: 'IBM Plex Mono, monospace', 
                     fontWeight: 'normal',
                     fontSize: '11px', 
-                    color: calendarStatusList === 'scheduled' ? '#AC8E66' : '#777' }}>
-                    {scheduledCount} <span style={{ color: calendarStatusList === 'scheduled' ? '#AC8E66' : '#777' }}>Geplante</span>
+                    color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>
+                    {scheduledCount} <span style={{ color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>Geplante</span>
                   </div>
                 </button>
                 <button
@@ -4244,7 +4648,7 @@ export function ZenPlannerModal({
                     alignItems: 'center', 
                     justifyContent: 'center', 
                     gap: '4px',
-                    color: calendarStatusList === 'draft' ? '#AC8E66' : '#999', 
+                    color: calendarStatusList === 'draft' ? '#d0cbb8' : '#999', 
                     fontWeight: 'normal' }}>
                     {draftCount} Entwürfe
                   </div>
@@ -4302,8 +4706,8 @@ export function ZenPlannerModal({
             placeholder="Titel"
             style={{
               width: '100%', padding: '10px 12px', backgroundColor: 'transparent',
-              border: '1px solid #3A3A3A', borderRadius: '6px', color: '#e5e5e5',
-              fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', fontWeight: '600',
+              border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a',
+              fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', fontWeight: '100',
               outline: 'none', boxSizing: 'border-box',
             }}
           />
@@ -4316,7 +4720,7 @@ export function ZenPlannerModal({
             placeholder="Untertitel (optional)"
             style={{
               width: '100%', padding: '8px 12px', backgroundColor: 'transparent',
-              border: '1px solid #2E2E2E', borderRadius: '6px', color: '#AC8E66',
+              border: '1px solid #2E2E2E', borderRadius: '6px', color: '#777',
               fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px',
               outline: 'none', boxSizing: 'border-box',
             }}
@@ -4333,7 +4737,7 @@ export function ZenPlannerModal({
             }}
             onDrop={(e) => { void handleEditImageDrop(e); }}
             style={{
-              borderRadius: '8px',
+              borderRadius: '4px',
               border: isEditImageDragActive ? '1px solid #AC8E66' : '1px dashed #3A3A3A',
               background: isEditImageDragActive ? 'rgba(172,142,102,0.08)' : 'transparent',
               transition: 'border-color 0.15s, background 0.15s',
@@ -4341,14 +4745,14 @@ export function ZenPlannerModal({
           >
             {editImageUrl && /^(https?:\/\/|data:image\/|blob:|file:\/\/|\/)/i.test(editImageUrl.trim()) && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 10px', borderBottom: '1px solid #2A2A2A' }}>
-                <img src={editImageUrl.trim()} alt="Vorschau" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }}
+                <img src={editImageUrl.trim()} alt="Vorschau" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 2 }}
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#AC8E66', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Bild erkannt</span>
                 <button type="button" onClick={() => setEditImageUrl('')}
                   style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}>×</button>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '18px 10px' }}>
               <FontAwesomeIcon icon={faImage} style={{ fontSize: '11px', color: isEditImageDragActive ? '#AC8E66' : '#555', flexShrink: 0 }} />
               <input
                 type="text"
@@ -4356,9 +4760,9 @@ export function ZenPlannerModal({
                 onChange={(e) => setEditImageUrl(e.target.value)}
                 placeholder={isEditImageDragActive ? 'Bild hier ablegen…' : 'Titelbild URL — oder Bild hierher ziehen'}
                 style={{
-                  flex: 1, padding: '0', backgroundColor: 'transparent', border: 'none',
+                  flex: 1, padding: '10px', backgroundColor: 'transparent', border: 'none',
                   color: editImageUrl ? '#e5e5e5' : '#555',
-                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', outline: 'none',
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', outline: 'none',
                 }}
               />
             </div>
@@ -4371,14 +4775,14 @@ export function ZenPlannerModal({
                 <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '9px' }} /> Datum
               </label>
               <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
-                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#e5e5e5', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <FontAwesomeIcon icon={faClock} style={{ fontSize: '9px' }} /> Uhrzeit
               </label>
               <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)}
-                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#e5e5e5', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
             </div>
           </div>
 

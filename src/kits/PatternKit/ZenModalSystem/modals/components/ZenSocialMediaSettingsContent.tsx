@@ -8,7 +8,7 @@ import {
   faMedium,
   faGithub,
 } from '@fortawesome/free-brands-svg-icons';
-import { faEye, faEyeSlash, faGlobe, faFolderOpen, faPlus, faTrash, faArrowRight, faCheck, faArrowsRotate, faPen } from '@fortawesome/free-solid-svg-icons';
+import { faEye, faEyeSlash, faGlobe, faFolderOpen, faPlus, faTrash, faArrowRight, faCheck, faArrowsRotate, faPen, faTriangleExclamation, faCircleInfo } from '@fortawesome/free-solid-svg-icons';
 import { isTauri } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readDir, readTextFile, writeTextFile, exists, mkdir, remove } from '@tauri-apps/plugin-fs';
@@ -69,9 +69,10 @@ const InputField = ({
             transform: 'translateY(-50%)',
             background: 'transparent',
             border: 'none',
-            color: reveal ? '#AC8E66' : '#151515',
+            color: reveal ? '#AC8E66' : '#1a1a1a',
             cursor: 'pointer',
             padding: 0,
+            boxShadow: 'none'
           }}
           aria-label={reveal ? 'Inhalt verbergen' : 'Inhalt anzeigen'}
         >
@@ -128,6 +129,7 @@ export const ZenSocialMediaSettingsContent = ({
   const [wizardAuthor, setWizardAuthor] = useState('');
   const [wizardPath, setWizardPath] = useState('');
   const [wizardSiteUrl, setWizardSiteUrl] = useState('');
+  const [wizardSiteType, setWizardSiteType] = useState<'blog' | 'docs'>('blog');
 
   useEffect(() => {
     const loadedConfig = loadSocialConfig();
@@ -239,24 +241,22 @@ export const ZenSocialMediaSettingsContent = ({
     setPhpTestState((p) => ({ ...p, [blog.id]: 'testing' }));
     setPhpTestMsg((p) => ({ ...p, [blog.id]: '' }));
     try {
-      // Derive ping.php URL from upload URL
-      const pingUrl = blog.phpApiUrl
-        .replace(/zenpost-upload\.php(\?.*)?$/, '')
-        .replace(/\/$/, '') + '/ping.php?api_key=' + encodeURIComponent(blog.phpApiKey);
-      const response = await fetch(pingUrl, { method: 'GET' });
+      // GET zenpost-upload.php → returns manifest JSON (no auth needed)
+      const response = await fetch(blog.phpApiUrl, { method: 'GET' });
       if (!response.ok) {
         setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
         setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server antwortete mit ${response.status}` }));
         return;
       }
-      const json = await response.json() as { success?: boolean; version?: string; postsCount?: number };
-      if (json.success) {
-        const info = json.postsCount !== undefined ? ` — ${json.postsCount} Posts` : '';
+      const json = await response.json() as { site?: unknown; posts?: unknown };
+      if ('posts' in json) {
+        const count = Array.isArray(json.posts) ? json.posts.length : 0;
+        const info = count > 0 ? ` — ${count} Posts` : '';
         setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
         setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
       } else {
         setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
-        setPhpTestMsg((p) => ({ ...p, [blog.id]: 'ping.php nicht gefunden oder falscher API Key' }));
+        setPhpTestMsg((p) => ({ ...p, [blog.id]: 'Unbekannte Server-Antwort' }));
       }
     } catch (e) {
       setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
@@ -359,6 +359,7 @@ export const ZenSocialMediaSettingsContent = ({
     setWizardAuthor(blog.author ?? '');
     setWizardPath(blog.path);
     setWizardSiteUrl(blog.siteUrl ?? '');
+    setWizardSiteType(blog.siteType ?? 'blog');
     setWizardStep('name');
   };
 
@@ -370,6 +371,7 @@ export const ZenSocialMediaSettingsContent = ({
     setWizardAuthor('');
     setWizardPath('');
     setWizardSiteUrl('');
+    setWizardSiteType('blog');
   };
 
   const handleWizardSave = () => {
@@ -384,6 +386,7 @@ export const ZenSocialMediaSettingsContent = ({
         author: wizardAuthor.trim() || undefined,
         path: blogPath,
         siteUrl: wizardSiteUrl.trim() || undefined,
+        siteType: wizardSiteType,
       } : b));
     } else {
       const newBlog = {
@@ -393,6 +396,7 @@ export const ZenSocialMediaSettingsContent = ({
         author: wizardAuthor.trim() || undefined,
         path: blogPath,
         siteUrl: wizardSiteUrl.trim() || undefined,
+        siteType: wizardSiteType,
       };
       saveBlogs([...blogs, newBlog]);
       // Auto-create posts/ folder + manifest.json for new blogs
@@ -537,80 +541,53 @@ export const ZenSocialMediaSettingsContent = ({
 
   return (
     <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '32px' }}>
-    <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
-    <div style={{ padding: '24px 32px',  fontSize: '11px', }}>
-      <div style={{ marginBottom: '24px' }}>
+    <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)',  overflow: 'hidden' }}>
+
+      {/* Header */}
+      <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid rgba(172,142,102,0.3)', background: 'rgba(172,142,102,0.05)' }}>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, letterSpacing: '0.12em', color: '#AC8E66', textTransform: 'uppercase', marginBottom: 4 }}>
+          Media Transformation
+        </div>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+          Social Media APIs
+        </div>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#777', marginTop: 3 }}>
+          API-Keys sind optional — ohne APIs wird Content kopiert und manuell gepostet.
+        </div>
         {showMissingConfigHint && missingPlatformLabel && (
-          <div style={{ marginBottom: '12px' }}>
-            <ZenInfoBox
-              type="warning"
-              title="API fehlt"
-              description={`${missingPlatformLabel} ist noch nicht konfiguriert. Bitte fuege deine API-Credentials hinzu.`}
-            />
+          <div style={{ marginTop: 10 }}>
+            <ZenInfoBox type="warning" title="API fehlt" description={`${missingPlatformLabel} ist noch nicht konfiguriert. Bitte füge deine API-Credentials hinzu.`} />
           </div>
         )}
-        <ZenInfoBox
-          type="info"
-          title="Optional"
-          description="Social Media API-Integration ist optional. Du kannst Content auch ohne APIs kopieren und manuell posten."
-        />
       </div>
 
+    <div style={{ padding: '0 28px 24px', fontSize: '11px' }}>
+
       {/* Sub-Tabs */}
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '12px',
-          marginTop: '32px',
-          marginBottom: '32px',
-          borderBottom: '1px solid #3a3a3a',
-          justifyContent: 'center',
-          paddingBottom: '8px',
-        }}
-      >
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '20px', marginBottom: '20px', borderBottom: '1px solid rgba(172,142,102,0.3)', paddingBottom: '0' }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
-              padding: '10px 16px',
-              fontSize: '11px',
+              padding: '8px 14px',
+              fontSize: '10px',
               position: 'relative',
-              background: 'transparent',
+              background: activeTab === tab.id ? 'rgba(172,142,102,0.12)' : 'transparent',
               border: 'none',
+              borderBottom: activeTab === tab.id ? '2px solid #AC8E66' : '2px solid transparent',
+              marginBottom: '-1px',
               cursor: 'pointer',
-              color: activeTab === tab.id ? '#AC8E66' : '#777',
+              color: activeTab === tab.id ? '#AC8E66' : '#888',
               fontFamily: 'IBM Plex Mono, monospace',
-              transition: 'color 0.2s',
+              transition: 'color 0.15s',
+              borderRadius: '4px 4px 0 0',
             }}
           >
-            <FontAwesomeIcon icon={tab.icon} style={{ marginRight: '8px' }} />
+            <FontAwesomeIcon icon={tab.icon} style={{ marginRight: '6px', fontSize: 10 }} />
             {tab.label}
             {isConfigValid(tab.id) && (
-              <span
-                style={{
-                  position: 'absolute',
-                  top: '4px',
-                  right: '4px',
-                  width: '6px',
-                  height: '6px',
-                  backgroundColor: '#AC8E66',
-                  borderRadius: '50%',
-                }}
-              />
-            )}
-            {activeTab === tab.id && (
-              <div
-                style={{
-                  position: 'absolute',
-                  bottom: '-8px',
-                  left: 0,
-                  right: 0,
-                  height: '2px',
-                  backgroundColor: '#AC8E66',
-                }}
-              />
+              <span style={{ position: 'absolute', top: '5px', right: '5px', width: '5px', height: '5px', backgroundColor: '#AC8E66', borderRadius: '50%' }} />
             )}
           </button>
         ))}
@@ -802,7 +779,7 @@ export const ZenSocialMediaSettingsContent = ({
           <div style={{ maxWidth: '540px', margin: '0 auto' }}>
 
             {/* Step indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 28 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 28 }}>
               {([1, 2, 3] as const).map((n, i) => (
                 <div key={n} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <button type="button" onClick={() => setLinkedInWizardStep(n)} style={{ ...stepDot(n), cursor: 'pointer', border: 'none' }}>{n}</button>
@@ -918,8 +895,14 @@ export const ZenSocialMediaSettingsContent = ({
                   Token läuft in ~2 Monaten ab — dann hier neu eintragen.
                 </p>
                 <button type="button" onClick={() => { setLinkedInWizardStep(1); setLinkedInDetectMsg(null); }}
-                  style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(172,142,102,0.2)',
-                    background: 'transparent', color: '#666', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, cursor: 'pointer' }}>
+                  style={{ padding: '8px 14px', 
+                    borderRadius: 8, 
+                    border: '1px solid rgba(172,142,102,0.2)',
+                    background: 'transparent', 
+                    boxShadow: 'none',
+                    color: '#666', 
+                    fontFamily: 'IBM Plex Mono, monospace', 
+                    fontSize: 11, cursor: 'pointer' }}>
                   Neu konfigurieren
                 </button>
               </div>
@@ -1098,7 +1081,7 @@ export const ZenSocialMediaSettingsContent = ({
                     )}
                     {/* Deploy type selector */}
                     <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {(['none', 'git', 'ftp', 'php-api'] as const).map((type) => {
+                      {(['none', 'git', 'ftp', 'php-api'] as const).filter((type) => !(type === 'php-api' && blog.siteType === 'docs')).map((type) => {
                         const labels = { none: 'Nur lokal', git: 'Git + Server', ftp: 'FTP/SFTP', 'php-api': 'PHP Upload' };
                         const current = blog.deployType ?? (blog.gitAutoPush ? 'git' : 'none');
                         const isActive = current === type;
@@ -1109,8 +1092,12 @@ export const ZenSocialMediaSettingsContent = ({
                             style={{
                               padding: '3px 8px', border: `1px solid ${isActive ? '#AC8E66' : 'rgba(172,142,102,0.3)'}`,
                               borderRadius: '4px', background: isActive ? 'rgba(172,142,102,0.15)' : 'transparent',
-                              cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                              cursor: 'pointer', 
+                              fontFamily: 'IBM Plex Mono, monospace', 
+                                boxShadow: 'none',
+                              fontSize: '8px',
                               color: isActive ? '#AC8E66' : '#888',
+
                             }}
                           >
                             {labels[type]}
@@ -1207,9 +1194,29 @@ export const ZenSocialMediaSettingsContent = ({
                     {blog.deployType === 'php-api' && (
                       <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
 
+                        {/* Warning: nur für Post-basierte Blogs */}
+                        {blog.siteType === 'docs' && (
+                          <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'rgba(200,80,60,0.08)', border: '1px solid rgba(200,80,60,0.35)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <FontAwesomeIcon icon={faTriangleExclamation} style={{ color: '#c8503c', marginTop: '2px', flexShrink: 0 }} />
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#c8503c', lineHeight: 1.5 }}>
+                              <strong>PHP Upload ist für Post-basierte Blogs.</strong><br />
+                              Dieser Blog ist als <em>Docs-Site</em> markiert — PHP Upload erwartet <code>posts/*.md</code> + <code>manifest.json</code>. Für Docs-Sites verwende FTP/SFTP.
+                            </div>
+                          </div>
+                        )}
+                        {blog.siteType !== 'docs' && (
+                          <div style={{ padding: '6px 12px', borderRadius: '6px', background: 'rgba(172,142,102,0.05)', border: '1px solid rgba(172,142,102,0.2)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <FontAwesomeIcon icon={faCircleInfo} style={{ color: '#AC8E66', marginTop: '2px', flexShrink: 0, fontSize: '11px' }} />
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#6b6560', lineHeight: 1.5 }}>
+                              PHP Upload ist für <strong style={{ color: '#AC8E66' }}>Post-basierte Blogs</strong> (MD-Artikel + manifest.json).<br />
+                              Nicht geeignet für Docs-Sites oder statische HTML-Projekte — dafür FTP/SFTP verwenden.
+                            </div>
+                          </div>
+                        )}
+
                         {/* Step-by-step instructions */}
                         <div style={{ padding: '10px 12px', borderRadius: '6px', background: 'rgba(172,142,102,0.07)', border: '1px solid rgba(172,142,102,0.25)' }}>
-                          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 600, marginBottom: '6px', letterSpacing: '0.05em' }}>
+                          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#AC8E66', fontWeight: 600, marginBottom: '6px', letterSpacing: '0.05em' }}>
                             EINRICHTUNG — EINMALIG
                           </div>
                           {[
@@ -1220,16 +1227,16 @@ export const ZenSocialMediaSettingsContent = ({
                             { step: '5', text: 'Fertig — "Auf Server speichern" lädt Posts + Titelbilder hoch. Bilder landen automatisch in _assets/ auf dem Server und werden als URL im manifest verlinkt.' },
                           ].map(({ step, text }) => (
                             <div key={step} style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
-                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 700, flexShrink: 0, width: '12px' }}>{step}.</span>
-                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', lineHeight: 1.5 }}>{text}</span>
+                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a', fontWeight: 700, flexShrink: 0, width: '12px' }}>{step}.</span>
+                              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a', lineHeight: 1.5 }}>{text}</span>
                             </div>
                           ))}
 
                           {/* Titelbilder-Hinweis */}
-                          <div style={{ marginTop: '8px', padding: '6px 8px', background: 'rgba(172,142,102,0.08)', border: '1px solid rgba(172,142,102,0.3)', borderRadius: '4px' }}>
-                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 700, marginBottom: '3px' }}>TITELBILDER</div>
-                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', lineHeight: 1.5 }}>
-                              Bild per Drag &amp; Drop in die Post-Metadaten ziehen. Beim Upload auf den Server wird das Bild automatisch in <span style={{ color: '#AC8E66' }}>_assets/</span> gespeichert und die URL im manifest.json verlinkt — kein manuelles Hochladen nötig.
+                          <div style={{ marginTop: '10px', padding: '6px 8px', background: 'transparent', border: '1px solid rgba(172,142,102,0.3)', borderRadius: '4px' }}>
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', fontWeight: 700, marginBottom: '3px' }}>TITELBILDER</div>
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', lineHeight: 1.5 }}>
+                              Bild per Drag &amp; Drop in die Post-Metadaten ziehen. Beim Upload auf den Server wird das Bild automatisch in <span style={{ color: '#AC8E66', }}>_assets/</span> gespeichert und die URL im manifest.json verlinkt — kein manuelles Hochladen nötig.
                             </div>
                           </div>
                         </div>
@@ -1239,12 +1246,22 @@ export const ZenSocialMediaSettingsContent = ({
                           value={blog.phpApiKey ?? ''}
                           onChange={(e) => saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, phpApiKey: e.target.value } : b))}
                           placeholder="API Key (selbst gewählt — merke ihn dir)"
-                          style={{ width: '100%', padding: '6px 10px', border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
+                          style={{ width: '100%', 
+                            padding: '6px 10px', 
+                              boxShadow: 'none',
+                           
+                            border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
                         />
 
                         <button
                           onClick={() => handleDownloadPhpPackage(blog)}
-                          style={{ alignSelf: 'flex-start', padding: '5px 14px', border: '1px solid rgba(172,142,102,0.6)', borderRadius: '5px', background: 'rgba(172,142,102,0.08)', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 600 }}
+                          style={{ alignSelf: 'flex-start', 
+                            padding: '5px 14px', 
+                          
+                            borderRadius: '5px', 
+                            boxShadow: 'none',
+                            border: '0.5px solid #1a1a1a',
+                            background: 'transparent', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#1a1a1a', fontWeight: 600 }}
                         >
                           PHP Paket herunterladen
                         </button>
@@ -1254,20 +1271,27 @@ export const ZenSocialMediaSettingsContent = ({
                           value={blog.phpApiUrl ?? ''}
                           onChange={(e) => saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, phpApiUrl: e.target.value } : b))}
                           placeholder="Upload URL (z.B. https://meinserver.de/zenpostapp/zenpost-upload.php)"
-                          style={{ width: '100%', padding: '6px 10px', border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
+                          style={{ width: '100%', padding: '6px 10px', 
+                            border: '1px solid rgba(172,142,102,0.4)', 
+                              boxShadow: 'none',
+                           
+                            borderRadius: '5px', background: 'transparent', 
+                            fontSize: '9px', boxSizing: 'border-box', 
+                            fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
                         />
 
                         {/* PHP Server testen */}
                         {blog.phpApiUrl && blog.phpApiKey && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',  }}>
                             <button
                               onClick={() => handlePhpTest(blog)}
                               disabled={phpTestState[blog.id] === 'testing'}
                               style={{
-                                padding: '5px 12px', border: '1px solid rgba(172,142,102,0.5)',
+                                padding: '5px 12px',  boxShadow: 'none',
+                            border: '0.5px solid #1a1a1a',
                                 borderRadius: '5px', background: 'transparent',
                                 cursor: phpTestState[blog.id] === 'testing' ? 'default' : 'pointer',
-                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', fontWeight: 600,
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#1a1a1a', fontWeight: 600,
                                 opacity: phpTestState[blog.id] === 'testing' ? 0.6 : 1,
                               }}
                             >
@@ -1296,7 +1320,11 @@ export const ZenSocialMediaSettingsContent = ({
                               value={blog.path ?? ''}
                               onChange={(e) => saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, path: e.target.value } : b))}
                               placeholder="Lokaler Ordner für Posts (z.B. /Users/.../Blog/zenpostAPP)"
-                              style={{ flex: 1, padding: '6px 10px', border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
+                              style={{ flex: 1, 
+                                padding: '6px 10px', 
+                                  boxShadow: 'none',
+                           
+                                border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', fontSize: '9px', boxSizing: 'border-box', fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none' }}
                             />
                             <button
                               onClick={async () => {
@@ -1306,7 +1334,10 @@ export const ZenSocialMediaSettingsContent = ({
                                   if (selected) saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, path: selected as string } : b));
                                 } catch { /* ignore */ }
                               }}
-                              style={{ padding: '5px 8px', border: '1px solid rgba(172,142,102,0.4)', borderRadius: '5px', background: 'transparent', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', whiteSpace: 'nowrap' }}
+                              style={{ padding: '6px 10px', 
+                                border: '1px solid rgba(172,142,102,0.4)', 
+                                  boxShadow: 'none',
+                                borderRadius: '5px', background: 'transparent', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#1a1a1a', whiteSpace: 'nowrap' }}
                             >
                               Ordner wählen
                             </button>
@@ -1325,7 +1356,10 @@ export const ZenSocialMediaSettingsContent = ({
                   <button
                     onClick={() => handleEditBlog(blog)}
                     style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      background: 'transparent', 
+                      boxShadow: 'none',
+                    border: '0.5px solid #1a1a1a',
+                      cursor: 'pointer',
                       color: '#aaa', padding: '4px 6px', flexShrink: 0,
                     }}
                     title="Blog bearbeiten"
@@ -1337,7 +1371,10 @@ export const ZenSocialMediaSettingsContent = ({
                       onClick={() => handleScanBlogPosts(blog)}
                       disabled={scanningBlogId === blog.id}
                       style={{
-                        background: 'transparent', border: 'none', cursor: scanningBlogId === blog.id ? 'default' : 'pointer',
+                        background: 'transparent', 
+                       boxShadow: 'none',
+                    border: '0.5px solid #1a1a1a',
+                        cursor: scanningBlogId === blog.id ? 'default' : 'pointer',
                         color: scanResult?.id === blog.id && scanResult.count >= 0 ? '#AC8E66' : '#aaa',
                         padding: '4px 6px', flexShrink: 0, opacity: scanningBlogId === blog.id ? 0.5 : 1,
                       }}
@@ -1352,7 +1389,11 @@ export const ZenSocialMediaSettingsContent = ({
                   <button
                     onClick={() => handleDeleteBlog(blog.id)}
                     style={{
-                      background: 'transparent', border: 'none', cursor: 'pointer',
+                      background: 'transparent', 
+                      
+                      cursor: 'pointer',
+                      border: '0.5px solid #1a1a1a',
+                       boxShadow: 'none',
                       color: '#aaa', padding: '4px 6px', flexShrink: 0,
                     }}
                     title="Blog entfernen"
@@ -1378,7 +1419,9 @@ export const ZenSocialMediaSettingsContent = ({
                 width: '100%', padding: '12px 14px',
                 border: '1px dashed rgba(172,142,102,0.5)', borderRadius: '8px',
                 background: 'transparent', cursor: 'pointer',
-                color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                color: '#AC8E66', 
+                  boxShadow: 'none',
+                fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
                 marginBottom: '20px',
               }}
             >
@@ -1429,9 +1472,36 @@ export const ZenSocialMediaSettingsContent = ({
 
           {wizardStep === 'name' && (
             <div style={{ padding: '16px', border: '1px solid rgba(172,142,102,0.5)', borderRadius: '8px', marginBottom: '20px', backgroundColor: 'rgba(172,142,102,0.04)' }}>
-              <p style={{ margin: '0 0 14px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
+              <p style={{ margin: '0 0 14px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a' }}>
                 {editingBlogId ? 'Bearbeiten — Blog-Identität' : 'Schritt 1 / 2 — Blog-Identität'}
               </p>
+              {/* Site-Typ Auswahl */}
+              <p style={{ margin: '0 0 6px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Typ *</p>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                {(['blog', 'docs'] as const).map((t) => {
+                  const isActive = wizardSiteType === t;
+                  const label = t === 'blog' ? 'Blog / Posts' : 'Docs / Statische Site';
+                  const desc = t === 'blog' ? 'MD-Artikel, manifest.json, PHP Upload möglich' : 'HTML-Build, Doku, Assets — nur FTP/Git';
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => setWizardSiteType(t)}
+                      style={{
+                        flex: 1, 
+                          boxShadow: 'none',
+                        padding: '8px 10px', border: `1px solid ${isActive ? '#AC8E66' : 'rgba(172,142,102,0.3)'}`,
+                        borderRadius: '6px', background: isActive ? 'rgba(172,142,102,0.12)' : 'transparent',
+                        cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'left',
+                      }}
+                    >
+                      <div style={{ fontSize: '10px',  
+                          boxShadow: 'none',
+                        color: isActive ? '#AC8E66' : '#555', fontWeight: 600, marginBottom: '3px' }}>{label}</div>
+                      <div style={{ fontSize: '9px', color: '#888', lineHeight: 1.4 }}>{desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
               {/* Name */}
               <p style={{ margin: '0 0 4px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Blog-Titel *</p>
               <input
@@ -1441,7 +1511,9 @@ export const ZenSocialMediaSettingsContent = ({
                 placeholder="z.B. Denis Bitter"
                 autoFocus
                 style={{
-                  width: '100%', padding: '9px 12px', border: '1px solid rgba(172,142,102,0.5)',
+                  width: '100%', 
+                  boxShadow: 'none',
+                  padding: '9px 12px', border: '1px solid rgba(172,142,102,0.5)',
                   borderRadius: '6px', background: 'transparent', fontSize: '11px', boxSizing: 'border-box',
                   fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none', marginBottom: '10px',
                 }}
@@ -1454,7 +1526,9 @@ export const ZenSocialMediaSettingsContent = ({
                 onChange={(e) => setWizardTagline(e.target.value)}
                 placeholder="z.B. Building ZenPost Studio — in public"
                 style={{
-                  width: '100%', padding: '9px 12px', border: '1px solid rgba(172,142,102,0.4)',
+                  width: '100%', 
+                    boxShadow: 'none',
+                  padding: '9px 12px', border: '1px solid rgba(172,142,102,0.4)',
                   borderRadius: '6px', background: 'transparent', fontSize: '11px', boxSizing: 'border-box',
                   fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none', marginBottom: '10px',
                 }}
@@ -1468,7 +1542,9 @@ export const ZenSocialMediaSettingsContent = ({
                 placeholder="z.B. Denis Bitter"
                 onKeyDown={(e) => { if (e.key === 'Enter' && wizardName.trim()) setWizardStep('folder'); }}
                 style={{
-                  width: '100%', padding: '9px 12px', border: '1px solid rgba(172,142,102,0.4)',
+                  width: '100%', 
+                    boxShadow: 'none',
+                  padding: '9px 12px', border: '1px solid rgba(172,142,102,0.4)',
                   borderRadius: '6px', background: 'transparent', fontSize: '11px', boxSizing: 'border-box',
                   fontFamily: 'IBM Plex Mono, monospace', color: '#333', outline: 'none', marginBottom: '14px',
                 }}
@@ -1476,14 +1552,19 @@ export const ZenSocialMediaSettingsContent = ({
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button
                   onClick={resetWizard}
-                  style={{ padding: '7px 12px', border: '1px solid #ccc', borderRadius: '6px', background: 'transparent', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}
+                  style={{ padding: '7px 12px', 
+                      boxShadow: 'none',
+                    border: '1px solid #ccc', borderRadius: '6px', background: 'transparent', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}
                 >
                   Abbrechen
                 </button>
                 <button
                   onClick={() => { if (wizardName.trim()) setWizardStep('folder'); }}
                   disabled={!wizardName.trim()}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid rgba(172,142,102,0.6)', borderRadius: '6px', background: 'transparent', cursor: wizardName.trim() ? 'pointer' : 'not-allowed', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66', opacity: wizardName.trim() ? 1 : 0.4 }}
+                  style={{ display: 'flex', 
+                    
+                      boxShadow: 'none',
+                    alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid rgba(172,142,102,0.6)', borderRadius: '6px', background: 'transparent', cursor: wizardName.trim() ? 'pointer' : 'not-allowed', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66', opacity: wizardName.trim() ? 1 : 0.4 }}
                 >
                   Weiter <FontAwesomeIcon icon={faArrowRight} />
                 </button>
