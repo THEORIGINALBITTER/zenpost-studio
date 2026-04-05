@@ -24,7 +24,9 @@ import {
 } from '@fortawesome/free-brands-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import { isCloudPlannerAvailable, loadPlannerFromCloud } from '../services/cloudPlannerService';
+import { loadScheduleFromCloud } from '../services/cloudScheduleService';
 import type { PlannerStorage } from '../kits/PatternKit/ZenModalSystem/modals/plannerTypes';
+import type { ScheduledPost } from '../types/scheduling';
 
 const gold = '#AC8E66';
 const fontMono = 'IBM Plex Mono, monospace';
@@ -55,6 +57,7 @@ export function GlobalPlannerScreen() {
   const [tab, setTab] = useState<TabType>('posts');
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerStorage | null>(null);
+  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'scheduled' | 'draft'>('all');
@@ -68,9 +71,10 @@ export function GlobalPlannerScreen() {
       return;
     }
     setLoading(true);
-    loadPlannerFromCloud()
-      .then((result) => {
-        setData(result);
+    Promise.all([loadPlannerFromCloud(), loadScheduleFromCloud()])
+      .then(([planner, schedule]) => {
+        setData(planner);
+        setScheduledPosts(schedule ?? []);
         setLoading(false);
       })
       .catch(() => {
@@ -79,14 +83,63 @@ export function GlobalPlannerScreen() {
       });
   }, [isLoggedIn]);
 
+  // Merge scheduledPosts (from __zenpost_schedule.json) with manualPosts (from __zenpost_planner.json)
   const allPosts = useMemo(() => {
-    if (!data) return [];
-    return data.manualPosts.map((post) => {
-      const schedule = data.schedules[post.id];
-      const isScheduled = !!(schedule?.date && schedule?.time);
-      return { ...post, schedule, isScheduled };
+    const result: Array<{
+      id: string;
+      platform: string;
+      title: string;
+      content: string;
+      characterCount: number;
+      wordCount: number;
+      schedule: { date: string; time: string } | undefined;
+      isScheduled: boolean;
+    }> = [];
+
+    const seen = new Set<string>();
+
+    // scheduledPosts from __zenpost_schedule.json are the primary source
+    scheduledPosts.forEach((post) => {
+      seen.add(post.id);
+      let dateStr = '';
+      if (post.scheduledDate) {
+        const d = post.scheduledDate;
+        dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
+      }
+      const schedule = { date: dateStr, time: post.scheduledTime ?? '' };
+      result.push({
+        id: post.id,
+        platform: post.platform,
+        title: post.title,
+        content: post.content,
+        characterCount: post.characterCount,
+        wordCount: post.wordCount,
+        schedule,
+        isScheduled: post.status === 'scheduled',
+      });
     });
-  }, [data]);
+
+    // Add manualPosts from planner that aren't already in scheduledPosts
+    if (data) {
+      data.manualPosts.forEach((post) => {
+        if (seen.has(post.id)) return;
+        seen.add(post.id);
+        const schedule = data.schedules[post.id];
+        result.push({
+          id: post.id,
+          platform: post.platform,
+          title: post.title,
+          content: post.content,
+          characterCount: post.characterCount,
+          wordCount: post.wordCount,
+          schedule,
+          isScheduled: !!(schedule?.date && schedule?.time),
+        });
+      });
+    }
+
+    return result;
+  }, [scheduledPosts, data]);
 
   const filteredPosts = useMemo(() => {
     return allPosts
@@ -186,7 +239,7 @@ export function GlobalPlannerScreen() {
   }
 
   // ── No data ────────────────────────────────────────────────────────────────
-  if (!data || (data.manualPosts.length === 0 && data.checklistItems.length === 0)) {
+  if (allPosts.length === 0 && (!data || data.checklistItems.length === 0)) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, fontFamily: fontMono }}>
         <FontAwesomeIcon icon={faCloudArrowDown} style={{ fontSize: 28, color: '#333' }} />
