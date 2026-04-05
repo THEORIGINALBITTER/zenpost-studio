@@ -4,6 +4,11 @@ import { isTauri } from '@tauri-apps/api/core';
 import {
   initializePublishingProject,
 } from '../../../../../services/publishingService';
+import {
+  isCloudPlannerAvailable,
+  loadPlannerFromCloud,
+  savePlannerToCloud,
+} from '../../../../../services/cloudPlannerService';
 import type { ScheduledPost, SocialPlatform } from '../../../../../types/scheduling';
 import type { ChecklistItem } from '../../../../../utils/checklistStorage';
 import type { PlannerPost, PlannerStorage, PostSchedule, ScheduleMap } from '../plannerTypes';
@@ -72,12 +77,33 @@ export function usePlannerStorage({
     void resolveInfo();
   }, [isOpen, projectPath]);
 
-  // ── Load planner_posts.json ─────────────────────────────────────────────────
+  // ── Load planner_posts.json (lokal) + optional Cloud-Sync ──────────────────
   useEffect(() => {
     if (!isOpen) return;
 
     if (!isTauri()) {
-      setPlannerLoaded(true);
+      // Browser mode: try cloud only
+      if (!isCloudPlannerAvailable()) {
+        setPlannerLoaded(true);
+        return;
+      }
+      const loadFromCloud = async () => {
+        try {
+          const cloud = await loadPlannerFromCloud();
+          if (cloud) {
+            const nextPlanningPosts = buildPlanningPosts(posts, scheduledPosts, cloud.manualPosts);
+            const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
+            setManualPosts(cloud.manualPosts);
+            setChecklistItems(cloud.checklistItems);
+            setSchedules({ ...baseSchedules, ...cloud.schedules });
+          }
+        } catch (error) {
+          console.error('[Planner] Failed to load planner from cloud (browser mode)', error);
+        } finally {
+          setPlannerLoaded(true);
+        }
+      };
+      void loadFromCloud();
       return;
     }
 
@@ -93,37 +119,61 @@ export function usePlannerStorage({
     const loadPlannerData = async () => {
       try {
         await initializePublishingProject(plannerProjectPath);
+
+        // ── 1. Load local file ──────────────────────────────────────────────
+        let localData: Partial<PlannerStorage> = {};
         const fileExists = await exists(plannerStoragePath);
-        if (!fileExists) {
-          setPlannerLoaded(true);
-          return;
+        if (fileExists) {
+          const raw = await readTextFile(plannerStoragePath);
+          localData = JSON.parse(raw) as Partial<PlannerStorage>;
         }
 
-        const raw = await readTextFile(plannerStoragePath);
-        const parsed = JSON.parse(raw) as Partial<PlannerStorage>;
-        const savedManualPosts = Array.isArray(parsed.manualPosts) ? parsed.manualPosts : [];
-        const savedSchedules =
-          parsed.schedules && typeof parsed.schedules === 'object' ? parsed.schedules : {};
-        const savedChecklist = Array.isArray(parsed.checklistItems) ? parsed.checklistItems : [];
+        // ── 2. Merge with cloud if available ────────────────────────────────
+        let cloudData: Partial<PlannerStorage> | null = null;
+        if (isCloudPlannerAvailable()) {
+          try {
+            cloudData = await loadPlannerFromCloud();
+          } catch (error) {
+            console.warn('[Planner] Cloud load failed, using local data only', error);
+          }
+        }
 
-        const nextPlanningPosts: PlannerPost[] = [
-          ...posts.map((post) => {
-            const existingId =
-              scheduledPosts.find(
-                (p) => p.platform === post.platform && p.content === post.content,
-              )?.id ?? null;
-            const id = existingId ?? buildStableContentId(post.platform, post.content, post.title);
-            return { ...post, id, source: 'content' as const };
-          }),
-          ...savedManualPosts,
-        ];
+        // Cloud wins for manualPosts + checklistItems if more recent
+        const useCloud =
+          cloudData !== null &&
+          cloudData.updatedAt &&
+          localData.updatedAt &&
+          cloudData.updatedAt > localData.updatedAt;
 
+        const savedManualPosts = Array.isArray(
+          useCloud ? cloudData?.manualPosts : localData.manualPosts,
+        )
+          ? (useCloud ? cloudData!.manualPosts : localData.manualPosts)!
+          : [];
+
+        const savedChecklist = Array.isArray(
+          useCloud ? cloudData?.checklistItems : localData.checklistItems,
+        )
+          ? (useCloud ? cloudData!.checklistItems : localData.checklistItems)!
+          : [];
+
+        // Schedules: merge local + cloud (most recent per-post wins)
+        const localSchedules =
+          localData.schedules && typeof localData.schedules === 'object'
+            ? localData.schedules
+            : {};
+        const cloudSchedules =
+          cloudData?.schedules && typeof cloudData.schedules === 'object'
+            ? cloudData.schedules
+            : {};
+        const savedSchedules = { ...localSchedules, ...cloudSchedules };
+
+        const nextPlanningPosts = buildPlanningPosts(posts, scheduledPosts, savedManualPosts);
         const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
-        const mergedSchedules = { ...baseSchedules, ...savedSchedules };
 
         setManualPosts(savedManualPosts);
         setChecklistItems(savedChecklist);
-        setSchedules(mergedSchedules);
+        setSchedules({ ...baseSchedules, ...savedSchedules });
       } catch (error) {
         console.error('[Planner] Failed to load planner storage', error);
       } finally {
@@ -134,27 +184,36 @@ export function usePlannerStorage({
     void loadPlannerData();
   }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts, scheduledPosts]);
 
-  // ── Autosave planner_posts.json (debounced 500 ms) ─────────────────────────
+  // ── Autosave: lokal + cloud (debounced 500 ms) ─────────────────────────────
   useEffect(() => {
     if (!isOpen || !plannerLoaded) return;
-    if (!isTauri()) return;
-    if (!plannerStoragePath || !plannerProjectPath) return;
 
     const timeout = setTimeout(async () => {
-      try {
-        await initializePublishingProject(plannerProjectPath);
+      const payload: PlannerStorage = {
+        version: '1.0.0',
+        updatedAt: new Date().toISOString(),
+        manualPosts,
+        schedules,
+        checklistItems,
+      };
 
-        const payload: PlannerStorage = {
-          version: '1.0.0',
-          updatedAt: new Date().toISOString(),
-          manualPosts,
-          schedules,
-          checklistItems,
-        };
+      // Local save (Tauri only)
+      if (isTauri() && plannerStoragePath && plannerProjectPath) {
+        try {
+          await initializePublishingProject(plannerProjectPath);
+          await writeTextFile(plannerStoragePath, JSON.stringify(payload, null, 2));
+        } catch (error) {
+          console.error('[Planner] Failed to autosave planner storage (local)', error);
+        }
+      }
 
-        await writeTextFile(plannerStoragePath, JSON.stringify(payload, null, 2));
-      } catch (error) {
-        console.error('[Planner] Failed to autosave planner storage', error);
+      // Cloud save (if logged in)
+      if (isCloudPlannerAvailable()) {
+        try {
+          await savePlannerToCloud(manualPosts, schedules, checklistItems);
+        } catch (error) {
+          console.error('[Planner] Failed to autosave planner storage (cloud)', error);
+        }
       }
     }, 500);
 
@@ -172,4 +231,23 @@ export function usePlannerStorage({
     checklistItems,
     setChecklistItems,
   };
+}
+
+// ── Helper ─────────────────────────────────────────────────────────────────────
+function buildPlanningPosts(
+  posts: UsePlannerStorageOptions['posts'],
+  scheduledPosts: ScheduledPost[],
+  savedManualPosts: PlannerPost[],
+): PlannerPost[] {
+  return [
+    ...posts.map((post) => {
+      const existingId =
+        scheduledPosts.find(
+          (p) => p.platform === post.platform && p.content === post.content,
+        )?.id ?? null;
+      const id = existingId ?? buildStableContentId(post.platform, post.content, post.title);
+      return { ...post, id, source: 'content' as const };
+    }),
+    ...savedManualPosts,
+  ];
 }
