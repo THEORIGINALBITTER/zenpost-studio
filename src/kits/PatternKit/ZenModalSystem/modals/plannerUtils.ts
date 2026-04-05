@@ -15,7 +15,7 @@ import {
 import type { SocialPlatform } from '../../../../types/scheduling';
 import { getPublishingPaths } from '../../../../services/publishingService';
 import type { PlannerPost, PostSchedule, ScheduleMap, TabType } from './plannerTypes';
-import { faCalendarDays, faClipboardList, faClock } from '@fortawesome/free-solid-svg-icons';
+import { faCalendarDays, faClipboardList, faClock, faEarthEurope } from '@fortawesome/free-solid-svg-icons';
 
 // ==================== PLATFORM INFO ====================
 
@@ -57,9 +57,10 @@ export const DEFAULT_TASKS = [
 ];
 
 export const TABS: { id: TabType; label: string; icon: IconDefinition }[] = [
-  { id: 'planen',    label: 'Planen',   icon: faClock },
-  { id: 'kalender',  label: 'Kalender', icon: faCalendarDays },
-  { id: 'checklist', label: 'ToDo',     icon: faClipboardList },
+  { id: 'planen',    label: 'Planen',    icon: faClock },
+  { id: 'kalender',  label: 'Kalender',  icon: faCalendarDays },
+  { id: 'checklist', label: 'ToDo',      icon: faClipboardList },
+  { id: 'übersicht', label: 'Übersicht', icon: faEarthEurope },
 ];
 
 export const DEFAULT_CHECKLIST_COLLAPSED = false;

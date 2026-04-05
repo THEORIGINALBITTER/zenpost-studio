@@ -18,7 +18,17 @@ import {
   faChevronDown,
   faChevronRight,
   faChevronLeft,
+  faSpinner,
+  faCloudArrowDown,
+  faArrowRightToBracket,
+  faCircleCheck,
+  faCircle,
+  faFilter,
+  faTag,
 } from '@fortawesome/free-solid-svg-icons';
+import {
+  faLinkedin, faReddit, faGithub, faDev, faMedium, faHashnode, faTwitter,
+} from '@fortawesome/free-brands-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { MODAL_CONTENT } from '../config/ZenModalConfig';
 import { ZenRoughButton } from '../components/ZenRoughButton';
@@ -55,6 +65,8 @@ import {
   fileToDataUrl, extractDroppedImageUrl,
 } from './plannerUtils';
 import { usePlannerStorage } from './hooks/usePlannerStorage';
+import { isCloudPlannerAvailable, loadPlannerFromCloud } from '../../../../services/cloudPlannerService';
+import { loadScheduleFromCloud } from '../../../../services/cloudScheduleService';
 
 
 // ==================== MAIN COMPONENT ====================
@@ -164,6 +176,18 @@ export function ZenPlannerModal({
   }, [posts, manualPosts, scheduledPosts]);
 
 
+  // ==================== ÜBERSICHT STATE ====================
+  const [übersichtLoading, setÜbersichtLoading] = useState(false);
+  const [übersichtLoaded, setÜbersichtLoaded] = useState(false);
+  const [übersichtError, setÜbersichtError] = useState<string | null>(null);
+  const [übersichtScheduledPosts, setÜbersichtScheduledPosts] = useState<ScheduledPost[]>([]);
+  const [übersichtManualPosts, setÜbersichtManualPosts] = useState<import('./plannerTypes').PlannerPost[]>([]);
+  const [übersichtSchedules, setÜbersichtSchedules] = useState<import('./plannerTypes').ScheduleMap>({});
+  const [übersichtPlatformFilter, setÜbersichtPlatformFilter] = useState<string | null>(null);
+  const [übersichtStatusFilter, setÜbersichtStatusFilter] = useState<'all' | 'scheduled' | 'draft'>('all');
+  const [übersichtCollapsed, setÜbersichtCollapsed] = useState<Record<string, boolean>>({});
+  const [übersichtChecklistItems, setÜbersichtChecklistItems] = useState<import('../../../../utils/checklistStorage').ChecklistItem[]>([]);
+
   // ==================== CHECKLIST STATE ====================
 
   const [checklistLoaded, setChecklistLoaded] = useState(false);
@@ -183,6 +207,37 @@ export function ZenPlannerModal({
   const [defaultChecklistCollapsed, setDefaultChecklistCollapsed] = useState(DEFAULT_CHECKLIST_COLLAPSED);
   const [isWorkflowCollapsed, setIsWorkflowCollapsed] = useState(DEFAULT_WORKFLOW_COLLAPSED);
   const [workflowProgressScope, setWorkflowProgressScope] = useState<'all' | 'open'>('all');
+
+  // ── Übersicht: Cloud-Daten laden wenn Tab aktiv wird ──────────────────────
+  useEffect(() => {
+    if (activeTab !== 'übersicht' || übersichtLoaded || übersichtLoading) return;
+    if (!isCloudPlannerAvailable()) { setÜbersichtLoaded(true); return; }
+    setÜbersichtLoading(true);
+    setÜbersichtError(null);
+    Promise.all([loadPlannerFromCloud(), loadScheduleFromCloud()])
+      .then(([planner, schedule]) => {
+        setÜbersichtScheduledPosts(schedule ?? []);
+        setÜbersichtManualPosts(planner?.manualPosts ?? []);
+        setÜbersichtSchedules(planner?.schedules ?? {});
+        setÜbersichtChecklistItems(planner?.checklistItems ?? []);
+      })
+      .catch(() => setÜbersichtError('Cloud-Daten konnten nicht geladen werden.'))
+      .finally(() => { setÜbersichtLoading(false); setÜbersichtLoaded(true); });
+  }, [activeTab, übersichtLoaded, übersichtLoading]);
+
+  // ── Übersicht: Reset wenn Modal schließt ───────────────────────────────────
+  useEffect(() => {
+    if (!isOpen) {
+      setÜbersichtLoaded(false);
+      setÜbersichtScheduledPosts([]);
+      setÜbersichtManualPosts([]);
+      setÜbersichtSchedules({});
+      setÜbersichtChecklistItems([]);
+      setÜbersichtError(null);
+      setÜbersichtPlatformFilter(null);
+      setÜbersichtStatusFilter('all');
+    }
+  }, [isOpen]);
 
   const workflowCollapsedKey = `${WORKFLOW_COLLAPSED_KEY}_${projectPath ?? 'default'}`;
   const checklistCollapsedKey = `${CHECKLIST_COLLAPSED_KEY}_${projectPath ?? 'default'}`;
@@ -3171,6 +3226,322 @@ export function ZenPlannerModal({
     return { orderedSections, unassigned };
   }, [checklistItems, planningPosts]);
 
+  // ==================== ÜBERSICHT RENDER ====================
+  const renderÜbersichtContent = () => {
+    const gold = '#AC8E66';
+    const fontMono = 'IBM Plex Mono, monospace';
+    const paperBg = 'transparent';
+    const cardBg = 'rgba(255,255,255,0.35)';
+    const borderColor = 'rgba(172,142,102,0.35)';
+    const textMain = '#3a3530';
+    const textMuted = '#7a7268';
+    const textLight = '#a09888';
+
+    const PLATFORM_ICONS: Record<string, import('@fortawesome/fontawesome-svg-core').IconDefinition> = {
+      linkedin: faLinkedin,
+      reddit: faReddit,
+      github: faGithub,
+      devto: faDev,
+      medium: faMedium,
+      hashnode: faHashnode,
+      twitter: faTwitter,
+    };
+
+    const PLATFORM_COLORS: Record<string, string> = {
+      linkedin: '#0077B5', reddit: '#FF4500', github: '#555', devto: '#444',
+      medium: '#00AB6C', hashnode: '#2962FF', twitter: '#1DA1F2',
+    };
+
+    // Merge posts: scheduledPosts primary, then manualPosts
+    const seen = new Set<string>();
+    const allPosts: Array<{
+      id: string; platform: string; title: string; content: string;
+      characterCount: number; wordCount: number;
+      schedule: { date: string; time: string } | undefined; isScheduled: boolean;
+    }> = [];
+
+    übersichtScheduledPosts.forEach((post) => {
+      seen.add(post.id);
+      let dateStr = '';
+      if (post.scheduledDate) {
+        const d = post.scheduledDate;
+        dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
+      }
+      allPosts.push({
+        id: post.id, platform: post.platform, title: post.title, content: post.content,
+        characterCount: post.characterCount, wordCount: post.wordCount,
+        schedule: { date: dateStr, time: post.scheduledTime ?? '' },
+        isScheduled: post.status === 'scheduled',
+      });
+    });
+
+    übersichtManualPosts.forEach((post) => {
+      if (seen.has(post.id)) return;
+      seen.add(post.id);
+      const schedule = übersichtSchedules[post.id];
+      allPosts.push({
+        id: post.id, platform: post.platform, title: post.title, content: post.content,
+        characterCount: post.characterCount, wordCount: post.wordCount,
+        schedule, isScheduled: !!(schedule?.date && schedule?.time),
+      });
+    });
+
+    const availablePlatforms = [...new Set(allPosts.map((p) => p.platform))];
+    const filteredPosts = allPosts
+      .filter((p) => !übersichtPlatformFilter || p.platform === übersichtPlatformFilter)
+      .filter((p) => {
+        if (übersichtStatusFilter === 'scheduled') return p.isScheduled;
+        if (übersichtStatusFilter === 'draft') return !p.isScheduled;
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.isScheduled && !b.isScheduled) return -1;
+        if (!a.isScheduled && b.isScheduled) return 1;
+        return (a.schedule?.date ?? '').localeCompare(b.schedule?.date ?? '');
+      });
+
+    const scheduledCount = allPosts.filter((p) => p.isScheduled).length;
+    const draftCount = allPosts.filter((p) => !p.isScheduled).length;
+    const todoCompleted = übersichtChecklistItems.filter((i) => i.completed).length;
+    const todoTotal = übersichtChecklistItems.length;
+
+    // Not logged in
+    if (!isCloudPlannerAvailable()) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, padding: '60px 24px', fontFamily: fontMono }}>
+          <FontAwesomeIcon icon={faArrowRightToBracket} style={{ fontSize: 32, color: gold }} />
+          <div style={{ color: textMuted, fontSize: 12, textAlign: 'center', lineHeight: 2 }}>
+            Die globale Übersicht benötigt einen<br />ZenCloud Account.
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+            style={{
+              background: 'transparent', border: `1px solid ${gold}`, borderRadius: 6,
+              color: gold, fontFamily: fontMono, fontSize: 11, padding: '8px 20px', cursor: 'pointer',
+            }}
+          >
+            ZenCloud einrichten
+          </button>
+        </div>
+      );
+    }
+
+    // Loading
+    if (übersichtLoading) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 24px', fontFamily: fontMono, color: textMuted, fontSize: 12 }}>
+          <FontAwesomeIcon icon={faSpinner} spin />
+          Lade Cloud-Daten…
+        </div>
+      );
+    }
+
+    // Error
+    if (übersichtError) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px', fontFamily: fontMono, color: '#c0392b', fontSize: 12 }}>
+          {übersichtError}
+        </div>
+      );
+    }
+
+    // Empty
+    if (allPosts.length === 0 && todoTotal === 0) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '60px 24px', fontFamily: fontMono }}>
+          <FontAwesomeIcon icon={faCloudArrowDown} style={{ fontSize: 32, color: textLight }} />
+          <div style={{ color: textMuted, fontSize: 11, textAlign: 'center', lineHeight: 2 }}>
+            Noch keine Planner-Daten in der Cloud.<br />
+            Plane einen Post und er erscheint hier.
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div style={{ padding: '24px', fontFamily: fontMono, background: paperBg }}>
+
+        {/* ── Stats Bar ─────────────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', gap: 12, marginBottom: 20,
+          padding: '14px 16px', border: `1px solid ${borderColor}`,
+          borderRadius: 8, background: cardBg,
+        }}>
+          {[
+            { label: 'Posts gesamt', value: allPosts.length },
+            { label: 'Geplant', value: scheduledCount, color: '#2d7a4f' },
+            { label: 'Entwürfe', value: draftCount },
+            { label: 'ToDos', value: `${todoCompleted}/${todoTotal}`, color: todoCompleted === todoTotal && todoTotal > 0 ? '#2d7a4f' : undefined },
+          ].map((stat) => (
+            <div key={stat.label} style={{ flex: 1, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: stat.color ?? textMain, marginBottom: 2 }}>
+                {stat.value}
+              </div>
+              <div style={{ fontSize: 9, color: textLight, letterSpacing: '0.06em' }}>
+                {stat.label}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* ── Filter Bar ────────────────────────────────────────────────────── */}
+        <div style={{
+          display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap',
+          marginBottom: 16, padding: '10px 14px',
+          border: `1px solid ${borderColor}`, borderRadius: 8, background: cardBg,
+        }}>
+          <FontAwesomeIcon icon={faFilter} style={{ fontSize: 9, color: textLight, marginRight: 4 }} />
+          {(['all', 'scheduled', 'draft'] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setÜbersichtStatusFilter(s)}
+              style={{
+                fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
+                cursor: 'pointer', border: 'none',
+                background: übersichtStatusFilter === s ? gold : 'rgba(172,142,102,0.12)',
+                color: übersichtStatusFilter === s ? '#fff' : textMuted,
+                fontWeight: übersichtStatusFilter === s ? 600 : 400,
+              }}
+            >
+              {s === 'all' ? 'Alle' : s === 'scheduled' ? 'Geplant' : 'Entwurf'}
+            </button>
+          ))}
+          {availablePlatforms.length > 0 && (
+            <>
+              <div style={{ width: 1, height: 16, background: borderColor, margin: '0 4px' }} />
+              <button
+                onClick={() => setÜbersichtPlatformFilter(null)}
+                style={{
+                  fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
+                  cursor: 'pointer', border: 'none',
+                  background: übersichtPlatformFilter === null ? 'rgba(172,142,102,0.2)' : 'transparent',
+                  color: übersichtPlatformFilter === null ? textMain : textLight,
+                }}
+              >
+                Alle Plattformen
+              </button>
+              {availablePlatforms.map((platform) => {
+                const icon = PLATFORM_ICONS[platform];
+                const color = PLATFORM_COLORS[platform] ?? gold;
+                return (
+                  <button
+                    key={platform}
+                    onClick={() => setÜbersichtPlatformFilter(übersichtPlatformFilter === platform ? null : platform)}
+                    style={{
+                      fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
+                      cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', gap: 5,
+                      background: übersichtPlatformFilter === platform ? `${color}22` : 'transparent',
+                      color: übersichtPlatformFilter === platform ? color : textLight,
+                    }}
+                  >
+                    {icon && <FontAwesomeIcon icon={icon} style={{ fontSize: 9 }} />}
+                    {platform}
+                  </button>
+                );
+              })}
+            </>
+          )}
+        </div>
+
+        {/* ── Post List ─────────────────────────────────────────────────────── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
+          {filteredPosts.length === 0 && (
+            <div style={{ color: textLight, fontSize: 10, textAlign: 'center', padding: '24px 0' }}>
+              Keine Posts gefunden.
+            </div>
+          )}
+          {filteredPosts.map((post) => {
+            const icon = PLATFORM_ICONS[post.platform];
+            const color = PLATFORM_COLORS[post.platform] ?? gold;
+            return (
+              <div
+                key={post.id}
+                style={{
+                  background: cardBg, border: `1px solid ${post.isScheduled ? 'rgba(45,122,79,0.3)' : borderColor}`,
+                  borderLeft: `3px solid ${post.isScheduled ? '#2d7a4f' : gold}`,
+                  borderRadius: 8, padding: '12px 16px',
+                  display: 'flex', flexDirection: 'column', gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {icon && <FontAwesomeIcon icon={icon} style={{ fontSize: 13, color, flexShrink: 0 }} />}
+                  <span style={{ fontSize: 12, color: textMain, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                    {post.title || '(kein Titel)'}
+                  </span>
+                  <span style={{
+                    fontSize: 9, padding: '3px 8px', borderRadius: 10,
+                    background: post.isScheduled ? 'rgba(45,122,79,0.15)' : 'rgba(172,142,102,0.12)',
+                    color: post.isScheduled ? '#2d7a4f' : textMuted,
+                    fontWeight: 600,
+                  }}>
+                    {post.isScheduled ? 'Geplant' : 'Entwurf'}
+                  </span>
+                </div>
+                {post.schedule?.date && (
+                  <div style={{ fontSize: 9, color: textLight, display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: 8 }} />
+                    {post.schedule.date}{post.schedule.time ? ` · ${post.schedule.time}` : ''}
+                  </div>
+                )}
+                <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                  {post.content || '(kein Inhalt)'}
+                </div>
+                <div style={{ display: 'flex', gap: 12, fontSize: 9, color: textLight }}>
+                  <span>{post.characterCount} Zeichen</span>
+                  <span>{post.wordCount} Wörter</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ── ToDo Übersicht ────────────────────────────────────────────────── */}
+        {todoTotal > 0 && (
+          <div style={{ border: `1px solid ${borderColor}`, borderRadius: 8, overflow: 'hidden' }}>
+            <button
+              onClick={() => setÜbersichtCollapsed((p) => ({ ...p, todos: !p['todos'] }))}
+              style={{
+                width: '100%', background: cardBg, border: 'none', borderBottom: `1px solid ${borderColor}`,
+                padding: '12px 16px', cursor: 'pointer', fontFamily: fontMono,
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}
+            >
+              <FontAwesomeIcon icon={faTag} style={{ fontSize: 9, color: textLight }} />
+              <span style={{ fontSize: 11, color: textMain, fontWeight: 600, flex: 1, textAlign: 'left' }}>
+                Globale Todos
+              </span>
+              <span style={{ fontSize: 10, color: todoCompleted === todoTotal ? '#2d7a4f' : gold }}>
+                {todoCompleted}/{todoTotal} erledigt
+              </span>
+              <FontAwesomeIcon
+                icon={übersichtCollapsed['todos'] ? faChevronRight : faChevronDown}
+                style={{ fontSize: 8, color: textLight }}
+              />
+            </button>
+            {!übersichtCollapsed['todos'] && (
+              <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {übersichtChecklistItems.map((item) => (
+                  <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <FontAwesomeIcon
+                      icon={item.completed ? faCircleCheck : faCircle}
+                      style={{ fontSize: 11, color: item.completed ? '#2d7a4f' : textLight, marginTop: 1, flexShrink: 0 }}
+                    />
+                    <span style={{
+                      fontSize: 10, color: item.completed ? textLight : textMain,
+                      textDecoration: item.completed ? 'line-through' : 'none', lineHeight: 1.6,
+                    }}>
+                      {item.text}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderChecklistContent = () => (
     <div style={{ padding: '24px' }}>
       {/* Progress Overview */}
@@ -4262,6 +4633,7 @@ export function ZenPlannerModal({
             {activeTab === 'planen' && renderPlanenContent()}
             {activeTab === 'kalender' && renderKalenderContent()}
             {activeTab === 'checklist' && renderChecklistContent()}
+            {activeTab === 'übersicht' && renderÜbersichtContent()}
           </div>
         </div>
       </ZenModal>

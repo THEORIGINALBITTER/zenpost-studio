@@ -28,7 +28,6 @@ import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStu
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { DocStudioScreen } from "./screens/DocStudioScreen";
 import { ZenNoteStudioScreen } from "./screens/ZenNoteStudio/ZenNoteStudioScreen";
-import { GlobalPlannerScreen } from "./screens/GlobalPlannerScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { MobileInboxScreen } from "./screens/MobileInboxScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
@@ -164,7 +163,7 @@ const extractFirstImageUrlFromBlocks = (
 };
 
 
-type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox" | "zen-note" | "global-planner";
+type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox" | "zen-note";
 
 // Files that make no sense to open as text documents in Content AI Studio
 const BINARY_EXTENSIONS = new Set([
@@ -1073,11 +1072,7 @@ function AppContent() {
     setCurrentScreen("zen-note");
   };
 
-  const handleSelectGlobalPlanner = () => {
-    setCurrentScreen("global-planner");
-  };
-
-  const handleSelectDocStudio = () => {
+const handleSelectDocStudio = () => {
     setIsEditingZenThoughts(false);
     // Locked Doc Studio should open upgrade modal directly (no intermediate lock screen)
     if (!checkFeature("DOC_STUDIO")) {
@@ -2137,7 +2132,6 @@ function AppContent() {
     const handler = (e: Event) => {
       const screen = (e as CustomEvent<{ screen: string }>).detail?.screen;
       if (screen === 'zen-note') setCurrentScreen('zen-note');
-      if (screen === 'global-planner') setCurrentScreen('global-planner');
     };
     window.addEventListener('zenpost:navigate', handler);
     return () => window.removeEventListener('zenpost:navigate', handler);
@@ -2175,7 +2169,6 @@ function AppContent() {
       "getting-started": "Getting Started",
       "mobile-inbox": "Mobile Inbox",
       "zen-note": "ZenNote Studio",
-      "global-planner": "Global Planner",
     };
 
     return (
@@ -2218,8 +2211,6 @@ function AppContent() {
         return <>Mobile · <span style={{ color: "#AC8E66" }}>iPhone Entwürfe</span></>;
       case "zen-note":
         return <>ZenNote · <span style={{ color: "#AC8E66" }}>Notizen & Snippets</span></>;
-      case "global-planner":
-        return <>Global · <span style={{ color: "#AC8E66" }}>Alle Projekte</span></>;
       default:
         return "";
     }
@@ -3294,7 +3285,6 @@ function AppContent() {
             onOpenConverter={handleSelectConverter}
             onOpenZenNote={handleSelectZenNote}
             onOpenMobileInbox={handleSelectMobileInbox}
-            onOpenGlobalPlanner={handleSelectGlobalPlanner}
             onOpenMobileSettings={() => {
               setSettingsDefaultTab('mobile');
               setShowAISettingsModal(true);
@@ -3324,7 +3314,6 @@ function AppContent() {
             }}
           />
         )}
-        {currentScreen === "global-planner" && <GlobalPlannerScreen />}
       </div>
 
 

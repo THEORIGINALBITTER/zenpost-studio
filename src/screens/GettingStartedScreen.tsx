@@ -45,7 +45,6 @@ interface GettingStartedScreenProps {
   onOpenConverter?: () => void;
   onOpenZenNote?: () => void;
   onOpenMobileInbox?: () => void;
-  onOpenGlobalPlanner?: () => void;
   onOpenMobileSettings?: () => void;
   onOpenApiSettings?: () => void;
   recentItems?: GettingStartedRecentItem[];
@@ -53,7 +52,7 @@ interface GettingStartedScreenProps {
   onOpenServerArticle?: (slug: string) => void;
 }
 
-type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile' | 'zen-note' | 'global-planner';
+type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile' | 'zen-note';
 const MOBILE_DEV_BLOG_URL = 'https://zenpostapp.denisbitter.de';
 const MOBILE_DEV_BLOG_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_DEV_BLOG_URL)}`;
 
@@ -154,7 +153,6 @@ export function GettingStartedScreen({
   onOpenConverter,
   onOpenZenNote,
   onOpenMobileInbox,
-  onOpenGlobalPlanner,
   onOpenMobileSettings,
   onOpenApiSettings,
   recentItems = [],
@@ -408,20 +406,6 @@ export function GettingStartedScreen({
           description: 'Markdown-Notizen und Code-Snippets in der Cloud speichern',
           icon: faNoteSticky,
           action: () => onOpenZenNote?.(),
-        },
-      ],
-    },
-    {
-      id: 'global-planner',
-      label: 'Global Planner',
-      shortLabel: 'Planner',
-      description: 'Alle geplanten Posts & Todos projektübergreifend — aus der Cloud',
-      useCases: [
-        {
-          title: 'Alle Posts & Termine',
-          description: 'Geplante Posts aller Projekte in einer Ansicht',
-          icon: faCalendarDays,
-          action: () => onOpenGlobalPlanner?.(),
         },
       ],
     },

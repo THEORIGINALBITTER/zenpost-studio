@@ -1,7 +1,7 @@
 import type { SocialPlatform, ScheduledPost } from '../../../../types/scheduling';
 import type { ChecklistItem } from '../../../../utils/checklistStorage';
 
-export type TabType = 'planen' | 'kalender' | 'checklist';
+export type TabType = 'planen' | 'kalender' | 'checklist' | 'übersicht';
 export type CalendarView = 'month' | 'week';
 export type PostSchedule = { date: string; time: string };
 export type ScheduleMap = Record<string, PostSchedule>;
