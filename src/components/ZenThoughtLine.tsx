@@ -32,12 +32,12 @@ export const ZenThoughtLine = ({ thoughts, visible = true, containerStyle }: Zen
         style={{
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '10px',
-          fontWeight: 100,
-          color: '#8f8f8f',
+          
+          color: '#d0cbb8',
           letterSpacing: '0.2px',
         }}
       >
-        <span style={{ color: '#AC8E66', textTransform: 'uppercase' }}>ZEN Gedanken </span>
+        <span style={{ color: '#AC8E66', textTransform: 'uppercase' }}>ZEN Gedanke </span>
         {thought}
       </div>
     </div>

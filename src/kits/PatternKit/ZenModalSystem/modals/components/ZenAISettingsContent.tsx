@@ -4,7 +4,7 @@ import { ZenDropdown } from "../../components/ZenDropdown";
 import { ZenInfoBox } from "../../components/ZenInfoBox";
 import { ZenSlider } from "../../components/ZenSlider";
 import { ZenRoughButton } from "../../components/ZenRoughButton";
-import { AI_TEMPERATURE_INFO, getProviderInfo } from "../../config/ZenModalConfig";
+import {  getProviderInfo } from "../../config/ZenModalConfig";
 import {
   loadAIConfig,
   saveAIConfig,
@@ -147,8 +147,8 @@ return (
 {(aiConfig.provider === "ollama" || aiConfig.provider === "custom") && (
   <div className="w-full">
     <label
-      className="block font-mono text-[11px] text-[#6b5a3e] text-center"
-      style={{ marginBottom: 8 }}
+      className="block font-mono text-[11px] text-[#1a1a1a] text-center"
+      style={{ marginBottom: 1 }}
     >
       Base URL:
     </label>
@@ -169,9 +169,9 @@ return (
           : "https://your-api.com"
       }
       className="
-        w-full
+        w-[490px] flex-item text-center
         bg-transparent border
-        border-[#AC8E66]/70 rounded-lg
+        border-[#AC8E66]/70 rounded-[2px] 
         font-mono text-[10px] text-[#3a3a3a] text-center
         focus:outline-none focus:border-[#AC8E66]
         placeholder:text-[#7a6a52]/70
@@ -284,14 +284,12 @@ return (
               valueFormatter={(v) => v.toFixed(1)}
             />
 
-            <div style={{ marginTop: 8 }}>
-              <ZenInfoBox {...AI_TEMPERATURE_INFO} />
-            </div>
+           
           </div>
 
           {/* Provider Info */}
           {getProviderInfo(aiConfig.provider) && (
-            <div style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 1 }}>
               <ZenInfoBox {...getProviderInfo(aiConfig.provider)!} />
             </div>
           )}

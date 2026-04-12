@@ -109,7 +109,8 @@ export function createVirtualProject(name: string): WebProject {
 // ─── Directory Picker ─────────────────────────────────────────────────────────
 
 export function canUseDirectoryPicker(): boolean {
-  return typeof window !== 'undefined' && 'showDirectoryPicker' in window;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return typeof window !== 'undefined' && typeof (window as any).showDirectoryPicker === 'function';
 }
 
 /**

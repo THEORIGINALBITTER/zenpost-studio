@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { ScheduledPost, PublishingStatus, SocialPlatform } from '../types/scheduling';
+import { loadPlannerBannerConfig, type PlannerBannerConfig } from './plannerBannerConfig';
 import {
   loadSocialConfig,
   isPlatformConfigured,
@@ -20,18 +21,28 @@ const POLL_INTERVAL_MS = 60_000;
 
 // ─── Due-post detection ──────────────────────────────────────────────────────
 
-export function getDuePosts(posts: ScheduledPost[]): ScheduledPost[] {
+export function getDuePosts(posts: ScheduledPost[], config?: PlannerBannerConfig): ScheduledPost[] {
   const now = new Date();
+  const cfg = config ?? { mode: 'due' as const, beforeMinutes: 60 };
+
   return posts.filter((p) => {
     if (p.status !== 'scheduled') return false;
     if (!p.scheduledDate) return false;
+
+    if (cfg.mode === 'always') return true;
 
     const d = new Date(p.scheduledDate);
     if (p.scheduledTime) {
       const [h, m] = p.scheduledTime.split(':').map(Number);
       d.setHours(h, m, 0, 0);
     }
-    return d <= now;
+
+    if (cfg.mode === 'before') {
+      const showFrom = new Date(d.getTime() - cfg.beforeMinutes * 60_000);
+      return showFrom <= now;
+    }
+
+    return d <= now; // 'due'
   });
 }
 
@@ -156,24 +167,38 @@ export function usePublishingEngine(
   posts: ScheduledPost[],
   onPostsChange: (posts: ScheduledPost[]) => void,
 ) {
-  const [duePosts, setDuePosts] = useState<ScheduledPost[]>(() => getDuePosts(posts));
+  const [bannerConfig, setBannerConfig] = useState<PlannerBannerConfig>(() => loadPlannerBannerConfig());
+  const [duePosts, setDuePosts] = useState<ScheduledPost[]>(() => getDuePosts(posts, loadPlannerBannerConfig()));
   const [publishing, setPublishing] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<Map<string, PostResult>>(new Map());
 
   const postsRef = useRef(posts);
+  const configRef = useRef(bannerConfig);
   const onChangeRef = useRef(onPostsChange);
   useEffect(() => { postsRef.current = posts; }, [posts]);
+  useEffect(() => { configRef.current = bannerConfig; }, [bannerConfig]);
   useEffect(() => { onChangeRef.current = onPostsChange; }, [onPostsChange]);
+
+  // Listen for config changes from settings modal
+  useEffect(() => {
+    const onConfigChange = () => {
+      const cfg = loadPlannerBannerConfig();
+      setBannerConfig(cfg);
+      setDuePosts(getDuePosts(postsRef.current, cfg));
+    };
+    window.addEventListener('zenpost:banner-config-changed', onConfigChange);
+    return () => window.removeEventListener('zenpost:banner-config-changed', onConfigChange);
+  }, []);
 
   // Recalc when posts change
   useEffect(() => {
-    setDuePosts(getDuePosts(posts));
+    setDuePosts(getDuePosts(posts, configRef.current));
   }, [posts]);
 
   // Periodic poll
   useEffect(() => {
     const id = setInterval(() => {
-      setDuePosts(getDuePosts(postsRef.current));
+      setDuePosts(getDuePosts(postsRef.current, configRef.current));
     }, POLL_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);

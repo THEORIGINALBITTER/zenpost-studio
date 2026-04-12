@@ -56,7 +56,7 @@ export const ZenFooterText = ({
       `}
       style={{ padding: "10px 0" }}
     >
-      <p className="font-mono text-[9px] text-[#666] flex items-center justify-center gap-1">
+      <p className="font-mono text-[9px] text-[#d0cbb8] flex items-center justify-center gap-1">
         <span>{text}</span>
         <span className="ml-[2px]">
           <FontAwesomeIcon icon={faHeart} className="text-[#AC8E66] text-[10px]" />
@@ -64,7 +64,7 @@ export const ZenFooterText = ({
         <a
           onClick={handleClick}
           href="https://denisbitter.de"
-          className="ml-[4px] text-[#888] hover:text-[#AC8E66]
+          className="ml-[4px] text-[#d0cbb8] hover:text-[#AC8E66]
           transition-colors duration-200 underline decoration-transparent
           hover:decoration-[#AC8E66]/50 cursor-pointer select-none"
         >

@@ -48,12 +48,14 @@ export interface ConversionResult {
   success: boolean;
   data?: string;
   error?: string;
+  byteSize?: number; // gesetzt bei Blob-URL-Outputs (Rasterbilder)
 }
 
 export interface ConversionOptions {
-  imageQuality?: number; // 0..1
-  imageRasterSize?: number; // max edge for tracing
+  imageQuality?: number;         // 0..1
+  imageRasterSize?: number;      // max edge for tracing (SVG)
   imageSmoothEdges?: boolean;
+  imageMaxOutputSize?: number;   // max edge px for raster output (null = original)
 }
 
 export interface JSONContent {
@@ -106,27 +108,47 @@ function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
   });
 }
 
-async function rasterToRasterDataUrl(
+async function rasterToRasterBlobUrl(
   sourceBuffer: ArrayBuffer,
   sourceFormat: RasterImageFormat,
   targetFormat: RasterImageFormat,
-  quality = 0.92
-): Promise<string> {
+  quality = 0.92,
+  maxOutputSize?: number,
+): Promise<{ blobUrl: string; byteSize: number }> {
   const sourceDataUrl = await arrayBufferToDataUrl(sourceBuffer, getImageMimeType(sourceFormat));
   const image = await loadImageFromDataUrl(sourceDataUrl);
-  const canvas = document.createElement('canvas');
-  canvas.width = image.naturalWidth || image.width;
-  canvas.height = image.naturalHeight || image.height;
+  const srcW = image.naturalWidth || image.width;
+  const srcH = image.naturalHeight || image.height;
 
-  const ctx = canvas.getContext('2d');
-  if (!ctx) {
-    throw new Error('Canvas-Kontext konnte nicht erstellt werden');
+  let outW = srcW;
+  let outH = srcH;
+  if (maxOutputSize && maxOutputSize > 0 && Math.max(srcW, srcH) > maxOutputSize) {
+    const scale = maxOutputSize / Math.max(srcW, srcH);
+    outW = Math.round(srcW * scale);
+    outH = Math.round(srcH * scale);
   }
 
-  ctx.drawImage(image, 0, 0);
+  const canvas = document.createElement('canvas');
+  canvas.width = outW;
+  canvas.height = outH;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas-Kontext konnte nicht erstellt werden');
+
+  ctx.drawImage(image, 0, 0, outW, outH);
   const mimeType = getImageMimeType(targetFormat);
   const normalizedQuality = Math.max(0.1, Math.min(1, quality));
-  return canvas.toDataURL(mimeType, targetFormat === 'png' ? undefined : normalizedQuality);
+
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) { reject(new Error('canvas.toBlob fehlgeschlagen')); return; }
+        resolve({ blobUrl: URL.createObjectURL(blob), byteSize: blob.size });
+      },
+      mimeType,
+      targetFormat === 'png' ? undefined : normalizedQuality,
+    );
+  });
 }
 
 function rasterPixelsToSvg(
@@ -207,7 +229,7 @@ async function rasterToSvg(
   const image = await loadImageFromDataUrl(sourceDataUrl);
   const sourceWidth = image.naturalWidth || image.width;
   const sourceHeight = image.naturalHeight || image.height;
-  const requestedEdge = Math.max(32, Math.min(512, Math.round(options.imageRasterSize ?? 140)));
+  const requestedEdge = Math.max(32, Math.min(4096, Math.round(options.imageRasterSize ?? 140)));
   const maxEdge = smoothEdges ? Math.max(requestedEdge, 320) : requestedEdge;
   const scale = Math.min(1, maxEdge / Math.max(sourceWidth, sourceHeight));
   const traceWidth = Math.max(8, Math.round(sourceWidth * scale));
@@ -577,11 +599,52 @@ export async function pdfToMarkdown(arrayBuffer: ArrayBuffer): Promise<Conversio
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map((item: any) => ('str' in item ? item.str : ''))
-        .filter(Boolean)
-        .join(' ')
-        .replace(/\s+/g, ' ')
+      const items = textContent.items
+        .map((item: any) => ({
+          str: 'str' in item ? String(item.str) : '',
+          x: item.transform?.[4] ?? 0,
+          y: item.transform?.[5] ?? 0,
+          height: item.height ?? 0,
+        }))
+        .filter((item: any) => item.str && item.str.trim().length > 0);
+
+      items.sort((a: any, b: any) => {
+        const dy = b.y - a.y;
+        if (Math.abs(dy) > 0.1) return dy;
+        return a.x - b.x;
+      });
+
+      const avgHeight =
+        items.length > 0
+          ? items.reduce((sum: number, it: any) => sum + (it.height || 0), 0) / items.length
+          : 10;
+      const lineThreshold = Math.max(2, avgHeight * 0.35);
+      const paragraphThreshold = Math.max(10, avgHeight * 1.2);
+
+      const lines: string[] = [];
+      let currentY: number | null = null;
+      let lastLineY: number | null = null;
+
+      for (const item of items) {
+        if (currentY === null || Math.abs(item.y - currentY) > lineThreshold) {
+          if (lastLineY !== null && Math.abs(lastLineY - item.y) > paragraphThreshold) {
+            lines.push('');
+          }
+          lines.push(item.str);
+          currentY = item.y;
+          lastLineY = item.y;
+        } else {
+          const last = lines[lines.length - 1] ?? '';
+          const needsSpace = last && !last.endsWith('-') && !item.str.startsWith(' ');
+          lines[lines.length - 1] = needsSpace ? `${last} ${item.str}` : `${last}${item.str}`;
+        }
+      }
+
+      const pageText = lines
+        .join('\n')
+        .replace(/-\n(?=\p{Ll})/gu, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n{3,}/g, '\n\n')
         .trim();
 
       if (pageText) {
@@ -770,6 +833,66 @@ export async function markdownToPDF(markdown: string): Promise<ConversionResult>
 }
 
 /**
+ * Markdown → DOCX (Word)
+ */
+async function markdownToDocx(markdown: string): Promise<ConversionResult> {
+  try {
+    const { Document, Paragraph, TextRun, HeadingLevel, Packer } = await import('docx');
+
+    const parseInline = (line: string): InstanceType<typeof TextRun>[] => {
+      const runs: InstanceType<typeof TextRun>[] = [];
+      const regex = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`|(.+?))/g;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(line)) !== null) {
+        if (match[2]) {
+          runs.push(new TextRun({ text: match[2], bold: true }));
+        } else if (match[3]) {
+          runs.push(new TextRun({ text: match[3], italics: true }));
+        } else if (match[4]) {
+          runs.push(new TextRun({ text: match[4], font: 'Courier New' }));
+        } else if (match[5]) {
+          runs.push(new TextRun({ text: match[5] }));
+        }
+      }
+      return runs.length > 0 ? runs : [new TextRun({ text: line })];
+    };
+
+    const children: InstanceType<typeof Paragraph>[] = [];
+
+    for (const line of markdown.split('\n')) {
+      if (line.startsWith('# ')) {
+        children.push(new Paragraph({ text: line.slice(2).trim(), heading: HeadingLevel.HEADING_1 }));
+      } else if (line.startsWith('## ')) {
+        children.push(new Paragraph({ text: line.slice(3).trim(), heading: HeadingLevel.HEADING_2 }));
+      } else if (line.startsWith('### ')) {
+        children.push(new Paragraph({ text: line.slice(4).trim(), heading: HeadingLevel.HEADING_3 }));
+      } else if (line.startsWith('#### ')) {
+        children.push(new Paragraph({ text: line.slice(5).trim(), heading: HeadingLevel.HEADING_4 }));
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        children.push(new Paragraph({ children: parseInline(line.slice(2).trim()), bullet: { level: 0 } }));
+      } else if (!line.trim()) {
+        children.push(new Paragraph({ text: '' }));
+      } else {
+        const stripped = line.replace(/\[(.+?)\]\(.+?\)/g, '$1');
+        children.push(new Paragraph({ children: parseInline(stripped) }));
+      }
+    }
+
+    const doc = new Document({ sections: [{ children }] });
+    const base64 = await Packer.toBase64String(doc);
+    return {
+      success: true,
+      data: `data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,${base64}`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `DOCX-Konvertierung fehlgeschlagen: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+    };
+  }
+}
+
+/**
  * Hauptkonvertierungsfunktion
  */
 export async function convertFile(
@@ -855,13 +978,14 @@ export async function convertFile(
     if (isImageFormat(fromFormat) && isImageFormat(toFormat)) {
       if (isRasterImageFormat(fromFormat) && content instanceof ArrayBuffer) {
         if (isRasterImageFormat(toFormat)) {
-          const rasterDataUrl = await rasterToRasterDataUrl(
+          const { blobUrl, byteSize } = await rasterToRasterBlobUrl(
             content,
             fromFormat,
             toFormat,
-            options.imageQuality ?? 0.92
+            options.imageQuality ?? 0.92,
+            options.imageMaxOutputSize,
           );
-          return { success: true, data: rasterDataUrl };
+          return { success: true, data: blobUrl, byteSize };
         }
 
         if (toFormat === 'svg') {
@@ -1056,6 +1180,8 @@ export async function convertFile(
           return markdownToJSON(content);
         case 'pdf':
           return await markdownToPDF(content);
+        case 'docx':
+          return await markdownToDocx(content);
       }
     }
 

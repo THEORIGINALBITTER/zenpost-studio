@@ -1,4 +1,5 @@
 import { exists, mkdir, readDir, readTextFile, remove, writeTextFile } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
 import { getProjectDataDir } from './appConfigService';
 
 export type EditorTheme = 'dark' | 'light';
@@ -19,6 +20,13 @@ export interface EditorSettings {
   marginRight: number;
 }
 
+export type EditorMarginValues = Pick<
+  EditorSettings,
+  'marginTop' | 'marginBottom' | 'marginLeft' | 'marginRight'
+>;
+
+export type EditorMarginPresetId = 'none' | 'narrow' | 'normal' | 'wide' | 'custom';
+
 export const defaultEditorSettings: EditorSettings = {
   fontSize: 12,
   autoSaveEnabled: false,
@@ -33,6 +41,61 @@ export const defaultEditorSettings: EditorSettings = {
   marginBottom: 48,
   marginLeft: 64,
   marginRight: 64,
+};
+
+export const EDITOR_MARGIN_PRESETS: Array<{
+  id: Exclude<EditorMarginPresetId, 'custom'>;
+  label: string;
+  margins: EditorMarginValues;
+}> = [
+  {
+    id: 'none',
+    label: 'Kein',
+    margins: { marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0 },
+  },
+  {
+    id: 'narrow',
+    label: 'Eng',
+    margins: { marginTop: 24, marginBottom: 24, marginLeft: 32, marginRight: 32 },
+  },
+  {
+    id: 'normal',
+    label: 'Normal',
+    margins: { marginTop: 48, marginBottom: 48, marginLeft: 64, marginRight: 64 },
+  },
+  {
+    id: 'wide',
+    label: 'Weit',
+    margins: { marginTop: 80, marginBottom: 80, marginLeft: 120, marginRight: 120 },
+  },
+];
+
+export const getEditorMarginValuesFromPreset = (
+  presetId: Exclude<EditorMarginPresetId, 'custom'>
+): EditorMarginValues => {
+  const preset = EDITOR_MARGIN_PRESETS.find((entry) => entry.id === presetId);
+  return preset
+    ? { ...preset.margins }
+    : {
+        marginTop: defaultEditorSettings.marginTop,
+        marginBottom: defaultEditorSettings.marginBottom,
+        marginLeft: defaultEditorSettings.marginLeft,
+        marginRight: defaultEditorSettings.marginRight,
+      };
+};
+
+export const detectEditorMarginPreset = (
+  margins: EditorMarginValues
+): EditorMarginPresetId => {
+  const preset = EDITOR_MARGIN_PRESETS.find(
+    (entry) =>
+      entry.margins.marginTop === margins.marginTop &&
+      entry.margins.marginBottom === margins.marginBottom &&
+      entry.margins.marginLeft === margins.marginLeft &&
+      entry.margins.marginRight === margins.marginRight
+  );
+
+  return preset?.id ?? 'custom';
 };
 
 const EDITOR_DIR = 'editor';
@@ -71,6 +134,10 @@ const loadSettingsFromLocalStorage = (): Partial<EditorSettings> | null => {
 };
 
 export const loadEditorSettings = async (projectPath: string): Promise<EditorSettings> => {
+  if (!isTauri()) {
+    const fromStorage = loadSettingsFromLocalStorage();
+    return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
+  }
   try {
     const settingsPath = await getEditorSettingsPath(projectPath);
     if (!(await exists(settingsPath))) {
@@ -260,6 +327,7 @@ export const loadDraftAutosave = async (
   projectPath: string,
   key: string
 ): Promise<DraftAutosaveRecord | null> => {
+  if (!isTauri()) return null;
   try {
     // Zuerst neue versionierte Dateien prüfen
     const versions = await listDraftAutosaves(projectPath, key);

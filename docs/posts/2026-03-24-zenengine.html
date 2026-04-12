@@ -1,0 +1,95 @@
+<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>ZenEngine</title></head><body><h1>ZenEngine</h1>
+<p>ZenEngine ist die lokale Lern-Engine von ZenPost Studio. Sie lernt aus deinem Feedback und verbessert KI-Ergebnisse ueber Zeit — ohne Cloud, ohne Datenweitergabe.</p>
+<h2>Was macht ZenEngine?</h2>
+<p>ZenEngine analysiert transformierte Inhalte und gibt Echtzeit-Vorschlaege direkt im Editor. Sie lernt aus deinen Reaktionen auf diese Vorschlaege und passt sich deinem Schreibstil an.</p>
+<p><strong>Phase 1 (aktiv): Regel-Engine</strong></p>
+<ul>
+<li>Pure C++ Substring-Matching</li>
+<li>Laeuft lokal, ohne GPU</li>
+<li>Erkennt Formulierungen, die du haeufig aenderst oder behaelst</li>
+<li>Schlaegt Alternativen vor, die du in der Vergangenheit bestaetigt hast</li>
+</ul>
+<p><strong>Phase 2 (geplant): Lokales Sprachmodell</strong></p>
+<ul>
+<li>Kleine LLMs (z.B. phi-3-mini via Ollama)</li>
+<li>Nur auf Apple Silicon aktiviert (arm-Architektur)</li>
+<li>Auf Intel mit Hinweis deaktiviert (zu langsam fuer Inline-Suggestions)</li>
+</ul>
+<hr>
+<h2>Vorschlaege im Editor</h2>
+<p>ZenEngine zeigt Vorschlaege direkt im Schreibfluss an. Du entscheidest per Tastendruck:</p>
+<table>
+<thead>
+<tr>
+<th>Aktion</th>
+<th align="center">Tastenkuerzel</th>
+<th>Wirkung</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Vorschlag annehmen</td>
+<td align="center"><code>Tab</code></td>
+<td>Text wird uebernommen, Engine lernt positiv</td>
+</tr>
+<tr>
+<td>Vorschlag ablehnen</td>
+<td align="center"><code>Esc</code></td>
+<td>Vorschlag verschwindet, Engine lernt negativ</td>
+</tr>
+<tr>
+<td>Vorschlag ignorieren</td>
+<td align="center">Weiterschreiben</td>
+<td>Kein Feedback, kein Lernen</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Lernhistorie</h2>
+<p>ZenEngine speichert dein Feedback lokal. Du kannst den aktuellen Lernstand jederzeit einsehen:</p>
+<p><strong>Oeffnen:</strong> Einstellungen → ZenEngine → &quot;Lernstatus anzeigen&quot;</p>
+<p><strong>Anzeige:</strong></p>
+<ul>
+<li>Anzahl positiver Rueckmeldungen (✓ angenommene Vorschlaege)</li>
+<li>Anzahl negativer Rueckmeldungen (× abgelehnte Vorschlaege)</li>
+<li>Stumm geschaltete Vorschlaege (– ignorierte Muster)</li>
+</ul>
+<p><strong>Lernhistorie zuruecksetzen:</strong></p>
+<p>Einstellungen → ZenEngine → &quot;Lernhistorie zuruecksetzen&quot;</p>
+<p>Achtung: Alle stumm geschalteten Vorschlaege werden wieder aktiv. Diese Aktion kann nicht rueckgaengig gemacht werden.</p>
+<hr>
+<h2>ZenEngine-Einstellungen</h2>
+<table>
+<thead>
+<tr>
+<th>Einstellung</th>
+<th>Beschreibung</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Engine aktiv</td>
+<td>ZenEngine global ein- oder ausschalten</td>
+</tr>
+<tr>
+<td>Vorschlaege im Editor</td>
+<td>Inline-Vorschlaege waehrend des Schreibens</td>
+</tr>
+<tr>
+<td>Lernmodus</td>
+<td>Engine lernt aus Feedback (an/aus)</td>
+</tr>
+<tr>
+<td>Schwellwert</td>
+<td>Wie oft ein Muster bestaetigt werden muss, bevor es vorgeschlagen wird</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>Datenschutz</h2>
+<ul>
+<li>Alle Lerndata bleiben auf deinem Geraet</li>
+<li>Kein Upload, keine Telemetrie</li>
+<li>Zuruecksetzen loescht alle lokalen Lerndaten vollstaendig</li>
+</ul>
+<hr>
+<h2>Technischer Hintergrund</h2>
+<p>ZenEngine Phase 1 ist in C++ implementiert und wird ueber Tauri als native Binary eingebunden. Die Engine laeuft auf allen Plattformen (macOS, Windows, Linux) identisch schnell, da kein GPU-Zugriff benoetigt wird.</p>
+<p>Die Kommunikation zwischen React-Frontend und C++-Engine erfolgt ueber Tauri-Commands (IPC). Latenz ist vernachlaessigbar (&lt;1ms fuer Regel-Matching).</p>
+</body></html>

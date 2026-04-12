@@ -23,6 +23,12 @@ const getCloudBaseUrl = (): { baseUrl: string | null; token: string | null } => 
   return { baseUrl: baseUrl || null, token: token || null };
 };
 
+export const canUploadToZenCloud = (): boolean => {
+  const settings = loadZenStudioSettings();
+  const { baseUrl, token } = getCloudBaseUrl();
+  return !!(baseUrl && token && settings.cloudProjectId);
+};
+
 // Tauri-aware GET: uses invoke('http_fetch') in desktop (bypasses CORS), browser fetch in web
 const cloudGet = async (url: string, token: string): Promise<{ ok: boolean; text: string }> => {
   if (isTauri()) {
@@ -68,6 +74,21 @@ export const uploadCloudDocument = async (file: File): Promise<CloudUploadResult
 
   // image_download.php akzeptiert Token als URL-Parameter → <img src> kann es direkt laden
   return { id: json.id, url: `${baseUrl}/image_download.php?id=${json.id}&token=${encodeURIComponent(token)}` };
+};
+
+export const uploadCloudImageDataUrl = async (
+  dataUrl: string,
+  fileName = 'image.jpg',
+): Promise<CloudUploadResult | null> => {
+  if (!/^data:image\//i.test(dataUrl)) return null;
+  try {
+    const response = await fetch(dataUrl);
+    const blob = await response.blob();
+    const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+    return await uploadCloudDocument(file);
+  } catch {
+    return null;
+  }
 };
 
 export const updateCloudDocument = async (id: number, file: File): Promise<boolean> => {

@@ -88,7 +88,7 @@ const InputField = ({
           width: '100%',
           padding: '14px 16px',
           paddingRight: canReveal ? 34 : 16,
-          border: '1px solid #AC8E66',
+          border: '1px solid #1a1a1a',
           borderRadius: '8px',
           backgroundColor: 'transparent',
           boxShadow: 'none',
@@ -96,7 +96,7 @@ const InputField = ({
           transition: 'border-color 0.2s',
           boxSizing: 'border-box',
           fontFamily: 'IBM Plex Mono, monospace',
-          color: '#151515',
+          color: '#1a1a1a',
           outline: 'none',
         }}
       />
@@ -548,7 +548,7 @@ export const ZenSocialMediaSettingsContent = ({
         <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, letterSpacing: '0.12em', color: '#AC8E66', textTransform: 'uppercase', marginBottom: 4 }}>
           Media Transformation
         </div>
-        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, fontWeight: 400, color: '#1a1a1a' }}>
           Social Media APIs
         </div>
         <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#777', marginTop: 3 }}>
@@ -564,7 +564,16 @@ export const ZenSocialMediaSettingsContent = ({
     <div style={{ padding: '0 28px 24px', fontSize: '11px' }}>
 
       {/* Sub-Tabs */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '20px', marginBottom: '20px', borderBottom: '1px solid rgba(172,142,102,0.3)', paddingBottom: '0' }}>
+      <div style={{ 
+        display: 'flex', 
+        flexWrap: 'wrap', 
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '4px', 
+        marginTop: '20px', 
+        marginBottom: '20px', 
+        borderBottom: '1px solid rgba(172,142,102,0.3)', 
+        paddingBottom: '0' }}>
         {tabs.map((tab) => (
           <button
             key={tab.id}

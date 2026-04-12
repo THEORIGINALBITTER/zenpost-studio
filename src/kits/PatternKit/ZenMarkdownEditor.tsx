@@ -18,6 +18,7 @@ import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
 import { ZenNotePanel } from './ZenNotePanel';
 import { faNoteSticky } from '@fortawesome/free-solid-svg-icons';
+import { PREVIEW_THEME_EDITOR_TOKENS, type PreviewThemeId } from './zenMarkdownPreviewTypes';
 import { textToMarkdown } from '../../services/aiService';
 import { isTauri } from '@tauri-apps/api/core';
 import {
@@ -26,7 +27,9 @@ import {
   isEditorImageOversized,
 } from '../../utils/editorImageCompression';
 import { uploadCloudDocument } from '../../services/cloudStorageService';
+import { subscribeToInsertContentStudioSnippet } from '../../services/contentStudioBridgeService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
+import { getEditorLineMetrics } from '../../services/editorLayoutMetricsService';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -41,6 +44,9 @@ interface ZenMarkdownEditorProps {
   subtitle?: string;
   showHeader?: boolean;
   theme?: 'dark' | 'light';
+  previewTheme?: PreviewThemeId;
+  fontSize?: number;
+  hideTopBorder?: boolean;
   focusLineRequest?: { line: number; token: number } | null;
   onActiveLineChange?: (line: number) => void;
 
@@ -82,6 +88,9 @@ export const ZenMarkdownEditor = ({
   subtitle,
   showHeader = true,
   theme = 'light',
+  previewTheme = 'mono-clean',
+  fontSize = 12,
+  hideTopBorder = false,
   focusLineRequest = null,
   onActiveLineChange,
   onTitleChange,
@@ -200,7 +209,8 @@ export const ZenMarkdownEditor = ({
   const lastCursorPosRef = useRef<number>(0);
   const lastScrollTopRef = useRef<number>(0);
 
-  const [lineMetrics, setLineMetrics] = useState({ lineHeight: 19, paddingTop: 12 });
+  const initialMetrics = getEditorLineMetrics(fontSize, 12);
+  const [lineMetrics, setLineMetrics] = useState({ lineHeight: initialMetrics.lineHeight, paddingTop: initialMetrics.paddingTop });
 
 
 
@@ -224,21 +234,13 @@ export const ZenMarkdownEditor = ({
 
   useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
-    const styles = window.getComputedStyle(textarea);
-    const lineHeightRaw = styles.lineHeight;
-    const fontSizeRaw = styles.fontSize;
-    let lineHeight = parseFloat(lineHeightRaw);
-    if (Number.isNaN(lineHeight)) {
-      const fontSize = parseFloat(fontSizeRaw);
-      lineHeight = Number.isNaN(fontSize) ? 19 : Math.round(fontSize * 1.6);
-    }
-    const paddingTop = parseFloat(styles.paddingTop);
+    const measuredPaddingTop = textarea ? parseFloat(window.getComputedStyle(textarea).paddingTop) : undefined;
+    const metrics = getEditorLineMetrics(fontSize, measuredPaddingTop);
     setLineMetrics({
-      lineHeight: Number.isNaN(lineHeight) ? 19 : lineHeight,
-      paddingTop: Number.isNaN(paddingTop) ? 12 : paddingTop,
+      lineHeight: metrics.lineHeight,
+      paddingTop: metrics.paddingTop,
     });
-  }, []);
+  }, [fontSize]);
 
   // Insert-Bridge: ZenNote Studio → einfügen an Cursor-Position
   useEffect(() => {
@@ -268,8 +270,11 @@ export const ZenMarkdownEditor = ({
         }
       }, 0);
     };
-    window.addEventListener('zenpost:insert-snippet', handler);
-    return () => window.removeEventListener('zenpost:insert-snippet', handler);
+    return subscribeToInsertContentStudioSnippet(({ content = '' }) => {
+      if (!content) return;
+      const event = { detail: { content } } as CustomEvent<{ content: string }>;
+      handler(event);
+    });
   }, [value, onChange]);
 
   useEffect(() => {
@@ -286,7 +291,7 @@ export const ZenMarkdownEditor = ({
       cursorPos += lines[i].length + 1;
     }
 
-    const lineHeight = lineMetrics.lineHeight || 19;
+    const lineHeight = lineMetrics.lineHeight || getEditorLineMetrics(fontSize).lineHeight;
     const targetScrollTop = Math.max(0, targetLine * lineHeight - textarea.clientHeight * 0.35);
 
     textarea.focus();
@@ -329,7 +334,7 @@ const getCursorPosition = () => {
   const currentLineIndex = lines.length - 1;
   const currentLineText = lines[currentLineIndex];
 
-  const lineHeight = lineMetrics.lineHeight || 19;
+  const lineHeight = lineMetrics.lineHeight || getEditorLineMetrics(fontSize).lineHeight;
   const charWidth = 8.4;
   const paddingTop = lineMetrics.paddingTop || 12;
   const paddingLeft = 12;
@@ -392,7 +397,7 @@ const getCursorPosition = () => {
     const midCharOffset = selectionLines[0].length / 2;
 
     // Estimate position (monospace font assumptions)
-    const lineHeight = lineMetrics.lineHeight || 19;
+    const lineHeight = lineMetrics.lineHeight || getEditorLineMetrics(fontSize).lineHeight;
     const charWidth = 8.4;
     const paddingTop = lineMetrics.paddingTop || 12;
     const paddingLeft = 12;
@@ -1050,25 +1055,26 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 
   const lineCount = Math.max(1, value.split('\n').length);
   const lineNumbers = Array.from({ length: lineCount }, (_, index) => index + 1);
+  const footerScrollBufferPx = 48;
 
   const themeStyles = {
     dark: {
       background: '#1A1A1A',
-      border: '#AC8E66',
+      border: 'rgba(208, 203, 184, 0.35)',
       text: '#dbd9d5',
       lineNumbersBg: '#141414',
       lineNumbersBorder: '#3a3a3a',
-      lineNumbersText: '#AC8E66',
-      activeLine: 'rgba(172, 142, 102, 0.12)',
+      lineNumbersText: '#d0cbb8',
+      activeLine: 'rgba(208, 203, 184, 0.42)',
     },
     light: {
       background: '#D9D4C5',
       border: '#AC8E66',
-      text: '#1a1a1a',
+      text: PREVIEW_THEME_EDITOR_TOKENS[previewTheme].text,
       lineNumbersBg: '#cfc7b6',
       lineNumbersBorder: '#b8a88f',
-      lineNumbersText: '#8b7a5a',
-      activeLine: 'rgba(172, 142, 102, 0.18)',
+      lineNumbersText: PREVIEW_THEME_EDITOR_TOKENS[previewTheme].lineNumbers,
+      activeLine: PREVIEW_THEME_EDITOR_TOKENS[previewTheme].activeLine,
     },
   };
 
@@ -1250,13 +1256,13 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 onChange={(e) => onTitleChange(e.target.value)}
                 style={{
                   fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '16px',
-                  color: '#e5e5e5',
+                  fontSize: '12px',
+                  color: '#d0cbb8',
                   background: 'transparent',
                   border: 'none',
                   borderBottom: '1px solid transparent',
                   outline: 'none',
-                  margin: 0,
+                  margin: '10px 10px',
                   marginBottom: subtitle ? '6px' : 0,
                   display: 'block',
                   width: '100%',
@@ -1271,10 +1277,10 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
               <h2
                 style={{
                   fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '16px',
-                  color: '#e5e5e5',
+                  fontSize: '14px',
+                  color: '#d0cbb8',
                   margin: 0,
-                  marginBottom: subtitle ? '6px' : 0,
+                  marginBottom: subtitle ? '1px' : 0,
                 }}
               >
                 {title}
@@ -1285,8 +1291,8 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             <p
               style={{
                 fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '12px',
-                color: '#777',
+                fontSize: `${fontSize}px`,
+                color: '#888',
                 margin: 0,
               }}
             >
@@ -1399,7 +1405,7 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(26, 26, 26, 0.8)',
+            background: 'rgba(26, 26, 26, 0.4)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -1428,7 +1434,9 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       display: 'flex',
       width: '100%',
       height: '100%',
-      border: `0.5px solid ${colors.border}`,
+      borderLeft: `0.5px solid ${colors.border}`,
+      borderBottom: `0.5px solid ${colors.border}`,
+      borderTop: hideTopBorder ? 'none' : `0.5px solid ${colors.border}`,
       borderRight: '1px solid rgba(172, 142, 102, 0.5)',
       borderRadius: '10px',
       backgroundColor: colors.background,
@@ -1465,7 +1473,7 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 height: '100%',
                 paddingTop: `${lineMetrics.paddingTop}px`,
                 paddingRight: '8px',
-                paddingBottom: `${lineMetrics.paddingTop}px`,
+                paddingBottom: `${lineMetrics.paddingTop + footerScrollBufferPx}px`,
                 paddingLeft: '8px',
                 backgroundColor: colors.lineNumbersBg,
                 borderRight: `1px solid ${colors.lineNumbersBorder}`,
@@ -1539,20 +1547,21 @@ onKeyUp={(e) => {
             }}
             placeholder={placeholder}
             className="flex-1 min-w-0 
-            bg-transparent text-[#151515] font-mono
+            bg-transparent font-mono
               focus:outline-none
               resize-none transition-colors zen-scrollbar"
             style={{
               height: '100%',
               paddingTop: '12px',
               paddingRight: '60px',
-              paddingBottom: '12px',
+              paddingBottom: `${12 + footerScrollBufferPx}px`,
               paddingLeft: '12px',
+              scrollPaddingBottom: `${footerScrollBufferPx}px`,
               flex: 1,
               caretColor: '#AC8E66',
               fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
-              fontSize: '12px',
-              lineHeight: '1.6',
+              fontSize: `${fontSize}px`,
+              lineHeight: `${lineMetrics.lineHeight}px`,
               whiteSpace: 'pre',
               overflowX: 'auto',
               border: 'none',
@@ -1573,17 +1582,24 @@ onKeyUp={(e) => {
         )}
 
         {/* Shortcut Footer - Always visible */}
-        <div className="mt-2 flex items-center justify-between"
-          style={{ paddingTop: '2px', paddingLeft: '4px' }}
+        <div className="mt-[-5px] flex items-center justify-between"
+          style={{ 
+            paddingTop: '2px', 
+           position: 'relative', // oder 'absolute' / 'sticky'
+      zIndex: 20,
+            paddingLeft: '60px' , 
+            background: '#c9c1ad',
+            boxShadow: '0px 0 0 1px rgba(26,26,26, 0.73)'
+          }}
         >
           {/* Shortcuts linke Seite  */}
         <div
-          className="flex flex-wrap items-center justify-center font-mono text-[10px] text-[#777]"
+          className="flex flex-wrap items-center justify-center font-mono text-[10px] text-[#1a1a1a]"
           style={{ marginTop: '8px', paddingLeft: '10px', textAlign: 'center' }}
         >
           {shortcutFooterItems.map((item, index) => (
             <span key={`${item.key}-${item.label}`} className="flex items-center">
-              <span className="text-[#AC8E66] mr-[4px]">{item.key}</span>
+              <span className="text-[#3a3a3a] mr-[4px]">{item.key}</span>
               {item.label}
 
               {index < shortcutFooterItems.length - 1 && (
@@ -1591,11 +1607,11 @@ onKeyUp={(e) => {
               )}
             </span>
           ))}
-          <span className="mx-[12px] opacity-40">|</span>
+          <span className="mx-[12px] opacity-70">|</span>
           <span className="flex items-center">
-            <span className="text-[#AC8E66] mr-[4px]">Enter</span>Absatz
-            <span className="mx-[8px] opacity-40">·</span>
-            <span className="text-[#AC8E66] mr-[4px]">Shift+Enter</span>Zeilenumbruch
+            <span className="text-[#3a3a3a] mr-[4px]">Enter</span>Absatz
+            <span className="mx-[8px] opacity-70">·</span>
+            <span className="text-[#3a3a3a] mr-[4px]">Shift+Enter</span>Zeilenumbruch
           </span>
         </div>
 
@@ -1603,8 +1619,8 @@ onKeyUp={(e) => {
           {/* Right Side: Character Count */}
           <div className="flex items-center gap-3 mr-[10px] mt-[3px]">
             {showCharCount && (
-              <span className="text-[#AC8E66] font-mono text-[10px]">
-                {value.length} <span className="text-[#777]">Zeichen</span>
+              <span className="text-[#3a3a3a] font-mono text-[10px]">
+                {value.length} <span className="text-[#1a1a1a]">Zeichen</span>
               </span>
             )}
           </div>

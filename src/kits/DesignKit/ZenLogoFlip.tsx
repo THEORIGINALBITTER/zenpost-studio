@@ -1,5 +1,5 @@
 import React from "react";
-import BLogoIcon from "../../assets/branding/logo-main.png?url";
+const BLogoIcon = "/favicon.png";
 import ZenPostLogo from "../../assets/ZenPost.png?url";
 import packageJson from "../../../package.json";
 

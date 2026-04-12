@@ -8,6 +8,7 @@ import { getMobileInboxPath, saveMobileInboxPath, saveWebMobileInboxFiles } from
 import * as QRCode from 'qrcode';
 
 const MOBILE_APP_DOWNLOAD_URL = 'https://zenpostapp.denisbitter.de';
+const DOC_LINK = 'https://zenpostdocs.denisbitter.de/workflows/mobile-app.html'
 const MOBILE_APP_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_APP_DOWNLOAD_URL)}`;
 
 export const ZenMobileSettingsContent = () => {
@@ -71,6 +72,15 @@ export const ZenMobileSettingsContent = () => {
     }
   };
 
+    const handleOpenDownloadDoc = async () => {
+    if (isTauri()) {
+      await openUrl(DOC_LINK);
+    } else {
+      window.open(DOC_LINK, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+
   return (
     <div className="w-full flex justify-center" style={{ padding: '32px 32px' }}>
       <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden">
@@ -109,9 +119,12 @@ export const ZenMobileSettingsContent = () => {
                   QR scannen und DEV Log lesen.
                 </div>
                 <button type="button" onClick={handleOpenDownload} style={buttonStyle}>
-                  DEV LOG Seite oeffnen
+                  DEV LOG Seite hier oeffnen
                 </button>
-                <code style={codeRowStyle}>{MOBILE_APP_DOWNLOAD_URL}</code>
+                 <button type="button" onClick={handleOpenDownloadDoc} style={buttonStyle}>
+                  ZenPost Studio Dokumentation
+                </button>
+               
               </div>
             </div>
           </div>
@@ -204,7 +217,7 @@ const buttonStyle: React.CSSProperties = {
   padding: '7px 12px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
-  color: '#1a1a1a',
+  color: '#666',
   boxShadow: 'none',
 
   backgroundColor: 'transparent',

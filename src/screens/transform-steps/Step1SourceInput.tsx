@@ -12,8 +12,9 @@ import { ZenModalHeader } from '../../kits/PatternKit/ZenModalSystem/components/
 import { ZenModalFooter } from '../../kits/PatternKit/ZenModalSystem/components/ZenModalFooter';
 import { ZenBlockEditor } from '../../kits/PatternKit/ZenBlockEditor';
 import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
+import { type PreviewThemeId } from '../../kits/PatternKit/ZenMarkdownPreview';
+import { Step1StyleThemeQuickMenu } from './components/Step1StyleThemeQuickMenu';
 import { importDocumentToMarkdown } from '../../services/documentImportService';
-import rough from 'roughjs/bin/rough';
 import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
@@ -22,7 +23,7 @@ import {
   EDITOR_IMAGE_MAX_FILE_SIZE_MB,
   isEditorImageOversized,
 } from '../../utils/editorImageCompression';
-import { uploadCloudDocument } from '../../services/cloudStorageService';
+import { canUploadToZenCloud, uploadCloudDocument, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 
 // Platform display info for tabs
@@ -95,6 +96,8 @@ interface Step1SourceInputProps {
   onMetaChange?: (meta: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] }) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
+  previewTheme?: PreviewThemeId;
+  onPreviewThemeChange?: (theme: PreviewThemeId) => void;
 }
 
 type LineDiffRow = {
@@ -108,44 +111,30 @@ type LineDiffRow = {
 const EXTERNAL_DOCS_URL =
   "https://zenpostdocs.denisbitter.de/workflows/pages-export.html";
 
-// Helper component for rough circle
 const ZenRoughCircle = ({ number }: { number: number }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const size = 40;
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rc = rough.canvas(canvas);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, size, size);
-
-    // Draw rough circle
-    rc.circle(size / 2, size / 2, size - 8, {
-      roughness: 0.8,
-      bowing: 1,
-      stroke: '#AC8E66',
-      strokeWidth: 2,
-      fill: 'rgba(172, 142, 102, 0.1)',
-      fillStyle: 'solid',
-    });
-  }, []);
 
   return (
     <div className="flex-shrink-0" style={{ position: 'relative', width: size, height: size }}>
-      <canvas
-        ref={canvasRef}
+      <svg
         width={size}
         height={size}
+        viewBox="0 0 100 100"
         style={{
           position: 'absolute',
           top: 0,
           left: 0,
         }}
-      />
+      >
+        <circle
+          cx="50"
+          cy="50"
+          r="40"
+          fill="rgba(172, 142, 102, 0.1)"
+          stroke="#AC8E66"
+          strokeWidth="5"
+        />
+      </svg>
       <div
         style={{
           position: 'absolute',
@@ -296,7 +285,8 @@ const RotatedTab = ({
       <span style={{
         position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
         opacity: hovered ? 1 : 0,
-        color: disabled ? color : '#AC8E66',
+        color: disabled ? color : '#d0cbb8',
+      
         transition: 'opacity 0.18s ease',
         padding: '0 10px',
       }}>
@@ -365,6 +355,8 @@ export const Step1SourceInput = ({
   onMetaChange,
   analysisKeywords = [],
   onAnalysisKeywordsChange,
+  previewTheme = 'mono-clean',
+  onPreviewThemeChange,
 }: Step1SourceInputProps) => {
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
@@ -420,6 +412,7 @@ export const Step1SourceInput = ({
 
   const [showOutline, setShowOutline] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
+  const [showStyleThemes, setShowStyleThemes] = useState(false);
   const [showAutosaveHistory, setShowAutosaveHistory] = useState(false);
   const [autosaveHovered, setAutosaveHovered] = useState(false);
   const [editorToggleHovered, setEditorToggleHovered] = useState(false);
@@ -430,6 +423,7 @@ export const Step1SourceInput = ({
   const [activeCursorLine, setActiveCursorLine] = useState<number>(0);
   const hasDerivedDocTabs = docTabs.some((tab) => tab.kind === 'derived');
   const currentMetaImageUrl = (postMeta?.imageUrl ?? '').trim();
+  const cloudImageUploadEnabled = canUploadToZenCloud();
   const metaImageIsInlineData = /^data:image\//i.test(currentMetaImageUrl);
   const metaImageIsBlob = /^blob:/i.test(currentMetaImageUrl);
   const metaImageInvalidForServer = metaImageIsInlineData || metaImageIsBlob;
@@ -644,12 +638,8 @@ export const Step1SourceInput = ({
       const markdownImageLines: string[] = [];
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
-      // Cloud-Projekt: immer zum Server hochladen (Desktop + Web)
-      const isCloudProject = typeof projectPath === 'string' && projectPath.startsWith('@cloud:');
-      const cloudSettings = loadZenStudioSettings();
-      const canCloudUpload = !!(cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId);
-
-      if (isCloudProject && canCloudUpload) {
+      // ZenCloud verbunden: Bilder immer als Cloud-Asset speichern, nicht inline/local
+      if (canUploadToZenCloud()) {
         for (const imageFile of limitedFiles) {
           const safeStem = sanitizeFileStem(imageFile.name);
           const uploaded = await uploadCloudDocument(imageFile);
@@ -737,12 +727,8 @@ export const Step1SourceInput = ({
       const markdownImageLines: string[] = [];
       const blockImages: Array<{ url: string; alt?: string }> = [];
 
-      const isCloudProject = typeof projectPath === 'string' && projectPath.startsWith('@cloud:');
-      const cloudSettings = loadZenStudioSettings();
-      const canCloudUpload = !!(cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId);
-
-      if (isCloudProject && canCloudUpload) {
-        // Cloud-Projekt: Datei einlesen und hochladen
+      if (canUploadToZenCloud()) {
+        // ZenCloud verbunden: Datei einlesen und als Cloud-Asset hochladen
         const { readFile } = await import('@tauri-apps/plugin-fs');
         for (const sourcePath of normalized) {
           const sourceName = sourcePath.split('/').pop()?.split('\\').pop() || 'image';
@@ -848,6 +834,75 @@ export const Step1SourceInput = ({
     onMetaChange?.({ ...(postMeta ?? EMPTY_META), tags });
   }, [onMetaChange, postMeta]);
 
+  const commitMetaImageUrl = useCallback(async (rawValue: string) => {
+    const trimmed = rawValue.trim();
+    if (!trimmed) {
+      updatePostMetaField('imageUrl', '');
+      return;
+    }
+
+    if (!cloudImageUploadEnabled) {
+      updatePostMetaField('imageUrl', trimmed);
+      return;
+    }
+
+    if (/^https?:\/\//i.test(trimmed)) {
+      updatePostMetaField('imageUrl', trimmed);
+      return;
+    }
+
+    try {
+      if (/^data:image\//i.test(trimmed)) {
+        const uploaded = await uploadCloudImageDataUrl(trimmed, 'meta-cover.jpg');
+        if (uploaded?.url) {
+          updatePostMetaField('imageUrl', uploaded.url);
+          onError?.('');
+          return;
+        }
+      }
+
+      if (/^blob:/i.test(trimmed)) {
+        const response = await fetch(trimmed);
+        const blob = await response.blob();
+        const uploaded = await uploadCloudDocument(new File([blob], 'meta-cover.jpg', { type: blob.type || 'image/jpeg' }));
+        if (uploaded?.url) {
+          updatePostMetaField('imageUrl', uploaded.url);
+          onError?.('');
+          return;
+        }
+      }
+
+      if (isTauri() && (isImagePath(trimmed) || trimmed.startsWith('file://') || /^(\/|[a-zA-Z]:[\\/])/.test(trimmed))) {
+        const { readFile } = await import('@tauri-apps/plugin-fs');
+        const normalizedPath = normalizeDroppedPath(trimmed);
+        const sourceName = normalizedPath.split('/').pop()?.split('\\').pop() || 'meta-cover.jpg';
+        const bytes = await readFile(normalizedPath);
+        const ext = sourceName.split('.').pop()?.toLowerCase() ?? 'jpg';
+        const mime = ext === 'png'
+          ? 'image/png'
+          : ext === 'svg'
+            ? 'image/svg+xml'
+            : ext === 'webp'
+              ? 'image/webp'
+              : ext === 'gif'
+                ? 'image/gif'
+                : 'image/jpeg';
+        const uploaded = await uploadCloudDocument(new File([bytes], sourceName, { type: mime }));
+        if (uploaded?.url) {
+          updatePostMetaField('imageUrl', uploaded.url);
+          onError?.('');
+          return;
+        }
+      }
+
+      updatePostMetaField('imageUrl', trimmed);
+    } catch (error) {
+      console.error('Meta image input commit failed:', error);
+      updatePostMetaField('imageUrl', trimmed);
+      onError?.('Bild konnte nicht in ZenCloud hochgeladen werden. Eingabe wurde unverändert übernommen.');
+    }
+  }, [cloudImageUploadEnabled, onError, updatePostMetaField]);
+
   const extractDroppedImageUrl = (event: DragEvent<HTMLElement>): string => {
     const dataTransfer = event.dataTransfer;
     if (!dataTransfer) return '';
@@ -883,7 +938,13 @@ export const Step1SourceInput = ({
       }
       try {
         let imageUrl: string;
-        if (isTauri()) {
+        if (cloudImageUploadEnabled) {
+          const uploaded = await uploadCloudDocument(firstImage);
+          if (!uploaded?.url) {
+            throw new Error('Cloud Upload fehlgeschlagen');
+          }
+          imageUrl = uploaded.url;
+        } else if (isTauri()) {
           // Tauri: save to _assets/ folder next to doc (same as editor) — no base64
           const { writeFile, mkdir } = await import('@tauri-apps/plugin-fs');
           let imagesDir: string;
@@ -914,13 +975,38 @@ export const Step1SourceInput = ({
 
     const droppedUrl = extractDroppedImageUrl(event);
     if (droppedUrl) {
+      if (cloudImageUploadEnabled && isTauri() && isImagePath(droppedUrl)) {
+        try {
+          const { readFile } = await import('@tauri-apps/plugin-fs');
+          const sourceName = droppedUrl.split('/').pop()?.split('\\').pop() || 'image';
+          const bytes = await readFile(droppedUrl);
+          const ext = sourceName.split('.').pop()?.toLowerCase() ?? 'jpg';
+          const mime = ext === 'png'
+            ? 'image/png'
+            : ext === 'svg'
+              ? 'image/svg+xml'
+              : ext === 'webp'
+                ? 'image/webp'
+                : ext === 'gif'
+                  ? 'image/gif'
+                  : 'image/jpeg';
+          const uploaded = await uploadCloudDocument(new File([bytes], sourceName, { type: mime }));
+          if (uploaded?.url) {
+            updatePostMetaField('imageUrl', uploaded.url);
+            onError?.('');
+            return;
+          }
+        } catch (error) {
+          console.error('Meta image cloud path upload failed:', error);
+        }
+      }
       updatePostMetaField('imageUrl', droppedUrl);
       onError?.('');
       return;
     }
 
     onError?.('Nur Bilddateien oder Bild-URLs sind für Bild-URL erlaubt.');
-  }, [onError, projectPath, updatePostMetaField]);
+  }, [cloudImageUploadEnabled, onError, projectPath, updatePostMetaField]);
 
   // Get active doc tab info
   const activeDocTab = docTabs.find((tab) => tab.id === activeDocTabId);
@@ -933,7 +1019,25 @@ export const Step1SourceInput = ({
 
   const contentTitle = extractTitleFromContent(sourceContent);
   const displayFileName = activeDocTab?.title || contentTitle || (sourceContent ? 'Dokument' : 'Neues Dokument');
-  const displayPath = activeDocTab?.displayPath || (projectPath ? `${projectPath}/${displayFileName}` : displayFileName);
+  const displayPath = (() => {
+    if (activeDocTab?.displayPath) {
+      const dp = activeDocTab.displayPath;
+      if (dp.startsWith('@cloud:')) {
+        const cloudName = loadZenStudioSettings().cloudProjectName;
+        const slash = dp.indexOf('/');
+        const docPart = slash >= 0 ? dp.slice(slash + 1) : null;
+        return cloudName
+          ? (docPart ? `@cloud: ${cloudName} / ${docPart}` : `@cloud: ${cloudName}`)
+          : dp;
+      }
+      return dp;
+    }
+    if (projectPath?.startsWith('@cloud:')) {
+      const cloudName = loadZenStudioSettings().cloudProjectName;
+      return cloudName ? `@cloud: ${cloudName} / ${displayFileName}` : `@cloud: ${displayFileName}`;
+    }
+    return projectPath ? `${projectPath}/${displayFileName}` : displayFileName;
+  })();
   const revealPath = activeDocTab?.filePath || (projectPath && !projectPath.startsWith('@') ? projectPath : null);
   const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
   const comparisonRows = useMemo<LineDiffRow[]>(() => {
@@ -1291,8 +1395,8 @@ export const Step1SourceInput = ({
                         cursor: 'pointer',
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: isActive ? '10px' : '9px',
-                        fontWeight: isActive ? '200' : '400',
-                        color: isActive ? '#1a1a1a' : '#999',
+                
+                        color: isActive ? '#1a1a1a' : '#777',
                         transition: 'all 0.1s',
                         transform: isActive ? 'translateY(0)' : 'translateY(8px)',
                         display: 'flex',
@@ -1364,7 +1468,7 @@ export const Step1SourceInput = ({
                       e.currentTarget.style.color = '#AC8E66';
                       e.currentTarget.style.borderColor = '#AC8E66';
                       e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.zIndex = '1'
+                      e.currentTarget.style.zIndex = '0'
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.color = '#666';
@@ -1424,7 +1528,7 @@ export const Step1SourceInput = ({
                 marginTop: '10px',
                 marginBottom: '20px',
                 position: 'relative',
-                zIndex: 1,
+                zIndex: 10,
               }}
             >
               <FontAwesomeIcon
@@ -1454,8 +1558,12 @@ export const Step1SourceInput = ({
                 zIndex: 1,
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', marginBottom: '8px', flexWrap: 'wrap' }}>
-                <div className="font-mono text-[10px] text-[#d0cbb8]">
+              <div style={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                gap: '10px', 
+                marginBottom: '8px', flexWrap: 'wrap' }}>
+                <div className="font-mono text-[10px] text-[#d0cbb8] py-[10px]">
                   Vorher: {comparisonBaseLabel}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1475,7 +1583,7 @@ export const Step1SourceInput = ({
                   {onAdoptCurrentAsComparisonBase ? (
                     <button
                       onClick={onAdoptCurrentAsComparisonBase}
-                      className="font-mono text-[9px] px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66]
+                      className="font-mono text-[9px] px-[10px] py-[10px] rounded-[4px] border-[0.5px] border-[#d0cbb8] text-[#d0cbb8]
                       hover:bg-[#d0cbb8] transition-colors
                       hover:text-[#1a1a1a]
                       hover:border-[#AC8E66] focus:outline-none focus:ring-2 focus:ring-[#AC8E66]/50"
@@ -1491,9 +1599,9 @@ export const Step1SourceInput = ({
                       background: 'transparent',
                       border: '1px solid #d0cbb8',
                       borderRadius: '4px',
-                      color: '#d0cbb8',
-                      width: '22px',
-                      height: '22px',
+                      color: '#f35120',
+                      width: '30px',
+                      height: '30px',
                       display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -1503,8 +1611,8 @@ export const Step1SourceInput = ({
                       lineHeight: 1,
                       transition: 'border-color 0.15s, color 0.15s',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#AC8E66'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3A3A3A'; e.currentTarget.style.color = '#666'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#f35120'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3A3A3A'; e.currentTarget.style.color = '#f35120'; }}
                   >
                     ×
                   </button>
@@ -1643,7 +1751,7 @@ export const Step1SourceInput = ({
                 top: showOutline ? 60 : 190,
                 transform: showOutline ? 'rotate(0deg)' : 'rotate(-90deg)',
                 backgroundColor: '#1a1a1a',
-                border: '0.5px solid #AC8E66',
+                   border: "0.5px solid rgba(208, 203, 184, 0.45)",
               }}
               label={showOutline ? 'Gliederung ausblenden' : 'Gliederung'}
               hoverLabel={showOutline ? 'Schließen ×' : 'Öffnen →'}
@@ -1658,12 +1766,12 @@ export const Step1SourceInput = ({
                 top: showComparison ? 295 : 300,
                 transform: 'rotate(-90deg)',
                 backgroundColor: !canUseComparison ? '#0f0f0f' : showComparison ? '#d0cbb8' : '#1a1a1a',
-                border: !canUseComparison ? '1px solid #3A3A3A' : '0.5px solid #AC8E66',
+                border: !canUseComparison ? '1px solid #3A3A3A' :  "0.5px solid rgba(208, 203, 184, 0.45)",
                 cursor: !canUseComparison ? 'not-allowed' : 'pointer',
               }}
               label={`Vergleich ${showComparison ? 'an' : 'aus'}`}
               hoverLabel={!canUseComparison ? 'Nicht verfügbar' : showComparison ? 'Ausblenden ×' : 'Einblenden →'}
-              color={!canUseComparison ? '#5c5c5c' : showComparison ? '#1a1a1a' : '#aaaaaa'}
+              color={!canUseComparison ? '#1a1a1a' : showComparison ? '#1a1a1a' : '#aaaaaa'}
               title={!canUseComparison ? 'Keine Vergleichsbasis verfügbar.' : `Vergleich ${showComparison ? 'ausblenden' : 'anzeigen'}`}
             />
 
@@ -1675,11 +1783,18 @@ export const Step1SourceInput = ({
                 top: 420,
                 transform: 'rotate(-90deg)',
                 backgroundColor: showMeta ? '#d0cbb8' : '#1a1a1a',
-                border: '0.5px solid #AC8E66',
+                   border: "0.5px solid rgba(208, 203, 184, 0.45)",
               }}
               label="Post Metadaten"
               hoverLabel={showMeta ? 'Schließen ×' : 'Öffnen →'}
               color={showMeta ? '#1a1a1a' : '#aaaaaa'}
+            />
+
+            <Step1StyleThemeQuickMenu
+              isOpen={showStyleThemes}
+              onToggle={() => setShowStyleThemes((v) => !v)}
+              previewTheme={previewTheme}
+              onPreviewThemeChange={onPreviewThemeChange}
             />
 
             {/* Meta Panel */}
@@ -1695,6 +1810,7 @@ export const Step1SourceInput = ({
                   background: '#151515',
                   border: '1px solid rgba(172, 142, 102, 0.25)',
                   boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+                  
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 8,
@@ -1705,14 +1821,12 @@ export const Step1SourceInput = ({
 
                 }}
               >
-                <div className="font-mono text-[9px] text-[#AC8E66] tracking-wide">Post Metadaten · ESC Closed</div>
-                <div className="font-mono text-[9px] leading-[12px] text-[#999]" style={{ marginBottom: 4 }}>
-                  Geladene Artikel werden vorgefuellt · Leer = auto aus Inhalt
-                </div>
+                <div className="font-mono text-[10px] text-[#AC8E66] tracking-wide">Post Metadaten · ESC Closed</div>
+             
                 {/* Tags section */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div className="font-mono text-[9px] text-[#999]">Tags / Keywords</div>
+                    <div className="font-mono text-[10px] text-[#AC8E66]">Tags/Keywords</div>
                     {analysisKeywords.length > 0 && (
                       <button
                         type="button"
@@ -1722,15 +1836,15 @@ export const Step1SourceInput = ({
                           updatePostMetaTags(merged);
                         }}
                         style={{
-                          background: 'transparent',
-                          border: '1px solid #AC8E66',
+                           background: 'rgba(208, 203, 184, 0.88)',
+                            boxShadow: 'none',
                           borderRadius: 4,
-                          color: '#AC8E66',
+                          color: '#1a1a1a',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: 8,
-                          padding: '2px 6px',
+                          padding: '4px 6px',
                           cursor: 'pointer',
-                          whiteSpace: 'nowrap',
+                        
                         }}
                         title="Top-Keywords aus Analyse als Tags übernehmen"
                       >
@@ -1745,26 +1859,37 @@ export const Step1SourceInput = ({
                         key={tag}
                         style={{
                           display: 'inline-flex', alignItems: 'center', gap: 3,
-                          background: 'rgba(172, 142, 102, 0.12)',
-                          border: '1px solid rgba(172, 142, 102, 0.35)',
-                          borderRadius: 999,
+                          background: 'rgba(208, 203, 184, 0.88)',
+                          border: '1px solid #777',
+                          borderRadius: 4,
                           padding: '2px 7px',
                           fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: 9,
-                          color: '#D4C5A9',
+                          fontSize: 8,
+                          color: '#1a1a1a',
                         }}
                       >
                         {tag}
                         <button
                           type="button"
                           onClick={() => updatePostMetaTags((postMeta?.tags ?? []).filter(t => t !== tag))}
-                          style={{ background: 'transparent', border: 'none', color: '#777', cursor: 'pointer', padding: 0, fontSize: 10, lineHeight: 1 }}
+                          style={{ 
+                            background: 'transparent', 
+                            boxShadow: 'none',
+                            border: 'none', 
+                            color: '#cc2d05', 
+                            cursor: 'pointer', 
+                            padding: 0, 
+                            fontSize: 14, lineHeight: 1 }}
                           title={`"${tag}" entfernen`}
                         >×</button>
                       </span>
                     ))}
                     {(postMeta?.tags ?? []).length === 0 && (
-                      <div className="font-mono text-[9px] text-[#555]">Noch keine Tags</div>
+                      <div className="font-mono text-[9px] text-[#e37154] "
+                      style={{ textAlign: 'right', width: '100%' }}
+                      >
+                        Noch keine Tags
+                        </div>
                     )}
                   </div>
                   {/* Add tag input */}
@@ -1788,7 +1913,7 @@ export const Step1SourceInput = ({
                         flex: 1,
                         background: '#0f0f0f', border: '1px solid #3A3A3A', borderRadius: 6,
                         padding: '4px 7px', fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: 9, color: '#D9D4C5', outline: 'none',
+                        fontSize: 10, color: '#D9D4C5', outline: 'none',
                       }}
                     />
                     <button
@@ -1807,14 +1932,14 @@ export const Step1SourceInput = ({
                       }}
                     >+</button>
                   </div>
-                  <div className="font-mono text-[8px] text-[#555]" style={{ lineHeight: '11px' }}>
+                  <div className="font-mono text-[9px] text-[#d0cbb8]" style={{ lineHeight: '11px' }}>
                     Enter oder Komma zum Hinzufügen · Wird als YAML tags + keywords gespeichert
                   </div>
                 </div>
 
                 {(['title', 'subtitle', 'imageUrl', 'date'] as const).map((field) => (
                   <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div className="font-mono text-[9px] text-[#999]">
+                    <div className="font-mono text-[10px] text-[#AC8E66]">
                       {field === 'imageUrl' ? 'Bild-URL' : field === 'title' ? 'Titel' : field === 'subtitle' ? 'Untertitel' : 'Datum'}
                     </div>
                     {field === 'title' || field === 'subtitle' ? (
@@ -1844,6 +1969,15 @@ export const Step1SourceInput = ({
                         type={field === 'date' ? 'date' : 'text'}
                         value={postMeta?.[field] ?? ''}
                         onChange={(e) => updatePostMetaField(field, e.target.value)}
+                        onBlur={field === 'imageUrl' ? (event) => {
+                          void commitMetaImageUrl(event.target.value);
+                        } : undefined}
+                        onKeyDown={field === 'imageUrl' ? (event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            void commitMetaImageUrl((event.target as HTMLInputElement).value);
+                          }
+                        } : undefined}
                         onDragEnter={field === 'imageUrl' ? (event) => {
                           event.preventDefault();
                           event.stopPropagation();
@@ -1884,6 +2018,14 @@ export const Step1SourceInput = ({
                           style={{ color: (postMeta?.imageUrl ?? '').trim() ? '#AC8E66' : '#777' }}
                         >
                           {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
+                        </div>
+                        <div
+                          className="font-mono text-[9px]"
+                          style={{ color: cloudImageUploadEnabled ? '#AC8E66' : '#8b8b8b', lineHeight: '12px' }}
+                        >
+                          {cloudImageUploadEnabled
+                            ? 'Drag & Drop lädt Titelbild direkt in ZenCloud und speichert die Asset-URL.'
+                            : 'Drag & Drop setzt lokal Pfad/OPFS. Mit ZenCloud wird hier direkt die Asset-URL gespeichert.'}
                         </div>
                         {metaImageIsInlineData && isTauri() && (
                           <div
@@ -2180,12 +2322,13 @@ export const Step1SourceInput = ({
                   headingRequest={blockHeadingRequest}
                   focusHeadingRequest={outlineBlockFocusRequest}
                   onActiveHeadingChange={handleActiveBlockHeadingChange}
-                  placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen über Projekte Ordner"
-                  height="calc(100vh - 210px)"
+                  placeholder="Schreibe was du denkst oder nutze + für Formatierung... oder einfach eine Datei hochladen per Drag & Drop."
+                  height="calc(90vh - 210px)"
                   fontSize={editorSettings?.fontSize}
                   wrapLines={editorSettings?.wrapLines}
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  previewTheme={previewTheme}
                   onKeywordsChange={onAnalysisKeywordsChange}
                 />
               ) : (
@@ -2197,9 +2340,11 @@ export const Step1SourceInput = ({
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
                   placeholder="Schreibe deinen Markdown-Inhalt hier... oder lade Inhalt über Projekte Ordner ein"
-                  height="calc(100vh - 210px)"
+                  height="calc(90vh - 210px)"
+                  fontSize={editorSettings?.fontSize}
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  previewTheme={previewTheme}
                   showZenNoteButton={true}
                 />
               )}
@@ -2217,7 +2362,7 @@ export const Step1SourceInput = ({
                    transformOrigin: "left center",
                    padding: "10px 12px",
                    backgroundColor: "#121212",
-                   border: "0.5px solid #AC8E66",
+                   border: "0.5px solid rgba(208, 203, 184, 0.45)",
                    borderRadius: '8px 8px 0px 0px',
                    cursor: "pointer",
                    fontFamily: "IBM Plex Mono, monospace",
@@ -2246,7 +2391,7 @@ export const Step1SourceInput = ({
                    <span style={{
                      display: 'block',
                      position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
-                     color: '#AC8E66',
+                     color: '#d0cbb8',
                      transform: editorToggleHovered ? 'translateY(0)' : 'translateY(100%)',
                      opacity: editorToggleHovered ? 1 : 0,
                      transition: 'transform 0.22s ease, opacity 0.18s ease',
@@ -2272,7 +2417,7 @@ export const Step1SourceInput = ({
                      gap: "6px",
                      padding: "6px 6px",
                      backgroundColor: "#0A0A0A",
-                     border: "0.5px solid #AC8E66",
+                        border: "0.5px solid rgba(208, 203, 184, 0.45)",
                      borderRadius: '8px 8px 0px 0px',
                      fontFamily: "IBM Plex Mono, monospace",
                      fontSize: "10px",
@@ -2286,7 +2431,7 @@ export const Step1SourceInput = ({
                      style={{
                        padding: "6px 10px",
                        borderRadius: "4px",
-                       border: editorSettings?.theme === 'dark' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
+                       border: editorSettings?.theme === 'dark' ? "0.5px solid rgba(208, 203, 184, 0.45)" : "1px solid #3A3A3A",
                        backgroundColor: editorSettings?.theme === 'dark' ? "#1a1a1a" : "transparent",
                        color: "#aaa",
                        cursor: "pointer",
@@ -2309,7 +2454,7 @@ export const Step1SourceInput = ({
                        zIndex: 0,
                        padding: "6px 10px",
                        borderRadius: "4px",
-                       border: editorSettings?.theme === 'light' ? "1px solid #AC8E66" : "1px solid #3A3A3A",
+                       border: editorSettings?.theme === 'light' ? "0.5px solid #d0cbb8" : "1px solid #3A3A3A",
                        backgroundColor: editorSettings?.theme === 'light' ? "#D9D4C5" : "transparent",
                        color: editorSettings?.theme === 'light' ? "#1a1a1a" : "#e5e5e5",
                        cursor: "pointer",

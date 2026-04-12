@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type Option = { value: string; label: string };
-type ZenTheme = "dark" | "paper";
+type ZenTheme = "dark" | "paper" | "paper-light";
 type ZenDropdownVariant = "default" | "input" | "button" | "compact";
 
 interface ZenDropdownProps {
   value: string;
   onChange: (value: string) => void;
-  options: Option[];
+  options?: Option[];
   label?: string;
 
   className?: string;
@@ -23,7 +23,19 @@ interface ZenDropdownProps {
   placeholder?: string;
   triggerHeight?: number;
 
-  theme?: ZenTheme; // ✅ NEW
+  theme?: ZenTheme;
+
+  /** Overrides the trigger button text (ignores selected option label) */
+  triggerLabel?: string;
+  /** Extra inline styles merged onto the trigger button */
+  triggerStyle?: React.CSSProperties;
+  /** Icon node rendered before the trigger text */
+  triggerIcon?: React.ReactNode;
+  /** Width in px — overrides the default Tailwind width class */
+  width?: number;
+  /** Custom menu content — render function receives a closeMenu callback.
+   *  When set, the options list and keyboard hint are hidden. */
+  customMenuContent?: (closeMenu: () => void) => React.ReactNode;
 }
 
 function isPx(v?: string) {
@@ -33,7 +45,7 @@ function isPx(v?: string) {
 export const ZenDropdown = ({
   value,
   onChange,
-  options,
+  options = [],
   label,
   className = "",
   fullWidth = false,
@@ -44,7 +56,12 @@ export const ZenDropdown = ({
   maxMenuHeight = 260,
   placeholder = "Auswählen…",
   triggerHeight,
-  theme = "dark", // ✅ default
+  theme = "paper",
+  triggerLabel,
+  triggerStyle,
+  triggerIcon,
+  width,
+  customMenuContent,
 }: ZenDropdownProps) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -71,56 +88,79 @@ export const ZenDropdown = ({
   const isButton = normalizedVariant === "button";
   // "button" should visually match ZenRoughButton(size="small"), whose rough border is inset.
   const resolvedTriggerHeight = triggerHeight ?? (isButton ? 40 : undefined);
-  const widthClass = fullWidth ? "w-full" : "w-[320px]";
+  const widthClass = width ? "" : (fullWidth ? "w-full" : "w-[320px]");
+  const widthStyle = width ? { width: `${width}px` } : undefined;
 
   const labelClass = isPx(labelSize) ? "" : (labelSize ?? "text-sm");
   const labelStyle = isPx(labelSize) ? { fontSize: labelSize } : undefined;
 
-  // ===== Theme Tokens (zentral) =====
+  // ===== Theme Tokens (zentral) default it is paper =====
   const tokens = useMemo(() => {
-    if (theme === "paper") {
+    if (theme === "paper-light") {
       return {
         // Trigger
-        triggerText: "#3a3a3a",
+        triggerText: "#1a1a1a",
         triggerBorder: "rgba(172,142,102,0.55)",
-        triggerBg: "rgba(255,255,255,0.22)", // ganz leicht “eingelassen”
-        triggerHoverBg: "rgba(172,142,102,0.12)",
+        triggerBg: "#d0cbb8",
+        triggerHoverBg: "#d9d4c5",
         caret: "#AC8E66",
 
         // Label
-        label: labelColor ?? "#555",
+        label: labelColor ?? "#1a1a1a",
 
         // Menu
-        menuBg: "#EDE6D8",
+        menuBg: "#e8e1d2",
         menuBorder: "rgba(172,142,102,0.55)",
-        menuShadow: "0 18px 40px rgba(0,0,0,0.35)",
-        itemText: "#3a3a3a",
-        itemActiveBg: "rgb(172,142,102)",
+        itemText: "#3f3a32",
+        itemActiveBg: "rgba(172,142,102,0.14)",
         itemActiveText: "#1a1a1a",
         itemSelectedBar: "#AC8E66",
-        hintText: "#7a6a52",
+        hintText: "#6b6255",
+        hintBorder: "rgba(172,142,102,0.28)",
+      } as const;
+    }
+
+    if (theme === "paper") {
+      return {
+        // Trigger
+        triggerText: "#1a1a1a",
+        triggerBorder: "rgba(172,142,102,0.55)",
+        triggerBg: "#d0cbb8", 
+        triggerHoverBg: "rgba(208,203,184,0.85)",
+        caret: "#AC8E66",
+
+        // Label
+        label: labelColor ?? "#1a1a1a",
+
+        // Menu
+        menuBg: "#1a1a1a",
+        menuBorder: "rgba(172,142,102,0.55)",
+        itemText: "#d0cbb8",
+        itemActiveBg: "rgb(208,203,184)",
+        itemActiveText: "#1a1a1a",
+        itemSelectedBar: "#AC8E66",
+        hintText: "#d0cbb8",
         hintBorder: "rgba(172,142,102,0.35)",
       } as const;
     }
 
     // dark Titel und Texte sind Dunkel, Menü ist Hell des Dropdown
     return {
-      triggerText: "#AC8E66",
+      triggerText: "#1a1a1a",
       triggerBorder: "#3a3a3a",
       triggerBg: "transparent",
       triggerHoverBg: "transparent",
-      caret: "#AC8E66",
+      caret: "#1a1a1a",
 
       label: labelColor ?? "#666",
 
-      menuBg: "#0A0A0A",
-      menuBorder: "rgba(172,142,102,0.6)",
-      menuShadow: "0 18px 40px rgba(0,0,0,0.55)",
+      menuBg: "#1a1a1a",
+      menuBorder: "#3a3a3a",
       itemText: "#888",
       itemActiveBg: "",
-      itemActiveText: "#fff",
+      itemActiveText: "#d0cbb8",
       itemSelectedBar: "#AC8E66",
-      hintText: "#777",
+      hintText: "#d0cbb8",
       hintBorder: "#3a3a3a",
     } as const;
   }, [theme, labelColor]);
@@ -224,7 +264,7 @@ export const ZenDropdown = ({
     el?.scrollIntoView({ block: "nearest" });
   }, [open, activeIndex]);
 
-  const buttonText = selected?.label ?? placeholder;
+  const buttonText = triggerLabel ?? (selected?.label ?? placeholder);
 
   const triggerClasses = `
     relative ${widthClass} rounded-lg font-mono text-center
@@ -234,7 +274,7 @@ export const ZenDropdown = ({
   `;
 
   return (
-    <div ref={rootRef} className={`flex flex-col items-center ${widthClass} ${className}`}>
+    <div ref={rootRef} className={`flex flex-col items-center ${widthClass} ${className}`} style={widthStyle}>
       {label ? (
         <div
           className={`mb-3 text-center font-mono ${labelClass} select-none`}
@@ -250,38 +290,38 @@ export const ZenDropdown = ({
         disabled={disabled}
         className={triggerClasses}
         style={{
-          border: `1px solid ${tokens.triggerBorder}`,
-          background: tokens.triggerBg,
+          border: `0.5px solid ${open ? tokens.menuBorder : tokens.triggerBorder}`,
+          borderRadius: '4px 4px 4px 4px',
+          background: open ? tokens.triggerHoverBg : tokens.triggerBg,
           color: tokens.triggerText,
+          boxShadow: "none",
           transition: "background 180ms ease, border-color 180ms ease",
           height: resolvedTriggerHeight ? `${resolvedTriggerHeight}px` : undefined,
-          minHeight: resolvedTriggerHeight ? `${resolvedTriggerHeight}px` : undefined,
+          minHeight: resolvedTriggerHeight ? `${resolvedTriggerHeight}px` : 32,
           paddingTop: resolvedTriggerHeight ? 0 : undefined,
           paddingBottom: resolvedTriggerHeight ? 0 : undefined,
+          ...widthStyle,
+          ...triggerStyle,
         }}
-        onMouseEnter={() => {
-          if (!disabled) {
-            // leichter Hover “Glow”
-            (buttonRef.current as HTMLButtonElement | null)?.style.setProperty(
-              "background",
-              tokens.triggerHoverBg
-            );
+        onMouseEnter={(e) => {
+          if (!disabled && !open) {
+            (e.currentTarget as HTMLButtonElement).style.background = tokens.triggerHoverBg;
           }
         }}
-        onMouseLeave={() => {
-          (buttonRef.current as HTMLButtonElement | null)?.style.setProperty(
-            "background",
-            tokens.triggerBg
-          );
+        onMouseLeave={(e) => {
+          if (!open) {
+            (e.currentTarget as HTMLButtonElement).style.background = triggerStyle?.background as string ?? tokens.triggerBg;
+          }
         }}
         onClick={() => (open ? close() : openMenu())}
         onFocus={() =>
           !disabled && setActiveIndex(Math.max(0, options.findIndex((o) => o.value === value)))
         }
       >
-        <span className="inline-flex items-center justify-center gap-2 w-full">
+        <span className="inline-flex items-center justify-center gap-2 w-full px-2">
+          {triggerIcon && <span className="inline-flex shrink-0">{triggerIcon}</span>}
           <span className="truncate max-w-[85%]">{buttonText}</span>
-          <span style={{ color: tokens.caret }} className="text-[10px] relative top-[1px]">
+          <span style={{ color: tokens.caret }} className="text-[10px] relative top-[1px] shrink-0">
             ▾
           </span>
         </span>
@@ -296,51 +336,60 @@ export const ZenDropdown = ({
               style={{
                 left: menuPos.left,
                 top: menuPos.top,
-                width: menuPos.width,
+                width: customMenuContent ? undefined : menuPos.width,
+                minWidth: customMenuContent ? menuPos.width : undefined,
                 backgroundColor: tokens.menuBg,
                 border: `1px solid ${tokens.menuBorder}`,
-                boxShadow: tokens.menuShadow,
+                boxShadow: "none",
                 opacity: 1,
               }}
             >
-              <div ref={listRef} className="py-2 overflow-y-auto" style={{ maxHeight: maxMenuHeight }}>
-                {options.map((opt, idx) => {
-                  const isSelected = opt.value === value;
-                  const isActive = idx === activeIndex;
+              {customMenuContent ? (
+                customMenuContent(close)
+              ) : (
+                <>
+                  <div ref={listRef} className="py-2 overflow-y-auto" style={{ maxHeight: maxMenuHeight }}>
+                    {options.map((opt, idx) => {
+                      const isSelected = opt.value === value;
+                      const isActive = idx === activeIndex;
 
-                  return (
-                    <div
-                      key={opt.value}
-                      data-idx={idx}
-                      onMouseEnter={() => setActiveIndex(idx)}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        onChange(opt.value);
-                        close();
-                      }}
-                      className="px-4 py-2 font-mono text-[11px] select-none cursor-pointer text-left"
-                      style={{
-                        background: isActive ? tokens.itemActiveBg : "transparent",
-                        color: isActive ? tokens.itemActiveText : tokens.itemText,
-                        borderLeft: `2px solid ${isSelected ? tokens.itemSelectedBar : "transparent"}`,
-                        opacity: 1,
-                      }}
-                    >
-                      <div className="truncate">{opt.label}</div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div
-                className="px-3 py-2 text-center text-[10px] font-mono"
-                style={{
-                  color: tokens.hintText,
-                  borderTop: `1px solid ${tokens.hintBorder}`,
-                }}
-              >
-                ↑ ↓ wählen · Enter übernehmen · Esc schließen
-              </div>
+                      return (
+                        <div
+                          key={opt.value}
+                          data-idx={idx}
+                          onMouseEnter={() => setActiveIndex(idx)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            onChange(opt.value);
+                            close();
+                          }}
+                          className="px-4 py-2 font-mono text-[11px] select-none cursor-pointer text-left"
+                          style={{
+                            background: isActive ? tokens.itemActiveBg : "transparent",
+                            color: isActive ? tokens.itemActiveText : tokens.itemText,
+                            borderLeft: `3px solid ${isSelected ? tokens.itemSelectedBar : "transparent"}`,
+                            paddingLeft: isSelected ? '18px' : '16px',
+                            paddingTop: '2px',
+                            paddingBottom: '2px',
+                            opacity: 1,
+                          }}
+                        >
+                          <div className="truncate">{opt.label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div
+                    className="px-3 py-2 text-center text-[11px] font-mono"
+                    style={{
+                      color: tokens.hintText,
+                      borderTop: `1px solid ${tokens.hintBorder}`,
+                    }}
+                  >
+                    ↑ ↓ wählen · Enter übernehmen · Esc schließen
+                  </div>
+                </>
+              )}
             </div>,
             document.body
           )

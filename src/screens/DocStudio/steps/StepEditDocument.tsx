@@ -1080,6 +1080,7 @@ export function StepEditDocument({
                   focusLineRequest={outlineFocusRequest}
                   onActiveLineChange={setActiveCursorLine}
                   height="calc(100vh - 260px)"
+                  showZenNoteButton={true}
                 />
               )}
             </div>

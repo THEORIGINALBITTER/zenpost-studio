@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import rough from "roughjs/bin/rough";
+import { useMemo, useState, type ReactNode } from "react";
 
 type Variant = "default" | "active";
 type Size = "default" | "compact" | "small";
@@ -19,58 +18,6 @@ interface ZenRoughButtonProps {
   title?: string;
 }
 
-function drawRoughBorder(opts: {
-  canvas: HTMLCanvasElement;
-  width: number;
-  height: number;
-  size: Size;
-  stroke: string;
-}) {
-  const { canvas, width, height, size, stroke } = opts;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  // Clear
-  ctx.clearRect(0, 0, width, height);
-
-  const rc = rough.canvas(canvas);
-  const radius = 8;
-
-  if (size === "compact") {
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const circleRadius = (width - 8) / 2;
-
-    rc.circle(centerX, centerY, circleRadius * 2, {
-      roughness: 0.12,
-      bowing: 1,
-      stroke,
-      strokeWidth: 1,
-    });
-    return;
-  }
-
-  const pad = 4;
-  const pathStr = `
-    M ${pad + radius} ${pad}
-    L ${width - pad - radius} ${pad}
-    Q ${width - pad} ${pad}, ${width - pad} ${pad + radius}
-    L ${width - pad} ${height - pad - radius}
-    Q ${width - pad} ${height - pad}, ${width - pad - radius} ${height - pad}
-    L ${pad + radius} ${height - pad}
-    Q ${pad} ${height - pad}, ${pad} ${height - pad - radius}
-    L ${pad} ${pad + radius}
-    Q ${pad} ${pad}, ${pad + radius} ${pad}
-  `;
-
-  rc.path(pathStr, {
-    roughness: 0.02,
-    bowing: 0.3,
-    stroke,
-    strokeWidth: 0.7,
-  });
-}
-
 export const ZenRoughButton = ({
   label,
   icon,
@@ -86,10 +33,9 @@ export const ZenRoughButton = ({
   title: _title,
 }: ZenRoughButtonProps) => {
   const [hovered, setHovered] = useState(false);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const dims = useMemo(() => {
-    const defaultWidth = size === "compact" ? 40 : size === "small" ? 220 : 320;
+    const defaultWidth = size === "compact" ? 40 : size === "small" ? 180 : 320;
     const defaultHeight = size === "compact" ? 40 : size === "small" ? 46 : 56;
     return {
       w: width ?? defaultWidth,
@@ -99,27 +45,9 @@ export const ZenRoughButton = ({
 
   const strokeColor = useMemo(() => {
     if (variant === "active") return "#AC8E66";
-    if (hovered) return "#AC8E66";
+    if (hovered) return "#1a1a1a";
     return "#555555";
   }, [variant, hovered]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // Draw in next frame (keeps hover silky)
-    const id = requestAnimationFrame(() => {
-      drawRoughBorder({
-        canvas,
-        width: dims.w,
-        height: dims.h,
-        size,
-        stroke: strokeColor,
-      });
-    });
-
-    return () => cancelAnimationFrame(id);
-  }, [dims.w, dims.h, size, strokeColor]);
 
   const sizeClasses: Record<Size, string> = {
     compact:
@@ -132,7 +60,7 @@ export const ZenRoughButton = ({
 
   const base =
     "group transition-colors duration-200 border-0 outline-none focus:outline-none focus:ring-0 active:bg-transparent focus:bg-transparent no-underline";
-  const hover = disabled ? "" : "cursor-pointer hover:text-[#AC8E66]";
+  const hover = disabled ? "" : "cursor-pointer hover:text-[#1a1a1a]";
   const state = disabled ? "opacity-50 cursor-not-allowed" : "";
   const variantClasses: Record<Variant, string> = {
     default: "bg-transparent text-[#555]",
@@ -159,12 +87,34 @@ export const ZenRoughButton = ({
 
   const content = (
     <>
-      <canvas
-        ref={canvasRef}
-        width={dims.w}
-        height={dims.h}
-        className="absolute inset-0 pointer-events-none"
-      />
+      <svg
+        aria-hidden="true"
+        viewBox={`0 0 ${dims.w} ${dims.h}`}
+        className="absolute inset-0 w-full h-full pointer-events-none"
+      >
+        {size === "compact" ? (
+          <circle
+            cx={dims.w / 2}
+            cy={dims.h / 2}
+            r={Math.max(0, dims.w / 2 - 4)}
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth="1.5"
+          />
+        ) : (
+          <rect
+            x="4"
+            y="4"
+            width={Math.max(0, dims.w - 8)}
+            height={Math.max(0, dims.h - 8)}
+            rx="8"
+            ry="8"
+            fill="none"
+            stroke={strokeColor}
+            strokeWidth="1.4"
+          />
+        )}
+      </svg>
 
       <span className="relative z-[1] inline-flex items-center justify-center gap-3">
         {size === "compact" ? (

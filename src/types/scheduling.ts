@@ -1,6 +1,6 @@
 /**
  * Scheduling Types for Content Management & Publishing
- * @author Denis Bitter <contact@denisbitter.de>
+ * @author Denis Bitter <saghallo@denisbitter.de>
  */
 
 export type PublishingStatus = 'draft' | 'scheduled' | 'published' | 'failed';
@@ -23,6 +23,10 @@ export interface ScheduledPost {
   seriesId?: string;
   /** The actual file path where the post was saved (in project folder) */
   savedFilePath?: string;
+  /** Optional: the project this post belongs to (filesystem path or @cloud:id or @web:id) */
+  projectId?: string;
+  /** Human-readable project name shown in Planner filter */
+  projectName?: string;
 }
 
 export interface ContentSeries {

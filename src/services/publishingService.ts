@@ -4,6 +4,7 @@
  */
 
 import { writeTextFile, readTextFile, mkdir, exists, readDir } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
 import { getProjectDataDir } from './appConfigService';
 import type { ScheduledPost, SocialPlatform } from '../types/scheduling';
 
@@ -100,6 +101,7 @@ async function ensurePublishingStructure(projectPath: string): Promise<string> {
  * Public helper to ensure publishing workspace is ready
  */
 export async function initializePublishingProject(projectPath: string): Promise<void> {
+  if (!isTauri()) return;
   await ensurePublishingStructure(projectPath);
 }
 
@@ -147,6 +149,7 @@ function normalizeScheduledPost(post: SerializedScheduledPost): ScheduledPost {
  * Load schedule from AppData publishing/schedule.json
  */
 export async function loadSchedule(projectPath: string): Promise<PublishingProject> {
+  if (!isTauri()) return { posts: [], projectPath, lastUpdated: new Date().toISOString() };
   try {
     const rootPath = normalizeProjectPath(projectPath);
     const publishingRoot = await getPublishingRoot(rootPath);
@@ -192,6 +195,7 @@ export async function loadSchedule(projectPath: string): Promise<PublishingProje
  * Save schedule to AppData publishing/schedule.json
  */
 export async function saveSchedule(projectPath: string, posts: ScheduledPost[]): Promise<void> {
+  if (!isTauri()) return;
   try {
     const rootPath = normalizeProjectPath(projectPath);
     const publishingRoot = await ensurePublishingStructure(rootPath);
@@ -422,6 +426,7 @@ async function scanAndRebuildArticlesIndex(projectPath: string): Promise<ZenArti
  * - If articles.json doesn't exist: scan entire project and create it
  */
 export async function loadArticles(projectPath: string, forceRescan = false): Promise<ZenArticle[]> {
+  if (!isTauri()) return [];
   const rootPath = normalizeProjectPath(projectPath);
   console.log('[PublishingService] ===== loadArticles called =====');
   console.log('[PublishingService] projectPath:', rootPath);
@@ -462,6 +467,7 @@ export async function loadArticles(projectPath: string, forceRescan = false): Pr
  * Load single article with content
  */
 export async function loadArticle(projectPath: string, articleId: string): Promise<ZenArticle | null> {
+  if (!isTauri()) return null;
   await ensurePublishingStructure(projectPath);
   const articles = await readArticlesIndex(projectPath);
   const article = articles.find(a => a.id === articleId);
@@ -484,6 +490,7 @@ export async function loadArticle(projectPath: string, articleId: string): Promi
  * Save article (create/update)
  */
 export async function saveArticle(projectPath: string, articleInput: ArticleInput): Promise<ZenArticle> {
+  if (!isTauri()) throw new Error('saveArticle requires desktop runtime');
   await ensurePublishingStructure(projectPath);
   const articles = await readArticlesIndex(projectPath);
   const now = new Date().toISOString();
@@ -536,6 +543,7 @@ updatedAt: ${article.updatedAt}
  * Delete article
  */
 export async function deleteArticle(projectPath: string, articleId: string): Promise<void> {
+  if (!isTauri()) return;
   await ensurePublishingStructure(projectPath);
   const articles = await readArticlesIndex(projectPath);
   const updated = articles.filter(a => a.id !== articleId);
@@ -550,6 +558,7 @@ export async function autoSavePostsAndSchedule(
   platformPosts: PlatformPost[],
   schedules: PlatformScheduleState
 ): Promise<{ scheduledPosts: ScheduledPost[]; savedFilePaths: string[] }> {
+  if (!isTauri()) return { scheduledPosts: [], savedFilePaths: [] };
   try {
     await ensurePublishingStructure(projectPath);
 
@@ -600,6 +609,7 @@ export async function saveScheduledPostsWithFiles(
   projectPath: string,
   posts: ScheduledPost[],
 ): Promise<void> {
+  if (!isTauri()) return;
   try {
     const rootPath = normalizeProjectPath(projectPath);
     await ensurePublishingStructure(rootPath);
@@ -621,6 +631,7 @@ export async function updatePost(
   postId: string,
   updates: Partial<ScheduledPost>
 ): Promise<void> {
+  if (!isTauri()) return;
   try {
     // Load current schedule
     const rootPath = normalizeProjectPath(projectPath);
@@ -656,6 +667,7 @@ export async function updatePost(
  * Delete a post
  */
 export async function deletePost(projectPath: string, postId: string): Promise<void> {
+  if (!isTauri()) return;
   try {
     // Load current schedule
     const project = await loadSchedule(projectPath);
@@ -680,6 +692,7 @@ export async function deletePost(projectPath: string, postId: string): Promise<v
  * Archive a post (mark as published)
  */
 export async function archivePost(projectPath: string, postId: string): Promise<void> {
+  if (!isTauri()) return;
   try {
     // Load current schedule
     const project = await loadSchedule(projectPath);
@@ -719,6 +732,7 @@ export async function getPublishingStats(projectPath: string): Promise<{
   drafts: number;
   published: number;
 }> {
+  if (!isTauri()) return { total: 0, scheduled: 0, drafts: 0, published: 0 };
   try {
     const project = await loadSchedule(projectPath);
 

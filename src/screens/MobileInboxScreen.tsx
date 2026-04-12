@@ -153,7 +153,7 @@ export function MobileInboxScreen({ onOpenInContentAI }: Props) {
           <span style={styles.subtitle}>
             {loading
               ? "Lädt…"
-              : `${drafts.length} Entwurf${drafts.length !== 1 ? "e" : ""} vom iPhone`}
+              : `${drafts.length} Entwürf${drafts.length !== 1 ? "e" : ""} vom iPhone`}
           </span>
         </div>
         <button style={styles.refreshBtn} onClick={refresh} title="Aktualisieren">
@@ -295,7 +295,7 @@ const styles = {
   },
   subtitle: {
     fontSize: 12,
-    color: "#6B6355",
+    color: "#d0cbb8",
   },
   refreshBtn: {
     background: "transparent",
@@ -320,12 +320,12 @@ const styles = {
   },
   pathLabel: {
     fontSize: 11,
-    color: "#4A4540",
+    color: "#d0cbb8",
     flexShrink: 0,
   },
   pathCode: {
     fontSize: 10,
-    color: "#3E3A35",
+    color: "#d0cbb8",
     fontFamily: "IBM Plex Mono, monospace",
     overflow: "hidden" as const,
     textOverflow: "ellipsis" as const,
@@ -430,7 +430,7 @@ const styles = {
   },
   cardDate: {
     fontSize: 11,
-    color: "#4A4540",
+    color: "#d0cbb8",
   },
   platformTag: {
     fontSize: 9,

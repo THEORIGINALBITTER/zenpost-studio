@@ -19,6 +19,7 @@ import { Step1SourceInput } from './transform-steps/Step1SourceInput';
 import { Step2PlatformSelection } from './transform-steps/Step2PlatformSelection';
 import { Step3StyleOptions } from './transform-steps/Step3StyleOptions';
 import { Step4TransformResult } from './transform-steps/Step4TransformResult';
+import type { PreviewThemeId } from '../kits/PatternKit/ZenMarkdownPreview';
 import {
   transformContent,
   translateContent,
@@ -57,7 +58,8 @@ import {
 } from '../services/zenStudioSettingsService';
 import { ftpUpload } from '../services/ftpService';
 import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../services/phpBlogService';
-import { uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
+import { canUploadToZenCloud, uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
+import { subscribeToInsertContentStudioSnippet } from '../services/contentStudioBridgeService';
 import { isCloudProjectPath } from '../services/cloudProjectService';
 import ZenEngine from '../services/zenEngineService';
 
@@ -149,6 +151,7 @@ interface ContentTransformScreenProps {
   currentStep?: number;
   initialContent?: string | null;
   initialFileName?: string | null;
+  initialRequestId?: string | null;
   initialPostMeta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string } | null;
   initialPlatform?: ContentPlatform;
   cameFromDocStudio?: boolean;
@@ -540,6 +543,70 @@ const optimizeDataUrlForUpload = async (dataUrl: string): Promise<string> => {
   } catch {
     return dataUrl; // Fallback: Original verwenden
   }
+};
+
+const dataImageUrlToFile = async (dataUrl: string, fileNameHint: string): Promise<File> => {
+  const normalized = normalizeDataImageUrl(dataUrl);
+  const response = await fetch(normalized);
+  const blob = await response.blob();
+  return new File([blob], fileNameHint, { type: blob.type || 'image/jpeg' });
+};
+
+const uploadImageReferenceToZenCloud = async (rawUrl: string, fileNameHint: string): Promise<string | null> => {
+  const trimmed = rawUrl.trim();
+  if (!trimmed || !canUploadToZenCloud()) return null;
+
+  let file: File | null = null;
+
+  if (/^data:image\//i.test(trimmed)) {
+    file = await dataImageUrlToFile(trimmed, fileNameHint);
+  } else if (/^blob:/i.test(trimmed)) {
+    const response = await fetch(trimmed);
+    const blob = await response.blob();
+    file = new File([blob], fileNameHint, { type: blob.type || 'image/jpeg' });
+  } else if (trimmed.startsWith('opfs://')) {
+    const { loadOpfsImageAsBlobUrl } = await import('../utils/editorImageCompression');
+    const blobUrl = await loadOpfsImageAsBlobUrl(trimmed);
+    try {
+      const dataUrl = await blobUrlToDataImageUrl(blobUrl);
+      file = await dataImageUrlToFile(dataUrl, fileNameHint);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  } else if (isTauri() && (isLocalFilesystemImageUrl(trimmed) || trimmed.startsWith('asset://'))) {
+    const localPath = trimmed.startsWith('asset://')
+      ? decodeURIComponent(trimmed.replace(/^asset:\/\/localhost\//, '/'))
+      : normalizeLocalImagePath(trimmed);
+    const bytes = await readFile(localPath);
+    file = new File([bytes], fileNameHint, { type: inferImageMimeTypeFromPath(localPath) });
+  }
+
+  if (!file) return null;
+  const uploaded = await uploadCloudDocument(file);
+  return uploaded?.url ?? null;
+};
+
+const replaceTransientImagesWithCloudUrls = async (markdown: string): Promise<string> => {
+  if (!canUploadToZenCloud()) return markdown;
+
+  const imageUrls = extractMarkdownImageUrls(markdown);
+  if (imageUrls.length === 0) return markdown;
+
+  const replacements = new Map<string, string>();
+  let imageIndex = 1;
+
+  for (const rawUrl of imageUrls) {
+    if (replacements.has(rawUrl)) continue;
+    if (!isInlineOrBlobImageUrl(rawUrl) && !isLocalFilesystemImageUrl(rawUrl) && !rawUrl.startsWith('asset://')) {
+      continue;
+    }
+
+    const uploadedUrl = await uploadImageReferenceToZenCloud(rawUrl, `cloud-image-${imageIndex}.jpg`);
+    imageIndex += 1;
+    if (uploadedUrl) replacements.set(rawUrl, uploadedUrl);
+  }
+
+  return replacements.size > 0 ? replaceMarkdownImageUrls(markdown, replacements) : markdown;
 };
 
 const uploadImageDataUrlToServer = async (
@@ -969,6 +1036,7 @@ export const ContentTransformScreen = ({
   currentStep: externalStep,
   initialContent,
   initialFileName,
+  initialRequestId,
   initialPostMeta,
   initialPlatform,
   cameFromDocStudio,
@@ -1095,7 +1163,7 @@ export const ContentTransformScreen = ({
       activeTabKind: resolvedTab?.kind,
       activeTabFilePath: resolvedTab?.filePath,
       activeTabTitle: resolvedTab?.title,
-      activeTabDisplayPath: resolvedTab?.displayPath ?? resolvedTab?.filePath ?? null,
+      activeTabDisplayPath: resolvedTab?.displayPath ?? resolvedTab?.filePath ?? undefined,
       activeTabSubtitle: postMeta.subtitle || undefined,
       activeTabImageUrl: postMeta.imageUrl || undefined,
       tags: postMeta.tags,
@@ -2274,7 +2342,8 @@ export const ContentTransformScreen = ({
     const docName = name + '.md';
     setCloudSaveUploading(true);
     try {
-      const file = new File([cloudSaveDialog.content], docName, { type: 'text/markdown' });
+      const preparedContent = await replaceTransientImagesWithCloudUrls(cloudSaveDialog.content);
+      const file = new File([preparedContent], docName, { type: 'text/markdown' });
       const result = await uploadCloudDocument(file);
       if (!result) {
         alert('Cloud-Upload fehlgeschlagen. Bitte prüfe Login und Verbindung.');
@@ -2293,7 +2362,7 @@ export const ContentTransformScreen = ({
       setSaveSuccessPrimaryActionLabel(undefined);
       setSaveSuccessPrimaryActionUrl(null);
       setShowSaveSuccess(true);
-      onFileSaved?.(`@cloud:${result.id}`, cloudSaveDialog.content, docName);
+      onFileSaved?.(`@cloud:${result.id}`, preparedContent, docName);
       setCloudSaveDialog(null);
     } catch (err) {
       alert(`Cloud-Upload Fehler: ${err instanceof Error ? err.message : String(err)}`);
@@ -2311,7 +2380,9 @@ export const ContentTransformScreen = ({
   useEffect(() => {
     if (initialContent === null || initialContent === undefined) return;
     const initialMetaKey = JSON.stringify(initialPostMeta ?? null);
-    const initialKey = `${initialFileName ?? ''}::${initialMetaKey}::${initialContent}`;
+    const initialKey = initialRequestId
+      ? `${initialRequestId}::${initialFileName ?? ''}::${initialMetaKey}::${initialContent}`
+      : `${initialFileName ?? ''}::${initialMetaKey}::${initialContent}`;
     if (initialKey !== loadedInitialKeyRef.current) {
       // Extract title from content if it starts with a markdown heading
       const extractTitleFromContent = (content: string): string | null => {
@@ -2358,7 +2429,7 @@ export const ContentTransformScreen = ({
       emitExternalContentChange(initialContent, 'step1', targetTabId);
       loadedInitialKeyRef.current = initialKey;
     }
-  }, [initialContent, initialFileName, initialPostMeta, openDocTabs]);
+  }, [initialContent, initialFileName, initialPostMeta, initialRequestId, openDocTabs]);
 
   useEffect(() => {
     if (!projectPath) return;
@@ -2436,10 +2507,11 @@ export const ContentTransformScreen = ({
       setStep1AutosaveStatus('saving');
 
       const doSave = isCloudDoc && !isNaN(cloudDocId)
-        ? (() => {
+        ? (async () => {
             const fileName = (activeDocTabId ?? 'Entwurf').replace(/^@cloud:\d+\//, '');
             const contentWithMeta = buildContentWithMeta(sourceContent, postMetaRef.current);
-            const file = new File([contentWithMeta], fileName, { type: 'text/markdown' });
+            const preparedContent = await replaceTransientImagesWithCloudUrls(contentWithMeta);
+            const file = new File([preparedContent], fileName, { type: 'text/markdown' });
             return updateCloudDocument(cloudDocId, file).then((ok) => {
               if (!ok) throw new Error('Cloud-Update fehlgeschlagen');
             });
@@ -2696,6 +2768,7 @@ export const ContentTransformScreen = ({
   const [error, setError] = useState<string | null>(null);
   const [autoSelectedModel, setAutoSelectedModel] = useState<string | null>(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const [previewTheme, setPreviewTheme] = useState<PreviewThemeId>('mono-clean');
 
   // Track if user came from "Nachbearbeiten" flow
   const [cameFromEdit, setCameFromEdit] = useState<boolean>(false);
@@ -3113,6 +3186,15 @@ export const ContentTransformScreen = ({
     setFileName(title);
     emitExternalContentChange('', 'step1', draftTabId);
   };
+
+  // ZenNote → insert-snippet: Titel in PostMeta übernehmen wenn Feld noch leer
+  useEffect(() => {
+    return subscribeToInsertContentStudioSnippet(({ title = '' }) => {
+      if (title && !postMetaRef.current.title.trim()) {
+        handleMetaChange({ ...postMetaRef.current, title });
+      }
+    });
+  }, [handleMetaChange]);
 
   const saveTabContent = async (tabId: string) => {
     const tab = openDocTabs.find((item) => item.id === tabId);
@@ -3871,7 +3953,7 @@ export const ContentTransformScreen = ({
                 !editorSettings.autoSaveEnabled
                   ? 'Autosave · off'
                   : projectPath?.startsWith('@web:')
-                    ? 'Autosave · nur Desktop'
+                    ? 'Autosave · nur Desktop + Zencloud'
                     : step1AutosaveStatus === 'saving'
                       ? (projectPath?.startsWith('@cloud:') ? 'Autosave · Cloud...' : 'Autosave · speichert...')
                       : step1AutosaveStatus === 'error'
@@ -3896,6 +3978,8 @@ export const ContentTransformScreen = ({
               onMetaChange={handleMetaChange}
               analysisKeywords={analysisKeywords}
               onAnalysisKeywordsChange={setAnalysisKeywords}
+              previewTheme={previewTheme}
+              onPreviewThemeChange={setPreviewTheme}
             />
           </>
         );
@@ -4131,6 +4215,8 @@ export const ContentTransformScreen = ({
                   : fileName || 'Original'
               }
               projectPath={projectPath}
+              previewTheme={previewTheme}
+              onPreviewThemeChange={setPreviewTheme}
             />
           </>
         );

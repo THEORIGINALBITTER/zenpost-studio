@@ -478,7 +478,7 @@ export const ZenLocalAISetupContent = () => {
                           borderRadius: 6,
                           background: isDone ? "#AC8E66" : "#F4F1EA",
                           border: `1px solid ${isDone ? "#AC8E66" : "#8A8A8A"}`,
-                          color: isDone ? "#151515" : "transparent",
+                          color: isDone ? "#1a1a1a" : "transparent",
                           boxShadow: "none",
                         }}
                       >

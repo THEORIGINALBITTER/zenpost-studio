@@ -21,14 +21,25 @@ pub struct SftpUploadRequest {
 #[tauri::command]
 async fn sftp_upload(req: SftpUploadRequest) -> Result<(), String> {
     use ssh2::Session;
-    use std::net::TcpStream;
+    use std::net::{TcpStream, ToSocketAddrs};
     use std::path::Path;
+    use std::time::Duration;
 
     let port = req.port.unwrap_or(22);
     let addr = format!("{}:{}", req.host, port);
 
-    let tcp = TcpStream::connect(&addr)
+    // Resolve address and connect with timeout (30s) to avoid freezing
+    let sock_addr = addr.to_socket_addrs()
+        .map_err(|e| format!("Adresse konnte nicht aufgelöst werden ({}): {}", addr, e))?
+        .next()
+        .ok_or_else(|| format!("Keine Adresse gefunden für {}", addr))?;
+
+    let tcp = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(30))
         .map_err(|e| format!("Verbindung zu {} fehlgeschlagen: {}", addr, e))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(60)))
+        .map_err(|e| format!("Read-Timeout konnte nicht gesetzt werden: {}", e))?;
+    tcp.set_write_timeout(Some(Duration::from_secs(60)))
+        .map_err(|e| format!("Write-Timeout konnte nicht gesetzt werden: {}", e))?;
 
     let mut sess = Session::new()
         .map_err(|e| format!("SSH Session konnte nicht erstellt werden: {}", e))?;
@@ -45,10 +56,22 @@ async fn sftp_upload(req: SftpUploadRequest) -> Result<(), String> {
     let sftp = sess.sftp()
         .map_err(|e| format!("SFTP Subsystem konnte nicht gestartet werden: {}", e))?;
 
-    // Ensure remote directory exists
+    // Ensure remote directory exists (mkdir -p: create each component)
     let remote = Path::new(&req.remote_path);
     if let Some(parent) = remote.parent() {
-        let _ = sftp.mkdir(parent, 0o755); // ignore error if already exists
+        // Build path components and create each one
+        let mut components = Vec::new();
+        let mut cur = parent;
+        loop {
+            components.push(cur);
+            match cur.parent() {
+                Some(p) if p != cur => cur = p,
+                _ => break,
+            }
+        }
+        for dir in components.into_iter().rev() {
+            let _ = sftp.mkdir(dir, 0o755); // ignore error if already exists
+        }
     }
 
     let content = std::fs::read(&req.local_path)
@@ -177,6 +200,14 @@ fn engine_image_optimize(
 }
 
 #[tauri::command]
+fn engine_generate_platform_thumbnail(
+    markdown_content: String,
+    platform: String,
+) -> Result<Option<image_proc::PlatformThumbnailResult>, String> {
+    image_proc::generate_platform_thumbnail(&markdown_content, &platform)
+}
+
+#[tauri::command]
 fn engine_analyze_text(
     text: String,
     rules_json: Option<String>,
@@ -239,6 +270,7 @@ pub fn run() {
         engine_image_resize,
         engine_image_convert,
         engine_image_optimize,
+        engine_generate_platform_thumbnail,
         engine_analyze_text,
         engine_autofix_text,
         engine_analyze_text_v2,

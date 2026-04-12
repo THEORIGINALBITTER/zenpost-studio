@@ -28,7 +28,7 @@ export const ZenSlider = ({
   value,
   min,
   max,
-  step = 0.1,
+  step = 1,
   onChange,
   minLabel,
   maxLabel,
@@ -38,7 +38,7 @@ export const ZenSlider = ({
   labelSize = "10px",
   labelColor = "#1a1a1a",
   disabled = false,
-  widthClassName = "max-w-[300px]",
+  widthClassName = "max-w-[200px]",
 }: ZenSliderProps) => {
   const id = useId();
 
@@ -53,7 +53,7 @@ export const ZenSlider = ({
       <div className={`w-full ${widthClassName}`}>
         <label
           htmlFor={id}
-          className="block font-mono text-center mb-2 select-none"
+          className="block font-mono text-center mb-[2px] select-none"
           style={{ color: labelColor, fontSize: labelSize }}
         >
           {label}
@@ -78,7 +78,7 @@ export const ZenSlider = ({
         />
 
         {(minLabel || maxLabel) && (
-          <div className="flex justify-between text-[#777] text-[11px] mt-1 font-mono">
+          <div className="flex justify-between text-[#1a1a1a] text-[11px] mt-1 font-mono">
             <span>{minLabel ?? ""}</span>
             <span>{maxLabel ?? ""}</span>
           </div>

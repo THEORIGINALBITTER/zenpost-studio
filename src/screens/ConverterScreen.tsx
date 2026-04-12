@@ -5,6 +5,7 @@ import {
   faFilePdf,
   faFileLines,
   faRobot,
+  faFileWord,
 } from '@fortawesome/free-solid-svg-icons';
 import { faGithub } from '@fortawesome/free-brands-svg-icons';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -23,6 +24,8 @@ import {
 } from '../utils/fileConverter';
 import { importDocumentToMarkdown } from '../services/documentImportService';
 import { loadConverterHistory, saveConverterHistory } from '../services/converterHistoryService';
+import { loadZenStudioSettings, patchZenStudioSettings } from '../services/zenStudioSettingsService';
+import { saveToConverterFolder, dataUrlToUint8Array } from '../services/converterStorageService';
 
 interface FormatOption {
   value: SupportedFormat;
@@ -39,6 +42,7 @@ const formatOptions: FormatOption[] = [
   { value: 'html', label: 'HTML', icon: faFileAlt },
   { value: 'txt', label: 'Text', icon: faFileAlt },
   { value: 'pdf', label: 'PDF', icon: faFilePdf },
+  { value: 'docx', label: 'Word', icon: faFileWord },
   { value: 'png', label: 'PNG', icon: faFileAlt },
   { value: 'jpg', label: 'JPG', icon: faFileAlt },
   { value: 'webp', label: 'WEBP', icon: faFileAlt },
@@ -60,6 +64,17 @@ type RecentConversionItem = {
 };
 
 type ImagePreset = 'logo' | 'illustration' | 'photo' | 'custom';
+type CropRect = { x: number; y: number; w: number; h: number };
+type SvgSize = { width: number; height: number };
+type ImageFilters = {
+  grayscale: number;
+  sepia: number;
+  contrast: number;
+  brightness: number;
+  saturation: number;
+  blur: number;
+  sharpen: number;
+};
 
 export const ConverterScreen = ({
   onBack: _onBack,
@@ -79,6 +94,8 @@ export const ConverterScreen = ({
   const [inputContent, setInputContent] = useState('');
   const [inputBinaryContent, setInputBinaryContent] = useState<ArrayBuffer | null>(null);
   const [outputByFormat, setOutputByFormat] = useState<Record<string, string>>({});
+  const [outputSizeByFormat, setOutputSizeByFormat] = useState<Record<string, number>>({});
+  const blobUrlsRef = useRef<string[]>([]);
   const [fromFormat, setFromFormat] = useState<SupportedFormat>('txt');
   const [selectedToFormats, setSelectedToFormats] = useState<SupportedFormat[]>(['md']);
   const [activeResultFormat, setActiveResultFormat] = useState<SupportedFormat>('md');
@@ -88,6 +105,24 @@ export const ConverterScreen = ({
   const [imageQuality, setImageQuality] = useState(86);
   const [imageRasterSize, setImageRasterSize] = useState(160);
   const [imageSmoothEdges, setImageSmoothEdges] = useState(true);
+  const [maxImageOutputSize, setMaxImageOutputSize] = useState<number | null>(() => (
+    loadZenStudioSettings().converter.maxImageOutputSize ?? null
+  ));
+  const [uiMaxSizeOpen, setUiMaxSizeOpen] = useState<boolean>(() => loadZenStudioSettings().converter.uiMaxSizeOpen);
+  const [uiFiltersOpen, setUiFiltersOpen] = useState<boolean>(() => loadZenStudioSettings().converter.uiFiltersOpen);
+  const [uiExportOpen, setUiExportOpen] = useState<boolean>(() => loadZenStudioSettings().converter.uiExportOpen);
+  const [cropRect, setCropRect] = useState<CropRect | null>(null);
+  const [cropAspect, setCropAspect] = useState<number | null>(null);
+  const [svgOutputSize, setSvgOutputSize] = useState<SvgSize | null>(null);
+  const [imageFilters, setImageFilters] = useState<ImageFilters>({
+    grayscale: 0,
+    sepia: 0,
+    contrast: 100,
+    brightness: 100,
+    saturation: 100,
+    blur: 0,
+    sharpen: 0,
+  });
   const [activeImagePreset, setActiveImagePreset] = useState<ImagePreset>('custom');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -96,6 +131,7 @@ export const ConverterScreen = ({
   const [recentConversions, setRecentConversions] = useState<RecentConversionItem[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastConversionRef = useRef<{ outputs: Record<string, string>; sizes: Record<string, number> } | null>(null);
 
   const targetFormatOptions = formatOptions.filter((option) => option.value !== 'code');
   const availableOutputFormats = useMemo(
@@ -115,6 +151,361 @@ export const ConverterScreen = ({
   useEffect(() => {
     void saveConverterHistory(recentConversions);
   }, [recentConversions]);
+
+  const isRasterOutput = (format: SupportedFormat) =>
+    format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp';
+
+  const shouldCrop = (rect: CropRect | null) => {
+    if (!rect) return false;
+    const delta = Math.abs(rect.w - 1) + Math.abs(rect.h - 1) + Math.abs(rect.x) + Math.abs(rect.y);
+    return delta > 0.001;
+  };
+
+  const parseLength = (value: string | null): { num: number; unit: string } | null => {
+    if (!value) return null;
+    const match = String(value).trim().match(/^(-?\d+(\.\d+)?)([a-z%]*)$/i);
+    if (!match) return null;
+    return { num: parseFloat(match[1]), unit: match[3] ?? '' };
+  };
+
+  const formatLength = (num: number, unit: string) => `${Math.max(0, num)}${unit}`;
+
+  const cropSvgOutput = (svgText: string, rect: CropRect): string | null => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      const svgEl = doc.documentElement;
+      if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') return null;
+
+      const vb = svgEl.getAttribute('viewBox');
+      let vbX = 0;
+      let vbY = 0;
+      let vbW = 0;
+      let vbH = 0;
+
+      if (vb) {
+        const parts = vb.split(/[\s,]+/).map((p) => parseFloat(p));
+        if (parts.length >= 4 && parts.every((n) => !Number.isNaN(n))) {
+          [vbX, vbY, vbW, vbH] = parts;
+        }
+      }
+
+      if (!vb || vbW <= 0 || vbH <= 0) {
+        const w = parseLength(svgEl.getAttribute('width'));
+        const h = parseLength(svgEl.getAttribute('height'));
+        if (!w || !h || w.num <= 0 || h.num <= 0) return null;
+        vbX = 0;
+        vbY = 0;
+        vbW = w.num;
+        vbH = h.num;
+      }
+
+      const nx = vbX + rect.x * vbW;
+      const ny = vbY + rect.y * vbH;
+      const nw = rect.w * vbW;
+      const nh = rect.h * vbH;
+      svgEl.setAttribute('viewBox', `${nx} ${ny} ${nw} ${nh}`);
+
+      const wAttr = parseLength(svgEl.getAttribute('width'));
+      const hAttr = parseLength(svgEl.getAttribute('height'));
+      if (wAttr && hAttr && wAttr.num > 0 && hAttr.num > 0) {
+        svgEl.setAttribute('width', formatLength(wAttr.num * rect.w, wAttr.unit));
+        svgEl.setAttribute('height', formatLength(hAttr.num * rect.h, hAttr.unit));
+      }
+
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch {
+      return null;
+    }
+  };
+
+  const applySvgOutputSize = (svgText: string, size: SvgSize): string | null => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      const svgEl = doc.documentElement;
+      if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') return null;
+
+      const width = Math.max(1, Math.round(size.width));
+      const height = Math.max(1, Math.round(size.height));
+
+      const vb = svgEl.getAttribute('viewBox');
+      if (!vb) {
+        const w = parseLength(svgEl.getAttribute('width'));
+        const h = parseLength(svgEl.getAttribute('height'));
+        if (w && h && w.num > 0 && h.num > 0) {
+          svgEl.setAttribute('viewBox', `0 0 ${w.num} ${h.num}`);
+        }
+      }
+
+      svgEl.setAttribute('width', `${width}px`);
+      svgEl.setAttribute('height', `${height}px`);
+
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch {
+      return null;
+    }
+  };
+
+  const applySvgFilters = (svgText: string, filters: ImageFilters): string | null => {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      const svgEl = doc.documentElement;
+      if (!svgEl || svgEl.tagName.toLowerCase() !== 'svg') return null;
+
+      const ns = 'http://www.w3.org/2000/svg';
+      let defs = svgEl.querySelector('defs');
+      if (!defs) {
+        defs = doc.createElementNS(ns, 'defs');
+        svgEl.insertBefore(defs, svgEl.firstChild);
+      }
+
+      const existing = defs.querySelector('#zenpost-filters');
+      if (existing) existing.remove();
+
+      const filterEl = doc.createElementNS(ns, 'filter');
+      filterEl.setAttribute('id', 'zenpost-filters');
+      filterEl.setAttribute('color-interpolation-filters', 'sRGB');
+      filterEl.setAttribute('x', '-20%');
+      filterEl.setAttribute('y', '-20%');
+      filterEl.setAttribute('width', '140%');
+      filterEl.setAttribute('height', '140%');
+
+      let input = 'SourceGraphic';
+
+      if (filters.blur > 0) {
+        const blur = doc.createElementNS(ns, 'feGaussianBlur');
+        blur.setAttribute('in', input);
+        blur.setAttribute('stdDeviation', String(filters.blur));
+        blur.setAttribute('result', 'blur');
+        filterEl.appendChild(blur);
+        input = 'blur';
+      }
+
+      const g = Math.min(1, Math.max(0, filters.grayscale / 100));
+      if (g > 0) {
+        const m = [
+          0.2126 + 0.7874 * (1 - g), 0.7152 - 0.7152 * (1 - g), 0.0722 - 0.0722 * (1 - g), 0, 0,
+          0.2126 - 0.2126 * (1 - g), 0.7152 + 0.2848 * (1 - g), 0.0722 - 0.0722 * (1 - g), 0, 0,
+          0.2126 - 0.2126 * (1 - g), 0.7152 - 0.7152 * (1 - g), 0.0722 + 0.9278 * (1 - g), 0, 0,
+          0, 0, 0, 1, 0,
+        ];
+        const fe = doc.createElementNS(ns, 'feColorMatrix');
+        fe.setAttribute('in', input);
+        fe.setAttribute('type', 'matrix');
+        fe.setAttribute('values', m.map((v) => v.toFixed(6)).join(' '));
+        fe.setAttribute('result', 'grayscale');
+        filterEl.appendChild(fe);
+        input = 'grayscale';
+      }
+
+      const s = Math.min(1, Math.max(0, filters.sepia / 100));
+      if (s > 0) {
+        const sepia = [
+          0.393, 0.769, 0.189, 0, 0,
+          0.349, 0.686, 0.168, 0, 0,
+          0.272, 0.534, 0.131, 0, 0,
+          0, 0, 0, 1, 0,
+        ];
+        const identity = [
+          1, 0, 0, 0, 0,
+          0, 1, 0, 0, 0,
+          0, 0, 1, 0, 0,
+          0, 0, 0, 1, 0,
+        ];
+        const m = identity.map((v, i) => v * (1 - s) + sepia[i] * s);
+        const fe = doc.createElementNS(ns, 'feColorMatrix');
+        fe.setAttribute('in', input);
+        fe.setAttribute('type', 'matrix');
+        fe.setAttribute('values', m.map((v) => v.toFixed(6)).join(' '));
+        fe.setAttribute('result', 'sepia');
+        filterEl.appendChild(fe);
+        input = 'sepia';
+      }
+
+      const sat = Math.max(0, filters.saturation / 100);
+      if (sat !== 1) {
+        const fe = doc.createElementNS(ns, 'feColorMatrix');
+        fe.setAttribute('in', input);
+        fe.setAttribute('type', 'saturate');
+        fe.setAttribute('values', sat.toFixed(4));
+        fe.setAttribute('result', 'saturate');
+        filterEl.appendChild(fe);
+        input = 'saturate';
+      }
+
+      const contrast = Math.max(0, filters.contrast / 100);
+      const brightness = (filters.brightness - 100) / 100;
+      if (contrast !== 1 || brightness !== 0) {
+        const intercept = brightness + 0.5 * (1 - contrast);
+        const fe = doc.createElementNS(ns, 'feComponentTransfer');
+        fe.setAttribute('in', input);
+        const channels = ['R', 'G', 'B'] as const;
+        channels.forEach((ch) => {
+          const func = doc.createElementNS(ns, `feFunc${ch}`);
+          func.setAttribute('type', 'linear');
+          func.setAttribute('slope', contrast.toFixed(4));
+          func.setAttribute('intercept', intercept.toFixed(4));
+          fe.appendChild(func);
+        });
+        fe.setAttribute('result', 'transfer');
+        filterEl.appendChild(fe);
+        input = 'transfer';
+      }
+
+      if (filters.sharpen > 0) {
+        const a = Math.min(1, Math.max(0, filters.sharpen / 100));
+        const k = [
+          0, -a, 0,
+          -a, 1 + 4 * a, -a,
+          0, -a, 0,
+        ];
+        const fe = doc.createElementNS(ns, 'feConvolveMatrix');
+        fe.setAttribute('in', input);
+        fe.setAttribute('kernelMatrix', k.map((v) => v.toFixed(4)).join(' '));
+        fe.setAttribute('divisor', '1');
+        fe.setAttribute('preserveAlpha', 'true');
+        fe.setAttribute('result', 'sharpen');
+        filterEl.appendChild(fe);
+        input = 'sharpen';
+      }
+
+      defs.appendChild(filterEl);
+      svgEl.setAttribute('filter', 'url(#zenpost-filters)');
+
+      return new XMLSerializer().serializeToString(svgEl);
+    } catch {
+      return null;
+    }
+  };
+
+  const cropRasterOutput = async (
+    content: string,
+    format: SupportedFormat,
+    rect: CropRect,
+  ): Promise<{ data: string; byteSize?: number } | null> => {
+    try {
+      const blob = content.startsWith('blob:')
+        ? await (await fetch(content)).blob()
+        : await (await fetch(content)).blob();
+      const bitmap = await createImageBitmap(blob);
+      const sx = Math.max(0, Math.floor(rect.x * bitmap.width));
+      const sy = Math.max(0, Math.floor(rect.y * bitmap.height));
+      const sw = Math.max(1, Math.floor(rect.w * bitmap.width));
+      const sh = Math.max(1, Math.floor(rect.h * bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = sw;
+      canvas.height = sh;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+      const mime =
+        format === 'jpg' || format === 'jpeg'
+          ? 'image/jpeg'
+          : format === 'webp'
+          ? 'image/webp'
+          : 'image/png';
+      const blobOut = await new Promise<Blob>((resolve) => {
+        canvas.toBlob(
+          (b) => resolve(b ?? new Blob()),
+          mime,
+          mime === 'image/png' ? undefined : imageQuality / 100
+        );
+      });
+      const url = URL.createObjectURL(blobOut);
+      return { data: url, byteSize: blobOut.size };
+    } catch {
+      return null;
+    }
+  };
+
+  const hasActiveFilters = (f: ImageFilters) =>
+    f.grayscale > 0 ||
+    f.sepia > 0 ||
+    f.contrast !== 100 ||
+    f.brightness !== 100 ||
+    f.saturation !== 100 ||
+    f.blur > 0 ||
+    f.sharpen > 0;
+
+  const buildFilterString = (f: ImageFilters) =>
+    `grayscale(${f.grayscale}%) sepia(${f.sepia}%) contrast(${f.contrast}%) brightness(${f.brightness}%) saturate(${f.saturation}%) blur(${f.blur}px)`;
+
+  const applySharpen = (data: ImageData, amount: number) => {
+    if (amount <= 0) return data;
+    const a = Math.min(1, amount / 100);
+    const w = data.width;
+    const h = data.height;
+    const src = data.data;
+    const out = new Uint8ClampedArray(src.length);
+    const kernel = [0, -1, 0, -1, 5, -1, 0, -1, 0];
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        let r = 0, g = 0, b = 0, k = 0;
+        for (let ky = -1; ky <= 1; ky += 1) {
+          for (let kx = -1; kx <= 1; kx += 1) {
+            const ix = Math.min(w - 1, Math.max(0, x + kx));
+            const iy = Math.min(h - 1, Math.max(0, y + ky));
+            const idx = (iy * w + ix) * 4;
+            const kv = kernel[k++];
+            r += src[idx] * kv;
+            g += src[idx + 1] * kv;
+            b += src[idx + 2] * kv;
+          }
+        }
+        const idx = (y * w + x) * 4;
+        out[idx] = Math.min(255, Math.max(0, src[idx] * (1 - a) + r * a));
+        out[idx + 1] = Math.min(255, Math.max(0, src[idx + 1] * (1 - a) + g * a));
+        out[idx + 2] = Math.min(255, Math.max(0, src[idx + 2] * (1 - a) + b * a));
+        out[idx + 3] = src[idx + 3];
+      }
+    }
+    return new ImageData(out, w, h);
+  };
+
+  const applyFiltersToRaster = async (
+    content: string,
+    format: SupportedFormat,
+    filters: ImageFilters,
+  ): Promise<{ data: string; byteSize?: number } | null> => {
+    try {
+      const blob = content.startsWith('blob:')
+        ? await (await fetch(content)).blob()
+        : await (await fetch(content)).blob();
+      const bitmap = await createImageBitmap(blob);
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.filter = buildFilterString(filters);
+      ctx.drawImage(bitmap, 0, 0);
+      ctx.filter = 'none';
+      if (filters.sharpen > 0) {
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const sharpened = applySharpen(img, filters.sharpen);
+        ctx.putImageData(sharpened, 0, 0);
+      }
+      const mime =
+        format === 'jpg' || format === 'jpeg'
+          ? 'image/jpeg'
+          : format === 'webp'
+          ? 'image/webp'
+          : 'image/png';
+      const blobOut = await new Promise<Blob>((resolve) => {
+        canvas.toBlob(
+          (b) => resolve(b ?? new Blob()),
+          mime,
+          mime === 'image/png' ? undefined : imageQuality / 100
+        );
+      });
+      const url = URL.createObjectURL(blobOut);
+      return { data: url, byteSize: blobOut.size };
+    } catch {
+      return null;
+    }
+  };
 
   const runConversion = async (
     opts: { silent?: boolean; preserveActiveFormat?: boolean; skipHistory?: boolean } = {}
@@ -148,14 +539,56 @@ export const ConverterScreen = ({
       const nextOutputs: Record<string, string> = {};
       const failedFormats: SupportedFormat[] = [];
 
+      const converterSettings = loadZenStudioSettings().converter;
+
+      // Alte Blob-URLs freigeben bevor neue erstellt werden
+      blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      blobUrlsRef.current = [];
+
+      const nextSizes: Record<string, number> = {};
+
       for (const targetFormat of selectedToFormats) {
         const result = await convertFile(sourceContent, fromFormat, targetFormat, fileName, {
           imageQuality: imageQuality / 100,
           imageRasterSize,
           imageSmoothEdges,
+          imageMaxOutputSize: (maxImageOutputSize ?? converterSettings.maxImageOutputSize) ?? undefined,
         });
         if (result.success && result.data) {
-          nextOutputs[targetFormat] = result.data;
+          let data = result.data;
+          let byteSize = result.byteSize;
+          if (shouldCrop(cropRect)) {
+            if (isRasterOutput(targetFormat)) {
+              const cropped = await cropRasterOutput(data, targetFormat, cropRect as CropRect);
+              if (cropped?.data) {
+                data = cropped.data;
+                byteSize = cropped.byteSize;
+              }
+            } else if (targetFormat === 'svg' && typeof data === 'string') {
+              const croppedSvg = cropSvgOutput(data, cropRect as CropRect);
+              if (croppedSvg) data = croppedSvg;
+            }
+          }
+          if (isRasterOutput(targetFormat) && hasActiveFilters(imageFilters)) {
+            const filtered = await applyFiltersToRaster(data, targetFormat, imageFilters);
+            if (filtered?.data) {
+              data = filtered.data;
+              byteSize = filtered.byteSize;
+            }
+          }
+          if (targetFormat === 'svg' && typeof data === 'string' && hasActiveFilters(imageFilters)) {
+            const filteredSvg = applySvgFilters(data, imageFilters);
+            if (filteredSvg) data = filteredSvg;
+          }
+          if (targetFormat === 'svg' && typeof data === 'string' && svgOutputSize) {
+            const sized = applySvgOutputSize(data, svgOutputSize);
+            if (sized) data = sized;
+          }
+          nextOutputs[targetFormat] = data;
+          if (data.startsWith('blob:')) {
+            blobUrlsRef.current.push(data);
+            if (byteSize) nextSizes[targetFormat] = byteSize;
+          }
           continue;
         }
         failedFormats.push(targetFormat);
@@ -167,6 +600,8 @@ export const ConverterScreen = ({
       }
 
       setOutputByFormat(nextOutputs);
+      setOutputSizeByFormat(nextSizes);
+      lastConversionRef.current = { outputs: nextOutputs, sizes: nextSizes };
       const firstSuccessFormat = selectedToFormats.find((format) => Boolean(nextOutputs[format]));
       if (firstSuccessFormat && !preserveActiveFormat) {
         setActiveResultFormat(firstSuccessFormat);
@@ -183,6 +618,38 @@ export const ConverterScreen = ({
           },
           ...prev,
         ].slice(0, 12));
+      }
+
+      // Auto-Save in konfigurierte Ordner
+      if (!silent && converterSettings.autoSave) {
+        const baseFileName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'converted';
+        const autoSaveErrors: string[] = [];
+
+        for (const [fmt, content] of Object.entries(nextOutputs)) {
+          const format = fmt as SupportedFormat;
+          const outFileName = `${baseFileName}${getFileExtension(format)}`;
+          const folderType = isImageFormat(format) ? 'images' : 'archive';
+
+          let payload: string | Uint8Array;
+          if (content.startsWith('blob:')) {
+            const resp = await fetch(content);
+            payload = new Uint8Array(await resp.arrayBuffer());
+          } else if (content.startsWith('data:')) {
+            payload = dataUrlToUint8Array(content);
+          } else {
+            payload = content;
+          }
+
+          const saved = await saveToConverterFolder(folderType, outFileName, payload);
+          if (!saved) autoSaveErrors.push(fmt);
+        }
+
+        if (autoSaveErrors.length > 0) {
+          const hint = !isTauri() && converterSettings.useOpfsInWeb
+            ? 'Browser-Speicher verfügbar?'
+            : 'Ordner konfiguriert?';
+          setError(`Auto-Save fehlgeschlagen für: ${autoSaveErrors.join(', ')} — ${hint}`);
+        }
       }
 
       if (!silent && failedFormats.length > 0) {
@@ -210,6 +677,18 @@ export const ConverterScreen = ({
     setError(null);
     setIsPreparingInput(true);
     setInputBinaryContent(null);
+    setCropRect(null);
+    setCropAspect(null);
+    setSvgOutputSize(null);
+    setImageFilters({
+      grayscale: 0,
+      sepia: 0,
+      contrast: 100,
+      brightness: 100,
+      saturation: 100,
+      blur: 0,
+      sharpen: 0,
+    });
 
     try {
       const detectedFormat = detectFormatFromFilename(file.name);
@@ -287,6 +766,10 @@ export const ConverterScreen = ({
     imageQuality,
     imageRasterSize,
     imageSmoothEdges,
+    maxImageOutputSize,
+    cropRect,
+    svgOutputSize,
+    imageFilters,
     selectedToFormats,
     fromFormat,
     inputContent,
@@ -295,13 +778,19 @@ export const ConverterScreen = ({
   ]);
 
   const handleDownload = async (format: SupportedFormat) => {
-    const outputContent = outputByFormat[format] ?? '';
-    if (!outputContent) {
-      setError('Keine Ausgabe zum Herunterladen verfügbar');
-      return;
-    }
-
     try {
+      if (showImageOptions && isImageFormat(format)) {
+        const ok = await runConversion({ silent: true, preserveActiveFormat: true, skipHistory: true });
+        if (!ok) return;
+      }
+
+      const latestOutputs = lastConversionRef.current?.outputs ?? outputByFormat;
+      const outputContent = latestOutputs[format] ?? '';
+      if (!outputContent) {
+        setError('Keine Ausgabe zum Herunterladen verfügbar');
+        return;
+      }
+
       // Bestimme den Standarddateinamen
       const baseFileName = fileName
         ? fileName.replace(/\.[^/.]+$/, '')
@@ -321,22 +810,31 @@ export const ConverterScreen = ({
 
       const isRasterOutput = format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp';
       const isSvgOutput = format === 'svg';
+      const isDocxOutput = format === 'docx';
+
+      // Hilfsfunktion: blob: URL oder data: URL → Uint8Array
+      const contentToBytes = async (content: string): Promise<Uint8Array<ArrayBuffer>> => {
+        if (content.startsWith('blob:')) {
+          const ab = await (await fetch(content)).arrayBuffer();
+          return new Uint8Array(ab.slice(0));
+        }
+        const base64Part = content.split(',')[1] ?? '';
+        const binary = atob(base64Part);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+      };
 
       // Web-Fallback: ohne Tauri Save-Dialog direkt herunterladen
       if (!isTauri()) {
         if (isRasterOutput) {
-          if (!outputContent.startsWith('data:image/')) {
-            throw new Error('Ungültige Bilddaten für Download');
-          }
-          const base64Part = outputContent.split(',')[1] ?? '';
-          const binary = atob(base64Part);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i += 1) {
-            bytes[i] = binary.charCodeAt(i);
-          }
+          const bytes = await contentToBytes(outputContent);
           downloadInBrowser(new Blob([bytes], { type: `image/${format === 'jpg' ? 'jpeg' : format}` }));
         } else if (isSvgOutput) {
           downloadInBrowser(new Blob([outputContent], { type: 'image/svg+xml;charset=utf-8' }));
+        } else if (isDocxOutput) {
+          const bytes = await contentToBytes(outputContent);
+          downloadInBrowser(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }));
         } else {
           downloadInBrowser(new Blob([outputContent], { type: 'text/plain;charset=utf-8' }));
         }
@@ -361,19 +859,11 @@ export const ConverterScreen = ({
       }
 
       if (isRasterOutput) {
-        if (!outputContent.startsWith('data:image/')) {
-          throw new Error('Ungültige Bilddaten für Download');
-        }
-
-        const base64Part = outputContent.split(',')[1] ?? '';
-        const binary = atob(base64Part);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        await writeFile(filePath, bytes);
+        await writeFile(filePath, await contentToBytes(outputContent));
       } else if (isSvgOutput) {
         await writeTextFile(filePath, outputContent);
+      } else if (isDocxOutput) {
+        await writeFile(filePath, await contentToBytes(outputContent));
       } else {
         await writeTextFile(filePath, outputContent);
       }
@@ -387,7 +877,13 @@ export const ConverterScreen = ({
   };
 
   const handleDownloadAll = async () => {
-    const formatsToSave = availableOutputFormats.filter((fmt) => fmt !== 'pdf' && Boolean(outputByFormat[fmt]));
+    if (showImageOptions) {
+      const ok = await runConversion({ silent: true, preserveActiveFormat: true, skipHistory: true });
+      if (!ok) return;
+    }
+
+    const latestOutputs = lastConversionRef.current?.outputs ?? outputByFormat;
+    const formatsToSave = availableOutputFormats.filter((fmt) => fmt !== 'pdf' && Boolean(latestOutputs[fmt]));
     if (formatsToSave.length === 0) {
       setError('Keine Ausgaben zum Speichern verfügbar');
       return;
@@ -409,11 +905,21 @@ export const ConverterScreen = ({
     try {
       const zip = new JSZip();
       for (const fmt of formatsToSave) {
-        const content = outputByFormat[fmt] ?? '';
+        const content = latestOutputs[fmt] ?? '';
         const filename = `${baseFileName}${getFileExtension(fmt)}`;
 
         if (fmt === 'png' || fmt === 'jpg' || fmt === 'jpeg' || fmt === 'webp') {
-          if (!content.startsWith('data:image/')) continue;
+          if (content.startsWith('blob:')) {
+            const ab = await (await fetch(content)).arrayBuffer();
+            zip.file(filename, ab.slice(0));
+          } else if (content.startsWith('data:image/')) {
+            zip.file(filename, decodeDataUrl(content));
+          }
+          continue;
+        }
+
+        if (fmt === 'docx') {
+          if (!content.startsWith('data:')) continue;
           zip.file(filename, decodeDataUrl(content));
           continue;
         }
@@ -477,13 +983,30 @@ export const ConverterScreen = ({
     }
   };
 
-  const getCurrentImageData = () => {
+  const getCurrentImageData = async (): Promise<{ dataUrl: string; base64: string }> => {
     const content = outputByFormat[activeResultFormat] ?? '';
     if (!content) return { dataUrl: '', base64: '' };
 
+    if (content.startsWith('blob:')) {
+      try {
+        const resp = await fetch(content);
+        const blob = await resp.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = String(reader.result ?? '');
+            resolve({ dataUrl, base64: dataUrl.split(',')[1] ?? '' });
+          };
+          reader.onerror = () => resolve({ dataUrl: '', base64: '' });
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return { dataUrl: '', base64: '' };
+      }
+    }
+
     if (content.startsWith('data:')) {
-      const base64 = content.split(',')[1] ?? '';
-      return { dataUrl: content, base64 };
+      return { dataUrl: content, base64: content.split(',')[1] ?? '' };
     }
 
     if (activeResultFormat === 'svg') {
@@ -518,7 +1041,7 @@ export const ConverterScreen = ({
   };
 
   const handleCopyImageDataUrl = async () => {
-    const { dataUrl } = getCurrentImageData();
+    const { dataUrl } = await getCurrentImageData();
     if (!dataUrl) {
       setError('Keine Data URL zum Kopieren verfügbar');
       return;
@@ -533,7 +1056,7 @@ export const ConverterScreen = ({
   };
 
   const handleCopyImageBase64 = async () => {
-    const { base64 } = getCurrentImageData();
+    const { base64 } = await getCurrentImageData();
     if (!base64) {
       setError('Für dieses Ergebnis ist kein Base64-String verfügbar');
       return;
@@ -560,7 +1083,7 @@ export const ConverterScreen = ({
   };
 
   const handleSaveImageText = async (kind: 'dataurl' | 'base64') => {
-    const { dataUrl, base64 } = getCurrentImageData();
+    const { dataUrl, base64 } = await getCurrentImageData();
     const payload = kind === 'dataurl' ? dataUrl : base64;
     if (!payload) {
       setError(`Kein ${kind === 'dataurl' ? 'Data URL' : 'Base64'}-Inhalt verfügbar`);
@@ -642,12 +1165,21 @@ export const ConverterScreen = ({
           <Step4Result
             activeFormat={activeResultFormat}
             outputByFormat={outputByFormat}
+            outputSizeByFormat={outputSizeByFormat}
             availableFormats={availableOutputFormats}
             onActiveFormatChange={setActiveResultFormat}
             showImageControls={showImageOptions}
             imageQuality={imageQuality}
             imageRasterSize={imageRasterSize}
             imageSmoothEdges={imageSmoothEdges}
+            maxImageOutputSize={maxImageOutputSize}
+            cropRect={cropRect}
+            cropAspect={cropAspect}
+            svgOutputSize={svgOutputSize}
+            imageFilters={imageFilters}
+            uiMaxSizeOpen={uiMaxSizeOpen}
+            uiFiltersOpen={uiFiltersOpen}
+            uiExportOpen={uiExportOpen}
             activeImagePreset={activeImagePreset}
             isPreviewRefreshing={isPreviewRefreshing}
             onImageQualityChange={(value) => {
@@ -662,6 +1194,30 @@ export const ConverterScreen = ({
               setImageSmoothEdges(value);
               setActiveImagePreset('custom');
             }}
+            onMaxImageOutputSizeChange={(value) => {
+              setMaxImageOutputSize(value);
+              const current = loadZenStudioSettings().converter;
+              patchZenStudioSettings({ converter: { ...current, maxImageOutputSize: value } });
+            }}
+            onCropRectChange={(rect) => setCropRect(rect)}
+            onCropAspectChange={(aspect) => setCropAspect(aspect)}
+            onSvgOutputSizeChange={(size) => setSvgOutputSize(size)}
+            onImageFiltersChange={(next) => setImageFilters(next)}
+            onUiMaxSizeOpenChange={(open) => {
+              setUiMaxSizeOpen(open);
+              const current = loadZenStudioSettings().converter;
+              patchZenStudioSettings({ converter: { ...current, uiMaxSizeOpen: open } });
+            }}
+            onUiFiltersOpenChange={(open) => {
+              setUiFiltersOpen(open);
+              const current = loadZenStudioSettings().converter;
+              patchZenStudioSettings({ converter: { ...current, uiFiltersOpen: open } });
+            }}
+            onUiExportOpenChange={(open) => {
+              setUiExportOpen(open);
+              const current = loadZenStudioSettings().converter;
+              patchZenStudioSettings({ converter: { ...current, uiExportOpen: open } });
+            }}
             onImagePresetSelect={handleImagePresetSelect}
             copyFeedback={copyFeedback}
             onCopyImageDataUrl={handleCopyImageDataUrl}
@@ -671,10 +1227,13 @@ export const ConverterScreen = ({
             onDownload={handleDownload}
             onDownloadAll={() => void handleDownloadAll()}
             onStartOver={() => {
+              blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+              blobUrlsRef.current = [];
               handleSetCurrentStep(1);
               setInputContent('');
               setInputBinaryContent(null);
               setOutputByFormat({});
+              setOutputSizeByFormat({});
               setFileName('');
               setFromFormat('txt');
               setDetectedSourceFormat(null);
@@ -683,13 +1242,26 @@ export const ConverterScreen = ({
               setImageQuality(86);
               setImageRasterSize(160);
               setImageSmoothEdges(true);
+              setMaxImageOutputSize(loadZenStudioSettings().converter.maxImageOutputSize ?? null);
+              setCropRect(null);
+              setCropAspect(null);
+              setSvgOutputSize(null);
+              setImageFilters({
+                grayscale: 0,
+                sepia: 0,
+                contrast: 100,
+                brightness: 100,
+                saturation: 100,
+                blur: 0,
+                sharpen: 0,
+              });
               setActiveImagePreset('custom');
               setError(null);
             }}
             showOpenInContentStudio={
               !isTauri() &&
               !!activeOutputContent &&
-              !(activeResultFormat === 'png' || activeResultFormat === 'jpg' || activeResultFormat === 'jpeg' || activeResultFormat === 'webp' || activeResultFormat === 'svg')
+              !(activeResultFormat === 'png' || activeResultFormat === 'jpg' || activeResultFormat === 'jpeg' || activeResultFormat === 'webp' || activeResultFormat === 'svg' || activeResultFormat === 'docx')
             }
             onOpenInContentStudio={() => {
               const name = fileName?.trim() || `converted${getFileExtension(activeResultFormat)}`;

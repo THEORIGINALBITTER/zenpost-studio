@@ -85,27 +85,55 @@ export const ZenApiSettingsContent = () => {
     setSettings(next);
   };
 
-  const deleteServer = (idx: number) => {
-    if (servers.length <= 1) return;
-    const newServers = servers.filter((_, i) => i !== idx);
-    const newIdx = Math.min(activeIdx >= idx ? activeIdx - 1 : activeIdx, newServers.length - 1);
-    const safeIdx = Math.max(0, newIdx);
-    const activeServer = newServers[safeIdx];
+ const deleteServer = (idx: number) => {
+  if (servers.length === 0) return;
+
+  const newServers = servers.filter((_, i) => i !== idx);
+
+  // 👉 FALL: letzter Server wurde gelöscht
+  if (newServers.length === 0) {
     const next = patchZenStudioSettings({
-      servers: newServers,
-      activeServerIndex: safeIdx,
-      contentServerApiUrl: activeServer.contentServerApiUrl,
-      contentServerApiKey: activeServer.contentServerApiKey,
-      contentServerLocalCachePath: activeServer.contentServerLocalCachePath,
-      contentServerApiEndpoint: activeServer.contentServerApiEndpoint,
-      contentServerImageUploadEndpoint: activeServer.contentServerImageUploadEndpoint,
-      contentServerPingEndpoint: activeServer.contentServerPingEndpoint,
-      contentServerListEndpoint: activeServer.contentServerListEndpoint,
-      contentServerDeleteEndpoint: activeServer.contentServerDeleteEndpoint,
-      contentServerImageBaseUrl: activeServer.contentServerImageBaseUrl,
+      servers: [],
+      activeServerIndex: 0,
+
+      contentServerApiUrl: null,
+      contentServerApiKey: null,
+      contentServerLocalCachePath: null,
+      contentServerApiEndpoint: '/save_articles.php',
+      contentServerImageUploadEndpoint: '/upload_images.php',
+      contentServerPingEndpoint: '/ping.php',
+      contentServerListEndpoint: '/articles.php',
+      contentServerDeleteEndpoint: '/delete_articles.php',
+      contentServerImageBaseUrl: null,
     });
+
     setSettings(next);
-  };
+    return;
+  }
+
+  const newIdx = Math.max(0, Math.min(
+    activeIdx > idx ? activeIdx - 1 : activeIdx,
+    newServers.length - 1
+  ));
+
+  const activeServer = newServers[newIdx];
+
+  const next = patchZenStudioSettings({
+    servers: newServers,
+    activeServerIndex: newIdx,
+    contentServerApiUrl: activeServer.contentServerApiUrl,
+    contentServerApiKey: activeServer.contentServerApiKey,
+    contentServerLocalCachePath: activeServer.contentServerLocalCachePath,
+    contentServerApiEndpoint: activeServer.contentServerApiEndpoint,
+    contentServerImageUploadEndpoint: activeServer.contentServerImageUploadEndpoint,
+    contentServerPingEndpoint: activeServer.contentServerPingEndpoint,
+    contentServerListEndpoint: activeServer.contentServerListEndpoint,
+    contentServerDeleteEndpoint: activeServer.contentServerDeleteEndpoint,
+    contentServerImageBaseUrl: activeServer.contentServerImageBaseUrl,
+  });
+
+  setSettings(next);
+};
 
   const updateServerField = (patch: Partial<ServerConfig>) => {
     const updatedServer = { ...activeServer, ...patch };
@@ -424,7 +452,7 @@ export const ZenApiSettingsContent = () => {
 
   return (
     <div style={{ width: '100%', display: 'flex', justifyContent: 'center', padding: '24px' }}>
-      <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', overflow: 'hidden' }}>
+      <div style={{ width: '100%', maxWidth: '860px', borderRadius: '10px', backgroundColor: '#E8E1D2', border: '1px solid rgba(172,142,102,0.6)', boxShadow: 'none', overflow: 'hidden' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '20px 24px' }}>
           <div style={stepTitleStyle}>1. Server-Paket erstellen</div>
           <TestButton onClick={handleDownloadServerPackage} disabled={buildingPackage}>
@@ -458,24 +486,26 @@ export const ZenApiSettingsContent = () => {
                     backgroundColor: idx === activeIdx ? 'transparent' : 'rgba(255,255,255,0.2)',
                     cursor: 'pointer',
                     fontWeight: idx === activeIdx ? 700 : 400,
+                    boxShadow: 'none'
                   }}
                 >
                   {server.name}
                 </button>
-                {servers.length > 1 && (
+                {(
                   <button
                     type="button"
                     onClick={() => deleteServer(idx)}
                     title="Server entfernen"
                     style={{
-                      border: `1px solid ${idx === activeIdx ? '#AC8E66' : '#3A3A3A'}`,
+                      border: `1px solid ${idx === activeIdx ? '#AC8E66' : '#1a1a1a'}`,
                       borderRadius: '0 8px 8px 0',
                       padding: '6px 8px',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '12px',
                       lineHeight: 1,
-                      color: '#888',
-                      backgroundColor: idx === activeIdx ? '#1e1a14' : 'rgba(255,255,255,0.2)',
+                      boxShadow: 'none',
+                      color: '#ef4d34',
+                      backgroundColor: idx === activeIdx ? '#1a1a1a' : 'rgba(255,255,255,0.2)',
                       cursor: 'pointer',
                     }}
                   >
@@ -483,7 +513,19 @@ export const ZenApiSettingsContent = () => {
                   </button>
                 )}
               </div>
+              
             ))}
+             {/* Kein Server vorhanden */}
+          {servers.length === 0 && (
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', 
+            fontSize: '10px', 
+            color: '#1a1a1a', 
+            padding: '12px 0' }}>
+              Kein Server konfiguriert. Klicke auf <strong style={{
+                color: '#49af1d'
+              }}>+</strong> um einen Server hinzuzufügen.
+            </div>
+          )}
             <button
               type="button"
               onClick={addServer}
@@ -495,7 +537,7 @@ export const ZenApiSettingsContent = () => {
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '13px',
                 lineHeight: 1,
-                color: '#1a1a1a',
+                color: '#49af1d',
                 backgroundColor: 'transparent',
                 cursor: 'pointer',
               }}
@@ -504,166 +546,172 @@ export const ZenApiSettingsContent = () => {
             </button>
           </div>
 
+         
+
           {/* Server Name */}
+          {servers.length > 0 && (
           <div style={fieldGroupStyle}>
             <div style={miniLabelStyle}> </div>
             <input
               type="text"
-              value={activeServer.name}
+              value={activeServer?.name ?? ''}
               onChange={(e) => updateServerField({ name: e.target.value })}
               placeholder="Server Name API Verzeichnis"
-              style={{ ...textInputStyle, fontWeight: 600 }}
+              style={{ ...textInputStyle,  }}
             />
           </div>
+          )}
 
-          <div style={fieldHintStyle}>
-            Simple Mode: API Key leer lassen. Advanced Mode: API Key in setup.php aktivieren und hier eintragen.
-          </div>
+          {servers.length > 0 && (<>
+            <div style={fieldHintStyle}>
+              Simple Mode: API Key leer lassen. Advanced Mode: API Key in setup.php aktivieren und hier eintragen.
+            </div>
 
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerApiUrl ?? ''}
-              onChange={(e) => updateServerField({ contentServerApiUrl: e.target.value })}
-              placeholder="https://dein-server.de/api"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Upsert Endpoint in der API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerApiEndpoint}
-              onChange={(e) => updateServerField({ contentServerApiEndpoint: e.target.value })}
-              placeholder="/save_articles.php - Bitte hier nur die Datei angeben"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Upload Endpoint in der API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerImageUploadEndpoint}
-              onChange={(e) => updateServerField({ contentServerImageUploadEndpoint: e.target.value })}
-              placeholder="/upload_images.php"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Ping Endpoint in der API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerPingEndpoint}
-              onChange={(e) => updateServerField({ contentServerPingEndpoint: e.target.value })}
-              placeholder="/ping.php"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>List Endpoint in der API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerListEndpoint}
-              onChange={(e) => updateServerField({ contentServerListEndpoint: e.target.value })}
-              placeholder="/articles.php"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Delete Endpoint in der API Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerDeleteEndpoint}
-              onChange={(e) => updateServerField({ contentServerDeleteEndpoint: e.target.value })}
-              placeholder="/delete_articles.php"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>API Key</div>
-            <input
-              type="password"
-              value={activeServer.contentServerApiKey ?? ''}
-              onChange={(e) => updateServerField({ contentServerApiKey: e.target.value })}
-              placeholder="API Key"
-              style={textInputStyle}
-            />
-          </div>
-
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Lokaler Server-Cache Pfad</div>
-            <div style={inputRowStyle}>
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>API Base URL deines Servers</div>
               <input
                 type="text"
-                value={activeServer.contentServerLocalCachePath ?? ''}
-                onChange={(e) => updateServerField({ contentServerLocalCachePath: e.target.value })}
-                placeholder="/Users/deinname/ZenStudio/server-a-cache"
-                style={{ ...textInputStyle, flex: 1 }}
+                value={activeServer.contentServerApiUrl ?? ''}
+                onChange={(e) => updateServerField({ contentServerApiUrl: e.target.value })}
+                placeholder="https://dein-server.de/api"
+                style={textInputStyle}
               />
-              <button type="button" onClick={() => { void handlePickLocalCachePath(); }} style={inlineButtonStyle}>
-                Ordner waehlen
-              </button>
             </div>
-          </div>
-          <div style={fieldHintStyle}>
-            Beim Server-Speichern wird zuerst lokal als slug.md in diesem Ordner gespeichert und danach synchronisiert.
-          </div>
 
-          <div style={fieldGroupStyle}>
-            <div style={miniLabelStyle}>Image Base URL (optional)in der Base URL deines Servers</div>
-            <input
-              type="text"
-              value={activeServer.contentServerImageBaseUrl ?? ''}
-              onChange={(e) => updateServerField({ contentServerImageBaseUrl: e.target.value })}
-              placeholder="Bild-Basis URL (optional), z. B. https://name.de/images"
-              style={textInputStyle}
-            />
-          </div>
-          <div style={fieldHintStyle}>
-            Relative Bildpfade aus Post-Metadaten werden beim Server-Export gegen diese Basis-URL aufgelöst.
-          </div>
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Upsert Endpoint in der API Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerApiEndpoint}
+                onChange={(e) => updateServerField({ contentServerApiEndpoint: e.target.value })}
+                placeholder="/save_articles.php - Bitte hier nur die Datei angeben"
+                style={textInputStyle}
+              />
+            </div>
 
-          <div style={stepTitleStyle}>4. Health Checks</div>
-          <div style={buttonRowStyle}>
-            <TestButton onClick={() => { void handleHealthPing(); }} disabled={!!healthChecking}>
-              {healthChecking === 'ping' ? 'Ping...' : 'Ping prüfen'}
-            </TestButton>
-            <TestButton onClick={() => { void handleHealthUpsert(); }} disabled={!!healthChecking}>
-              {healthChecking === 'upsert' ? 'Upsert...' : 'Upsert prüfen'}
-            </TestButton>
-            <TestButton onClick={() => { void handleHealthUpload(); }} disabled={!!healthChecking}>
-              {healthChecking === 'upload' ? 'Upload...' : 'Upload prüfen'}
-            </TestButton>
-            <TestButton onClick={() => { void handleHealthList(); }} disabled={!!healthChecking}>
-              {healthChecking === 'list' ? 'List...' : 'List prüfen'}
-            </TestButton>
-            <TestButton onClick={() => { void handleHealthDelete(); }} disabled={!!healthChecking}>
-              {healthChecking === 'delete' ? 'Delete...' : 'Delete prüfen'}
-            </TestButton>
-          </div>
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Upload Endpoint in der API Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerImageUploadEndpoint}
+                onChange={(e) => updateServerField({ contentServerImageUploadEndpoint: e.target.value })}
+                placeholder="/upload_images.php"
+                style={textInputStyle}
+              />
+            </div>
 
-          <div style={stepTitleStyle}>5. End-to-End testen</div>
-          <div style={buttonRowStyle}>
-            <TestButton onClick={handleTestConnection} disabled={testing}>
-              {testing ? 'API wird getestet...' : 'API testen'}
-            </TestButton>
-            <TestButton onClick={handleSendTestInsert} disabled={sendingInsert}>
-              {sendingInsert ? 'Sende Insert...' : 'Test-Insert senden'}
-            </TestButton>
-            <TestButton onClick={handleSendTestUpdate} disabled={sendingUpdate}>
-              {sendingUpdate ? 'Sende Update...' : 'Test-Update senden'}
-            </TestButton>
-            <TestButton onClick={handleSendTestError} disabled={sendingErrorCase}>
-              {sendingErrorCase ? 'Sende Error...' : 'Test-Error senden'}
-            </TestButton>
-          </div>
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Ping Endpoint in der API Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerPingEndpoint}
+                onChange={(e) => updateServerField({ contentServerPingEndpoint: e.target.value })}
+                placeholder="/ping.php"
+                style={textInputStyle}
+              />
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>List Endpoint in der API Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerListEndpoint}
+                onChange={(e) => updateServerField({ contentServerListEndpoint: e.target.value })}
+                placeholder="/articles.php"
+                style={textInputStyle}
+              />
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Delete Endpoint in der API Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerDeleteEndpoint}
+                onChange={(e) => updateServerField({ contentServerDeleteEndpoint: e.target.value })}
+                placeholder="/delete_articles.php"
+                style={textInputStyle}
+              />
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>API Key</div>
+              <input
+                type="password"
+                value={activeServer.contentServerApiKey ?? ''}
+                onChange={(e) => updateServerField({ contentServerApiKey: e.target.value })}
+                placeholder="API Key"
+                style={textInputStyle}
+              />
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Lokaler Server-Cache Pfad</div>
+              <div style={inputRowStyle}>
+                <input
+                  type="text"
+                  value={activeServer.contentServerLocalCachePath ?? ''}
+                  onChange={(e) => updateServerField({ contentServerLocalCachePath: e.target.value })}
+                  placeholder="/Users/deinname/ZenStudio/server-a-cache"
+                  style={{ ...textInputStyle, flex: 1 }}
+                />
+                <HoverButton type="button" onClick={() => { void handlePickLocalCachePath(); }} style={inlineButtonStyle}>
+                  Ordner waehlen
+                </HoverButton>
+              </div>
+            </div>
+            <div style={fieldHintStyle}>
+              Beim Server-Speichern wird zuerst lokal als slug.md in diesem Ordner gespeichert und danach synchronisiert.
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <div style={miniLabelStyle}>Image Base URL (optional) in der Base URL deines Servers</div>
+              <input
+                type="text"
+                value={activeServer.contentServerImageBaseUrl ?? ''}
+                onChange={(e) => updateServerField({ contentServerImageBaseUrl: e.target.value })}
+                placeholder="Bild-Basis URL (optional), z. B. https://name.de/images"
+                style={textInputStyle}
+              />
+            </div>
+            <div style={fieldHintStyle}>
+              Relative Bildpfade aus Post-Metadaten werden beim Server-Export gegen diese Basis-URL aufgelöst.
+            </div>
+
+            <div style={stepTitleStyle}>4. Health Checks</div>
+            <div style={buttonRowStyle}>
+              <TestButton onClick={() => { void handleHealthPing(); }} disabled={!!healthChecking}>
+                {healthChecking === 'ping' ? 'Ping...' : 'Ping prüfen'}
+              </TestButton>
+              <TestButton onClick={() => { void handleHealthUpsert(); }} disabled={!!healthChecking}>
+                {healthChecking === 'upsert' ? 'Upsert...' : 'Upsert prüfen'}
+              </TestButton>
+              <TestButton onClick={() => { void handleHealthUpload(); }} disabled={!!healthChecking}>
+                {healthChecking === 'upload' ? 'Upload...' : 'Upload prüfen'}
+              </TestButton>
+              <TestButton onClick={() => { void handleHealthList(); }} disabled={!!healthChecking}>
+                {healthChecking === 'list' ? 'List...' : 'List prüfen'}
+              </TestButton>
+              <TestButton onClick={() => { void handleHealthDelete(); }} disabled={!!healthChecking}>
+                {healthChecking === 'delete' ? 'Delete...' : 'Delete prüfen'}
+              </TestButton>
+            </div>
+
+            <div style={stepTitleStyle}>5. End-to-End testen</div>
+            <div style={buttonRowStyle}>
+              <TestButton onClick={handleTestConnection} disabled={testing}>
+                {testing ? 'API wird getestet...' : 'API testen'}
+              </TestButton>
+              <TestButton onClick={handleSendTestInsert} disabled={sendingInsert}>
+                {sendingInsert ? 'Sende Insert...' : 'Test-Insert senden'}
+              </TestButton>
+              <TestButton onClick={handleSendTestUpdate} disabled={sendingUpdate}>
+                {sendingUpdate ? 'Sende Update...' : 'Test-Update senden'}
+              </TestButton>
+              <TestButton onClick={handleSendTestError} disabled={sendingErrorCase}>
+                {sendingErrorCase ? 'Sende Error...' : 'Test-Error senden'}
+              </TestButton>
+            </div>
+          </>)}
 
           {testResult && (
             <div
@@ -678,19 +726,21 @@ export const ZenApiSettingsContent = () => {
             </div>
           )}
 
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666' }}>
-            Danach in Content AI Studio: Step 1 &rarr; Speichern &rarr; Auf Server exportieren
+          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a' }}>
+            Danach in Content AI Studio: 
+            <br />
+            Step 1 &rarr; Speichern &rarr; Auf Server speichern...
           </div>
 
           <div style={dividerStyle} />
 
-          <button
+          <HoverButton
             type="button"
             onClick={() => setShowAdvancedTests((prev) => !prev)}
             style={secondaryButtonStyle}
           >
             {showAdvancedTests ? 'Erweiterte Testdaten ausblenden' : 'Erweiterte Testdaten anzeigen'}
-          </button>
+          </HoverButton>
 
           {showAdvancedTests && (
             <>
@@ -701,9 +751,9 @@ export const ZenApiSettingsContent = () => {
               <div style={payloadWrapStyle}>
                 <div style={payloadHeaderStyle}>
                   <span>Insert Payload</span>
-                  <button type="button" style={copyButtonStyle} onClick={() => void copyText(testInsertPayload, 'Insert Payload')}>
+                  <HoverButton type="button" style={copyButtonStyle} onClick={() => void copyText(testInsertPayload, 'Insert Payload')}>
                     Kopieren
-                  </button>
+                  </HoverButton>
                 </div>
                 <pre style={payloadStyleCompact}>{testInsertPayload}</pre>
               </div>
@@ -711,9 +761,9 @@ export const ZenApiSettingsContent = () => {
               <div style={payloadWrapStyle}>
                 <div style={payloadHeaderStyle}>
                   <span>Update Payload</span>
-                  <button type="button" style={copyButtonStyle} onClick={() => void copyText(testUpdatePayload, 'Update Payload')}>
+                  <HoverButton type="button" style={copyButtonStyle} onClick={() => void copyText(testUpdatePayload, 'Update Payload')}>
                     Kopieren
-                  </button>
+                  </HoverButton>
                 </div>
                 <pre style={payloadStyleCompact}>{testUpdatePayload}</pre>
               </div>
@@ -721,9 +771,9 @@ export const ZenApiSettingsContent = () => {
               <div style={payloadWrapStyle}>
                 <div style={payloadHeaderStyle}>
                   <span>Error Payload</span>
-                  <button type="button" style={copyButtonStyle} onClick={() => void copyText(testErrorPayload, 'Error Payload')}>
+                  <HoverButton type="button" style={copyButtonStyle} onClick={() => void copyText(testErrorPayload, 'Error Payload')}>
                     Kopieren
-                  </button>
+                  </HoverButton>
                 </div>
                 <pre style={payloadStyleCompact}>{testErrorPayload}</pre>
               </div>
@@ -738,8 +788,8 @@ export const ZenApiSettingsContent = () => {
 const stepTitleStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '11px',
-  color: '#444',
-  fontWeight: 700,
+  color: '#1a1a1a',
+  fontWeight: 400,
 };
 
 const miniLabelStyle: React.CSSProperties = {
@@ -758,6 +808,7 @@ const textInputStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '11px',
   color: '#222',
+  boxShadow: 'none',
 };
 
 const fieldGroupStyle: React.CSSProperties = {
@@ -795,6 +846,7 @@ const inlineButtonStyle: React.CSSProperties = {
   backgroundColor: 'transparent',
   cursor: 'pointer',
   whiteSpace: 'nowrap',
+  boxShadow: 'none',
 };
 
 const testButtonStyle: React.CSSProperties = {
@@ -807,6 +859,40 @@ const testButtonStyle: React.CSSProperties = {
   backgroundColor: 'transparent',
   cursor: 'pointer',
   width: 'fit-content',
+  boxShadow: 'none',
+};
+
+const HoverButton = ({
+  onClick,
+  children,
+  style,
+  type = 'button',
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+  type?: 'button' | 'submit' | 'reset';
+}) => {
+  const [hovered, setHovered] = React.useState(false);
+
+  return (
+    <button
+      type={type}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...style,
+        borderColor: hovered ? '#AC8E66' : style?.borderColor ?? '#3A3A3A',
+        backgroundColor: hovered ? 'rgba(172,142,102,0.12)' : style?.backgroundColor ?? 'transparent',
+        color: hovered ? '#AC8E66' : style?.color ?? '#1a1a1a',
+        transition: 'border-color 0.15s, background-color 0.15s, color 0.15s',
+        boxShadow: 'none',
+      }}
+    >
+      {children}
+    </button>
+  );
 };
 
 const TestButton = ({
@@ -830,6 +916,7 @@ const TestButton = ({
         backgroundColor: hovered && !disabled ? 'rgba(172,142,102,0.08)' : 'transparent',
         transition: 'border-color 0.15s, background-color 0.15s',
         opacity: disabled ? 0.5 : 1,
+        boxShadow: 'none'
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -846,7 +933,7 @@ const secondaryButtonStyle: React.CSSProperties = {
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
   color: '#5f503f',
-  backgroundColor: 'rgba(255,255,255,0.35)',
+  backgroundColor: 'transparent',
   cursor: 'pointer',
   width: 'fit-content',
 };
@@ -933,7 +1020,8 @@ const copyButtonStyle: React.CSSProperties = {
   padding: '4px 8px',
   fontFamily: 'IBM Plex Mono, monospace',
   fontSize: '10px',
-  color: '#AC8E66',
-  backgroundColor: 'trasnparent',
+  color: '#1a1a1a',
+  backgroundColor: 'transparent',
   cursor: 'pointer',
+  boxShadow:'none',
 };

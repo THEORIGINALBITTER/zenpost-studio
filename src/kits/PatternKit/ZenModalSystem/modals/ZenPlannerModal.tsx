@@ -18,24 +18,12 @@ import {
   faChevronDown,
   faChevronRight,
   faChevronLeft,
-  faSpinner,
-  faCloudArrowDown,
-  faArrowRightToBracket,
-  faCircleCheck,
-  faCircle,
-  faFilter,
-  faTag,
 } from '@fortawesome/free-solid-svg-icons';
-import {
-  faLinkedin, faReddit, faGithub, faDev, faMedium, faHashnode, faTwitter,
-} from '@fortawesome/free-brands-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { MODAL_CONTENT } from '../config/ZenModalConfig';
-import { ZenRoughButton } from '../components/ZenRoughButton';
 import { ZenExportCard } from '../components/ZenExportCard';
 import { ZenDropdown } from '../components/ZenDropdown';
 import { ZenCloseButton } from '../../../DesignKit/ZenCloseButton';
-import { ZenAddButton } from '../../../DesignKit/ZenAddButton';
 import { ZenMarkdownEditor } from '../../ZenMarkdownEditor';
 import { downloadICSFile, generateICSFile } from '../../../../utils/calendarExport';
 import type { ScheduledPost, SocialPlatform, PublishingStatus } from '../../../../types/scheduling';
@@ -65,8 +53,21 @@ import {
   fileToDataUrl, extractDroppedImageUrl,
 } from './plannerUtils';
 import { usePlannerStorage } from './hooks/usePlannerStorage';
+import { getCloudProjectName, isCloudProjectPath } from '../../../../services/cloudProjectService';
+import { loadZenStudioSettings } from '../../../../services/zenStudioSettingsService';
 import { isCloudPlannerAvailable, loadPlannerFromCloud } from '../../../../services/cloudPlannerService';
 import { loadScheduleFromCloud } from '../../../../services/cloudScheduleService';
+import { openAppSettings } from '../../../../services/appShellBridgeService';
+import { editScheduledPostInContentStudio } from '../../../../services/contentStudioBridgeService';
+import { subscribeToCloudSessionSync } from '../../../../services/cloudSessionSyncService';
+import {
+  comparePlannerDueDateTimeAsc,
+  comparePlannerDueDateTimeOverdueFirst,
+  getPlannerScheduleVisualState,
+} from '../../../../services/plannerScheduleStatusService';
+import { buildPlannerDashboardModel } from './plannerDashboardUtils';
+import { ZenPlannerDashboard } from './ZenPlannerDashboard';
+
 
 
 // ==================== MAIN COMPONENT ====================
@@ -85,6 +86,9 @@ export function ZenPlannerModal({
   preSelectedDate,
   initialSchedules,
   defaultTab = 'planen',
+  focusPostId = null,
+  prefilledPlanPost = null,
+  bootstrapState = null,
   suggestedEditorPost,
 }: ZenPlannerModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>(defaultTab);
@@ -112,7 +116,7 @@ export function ZenPlannerModal({
     setSchedules,
     checklistItems,
     setChecklistItems,
-  } = usePlannerStorage({ isOpen, projectPath, posts, scheduledPosts, initialDate, initialSchedules });
+  } = usePlannerStorage({ isOpen, projectPath, posts, scheduledPosts, initialDate, initialSchedules, bootstrapState });
 
   // ==================== MANUAL PLAN POSTS ====================
   const [newPostPlatform, setNewPostPlatform] = useState<SocialPlatform>('linkedin');
@@ -185,14 +189,15 @@ export function ZenPlannerModal({
   const [übersichtSchedules, setÜbersichtSchedules] = useState<import('./plannerTypes').ScheduleMap>({});
   const [übersichtPlatformFilter, setÜbersichtPlatformFilter] = useState<string | null>(null);
   const [übersichtStatusFilter, setÜbersichtStatusFilter] = useState<'all' | 'scheduled' | 'draft'>('all');
-  const [übersichtCollapsed, setÜbersichtCollapsed] = useState<Record<string, boolean>>({});
   const [übersichtChecklistItems, setÜbersichtChecklistItems] = useState<import('../../../../utils/checklistStorage').ChecklistItem[]>([]);
+  const [übersichtLastCloudSyncAt, setÜbersichtLastCloudSyncAt] = useState<string | null>(null);
 
   // ==================== CHECKLIST STATE ====================
 
   const [checklistLoaded, setChecklistLoaded] = useState(false);
   const [showChecklistExportModal, setShowChecklistExportModal] = useState(false);
   const [customTask, setCustomTask] = useState('');
+  const [showAddTask, setShowAddTask] = useState(false);
   const [editingChecklistItemId, setEditingChecklistItemId] = useState<string | null>(null);
   const [editingChecklistText, setEditingChecklistText] = useState('');
   const [checklistTargetPostId, setChecklistTargetPostId] = useState<string | null>(null);
@@ -208,22 +213,59 @@ export function ZenPlannerModal({
   const [isWorkflowCollapsed, setIsWorkflowCollapsed] = useState(DEFAULT_WORKFLOW_COLLAPSED);
   const [workflowProgressScope, setWorkflowProgressScope] = useState<'all' | 'open'>('all');
 
+  const reloadÜbersichtFromCloud = useCallback(async () => {
+    if (!isCloudPlannerAvailable()) {
+      setÜbersichtLoaded(true);
+      setÜbersichtError(null);
+      return;
+    }
+
+    setÜbersichtLoading(true);
+    setÜbersichtError(null);
+
+    try {
+      const [planner, schedule] = await Promise.all([loadPlannerFromCloud(), loadScheduleFromCloud()]);
+      setÜbersichtScheduledPosts(schedule ?? []);
+      setÜbersichtManualPosts(planner?.manualPosts ?? []);
+      setÜbersichtSchedules(planner?.schedules ?? {});
+      setÜbersichtChecklistItems(planner?.checklistItems ?? []);
+      setÜbersichtLastCloudSyncAt(new Date().toISOString());
+    } catch {
+      setÜbersichtError('Cloud-Daten konnten nicht geladen werden.');
+    } finally {
+      setÜbersichtLoading(false);
+      setÜbersichtLoaded(true);
+    }
+  }, []);
+
   // ── Übersicht: Cloud-Daten laden wenn Tab aktiv wird ──────────────────────
   useEffect(() => {
     if (activeTab !== 'übersicht' || übersichtLoaded || übersichtLoading) return;
-    if (!isCloudPlannerAvailable()) { setÜbersichtLoaded(true); return; }
-    setÜbersichtLoading(true);
-    setÜbersichtError(null);
-    Promise.all([loadPlannerFromCloud(), loadScheduleFromCloud()])
-      .then(([planner, schedule]) => {
-        setÜbersichtScheduledPosts(schedule ?? []);
-        setÜbersichtManualPosts(planner?.manualPosts ?? []);
-        setÜbersichtSchedules(planner?.schedules ?? {});
-        setÜbersichtChecklistItems(planner?.checklistItems ?? []);
-      })
-      .catch(() => setÜbersichtError('Cloud-Daten konnten nicht geladen werden.'))
-      .finally(() => { setÜbersichtLoading(false); setÜbersichtLoaded(true); });
-  }, [activeTab, übersichtLoaded, übersichtLoading]);
+    void reloadÜbersichtFromCloud();
+  }, [activeTab, reloadÜbersichtFromCloud, übersichtLoaded, übersichtLoading]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'übersicht') return;
+
+    return subscribeToCloudSessionSync(({ reason, current }) => {
+      if (!current.authToken || !current.projectId) return;
+      if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        void reloadÜbersichtFromCloud();
+      }
+    }, { intervalMs: 5000 });
+  }, [activeTab, isOpen, reloadÜbersichtFromCloud]);
+
+  useEffect(() => {
+    if (activeTab !== 'übersicht') return;
+    setÜbersichtScheduledPosts(scheduledPosts);
+  }, [activeTab, scheduledPosts]);
+
+  useEffect(() => {
+    if (activeTab !== 'übersicht') return;
+    setÜbersichtManualPosts(manualPosts);
+    setÜbersichtSchedules(schedules);
+    setÜbersichtChecklistItems(checklistItems);
+  }, [activeTab, manualPosts, schedules, checklistItems]);
 
   // ── Übersicht: Reset wenn Modal schließt ───────────────────────────────────
   useEffect(() => {
@@ -233,6 +275,7 @@ export function ZenPlannerModal({
       setÜbersichtManualPosts([]);
       setÜbersichtSchedules({});
       setÜbersichtChecklistItems([]);
+      setÜbersichtLastCloudSyncAt(null);
       setÜbersichtError(null);
       setÜbersichtPlatformFilter(null);
       setÜbersichtStatusFilter('all');
@@ -289,15 +332,16 @@ export function ZenPlannerModal({
           base[post.id] = prev[post.id];
         }
       });
-      // Add schedules from scheduledPosts (they already have date/time)
+      // scheduledPosts are the canonical cloud-synced calendar source.
+      // Always reconcile matching IDs so stale local planner schedules cannot
+      // override a newer date/time from another device.
       scheduledPosts.forEach(post => {
-        // Only set if not already in prev (don't override user changes)
-        if (!prev[post.id] && (post.scheduledDate || post.scheduledTime)) {
-          let dateStr = '';
-          if (post.scheduledDate) {
-            const d = post.scheduledDate;
-            dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
-          }
+        let dateStr = '';
+        if (post.scheduledDate) {
+          const d = post.scheduledDate;
+          dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
+        }
+        if (dateStr || post.scheduledTime) {
           base[post.id] = {
             date: dateStr,
             time: post.scheduledTime ?? '',
@@ -312,6 +356,24 @@ export function ZenPlannerModal({
     if (!isOpen) return;
     setActiveTab(defaultTab);
   }, [defaultTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !focusPostId) return;
+    if (activeTab !== 'checklist') return;
+    if (!planningPosts.some((post) => post.id === focusPostId)) return;
+    focusChecklistPost(focusPostId);
+  }, [isOpen, activeTab, focusPostId, planningPosts]);
+
+  useEffect(() => {
+    if (!isOpen || !prefilledPlanPost) return;
+    setNewPostPlatform(prefilledPlanPost.platform);
+    setNewPostTitle(prefilledPlanPost.title);
+    setNewPostSubtitle(prefilledPlanPost.subtitle || '');
+    setNewPostImageUrl(prefilledPlanPost.imageUrl || '');
+    setNewPostContent(prefilledPlanPost.content);
+    setNewPostDate(prefilledPlanPost.date || '');
+    setNewPostTime(prefilledPlanPost.time || '');
+  }, [isOpen, prefilledPlanPost]);
 
 
   useEffect(() => {
@@ -428,12 +490,10 @@ export function ZenPlannerModal({
       status: (editDate && editTime ? 'scheduled' : 'draft') as PublishingStatus,
     };
     // Update schedules map too
-    if (editDate) {
-      setSchedules(prev => ({
-        ...prev,
-        [editingPost.id]: { date: editDate, time: editTime || '' },
-      }));
-    }
+    setSchedules(prev => ({
+      ...prev,
+      [editingPost.id]: { date: editDate || '', time: editTime || '' },
+    }));
     // Push to manualPosts (replace if exists, else add)
     setManualPosts(prev => {
       const exists = prev.some(p => p.id === editingPost.id);
@@ -452,10 +512,7 @@ export function ZenPlannerModal({
       return [...prev, asPlannerPost];
     });
     // Also persist via onScheduledPostsChange
-    const merged = new Map<string, ScheduledPost>();
-    effectiveScheduledPosts.forEach(p => merged.set(p.id, p));
-    merged.set(updatedPost.id, updatedPost);
-    onScheduledPostsChange(Array.from(merged.values()));
+    pushScheduledPost(updatedPost);
     setEditingPost(null);
   };
 
@@ -465,6 +522,8 @@ export function ZenPlannerModal({
   const [calendarDetailDate, setCalendarDetailDate] = useState<Date | null>(null);
   const [calendarEditMap, setCalendarEditMap] = useState<Record<string, PostSchedule>>({});
   const [calendarStatusList, setCalendarStatusList] = useState<'scheduled' | 'draft' | null>(null);
+  const [calendarStatusPlatformFilter, setCalendarStatusPlatformFilter] = useState<SocialPlatform | 'all'>('all');
+  const [calendarStatusDateSort, setCalendarStatusDateSort] = useState<'none' | 'earliest' | 'latest'>('none');
   const [calendarProjectFilter, setCalendarProjectFilter] = useState<string | null>(null);
 
   // Collect unique projects from all posts (for filter dropdown)
@@ -481,6 +540,31 @@ export function ZenPlannerModal({
     if (!calendarProjectFilter) return effectiveScheduledPosts;
     return effectiveScheduledPosts.filter((p) => p.projectId === calendarProjectFilter);
   }, [effectiveScheduledPosts, calendarProjectFilter]);
+  const calendarStatusBasePosts = useMemo(() => {
+    if (!calendarStatusList) return [];
+    return projectFilteredPosts.filter((p) => p.status === calendarStatusList);
+  }, [projectFilteredPosts, calendarStatusList]);
+  const calendarStatusPlatforms = useMemo(
+    () => Array.from(new Set(calendarStatusBasePosts.map((p) => p.platform))),
+    [calendarStatusBasePosts]
+  );
+  const calendarStatusPosts = useMemo(() => {
+    const filtered = calendarStatusBasePosts.filter((post) => {
+      if (calendarStatusPlatformFilter !== 'all' && post.platform !== calendarStatusPlatformFilter) return false;
+      return true;
+    });
+    if (calendarStatusDateSort === 'none') return filtered;
+    return [...filtered].sort((a, b) => {
+      const aDate = a.scheduledDate ? new Date(a.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDate = b.scheduledDate ? new Date(b.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return calendarStatusDateSort === 'earliest' ? aDate - bDate : bDate - aDate;
+    });
+  }, [calendarStatusBasePosts, calendarStatusPlatformFilter, calendarStatusDateSort]);
+  const calendarStatusCount = useMemo(() => calendarStatusPosts.length, [calendarStatusPosts]);
+  const calendarStatusLabel = useMemo(() => {
+    if (calendarStatusList === 'scheduled') return calendarStatusCount === 1 ? 'Post' : 'Posts';
+    return calendarStatusCount === 1 ? 'Entwurf' : 'Entwürfe';
+  }, [calendarStatusList, calendarStatusCount]);
   const [draggedPostId, setDraggedPostId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
   const [manualMovePostId, setManualMovePostId] = useState<string | null>(null);
@@ -524,6 +608,10 @@ export function ZenPlannerModal({
       setCalendarEditMap(newMap);
     }
   }, [calendarDetailDate, calendarStatusList, effectiveScheduledPosts]);
+  useEffect(() => {
+    setCalendarStatusPlatformFilter('all');
+    setCalendarStatusDateSort('none');
+  }, [calendarStatusList]);
 
 
   // Autosave scheduledPosts when they change
@@ -722,7 +810,126 @@ export function ZenPlannerModal({
   };
 
   const handleEditPostClick = (post: ScheduledPost) => {
-    onEditPost?.(post);
+    editScheduledPostInContentStudio(post);
+  };
+
+  const openPlannerPostById = useCallback((postId: string) => {
+    const scheduled =
+      effectiveScheduledPosts.find((post) => post.id === postId) ??
+      scheduledPosts.find((post) => post.id === postId);
+
+    if (scheduled) {
+      handleEditPostClick(scheduled);
+      return;
+    }
+
+    const plannerPost = planningPosts.find((post) => post.id === postId);
+    if (!plannerPost) return;
+
+    const schedule = schedules[plannerPost.id] ?? { date: '', time: '' };
+    onEditPost?.(buildScheduledPostForEdit(plannerPost, schedule));
+  }, [effectiveScheduledPosts, scheduledPosts, planningPosts, schedules, onEditPost]);
+
+  const renderCalendarActionButtons = (
+    post: ScheduledPost,
+    edit: PostSchedule,
+    options?: { onAfterDelete?: () => void }
+  ) => {
+    const isScheduled = post.status === 'scheduled';
+    const statusToggleLabel = isScheduled ? 'Als Entwurf setzen' : 'Als geplant setzen';
+
+    return (
+      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <button
+          className="zen-planner-btn"
+          type="button"
+          onClick={() => {
+            if (isScheduled) {
+              updateScheduledPost(post.id, '', '');
+              return;
+            }
+
+            const nextDate =
+              edit.date ||
+              (post.scheduledDate ? toLocalDateKey(new Date(post.scheduledDate)) : '');
+            const nextTime = edit.time || post.scheduledTime || '';
+
+            if (nextDate && nextTime) {
+              updateScheduledPost(post.id, nextDate, nextTime);
+              return;
+            }
+
+            openRescheduleModal(post);
+          }}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            border: '1px solid #777',
+            borderRadius: '8px',
+            color: '#555',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          {statusToggleLabel}
+        </button>
+        <button
+          className="zen-planner-btn"
+          type="button"
+          onClick={() => openInlineEdit(post)}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            border: '1px solid #777',
+            borderRadius: '8px',
+            color: '#555',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          Post bearbeiten
+        </button>
+        <button
+          className="zen-planner-btn"
+          type="button"
+          onClick={() => handleEditPostClick(post)}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            border: '1px solid #777',
+            borderRadius: '8px',
+            color: '#555',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          Weiterbearbeiten
+        </button>
+        <button
+          className="zen-planner-btn"
+          type="button"
+          onClick={() => {
+            void handleDeleteScheduledPost(post.id);
+            options?.onAfterDelete?.();
+          }}
+          style={{
+            padding: '8px 12px',
+            backgroundColor: 'transparent',
+            border: '1px solid #777',
+            borderRadius: '8px',
+            color: '#555',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          Löschen
+        </button>
+      </div>
+    );
   };
 
   const handleTimeChange = (postId: string, time: string) => {
@@ -770,6 +977,14 @@ export function ZenPlannerModal({
       projectId: existing?.projectId ?? projectPath ?? undefined,
       projectName: existing?.projectName ?? projectName ?? (projectPath ? projectPath.split('/').pop() : undefined),
     };
+  };
+
+  const pushScheduledPost = (scheduledPost: ScheduledPost) => {
+    if (!onScheduledPostsChange) return;
+    const merged = new Map<string, ScheduledPost>();
+    effectiveScheduledPosts.forEach((post) => merged.set(post.id, post));
+    merged.set(scheduledPost.id, scheduledPost);
+    onScheduledPostsChange(Array.from(merged.values()));
   };
 
   const upsertPostSchedule = (postId: string, dateStr: string, timeStr: string) => {
@@ -921,7 +1136,12 @@ export function ZenPlannerModal({
         postDate.getMonth() === date.getMonth() &&
         postDate.getFullYear() === date.getFullYear()
       );
-    });
+    }).sort((a, b) =>
+      comparePlannerDueDateTimeAsc(
+        { scheduledDate: a.scheduledDate, scheduledTime: a.scheduledTime },
+        { scheduledDate: b.scheduledDate, scheduledTime: b.scheduledTime }
+      )
+    );
   };
 
   const calendarDetailPosts = useMemo(
@@ -935,24 +1155,12 @@ export function ZenPlannerModal({
       schedules[postId]?.time ||
       effectiveScheduledPosts.find((post) => post.id === postId)?.scheduledTime ||
       '';
-    setSchedules((prev) => ({
-      ...prev,
-      [postId]: { date: dateStr, time: existingTime },
-    }));
-
-    if (!onScheduledPostsChange) return;
-    const updated = scheduledPosts.map((post) => {
-      if (post.id !== postId) return post;
-      return {
-        ...post,
-        scheduledDate: date,
-        status: 'scheduled' as const,
-      };
-    });
-    onScheduledPostsChange(updated);
+    upsertPostSchedule(postId, dateStr, existingTime);
 
     if (options?.openTimeEditor !== false) {
       setPostMoveTimeEditor({ postId, date: dateStr, time: existingTime });
+    } else {
+      setPostMoveTimeEditor(null);
     }
   };
 
@@ -969,7 +1177,7 @@ export function ZenPlannerModal({
     }));
 
     if (!onScheduledPostsChange) return;
-    const updated = scheduledPosts.map((post) => {
+    const updated = effectiveScheduledPosts.map((post) => {
       if (post.id !== postId) return post;
       return {
         ...post,
@@ -1123,6 +1331,18 @@ export function ZenPlannerModal({
     setCollapsedChecklistPosts({});
   };
 
+  const openChecklistScopeForPost = useCallback((postId?: string) => {
+    setActiveTab('checklist');
+    setWorkflowProgressScope('open');
+
+    if (!postId) {
+      showAllChecklistPosts();
+      return;
+    }
+
+    focusChecklistPost(postId);
+  }, [focusChecklistPost]);
+
   const openedChecklistPosts = useMemo(() => {
     return planningPosts.filter(post => !collapsedChecklistPosts[post.id]);
   }, [planningPosts, collapsedChecklistPosts]);
@@ -1181,6 +1401,24 @@ export function ZenPlannerModal({
 
   const scheduledCount = projectFilteredPosts.filter(p => p.status === 'scheduled').length;
   const draftCount = projectFilteredPosts.filter(p => p.status === 'draft').length;
+  const sortedPlanningPosts = useMemo(() => {
+    return [...planningPosts].sort((a, b) => {
+      const aSchedule = schedules[a.id] ?? { date: '', time: '' };
+      const bSchedule = schedules[b.id] ?? { date: '', time: '' };
+      return comparePlannerDueDateTimeOverdueFirst(
+        {
+          isScheduled: !!(aSchedule.date && aSchedule.time),
+          scheduledDate: aSchedule.date || undefined,
+          scheduledTime: aSchedule.time || undefined,
+        },
+        {
+          isScheduled: !!(bSchedule.date && bSchedule.time),
+          scheduledDate: bSchedule.date || undefined,
+          scheduledTime: bSchedule.time || undefined,
+        }
+      );
+    });
+  }, [planningPosts, schedules]);
   const suggestedPostExists = useMemo(() => {
     if (!suggestedEditorPost) return false;
     const normalize = (value: string) => value.trim().replace(/\s+/g, ' ');
@@ -1319,7 +1557,7 @@ export function ZenPlannerModal({
               flex: 1,
             }}
           >
-            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', marginRight: '8px' }} />
+            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#1a1a1a', marginRight: '8px' }} />
             Planen Hinweise
           </p>
           <button
@@ -1342,7 +1580,7 @@ export function ZenPlannerModal({
           >
             <FontAwesomeIcon
               icon={isPlanenInfoCollapsed ? faChevronRight : faChevronDown}
-              style={{ fontSize: '10px', color: '#AC8E66' }}
+              style={{ fontSize: '10px', color: '#1a1a1a' }}
             />
           </button>
         </div>
@@ -1373,23 +1611,27 @@ export function ZenPlannerModal({
         >
           {/* Header */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#AC8E66', fontSize: '11px' }} />
-            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
+            <FontAwesomeIcon icon={faLightbulb} style={{ color: '#1a1a1a', fontSize: '11px' }} />
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', 
+              fontSize: '10px', color: '#1a1a1a' }}>
               Aktiver Entwurf aus dem Content AI Studio
             </span>
           </div>
           {/* Post Metadaten Preview */}
           <div style={{ marginBottom: '12px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#e5e5e5', fontWeight: '600' }}>
-              {suggestedEditorPost.title || 'Entwurf'}
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', 
+              color: '#1a1a1a', fontWeight: '600' }}>
+              <span>Title:</span> {suggestedEditorPost.title || 'Entwurf'}
+           
             </div>
             {suggestedEditorPost.subtitle && (
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
-                {suggestedEditorPost.subtitle}
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', 
+              fontSize: '10px', color: '#444' }}>
+                 <span>Untertitel:</span> {suggestedEditorPost.subtitle}
               </div>
             )}
             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555', marginTop: '2px' }}>
-              {suggestedEditorPost.content.trim().slice(0, 100)}{suggestedEditorPost.content.trim().length > 100 ? '…' : ''}
+              <span>Inhalt:</span>  {suggestedEditorPost.content.trim().slice(0, 100)}{suggestedEditorPost.content.trim().length > 100 ? '…' : ''}
             </div>
           </div>
           {/* Actions */}
@@ -1405,19 +1647,46 @@ export function ZenPlannerModal({
                 variant="button"
               />
             </div>
-            <ZenRoughButton
-              label="In Planner übernehmen"
-              icon={<FontAwesomeIcon icon={faCheck} />}
+            <button
+              className="zen-planner-btn"
+              type="button"
               onClick={importSuggestedEditorPost}
-              size="small"
-            />
-            <ZenRoughButton
-              label="Ignorieren"
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '4px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <FontAwesomeIcon icon={faCheck} style={{ fontSize: '10px' }} />
+              In Planner übernehmen
+            </button>
+            <button
+              className="zen-planner-btn"
+              type="button"
               onClick={() =>
                 setDismissedSuggestionKeys((prev) => ({ ...prev, [suggestedEditorPost.key]: true }))
               }
-              size="small"
-            />
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '4px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Ignorieren
+            </button>
           </div>
         </div>
       ) : null}
@@ -1432,54 +1701,132 @@ export function ZenPlannerModal({
           border: '1px solid #3A3A3A',
         }}
       >
-        <p
+        <div
           style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '11px',
-            color: '#555',
-            fontWeight: '200',
-            margin: 0,
-            marginBottom: '11px',
             display: 'flex',
             alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '11px',
             gap: '8px',
           }}
         >
-          <FontAwesomeIcon icon={faCirclePlus} 
-          style={{ color: '#AC8E66' }} />
-          Neuen Post planen
-        </p>
+          <p
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              color: '#1a1a1a',
+              margin: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            <FontAwesomeIcon icon={faCirclePlus} style={{ color: '#1a1a1a' }} />
+            Neuen Post planen
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              const trimmedTitle = newPostTitle.trim();
+              const trimmedContent = newPostContent.trim();
+              const contentValue = trimmedContent || trimmedTitle || '';
+              const wordCount = contentValue ? contentValue.split(/\s+/).filter(Boolean).length : 0;
+              const newId = `manual-${Date.now()}`;
+              const nextSchedule: PostSchedule = {
+                date: newPostDate || initialDate || getTodayDate(),
+                time: newPostTime || getDefaultTime(),
+              };
+              const newPlannerPost: PlannerPost = {
+                id: newId,
+                platform: newPostPlatform,
+                title: trimmedTitle || getPlatformInfo(newPostPlatform).name,
+                subtitle: newPostSubtitle.trim() || undefined,
+                imageUrl: newPostImageUrl.trim() || undefined,
+                content: contentValue,
+                characterCount: contentValue.length,
+                wordCount,
+                source: 'manual',
+              };
+
+              setManualPosts((prev) => [
+                ...prev,
+                newPlannerPost,
+              ]);
+
+              setSchedules((prev) => ({
+                ...prev,
+                [newId]: nextSchedule,
+              }));
+
+              pushScheduledPost(buildScheduledPostForEdit(newPlannerPost, nextSchedule));
+
+              setNewPostTitle('');
+              setNewPostSubtitle('');
+              setNewPostImageUrl('');
+              setNewPostContent('');
+              setNewPostDate('');
+              setNewPostTime('');
+            }}
+            style={{
+              width: '30px',
+              height: '30px',
+              backgroundColor: 'transparent',
+              border: '1px solid rgba(172,142,102,0.4)',
+              borderRadius: '999px',
+              color: '#555',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+            }}
+            title="Post hinzufügen"
+          >
+            <FontAwesomeIcon icon={faCirclePlus} style={{ 
+              fontSize: '18px', color: '#1a1a1a' }} />
+          </button>
+        </div>
         {/* Plattform */}
         <div style={{ marginBottom: '10px' }}>
           <ZenDropdown
+          
             value={newPostPlatform}
             onChange={(value) => setNewPostPlatform(value as SocialPlatform)}
             options={(Object.keys(PLATFORM_INFO) as SocialPlatform[]).map((platform) => ({
               value: platform,
               label: getPlatformInfo(platform).name,
             }))}
-            variant="compact"
+            variant="button"
+            theme="paper"
           />
         </div>
         {/* Titel + Untertitel — konsistent mit Content AI Studio Post-Metadaten */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '10px' }}>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: '6px', marginBottom: '10px' }}>
+
+
           <input
+            className="zen-planner-title-input"
             type="text"
             value={newPostTitle}
             onChange={(e) => setNewPostTitle(e.target.value)}
-            placeholder="Titel"
+            placeholder="Dein Titel hier"
             style={{
-              width: '100%',
+              width: 'calc(100% - 26px)',
               padding: '10px 12px',
               backgroundColor: 'transparent',
+              boxShadow: 'none',
               border: '1px solid #3A3A3A',
               borderRadius: '6px',
               color: '#1a1a1a',
+              WebkitTextFillColor: '#1a1a1a',
               fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '13px',
-              fontWeight: '100',
+              fontSize: '12px',
+              fontWeight: '400',
               outline: 'none',
-              boxSizing: 'border-box',
+              
             }}
           />
           <input
@@ -1492,10 +1839,13 @@ export function ZenPlannerModal({
               padding: '8px 12px',
               backgroundColor: 'transparent',
               border: '1px solid #2E2E2E',
+               boxShadow: 'none',
               borderRadius: '6px',
               color: '#1a1a1a',
+              WebkitTextFillColor: '#1a1a1a',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
+              fontWeight: '400',
               outline: 'none',
               boxSizing: 'border-box',
             }}
@@ -1516,6 +1866,7 @@ export function ZenPlannerModal({
             position: 'relative',
             marginBottom: '8px',
             borderRadius: '8px',
+            boxShadow: 'none',
             border: isNewPostImageDragActive ? '1px solid #AC8E66' : '1px dashed #3A3A3A',
             background: isNewPostImageDragActive ? 'rgba(172,142,102,0.08)' : 'transparent',
             transition: 'border-color 0.15s, background 0.15s',
@@ -1550,6 +1901,7 @@ export function ZenPlannerModal({
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 10px' }}>
             <FontAwesomeIcon icon={faImage} style={{ fontSize: '11px', color: isNewPostImageDragActive ? '#AC8E66' : '#555', flexShrink: 0 }} />
             <input
+            className="planner-image-input"
               type="text"
               value={newPostImageUrl}
               onChange={(e) => setNewPostImageUrl(e.target.value)}
@@ -1572,7 +1924,7 @@ export function ZenPlannerModal({
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
           {/* Datum */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '9px' }} />
               Datum
             </label>
@@ -1585,6 +1937,7 @@ export function ZenPlannerModal({
                 backgroundColor: 'transparent',
                 border: '1px solid #3A3A3A',
                 borderRadius: '6px',
+                 boxShadow: 'none',
                 color: '#1a1a1a',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '11px',
@@ -1596,7 +1949,7 @@ export function ZenPlannerModal({
           </div>
           {/* Uhrzeit */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <FontAwesomeIcon icon={faClock} style={{ fontSize: '9px' }} />
               Uhrzeit
             </label>
@@ -1608,6 +1961,7 @@ export function ZenPlannerModal({
                 padding: '8px 10px',
                 backgroundColor: 'transparent',
                 border: '1px solid #3A3A3A',
+                 boxShadow: 'none',
                 borderRadius: '6px',
                 color: '#1a1a1a',
                 fontFamily: 'IBM Plex Mono, monospace',
@@ -1642,47 +1996,6 @@ export function ZenPlannerModal({
             showHeader={true}
           />
         </div>
-
-        <ZenAddButton
-          size="sm"
-          onClick={() => {
-            const trimmedTitle = newPostTitle.trim();
-            const trimmedContent = newPostContent.trim();
-            const contentValue = trimmedContent || trimmedTitle || '';
-            const wordCount = contentValue ? contentValue.split(/\s+/).filter(Boolean).length : 0;
-            const newId = `manual-${Date.now()}`;
-
-            setManualPosts(prev => [
-              ...prev,
-              {
-                id: newId,
-                platform: newPostPlatform,
-                title: trimmedTitle || getPlatformInfo(newPostPlatform).name,
-                subtitle: newPostSubtitle.trim() || undefined,
-                imageUrl: newPostImageUrl.trim() || undefined,
-                content: contentValue,
-                characterCount: contentValue.length,
-                wordCount,
-                source: 'manual',
-              },
-            ]);
-
-            setSchedules(prev => ({
-              ...prev,
-              [newId]: {
-                date: newPostDate || initialDate || getTodayDate(),
-                time: newPostTime || getDefaultTime(),
-              },
-            }));
-
-            setNewPostTitle('');
-            setNewPostSubtitle('');
-            setNewPostImageUrl('');
-            setNewPostContent('');
-            setNewPostDate('');
-            setNewPostTime('');
-          }}
-        />
       </div>
 
       {/* Platform Schedule Cards */}
@@ -1696,10 +2009,17 @@ export function ZenPlannerModal({
               marginBottom: '24px',
             }}
           >
-            {planningPosts.map(post => {
+            {sortedPlanningPosts.map(post => {
               const info = getPlatformInfo(post.platform);
               const schedule = schedules[post.id] ?? { date: '', time: '' };
               const existingScheduled = effectiveScheduledPosts.find(p => p.id === post.id);
+              const isCardScheduled = !!(schedule.date && schedule.time);
+              const cardScheduleState = getPlannerScheduleVisualState({
+                isScheduled: isCardScheduled,
+                scheduledDate: schedule.date,
+                scheduledTime: schedule.time,
+              });
+              const isCardOverdue = cardScheduleState === 'overdue';
 
               return (
                 <div
@@ -1707,7 +2027,8 @@ export function ZenPlannerModal({
                   style={{
                     padding: '20px',
                     borderRadius: '12px',
-                    border: '1px solid #3A3A3A',
+                    border: isCardOverdue ? '1px solid #dc2626' : '1px solid #3A3A3A',
+                    backgroundColor: isCardOverdue ? 'rgba(220,38,38,0.05)' : 'transparent',
                     position: 'relative',
                   }}
                 >
@@ -1720,7 +2041,7 @@ export function ZenPlannerModal({
                       marginBottom: '16px',
                     }}
                   >
-                    <FontAwesomeIcon icon={info.icon} style={{ fontSize: '22px', color: '#AC8E66' }} />
+                    <FontAwesomeIcon icon={info.icon} style={{ fontSize: '22px', color: `${info.color}`}} />
                     <div style={{ flex: 1 }}>
                       <h4
                         style={{
@@ -1774,8 +2095,29 @@ export function ZenPlannerModal({
                       )}
                     </div>
                   </div>
-                  {post.source === 'manual' && (
-                    <div style={{ position: 'absolute', top: '12px', right: '12px' }}>
+                  <div style={{ position: 'absolute', top: '12px', right: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    {schedule.date && schedule.time && (
+                      <span
+                        style={{
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '12px',
+                          color: isCardOverdue ? '#dc2626' : '#1a1a1a',
+                          padding: '2px 7px',
+                          borderRadius: '3px',
+                          border: isCardOverdue ? '1px solid rgba(220,38,38,0.6)' : '1px solid rgba(26, 26, 26, 0.45)',
+                          fontWeight: 'normal',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          lineHeight: 1.1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faCheck} style={{ fontSize: '8px' }} />
+                        {isCardOverdue ? 'Überfällig' : 'Geplant'}
+                      </span>
+                    )}
+                    {post.source === 'manual' && (
                       <ZenCloseButton
                         onClick={() => {
                           setManualPosts(prev => prev.filter(item => item.id !== post.id));
@@ -1787,8 +2129,8 @@ export function ZenPlannerModal({
                         }}
                         size="sm"
                       />
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {/* Date & Time Inputs - 2 Column Grid */}
                   <div style={{
@@ -1820,9 +2162,10 @@ export function ZenPlannerModal({
                         onChange={(e) => handleDateChange(post.id, e.target.value)}
                         min={getTodayDate()}
                         style={{
-                          width: '100%',
+                          width: '95%',
                           padding: '6px 8px',
                           backgroundColor: 'transparent',
+                          boxShadow: 'none',
                           border: '1px solid #3A3A3A',
                           borderRadius: '6px',
                           color: '#666',
@@ -1839,6 +2182,7 @@ export function ZenPlannerModal({
                           marginTop: '10px',                          display: 'flex',
                           alignItems: 'center',
                           gap: '4px',
+                           boxShadow: 'none',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
                           color: '#555',
@@ -1853,9 +2197,10 @@ export function ZenPlannerModal({
                         value={schedule.time}
                         onChange={(e) => handleTimeChange(post.id, e.target.value)}
                         style={{
-                          width: '100%',
+                          width: '95%',
                           padding: '6px 8px',
                           backgroundColor: 'transparent',
+                           boxShadow: 'none',
                           border: '1px solid #3A3A3A',
                           borderRadius: '6px',
                           color: '#666',
@@ -1866,33 +2211,10 @@ export function ZenPlannerModal({
                     </div>
                   </div>
 
-                  {/* Status Badge */}
-                  <div
-                    style={{
-                      marginTop: '12px',
-                      padding: '6px 12px',
-                      backgroundColor: schedule.date && schedule.time ? '#151515' : 'transparent',
-                      borderRadius: '8px',
-                      textAlign: 'center',
-                      border: schedule.date && schedule.time ? 'none' : '1px dashed #3a3a3a',
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '10px',
-                        color: schedule.date && schedule.time ? '#AC8E66' : '#555',
-                        fontWeight: 'normal',
-                      }}
-                    >
-                      {schedule.date && schedule.time ? '✓ Geplant' : 'Datum & Uhrzeit eingeben zum Einplanen'}
-                    </span>
-                  </div>
-
                   <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
-                    <ZenRoughButton
-                      label="Weiterbearbeiten"
-                      size='default'
+                    <button
+                      className="zen-planner-btn"
+                      type="button"
                       onClick={() => {
                         if (existingScheduled) {
                           handleEditPostClick(existingScheduled);
@@ -1900,7 +2222,20 @@ export function ZenPlannerModal({
                         }
                         onEditPost?.(buildScheduledPostForEdit(post, schedule));
                       }}
-                    />
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        backgroundColor: 'transparent',
+                        border: '1px solid #777',
+                        borderRadius: '8px',
+                        color: '#555',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Weiterbearbeiten
+                    </button>
                   </div>
                 </div>
               );
@@ -1946,6 +2281,7 @@ export function ZenPlannerModal({
               fontWeight: 'normal',
             }}
           >
+            
             Geplante Posts 
           </h4>
           <div
@@ -1972,7 +2308,26 @@ export function ZenPlannerModal({
                       position: 'relative',
                     }}
                   >
-                    <div style={{ position: 'absolute', top: '10px', right: '10px' }}>
+                    <div style={{ position: 'absolute', top: '10px', right: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span
+                        style={{
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '9px',
+                          color: '#AC8E66',
+                          padding: '2px 7px',
+                          borderRadius: '999px',
+                          border: '1px solid rgba(172, 142, 102, 0.45)',
+                          fontWeight: 'normal',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          lineHeight: 1.1,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faCheck} style={{ fontSize: '8px' }} />
+                        Geplant
+                      </span>
                       <ZenCloseButton
                         onClick={() => void handleDeleteScheduledPost(post.id)}
                         size="sm"
@@ -2060,36 +2415,25 @@ export function ZenPlannerModal({
                         />
                       </div>
                     </div>
-                    <div style={{ 
-                      marginTop: '12px',
-                      padding: '6px 12px',
-                      backgroundColor: 'transparent',
-                      borderRadius: '4px',
-                      textAlign: 'center',
-                      }}
-                      >
-                      <span
-                      style={{
-                        fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
-                        color: '#AC8E66',
-                        padding: '4px 10px', borderRadius: '4px',
-                        fontWeight: 'normal',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        }}
-                        >
-                        <FontAwesomeIcon icon={faCheck} style={{ fontSize: '9px' }} />
-                        Geplant
-                      </span>
-                    </div>
                     <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
-                      <ZenRoughButton
-                        label="Weiterbearbeiten"
-                        size="default"
-                     
+                      <button
+                        className="zen-planner-btn"
+                        type="button"
                         onClick={() => handleEditPostClick(post)}
-                      />
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #777',
+                          borderRadius: '8px',
+                          color: '#555',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Weiterbearbeiten
+                      </button>
                     </div>
                   </div>
                 );
@@ -2211,13 +2555,24 @@ export function ZenPlannerModal({
                       </div>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px' }}>
-                      <ZenRoughButton
-                        label="Weiterbearbeiten"
-                        size="small"
-                        width={180}
-                        height={36}
+                      <button
+                        className="zen-planner-btn"
+                        type="button"
                         onClick={() => handleEditPostClick(post)}
-                      />
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #777',
+                          borderRadius: '8px',
+                          color: '#555',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Weiterbearbeiten
+                      </button>
                     </div>
                   </div>
                 );
@@ -2274,20 +2629,130 @@ export function ZenPlannerModal({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#555' }}>
-                {calendarStatusList === 'scheduled' ? 'Geplante Posts' : 'Entwürfe'}
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#1a1a1a' }}>
+                {calendarStatusList === 'scheduled' ? 'Geplant' : 'Entwürfe'}: {calendarStatusCount}{' '}
+                <span style={{ color: '#555' }}>{calendarStatusLabel}</span>
               </div>
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
-                {projectFilteredPosts.filter(p => p.status === calendarStatusList).length} <span style={{ color: '#555' }}>{calendarStatusList === 'scheduled' ? 'Posts geplant' : 'Entwürfe vorhanden'}</span>
-              </div>
+              {(calendarStatusPlatformFilter !== 'all' || calendarStatusDateSort !== 'none') && (
+                <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', marginTop: 4 }}>
+                  von insgesamt {calendarStatusBasePosts.length}
+                </div>
+              )}
             </div>
-            <ZenCloseButton onClick={() => setCalendarStatusList(null)} />
+            <button
+              className="zen-planner-btn"
+              type="button"
+              onClick={() => setCalendarStatusList(null)}
+              title="Status-Liste schließen"
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '999px',
+                border: '1px solid #777',
+                backgroundColor: 'transparent',
+                color: '#555',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              <FontAwesomeIcon icon={faCheck} style={{ fontSize: '12px' }} />
+            </button>
+          </div>
+
+          <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+            <span style={{ 
+              fontFamily: 'IBM Plex Mono, monospace', 
+              fontSize: '10px', color: '#555' }}>Filter:</span>
+            <button
+              className="zen-planner-btn"
+              type="button"
+              onClick={() => setCalendarStatusPlatformFilter('all')}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: calendarStatusPlatformFilter === 'all' ? 'rgba(172,142,102,0.18)' : 'transparent',
+                border: `1px solid ${calendarStatusPlatformFilter === 'all' ? '#AC8E66' : '#777'}`,
+                borderRadius: '4px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '9px',
+                cursor: 'pointer',
+              }}
+            >
+              Alle
+            </button>
+            {calendarStatusPlatforms.map((platform) => {
+              const platformInfo = getPlatformInfo(platform);
+              const isActive = calendarStatusPlatformFilter === platform;
+              return (
+                <button
+                  key={platform}
+                  className="zen-planner-btn"
+                  type="button"
+                  onClick={() => setCalendarStatusPlatformFilter(platform)}
+                  style={{
+                    padding: '4px 10px',
+                    backgroundColor: isActive ? 'rgba(172,142,102,0.18)' : 'transparent',
+                    border: `1px solid ${isActive ? '#AC8E66' : '#777'}`,
+                    borderRadius: '4px',
+                    color: '#555',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                  title={platformInfo.name}
+                >
+                  <FontAwesomeIcon icon={platformInfo.icon} style={{ fontSize: '9px', color: platformInfo.color }} />
+                  {platformInfo.name}
+                </button>
+              );
+            })}
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ZenDropdown
+                value={calendarStatusDateSort}
+                onChange={(value) => setCalendarStatusDateSort(value as 'none' | 'earliest' | 'latest')}
+                options={[
+                  { value: 'none', label: 'Datum: Standard' },
+                  { value: 'earliest', label: 'Datum: Früheste zuerst' },
+                  { value: 'latest', label: 'Datum: Neueste zuerst' },
+                ]}
+                variant="button"
+                      theme="paper"
+                width={320}
+                triggerHeight={34}
+              />
+              {(calendarStatusDateSort !== 'none' || calendarStatusPlatformFilter !== 'all') && (
+                <button
+                  className="zen-planner-btn"
+                  type="button"
+                  onClick={() => {
+                    setCalendarStatusDateSort('none');
+                    setCalendarStatusPlatformFilter('all');
+                  }}
+                  style={{
+                    padding: '6px 8px',
+                    backgroundColor: 'transparent',
+                    border: '1px solid #777',
+                    borderRadius: '6px',
+                    color: '#555',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {projectFilteredPosts
-              .filter((post) => post.status === calendarStatusList)
-              .map((post) => {
+            {calendarStatusPosts.map((post) => {
                 const info = getPlatformInfo(post.platform);
                 const edit = calendarEditMap[post.id] ?? { date: '', time: '' };
                 return (
@@ -2298,11 +2763,12 @@ export function ZenPlannerModal({
                       backgroundColor: 'transparent',
                       borderRadius: '8px',
                       border: '1px solid #3A3A3A',
+                      boxShadow: `inset 5px 0 0 ${info.color}`,
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <FontAwesomeIcon icon={info.icon} style={{ color: '#AC8E66' }} />
+                        <FontAwesomeIcon icon={info.icon} style={{ color: `${info.color}`,fontSize: '15px', }} />
                         <div>
                           <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', color: '#555' }}>
                             {post.title || info.name}
@@ -2312,41 +2778,9 @@ export function ZenPlannerModal({
                           </div>
                         </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <ZenRoughButton
-                          label={edit.date && edit.time ? "Als geplant setzen" : "Neu planen"}
-                          onClick={() => {
-                            if (edit.date && edit.time) {
-                              updateScheduledPost(post.id, edit.date, edit.time);
-                              return;
-                            }
-                            openRescheduleModal(post);
-                          }}
-                          variant="default"
-                          size="small"
-                        />
-                        <ZenRoughButton
-                          label="Post bearbeiten"
-                          onClick={() => openInlineEdit(post)}
-                          variant="default"
-                          size="small"
-                        />
-                        <ZenRoughButton
-                          label="Weiterbearbeiten"
-                          onClick={() => handleEditPostClick(post)}
-                          variant="default"
-                          size="small"
-                        />
-                        <ZenRoughButton
-                          label="Löschen"
-                          onClick={() => {
-                            void handleDeleteScheduledPost(post.id);
-                            setCalendarStatusList(null);
-                          }}
-                          variant="default"
-                          size="small"
-                        />
-                      </div>
+                      {renderCalendarActionButtons(post, edit, {
+                        onAfterDelete: () => setCalendarStatusList(null),
+                      })}
                     </div>
 
                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2364,9 +2798,10 @@ export function ZenPlannerModal({
                         style={{
                           padding: '8px 10px',
                           backgroundColor: 'transparent',
-                          border: '1px solid #3A3A3A',
+                          border: '1px solid #555',
                           borderRadius: '6px',
-                          color: '#121212',
+                          color: '#555',
+                          boxShadow: 'none',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
                         }}
@@ -2380,8 +2815,9 @@ export function ZenPlannerModal({
                         style={{
                           padding: '8px 10px',
                           backgroundColor: 'transparent',
-                          border: '1px solid #3A3A3A',
+                          border: '1px solid #555',
                           borderRadius: '6px',
+                           boxShadow: 'none',
                           color: '#555',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
@@ -2391,7 +2827,7 @@ export function ZenPlannerModal({
                   </div>
                 );
               })}
-            {projectFilteredPosts.filter((post) => post.status === calendarStatusList).length === 0 && (
+            {calendarStatusPosts.length === 0 && (
               <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#777' }}>
                 Keine Einträge vorhanden.
               </div>
@@ -2440,6 +2876,7 @@ export function ZenPlannerModal({
                     backgroundColor: 'transparent',
                     borderRadius: '8px',
                     border: '1px solid #3A3A3A',
+                    boxShadow: `inset 5px 0 0 ${info.color}`,
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2454,37 +2891,9 @@ export function ZenPlannerModal({
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <ZenRoughButton
-                        label={edit.date && edit.time ? "Als geplant setzen" : "Neu planen"}
-                        onClick={() => {
-                          if (edit.date && edit.time) {
-                            updateScheduledPost(post.id, edit.date, edit.time);
-                            return;
-                          }
-                          openRescheduleModal(post);
-                        }}
-                        variant="default"
-                      />
-                      <ZenRoughButton
-                        label="Post bearbeiten"
-                        onClick={() => openInlineEdit(post)}
-                        variant="default"
-                      />
-                      <ZenRoughButton
-                        label="Weiterbearbeiten"
-                        onClick={() => handleEditPostClick(post)}
-                        variant="default"
-                      />
-                      <ZenRoughButton
-                        label="Löschen"
-                        onClick={() => {
-                            void handleDeleteScheduledPost(post.id);
-                          setCalendarDetailDate(null);
-                        }}
-                        variant="default"
-                      />
-                    </div>
+                    {renderCalendarActionButtons(post, edit, {
+                      onAfterDelete: () => setCalendarDetailDate(null),
+                    })}
                   </div>
 
                     <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2664,27 +3073,24 @@ export function ZenPlannerModal({
         </button>
       </div>
 
-      {isTauri() && (
-        <div
-          style={{
-            marginBottom: '12px',
-            padding: '10px 12px',
-            border: '1px dashed #3A3A3A',
-            borderRadius: '6px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-          }}
-        >
-          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
-            {manualMovePost
-              ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag auswählen.`
-              : 'zum Verschieben drag & drop oder move klicken'}
-          </div>
-          
+      <div
+        style={{
+          marginBottom: '12px',
+          padding: '10px 12px',
+          border: '1px dashed #3A3A3A',
+          borderRadius: '6px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '8px',
+        }}
+      >
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+          {manualMovePost
+            ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag auswählen.`
+            : 'zum Verschieben drag & drop oder verschieben klicken'}
         </div>
-      )}
+      </div>
 
       {/* Day Names Header — mit KW-Spalte */}
       <div
@@ -2773,8 +3179,8 @@ export function ZenPlannerModal({
                   key={`${weekIndex}-${dayIndex}`}
                   onClick={() => {
                     if (!isCurrent) return;
-                    if (isTauri() && manualMovePostId) {
-                      applyCalendarDate(manualMovePostId, date);
+                    if (manualMovePostId) {
+                      applyCalendarDate(manualMovePostId, date, { openTimeEditor: false });
                       setManualMovePostId(null);
                       setCalendarStatusList(null);
                       setCalendarDetailDate(date);
@@ -2808,19 +3214,19 @@ export function ZenPlannerModal({
                       : isSelected
                       ? 'rgba(172, 142, 102, 0.12)'
                       : isTodayDate
-                      ? 'rgba(172, 142, 102, 0.08)'
+                      ? 'rgba(172, 201, 172, 0.08)'
                       : isWeekend && isCurrent
                       ? 'rgba(255,255,255,0.02)'
                       : 'transparent',
                     border: `1px solid ${
                       isDragOver ? '#AC8E66'
                       : isSelected ? '#AC8E66'
-                      : isTodayDate ? 'rgba(172, 142, 102, 0.5)'
+                      : isTodayDate ? 'rgba(172, 201, 172, 0.9)'
                       : '#2E2E2E'
                     }`,
                     borderRadius: '6px',
                     opacity: isCurrent ? 1 : 0.25,
-                    cursor: isCurrent ? (isTauri() && manualMovePostId ? 'copy' : 'pointer') : 'default',
+                    cursor: isCurrent ? (manualMovePostId ? 'copy' : 'pointer') : 'default',
                     transition: 'all 0.15s ease',
                     transform: isDragOver ? 'scale(1.02)' : 'none',
                   }}
@@ -2863,6 +3269,13 @@ export function ZenPlannerModal({
                         const isDragging = draggedPostIdRef.current === post.id || draggedPostId === post.id;
                         const isManualMoveSelected = manualMovePostId === post.id;
                         const isMoveTimeEditorOpen = postMoveTimeEditor?.postId === post.id;
+                        const calendarScheduleState = getPlannerScheduleVisualState({
+                          isScheduled: post.status === 'scheduled',
+                          scheduledDate: post.scheduledDate,
+                          scheduledTime: post.scheduledTime,
+                        });
+                        const isTodayScheduledPost = calendarScheduleState === 'today';
+                        const isOverdueScheduledPost = calendarScheduleState === 'overdue';
                         return (
                           <div key={post.id} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             {isMoveTimeEditorOpen && (
@@ -2947,7 +3360,11 @@ export function ZenPlannerModal({
                               }}
                               style={{
                                 padding: '2px 5px',
-                                backgroundColor: isDragging ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.1)',
+                                backgroundColor: isDragging
+                                  ? 'rgba(172,142,102,0.25)'
+                                  : isOverdueScheduledPost
+                                  ? 'rgba(220,38,38,0.14)'
+                                  : 'rgba(172,142,102,0.1)',
                                 borderRadius: '4px',
                                 fontSize: '10px',
                                 fontFamily: 'IBM Plex Mono, monospace',
@@ -2957,47 +3374,47 @@ export function ZenPlannerModal({
                                 gap: '3px',
                                 cursor: isDragging ? 'grabbing' : 'grab',
                                 opacity: isDragging ? 0.8 : 1,
-                                border: isDragging || isManualMoveSelected ? '1px dashed #1a1a1a' : '1px solid rgba(172,142,102,1)',
+                                boxShadow: `inset 3px 0 0 ${info.color}`,
+                                border: isDragging || isManualMoveSelected
+                                  ? '1px dashed #1a1a1a'
+                                  : isOverdueScheduledPost
+                                  ? '1px solid #dc2626'
+                                  : isTodayScheduledPost
+                                  ? '1px solid #dc2626'
+                                  : '1px solid rgba(172,142,102,1)',
                               }}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (isTauri()) {
-                                  setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-                                  return;
-                                }
                                 if (draggedPostIdRef.current) return;
-                                setCalendarStatusList(null);
-                                setCalendarDetailDate(date);
+                                handleEditPostClick(post);
                               }}
                             >
                               <FontAwesomeIcon icon={info.icon} style={{ fontSize: '12px', color: '#1a1a1a' }} />
                               <span style={{ fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {info.name} · {post.scheduledTime || '--:--'}
                               </span>
-                              {isTauri() && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setManualMovePostId((prev) => (prev === post.id ? null : post.id));
-                                  }}
-                                  style={{
-                                    marginLeft: 'auto',
-                                    border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
-                                    borderRadius: '4px',
-                                    background: 'transparent',
-                                    color: '#1a1a1a',
-                                    fontFamily: 'IBM Plex Mono, monospace',
-                                    fontSize: '8px',
-                                    lineHeight: 1,
-                                    padding: '5px 4px',
-                                    cursor: 'pointer',
-                                  }}
-                                  title="Post zum Verschieben markieren"
-                                >
-                                  move
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setManualMovePostId((prev) => (prev === post.id ? null : post.id));
+                                }}
+                                style={{
+                                  marginLeft: 'auto',
+                                  border: isManualMoveSelected ? '1px dashed #AC8E66' : '1px solid #3A3A3A',
+                                  borderRadius: '4px',
+                                  background: 'transparent',
+                                  color: '#1a1a1a',
+                                  fontFamily: 'IBM Plex Mono, monospace',
+                                  fontSize: '8px',
+                                  lineHeight: 1,
+                                  padding: '5px 4px',
+                                  cursor: 'pointer',
+                                }}
+                                title="Post zum Verschieben markieren"
+                              >
+                                verschieben
+                              </button>
                             </div>
                           </div>
                         );
@@ -3060,12 +3477,13 @@ export function ZenPlannerModal({
               onClick={() => setWorkflowProgressScope(scope)}
               style={{
                 backgroundColor: isActive ? '#AC8E66' : 'transparent',
-                border: '1px solid #3A3A3A',
+                border: '0.5px solid #1a1a1a',
                 color: isActive ? '#0A0A0A' : '#AC8E66',
                 fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '9px',
+                fontSize: '10px',
                 padding: '4px 6px',
                 borderRadius: '4px',
+                boxShadow: 'none',
                 cursor: 'pointer',
               }}
               title={scope === 'all' ? 'Alle Posts exportieren' : 'Nur geöffnete Posts exportieren'}
@@ -3228,317 +3646,30 @@ export function ZenPlannerModal({
 
   // ==================== ÜBERSICHT RENDER ====================
   const renderÜbersichtContent = () => {
-    const gold = '#AC8E66';
-    const fontMono = 'IBM Plex Mono, monospace';
-    const paperBg = 'transparent';
-    const cardBg = 'rgba(255,255,255,0.35)';
-    const borderColor = 'rgba(172,142,102,0.35)';
-    const textMain = '#3a3530';
-    const textMuted = '#7a7268';
-    const textLight = '#a09888';
-
-    const PLATFORM_ICONS: Record<string, import('@fortawesome/fontawesome-svg-core').IconDefinition> = {
-      linkedin: faLinkedin,
-      reddit: faReddit,
-      github: faGithub,
-      devto: faDev,
-      medium: faMedium,
-      hashnode: faHashnode,
-      twitter: faTwitter,
-    };
-
-    const PLATFORM_COLORS: Record<string, string> = {
-      linkedin: '#0077B5', reddit: '#FF4500', github: '#555', devto: '#444',
-      medium: '#00AB6C', hashnode: '#2962FF', twitter: '#1DA1F2',
-    };
-
-    // Merge posts: scheduledPosts primary, then manualPosts
-    const seen = new Set<string>();
-    const allPosts: Array<{
-      id: string; platform: string; title: string; content: string;
-      characterCount: number; wordCount: number;
-      schedule: { date: string; time: string } | undefined; isScheduled: boolean;
-    }> = [];
-
-    übersichtScheduledPosts.forEach((post) => {
-      seen.add(post.id);
-      let dateStr = '';
-      if (post.scheduledDate) {
-        const d = post.scheduledDate;
-        dateStr = d instanceof Date ? d.toISOString().split('T')[0] : String(d).split('T')[0];
-      }
-      allPosts.push({
-        id: post.id, platform: post.platform, title: post.title, content: post.content,
-        characterCount: post.characterCount, wordCount: post.wordCount,
-        schedule: { date: dateStr, time: post.scheduledTime ?? '' },
-        isScheduled: post.status === 'scheduled',
-      });
+    const model = buildPlannerDashboardModel({
+      scheduledPosts: übersichtScheduledPosts,
+      manualPosts: übersichtManualPosts,
+      schedules: übersichtSchedules,
+      checklistItems: übersichtChecklistItems,
+      lastCloudSyncAt: übersichtLastCloudSyncAt,
+      platformFilter: übersichtPlatformFilter,
+      statusFilter: übersichtStatusFilter,
     });
-
-    übersichtManualPosts.forEach((post) => {
-      if (seen.has(post.id)) return;
-      seen.add(post.id);
-      const schedule = übersichtSchedules[post.id];
-      allPosts.push({
-        id: post.id, platform: post.platform, title: post.title, content: post.content,
-        characterCount: post.characterCount, wordCount: post.wordCount,
-        schedule, isScheduled: !!(schedule?.date && schedule?.time),
-      });
-    });
-
-    const availablePlatforms = [...new Set(allPosts.map((p) => p.platform))];
-    const filteredPosts = allPosts
-      .filter((p) => !übersichtPlatformFilter || p.platform === übersichtPlatformFilter)
-      .filter((p) => {
-        if (übersichtStatusFilter === 'scheduled') return p.isScheduled;
-        if (übersichtStatusFilter === 'draft') return !p.isScheduled;
-        return true;
-      })
-      .sort((a, b) => {
-        if (a.isScheduled && !b.isScheduled) return -1;
-        if (!a.isScheduled && b.isScheduled) return 1;
-        return (a.schedule?.date ?? '').localeCompare(b.schedule?.date ?? '');
-      });
-
-    const scheduledCount = allPosts.filter((p) => p.isScheduled).length;
-    const draftCount = allPosts.filter((p) => !p.isScheduled).length;
-    const todoCompleted = übersichtChecklistItems.filter((i) => i.completed).length;
-    const todoTotal = übersichtChecklistItems.length;
-
-    // Not logged in
-    if (!isCloudPlannerAvailable()) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 16, padding: '60px 24px', fontFamily: fontMono }}>
-          <FontAwesomeIcon icon={faArrowRightToBracket} style={{ fontSize: 32, color: gold }} />
-          <div style={{ color: textMuted, fontSize: 12, textAlign: 'center', lineHeight: 2 }}>
-            Die globale Übersicht benötigt einen<br />ZenCloud Account.
-          </div>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
-            style={{
-              background: 'transparent', border: `1px solid ${gold}`, borderRadius: 6,
-              color: gold, fontFamily: fontMono, fontSize: 11, padding: '8px 20px', cursor: 'pointer',
-            }}
-          >
-            ZenCloud einrichten
-          </button>
-        </div>
-      );
-    }
-
-    // Loading
-    if (übersichtLoading) {
-      return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, padding: '60px 24px', fontFamily: fontMono, color: textMuted, fontSize: 12 }}>
-          <FontAwesomeIcon icon={faSpinner} spin />
-          Lade Cloud-Daten…
-        </div>
-      );
-    }
-
-    // Error
-    if (übersichtError) {
-      return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 24px', fontFamily: fontMono, color: '#c0392b', fontSize: 12 }}>
-          {übersichtError}
-        </div>
-      );
-    }
-
-    // Empty
-    if (allPosts.length === 0 && todoTotal === 0) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '60px 24px', fontFamily: fontMono }}>
-          <FontAwesomeIcon icon={faCloudArrowDown} style={{ fontSize: 32, color: textLight }} />
-          <div style={{ color: textMuted, fontSize: 11, textAlign: 'center', lineHeight: 2 }}>
-            Noch keine Planner-Daten in der Cloud.<br />
-            Plane einen Post und er erscheint hier.
-          </div>
-        </div>
-      );
-    }
 
     return (
-      <div style={{ padding: '24px', fontFamily: fontMono, background: paperBg }}>
-
-        {/* ── Stats Bar ─────────────────────────────────────────────────────── */}
-        <div style={{
-          display: 'flex', gap: 12, marginBottom: 20,
-          padding: '14px 16px', border: `1px solid ${borderColor}`,
-          borderRadius: 8, background: cardBg,
-        }}>
-          {[
-            { label: 'Posts gesamt', value: allPosts.length },
-            { label: 'Geplant', value: scheduledCount, color: '#2d7a4f' },
-            { label: 'Entwürfe', value: draftCount },
-            { label: 'ToDos', value: `${todoCompleted}/${todoTotal}`, color: todoCompleted === todoTotal && todoTotal > 0 ? '#2d7a4f' : undefined },
-          ].map((stat) => (
-            <div key={stat.label} style={{ flex: 1, textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: stat.color ?? textMain, marginBottom: 2 }}>
-                {stat.value}
-              </div>
-              <div style={{ fontSize: 9, color: textLight, letterSpacing: '0.06em' }}>
-                {stat.label}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ── Filter Bar ────────────────────────────────────────────────────── */}
-        <div style={{
-          display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap',
-          marginBottom: 16, padding: '10px 14px',
-          border: `1px solid ${borderColor}`, borderRadius: 8, background: cardBg,
-        }}>
-          <FontAwesomeIcon icon={faFilter} style={{ fontSize: 9, color: textLight, marginRight: 4 }} />
-          {(['all', 'scheduled', 'draft'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setÜbersichtStatusFilter(s)}
-              style={{
-                fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
-                cursor: 'pointer', border: 'none',
-                background: übersichtStatusFilter === s ? gold : 'rgba(172,142,102,0.12)',
-                color: übersichtStatusFilter === s ? '#fff' : textMuted,
-                fontWeight: übersichtStatusFilter === s ? 600 : 400,
-              }}
-            >
-              {s === 'all' ? 'Alle' : s === 'scheduled' ? 'Geplant' : 'Entwurf'}
-            </button>
-          ))}
-          {availablePlatforms.length > 0 && (
-            <>
-              <div style={{ width: 1, height: 16, background: borderColor, margin: '0 4px' }} />
-              <button
-                onClick={() => setÜbersichtPlatformFilter(null)}
-                style={{
-                  fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
-                  cursor: 'pointer', border: 'none',
-                  background: übersichtPlatformFilter === null ? 'rgba(172,142,102,0.2)' : 'transparent',
-                  color: übersichtPlatformFilter === null ? textMain : textLight,
-                }}
-              >
-                Alle Plattformen
-              </button>
-              {availablePlatforms.map((platform) => {
-                const icon = PLATFORM_ICONS[platform];
-                const color = PLATFORM_COLORS[platform] ?? gold;
-                return (
-                  <button
-                    key={platform}
-                    onClick={() => setÜbersichtPlatformFilter(übersichtPlatformFilter === platform ? null : platform)}
-                    style={{
-                      fontFamily: fontMono, fontSize: 9, padding: '4px 12px', borderRadius: 4,
-                      cursor: 'pointer', border: 'none', display: 'flex', alignItems: 'center', gap: 5,
-                      background: übersichtPlatformFilter === platform ? `${color}22` : 'transparent',
-                      color: übersichtPlatformFilter === platform ? color : textLight,
-                    }}
-                  >
-                    {icon && <FontAwesomeIcon icon={icon} style={{ fontSize: 9 }} />}
-                    {platform}
-                  </button>
-                );
-              })}
-            </>
-          )}
-        </div>
-
-        {/* ── Post List ─────────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
-          {filteredPosts.length === 0 && (
-            <div style={{ color: textLight, fontSize: 10, textAlign: 'center', padding: '24px 0' }}>
-              Keine Posts gefunden.
-            </div>
-          )}
-          {filteredPosts.map((post) => {
-            const icon = PLATFORM_ICONS[post.platform];
-            const color = PLATFORM_COLORS[post.platform] ?? gold;
-            return (
-              <div
-                key={post.id}
-                style={{
-                  background: cardBg, border: `1px solid ${post.isScheduled ? 'rgba(45,122,79,0.3)' : borderColor}`,
-                  borderLeft: `3px solid ${post.isScheduled ? '#2d7a4f' : gold}`,
-                  borderRadius: 8, padding: '12px 16px',
-                  display: 'flex', flexDirection: 'column', gap: 6,
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  {icon && <FontAwesomeIcon icon={icon} style={{ fontSize: 13, color, flexShrink: 0 }} />}
-                  <span style={{ fontSize: 12, color: textMain, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                    {post.title || '(kein Titel)'}
-                  </span>
-                  <span style={{
-                    fontSize: 9, padding: '3px 8px', borderRadius: 10,
-                    background: post.isScheduled ? 'rgba(45,122,79,0.15)' : 'rgba(172,142,102,0.12)',
-                    color: post.isScheduled ? '#2d7a4f' : textMuted,
-                    fontWeight: 600,
-                  }}>
-                    {post.isScheduled ? 'Geplant' : 'Entwurf'}
-                  </span>
-                </div>
-                {post.schedule?.date && (
-                  <div style={{ fontSize: 9, color: textLight, display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: 8 }} />
-                    {post.schedule.date}{post.schedule.time ? ` · ${post.schedule.time}` : ''}
-                  </div>
-                )}
-                <div style={{ fontSize: 10, color: textMuted, lineHeight: 1.6, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                  {post.content || '(kein Inhalt)'}
-                </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 9, color: textLight }}>
-                  <span>{post.characterCount} Zeichen</span>
-                  <span>{post.wordCount} Wörter</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* ── ToDo Übersicht ────────────────────────────────────────────────── */}
-        {todoTotal > 0 && (
-          <div style={{ border: `1px solid ${borderColor}`, borderRadius: 8, overflow: 'hidden' }}>
-            <button
-              onClick={() => setÜbersichtCollapsed((p) => ({ ...p, todos: !p['todos'] }))}
-              style={{
-                width: '100%', background: cardBg, border: 'none', borderBottom: `1px solid ${borderColor}`,
-                padding: '12px 16px', cursor: 'pointer', fontFamily: fontMono,
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              <FontAwesomeIcon icon={faTag} style={{ fontSize: 9, color: textLight }} />
-              <span style={{ fontSize: 11, color: textMain, fontWeight: 600, flex: 1, textAlign: 'left' }}>
-                Globale Todos
-              </span>
-              <span style={{ fontSize: 10, color: todoCompleted === todoTotal ? '#2d7a4f' : gold }}>
-                {todoCompleted}/{todoTotal} erledigt
-              </span>
-              <FontAwesomeIcon
-                icon={übersichtCollapsed['todos'] ? faChevronRight : faChevronDown}
-                style={{ fontSize: 8, color: textLight }}
-              />
-            </button>
-            {!übersichtCollapsed['todos'] && (
-              <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {übersichtChecklistItems.map((item) => (
-                  <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                    <FontAwesomeIcon
-                      icon={item.completed ? faCircleCheck : faCircle}
-                      style={{ fontSize: 11, color: item.completed ? '#2d7a4f' : textLight, marginTop: 1, flexShrink: 0 }}
-                    />
-                    <span style={{
-                      fontSize: 10, color: item.completed ? textLight : textMain,
-                      textDecoration: item.completed ? 'line-through' : 'none', lineHeight: 1.6,
-                    }}>
-                      {item.text}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+      <ZenPlannerDashboard
+        isCloudAvailable={isCloudPlannerAvailable()}
+        isLoading={übersichtLoading}
+        error={übersichtError}
+        model={model}
+        platformFilter={übersichtPlatformFilter}
+        statusFilter={übersichtStatusFilter}
+        onPlatformFilterChange={setÜbersichtPlatformFilter}
+        onStatusFilterChange={setÜbersichtStatusFilter}
+        onOpenCloudSettings={() => openAppSettings('cloud')}
+        onOpenPlannerPost={openPlannerPostById}
+        onOpenTodoScope={openChecklistScopeForPost}
+      />
     );
   };
 
@@ -3582,7 +3713,39 @@ export function ZenPlannerModal({
                   fontWeight: 'normal',
                 }}
               >
-                Workflow Fortschritt
+                 <div
+                style={{
+                  marginTop: '1px',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '12px',
+                  color: '#1a1a1a',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <span>Projekt:</span>
+                <span style={{ color: '#1a1a1a' }}>
+                  {projectPath
+                    ? isCloudProjectPath(projectPath)
+                      ? `@cloud: ${loadZenStudioSettings().cloudProjectName ?? getCloudProjectName(projectPath) ?? projectName ?? projectPath.slice(7)}`
+                      : projectPath.split('/').pop() ?? projectPath
+                    : '—'}
+                </span>
+               
+              </div>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  Workflow Fortschritt
+                  {openedChecklistPosts.length > 0 && openedChecklistPosts.map((post, i) => {
+                    const info = getPlatformInfo(post.platform);
+                    return (
+                      <span key={post.id} style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 12, color: info.color, fontWeight: 'normal' }}>
+                        {info.name}{i < openedChecklistPosts.length - 1 ? ',' : ''}
+                      </span>
+                    );
+                  })}
+                </span>
               </h3>
               <p
                 style={{
@@ -3606,11 +3769,12 @@ export function ZenPlannerModal({
                       onClick={() => setWorkflowProgressScope(scope)}
                       style={{
                         backgroundColor: isActive ? '#AC8E66' : 'transparent',
-                        border: '1px solid #151515',
-                        color: isActive ? '#151515' : '#AC8E66',
+                        border: '0.5px solid #1a1a1a',
+                        color: isActive ? '#1a1a1a' : '#AC8E66',
                         fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '9px',
-                        padding: '4px 6px',
+                        fontSize: '10px',
+                        padding: '5px 10px',
+                        boxShadow: 'none',
                         borderRadius: '4px',
                         cursor: 'pointer',
                       }}
@@ -3637,7 +3801,9 @@ export function ZenPlannerModal({
                   fontSize: '10px',
                   padding: '4px 6px',
                   borderRadius: '4px',
+                  boxShadow: 'none',
                   cursor: 'pointer',
+                 
                 }}
               >
                 <FontAwesomeIcon icon={isWorkflowCollapsed ? faChevronRight : faChevronDown} />
@@ -3724,36 +3890,8 @@ export function ZenPlannerModal({
                   </div>
                 </div>
               </div>
-              <div
-                style={{
-                  marginTop: '10px',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  color: '#777',
-                }}
-              >
-                {openedChecklistPosts.length > 0
-                  ? `Geöffnet: ${openedChecklistPosts.length} · ${openedChecklistPosts
-                      .map(post => getPlatformInfo(post.platform).name)
-                      .join(', ')}`
-                  : 'Geöffnet: keine'}
-              </div>
-              <div
-                style={{
-                  marginTop: '8px',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  color: '#777',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <span>Projekt:</span>
-                <span style={{ color: '#777' }}>{projectPath ?? '—'}</span>
-               
-              </div>
+             
+             
 
                     {/* Completion Message */}
       {completionPercentage === 100 && (
@@ -3771,13 +3909,13 @@ export function ZenPlannerModal({
             marginBottom: '6px' 
             }}
             >
-              <FontAwesomeIcon icon={faCheck} style={{ color: '#151515' }} />
+              <FontAwesomeIcon icon={faCheck} style={{ color: '#11b616' }} />
               </div>
           <p
             style={{
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
-              color: '#1a1a1a',
+              color: '#777',
               fontWeight: 'bold',
               margin: 0,
             }}
@@ -3825,99 +3963,26 @@ export function ZenPlannerModal({
             </span>
           </p>
           <div style={{ marginTop: '16px', display: 'flex', justifyContent: 'center' }}>
-            <ZenRoughButton
-              label="Jetzt planen"
+            <button
+              className="zen-planner-btn"
+              type="button"
               onClick={() => setActiveTab('planen')}
-              size="small"
-              variant="default"
-            />
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '8px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Jetzt planen
+            </button>
           </div>
         </div>
-      ) : (
-        <div
-          style={{
-            marginBottom: '16px',
-            padding: '12px',
-            borderRadius: '6px',
-            border: '0.5px dotted #AC8E66',
-          }}
-        >
-          <h4
-            style={{
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              fontWeight: 'normal',
-              color: '#555',
-              margin: 0,
-              marginBottom: '10px',
-            }}
-          >
-            <span className="inline-flex items-center gap-2">
-              <FontAwesomeIcon icon={faCirclePlus} style={{ fontSize: '14px', color: '#AC8E66', marginTop: '-2px', marginRight: '6px' }} />
-              Eigene Aufgabe hinzufügen
-            </span>
-          </h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '2px 2px 0 0' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxWidth: '420px' }}>
-              <label
-                style={{
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '9px',
-                  color: '#777',
-                }}
-              >
-                Plattform
-              </label>
-              <ZenDropdown
-                value={checklistTargetPostId ?? planningPosts[0]?.id}
-                onChange={(value) => setChecklistTargetPostId(value as string)}
-                options={planningPosts.map(post => {
-                  const info = getPlatformInfo(post.platform);
-                  const label = `${info.name} · ${post.title || 'Post'}`;
-                  return { value: post.id, label };
-                })}
-                variant="compact"
-                fullWidth
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'stretch' }}>
-              <input
-                type="text"
-                value={customTask}
-                onChange={(e) => setCustomTask(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addCustomTask()}
-                placeholder="Neue Aufgabe..."
-                style={{
-                  flex: 1,
-                  padding: '12px 10px',
-                  backgroundColor: 'transparent',
-                  border: '1px solid #3A3A3A',
-                  borderRadius: '4px',
-                  color: '#555',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '10px',
-                }}
-              />
-              <button
-                onClick={addCustomTask}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: '#AC8E66',
-                  border: 'none',
-                  borderRadius: '4px',
-                  color: '#151515',
-                  fontFamily: 'IBM Plex Mono, monospace',
-                  fontSize: '10px',
-                  fontWeight: 'bold',
-                  cursor: 'pointer',
-                }}
-              >
-                +
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      ) : null}
 
 
 
@@ -3954,20 +4019,22 @@ export function ZenPlannerModal({
             }}
           >
             <button
+              className="zen-planner-btn"
               type="button"
               onClick={showAllChecklistPosts}
               style={{
                 padding: '8px 12px 9px',
                
-                backgroundColor: checklistBulkPostId === null ? '#f6f1e6' : 'transparent',
+                backgroundColor: checklistBulkPostId === null ? '#1a1a1a' : 'transparent',
                 border: '1px solid #3A3A3A',
-                borderBottom: checklistBulkPostId === null ? '2px solid #AC8E66' : '1px solid #3A3A3A',
+                borderBottom: checklistBulkPostId === null ? 'transparent' : 'transparent',
                 borderRadius: '8px 8px 0 0',
-                color: checklistBulkPostId === null ? '#1a1a1a' : '#1a1a1a',
+                color: checklistBulkPostId === null ? '#d0cbb8' : '#1a1a1a',
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '9px',
+                boxShadow: 'none',
                 cursor: 'pointer',
-                transform: 'translateY(-46px)',
+                transform: 'translateY(-47px)',
                 minHeight: '34px',
               }}
               title="Alle geplanten Posts"
@@ -3983,62 +4050,54 @@ export function ZenPlannerModal({
                   type="button"
                   style={{
                     padding: '8px 12px 9px',
-                    backgroundColor: isActive ? '#f6f1e6' : 'transparent',
+                    backgroundColor: isActive ? info.color : 'transparent',
                     borderRadius: '8px 8px 0 0',
                     border: '1px solid #3A3A3A',
-                    borderBottom: isActive ? '2px solid #AC8E66' : '1px solid #3A3A3A',
+                    borderBottom: isActive ? `2px solid ${info.color}` : 'transparent',
+                    boxShadow: 'none',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     cursor: 'pointer',
-                    transform: 'translateY(-45px) translateX(10px)',
-                    
+                    transform: 'translateY(-47px) translateX(1px)',
                     minHeight: '34px',
                   }}
                   onClick={() => focusChecklistPost(post.id)}
                 >
-                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '14px', color: isActive ? '#AC8E66' : '#AC8E66' }} />
-                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: isActive ? '#1a1a1a' : '#555' }}>
+                  <FontAwesomeIcon icon={info.icon} style={{ fontSize: '14px', color: isActive ? '#d0cbb8' : '#1a1a1a' }} />
+                  <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: isActive ? '#d0cbb8' : '#1a1a1a' }}>
                     {info.name}
                   </span>
                 </button>
               );
             })}
           </div>
-        </div>
 
-            
-
-
-
-
-      {/* Checklist */}
-      <div style={{ marginBottom: '16px' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            gap: '10px',
-            marginTop: '8px',
-            marginRight: '3px',
-            flexWrap: 'wrap',
-          }}
-        >
+          {/* Post-Tasks Button — rechts in der Tab-Zeile */}
           <button
             type="button"
             onClick={toggleChecklistBulkItems}
             disabled={checklistBulkItems.length === 0}
             style={{
               padding: '6px 10px',
-              background: 'transparent',
-              border: '1px solid rgba(172,142,102,0.4)',
-              borderRadius: 3,
-              color: checklistBulkItems.length === 0 ? '#777' : '#555',
+              background: (!allChecklistBulkItemsCompleted && selectedChecklistBulkPost)
+                ? getPlatformInfo(selectedChecklistBulkPost.platform).color
+                : (!allChecklistBulkItemsCompleted && !selectedChecklistBulkPost)
+                  ? '#1a1a1a'
+                  : 'transparent',
+              border: '1px solid #3A3A3A',
+              borderBottom: 'none',
+              borderRadius: '8px 8px 0 0',
+              boxShadow: 'none',
+              color: (!allChecklistBulkItemsCompleted && selectedChecklistBulkPost) ? '#fff' : (!allChecklistBulkItemsCompleted && !selectedChecklistBulkPost) ? '#d0cbb8' : checklistBulkItems.length === 0 ? '#1a1a1a' : '#555',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: 9,
               cursor: checklistBulkItems.length === 0 ? 'not-allowed' : 'pointer',
               opacity: checklistBulkItems.length === 0 ? 0.5 : 1,
+              marginLeft: 'auto',
+              transform: 'translateY(-47px) translateX(1px)',
+               minHeight: '34px',
+              flexShrink: 0,
             }}
             title={
               selectedChecklistBulkPost
@@ -4049,17 +4108,103 @@ export function ZenPlannerModal({
             {allChecklistBulkItemsCompleted
               ? selectedChecklistBulkPost
                 ? 'Post-Tasks öffnen'
-                : 'Alle Tasks öffnen'
+                : 'Alle Tasks nicht abschliessen'
               : selectedChecklistBulkPost
                 ? 'Post-Tasks abschließen'
                 : 'Alle Tasks abschließen'}
           </button>
+
+          {/* + Aufgabe hinzufügen Button */}
+          <button
+            type="button"
+            onClick={() => setShowAddTask(p => !p)}
+            style={{
+              padding: '6px 10px',
+              background: showAddTask ? '#1a1a1a' : 'transparent',
+              border: '1px solid #1a1a1a',
+              borderBottom: '0px',
+              borderRadius: '8px 8px 0 0',
+              boxShadow: 'none',
+              color: showAddTask ? '#d0cbb8' : '#777',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: 10,
+          
+              cursor: 'pointer',
+              transform: 'translateY(-47px)',
+              minHeight: '34px',
+              lineHeight: 1,
+            }}
+            title="Eigene Aufgabe hinzufügen"
+          >
+            Eigener Task
+          </button>
         </div>
 
-        
+        {/* Inline Add-Task Formular */}
+        {showAddTask && (
+          <div style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+            padding: '10px 12px',
+            background: 'rgba(172,142,102,0.06)',
+            border: '1px solid rgba(172,142,102,0.3)',
+            transform: 'translateY(-47px)',
+            borderRadius: '6px 6px 6px 6px',
+            paddingTop: '10px',
+         
+          }}>
+            <ZenDropdown
+              value={checklistTargetPostId ?? planningPosts[0]?.id ?? ''}
+              onChange={(v) => setChecklistTargetPostId(v)}
+              options={planningPosts.map(post => {
+                const info = getPlatformInfo(post.platform);
+                return { value: post.id, label: `${info.name} · ${post.title || 'Post'}` };
+              })}
+              variant="compact"
+              theme="paper"
+            />
+            <input
+              autoFocus
+              type="text"
+              value={customTask}
+              onChange={(e) => setCustomTask(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { addCustomTask(); setShowAddTask(false); }
+                if (e.key === 'Escape') { setShowAddTask(false); setCustomTask(''); }
+              }}
+              placeholder="Neue Aufgabe…"
+              style={{
+                flex: 1,
+                padding: '8px 10px',
+                background: 'transparent',
+                border: '1px solid rgba(172,142,102,0.4)',
+                borderRadius: 4,
+                boxShadow: 'none',
+                color: '#333',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 10,
+              }}
+            />
+            <button
+              onClick={() => { addCustomTask(); setShowAddTask(false); }}
+              style={{
+                padding: '8px 14px',
+                background: '#1a1a1a',
+                border: 'none',
+                borderRadius: 4,
+                color: '#d0cbb8',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+              }}
+            >+</button>
+          </div>
+        )}
 
-        
-
+      {/* Checklist */}
+      <div style={{ marginBottom: '16px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {checklistSections.orderedSections.map(({ post, items }) => {
             const info = getPlatformInfo(post.platform);
@@ -4176,8 +4321,8 @@ export function ZenPlannerModal({
                             minWidth: '20px',
                             borderRadius: '6px',
                             border: `1px solid ${isCompleted ? '#AC8E66' : '#8A8A8A'}`,
-                            backgroundColor: isCompleted ? '#AC8E66' : '#F4F1EA',
-                            color: isCompleted ? '#151515' : 'transparent',
+                            backgroundColor: isCompleted ? '#1a1a1a' : '#d0cbb8',
+                            color: isCompleted ? '#d0cbb8' : 'transparent',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -4259,7 +4404,7 @@ export function ZenPlannerModal({
                               fontFamily: 'IBM Plex Mono, monospace',
                               fontSize: '10px',
                               cursor: 'pointer',
-                              boxShadow: '1px',
+                              boxShadow: 'none',
                              
                             }}
                           >
@@ -4486,9 +4631,9 @@ export function ZenPlannerModal({
                       borderRadius: '8px 8px 0 0',
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       color: activeTab === tab.id ? '#d0cbb8' : '#777',
-                      fontWeight: activeTab === tab.id ? '600' : 'normal',
+                      fontWeight: activeTab === tab.id ? 'normal' : 'normal',
                       transition: 'all 0.2s',
                     }}
                   >
@@ -4547,9 +4692,9 @@ export function ZenPlannerModal({
                       borderRadius: '8px 8px 0 0',
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
-                      fontSize: '11px',
+                      fontSize: '10px',
                       color: '#d0cbb8',
-                      fontWeight: '200',
+                      
                       transition: 'all 0.2s',
                     }}
                     title={activeTab === 'kalender' ? 'Kalender exportieren (ICS)' : 'Export öffnen'}
@@ -4558,72 +4703,75 @@ export function ZenPlannerModal({
                     Export
                   </button>
                 )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCalendarDetailDate(null);
-                    if (activeTab !== 'kalender') {
-                      setActiveTab('kalender');
-                      setCalendarStatusList('scheduled');
-                      return;
-                    }
-                    setCalendarStatusList(prev => (prev === 'scheduled' ? null : 'scheduled'));
-                  }}
-                  style={{
-                    padding: '12px 24px 12px',
-                    margin: '0 2px',
-                    backgroundColor: calendarStatusList === 'scheduled' ? '#151515' : 'transparent',
-                    borderBottom: 'none',
-                    borderRadius: '8px 8px 0 0',
-                    border: calendarStatusList === 'scheduled' ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                  }}
-                  title="Geplante Posts anzeigen"
-                >
-                  <div style={{ 
-                    fontFamily: 'IBM Plex Mono, monospace', 
-                    fontWeight: 'normal',
-                    fontSize: '11px', 
-                    color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>
-                    {scheduledCount} <span style={{ color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>Geplante</span>
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCalendarDetailDate(null);
-                    if (activeTab !== 'kalender') {
-                      setActiveTab('kalender');
-                      setCalendarStatusList('draft');
-                      return;
-                    }
-                    setCalendarStatusList(prev => (prev === 'draft' ? null : 'draft'));
-                  }}
-                  style={{
-                    padding: '12px 24px 12px',
-                    margin: '0 2px',
-                    backgroundColor: calendarStatusList === 'draft' ? '#151515' : 'transparent',
-                    borderBottom: 'none',
-                    borderRadius: '8px 8px 0 0',
-                    border: calendarStatusList === 'draft' ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
-                    textAlign: 'center',
-                    cursor: 'pointer',
-                  }}
-                  title="Entwürfe anzeigen"
-                >
-                  <div style={{ 
-                    fontFamily: 'IBM Plex Mono, monospace', 
-                    fontSize: '11px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    gap: '4px',
-                    color: calendarStatusList === 'draft' ? '#d0cbb8' : '#999', 
-                    fontWeight: 'normal' }}>
-                    {draftCount} Entwürfe
-                  </div>
-                </button>
+                {activeTab !== 'übersicht' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalendarDetailDate(null);
+                        if (activeTab !== 'kalender') {
+                          setActiveTab('kalender');
+                          setCalendarStatusList('scheduled');
+                          return;
+                        }
+                        setCalendarStatusList(prev => (prev === 'scheduled' ? null : 'scheduled'));
+                      }}
+                      style={{
+                        padding: '12px 24px 12px',
+                        margin: '0 2px',
+                        backgroundColor: calendarStatusList === 'scheduled' ? '#151515' : 'transparent',
+                        borderBottom: 'none',
+                        borderRadius: '8px 8px 0 0',
+                        border: calendarStatusList === 'scheduled' ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                      }}
+                      title="Geplante Posts anzeigen"
+                    >
+                      <div style={{ 
+                        fontFamily: 'IBM Plex Mono, monospace', 
+                        fontSize: '10px', 
+                        color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>
+                        {scheduledCount} <span style={{ color: calendarStatusList === 'scheduled' ? '#d0cbb8' : '#777' }}>Geplante</span>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalendarDetailDate(null);
+                        if (activeTab !== 'kalender') {
+                          setActiveTab('kalender');
+                          setCalendarStatusList('draft');
+                          return;
+                        }
+                        setCalendarStatusList(prev => (prev === 'draft' ? null : 'draft'));
+                      }}
+                      style={{
+                        padding: '12px 24px 12px',
+                        margin: '0 2px',
+                        backgroundColor: calendarStatusList === 'draft' ? '#151515' : 'transparent',
+                        borderBottom: 'none',
+                        borderRadius: '8px 8px 0 0',
+                        border: calendarStatusList === 'draft' ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
+                        textAlign: 'center',
+                        cursor: 'pointer',
+                      }}
+                      title="Entwürfe anzeigen"
+                    >
+                      <div style={{ 
+                        fontFamily: 'IBM Plex Mono, monospace', 
+                        fontSize: '10px', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        gap: '4px',
+                        color: calendarStatusList === 'draft' ? '#d0cbb8' : '#999', 
+                        }}>
+                        {draftCount} Entwürfe
+                      </div>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -4656,7 +4804,7 @@ export function ZenPlannerModal({
         title="Post bearbeiten"
         subtitle={editingPost?.title || ''}
         size="xl"
-        showCloseButton={true}
+        showCloseButton={false}
         zIndex={10200}
       >
         <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -4677,10 +4825,12 @@ export function ZenPlannerModal({
             onChange={(e) => setEditTitle(e.target.value)}
             placeholder="Titel"
             style={{
-              width: '100%', padding: '10px 12px', backgroundColor: 'transparent',
+              width: '100%', padding: '10px 12px', 
+              backgroundColor: 'transparent',
               border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a',
-              fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', fontWeight: '100',
-              outline: 'none', boxSizing: 'border-box',
+              fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px',
+              outline: 'none', boxSizing: 'border-box', 
+              boxShadow: 'none',
             }}
           />
 
@@ -4694,7 +4844,7 @@ export function ZenPlannerModal({
               width: '100%', padding: '8px 12px', backgroundColor: 'transparent',
               border: '1px solid #2E2E2E', borderRadius: '6px', color: '#777',
               fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px',
-              outline: 'none', boxSizing: 'border-box',
+              outline: 'none', boxSizing: 'border-box', boxShadow: 'none',
             }}
           />
 
@@ -4710,6 +4860,7 @@ export function ZenPlannerModal({
             onDrop={(e) => { void handleEditImageDrop(e); }}
             style={{
               borderRadius: '4px',
+               boxShadow: 'none',
               border: isEditImageDragActive ? '1px solid #AC8E66' : '1px dashed #3A3A3A',
               background: isEditImageDragActive ? 'rgba(172,142,102,0.08)' : 'transparent',
               transition: 'border-color 0.15s, background 0.15s',
@@ -4721,20 +4872,28 @@ export function ZenPlannerModal({
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                 <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#AC8E66', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Bild erkannt</span>
                 <button type="button" onClick={() => setEditImageUrl('')}
-                  style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}>×</button>
+                  style={{ background: 'transparent', 
+                     boxShadow: 'none',
+                  border: 'none', color: '#555', cursor: 'pointer', fontSize: 12, padding: '0 2px' }}>×</button>
               </div>
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '18px 10px' }}>
-              <FontAwesomeIcon icon={faImage} style={{ fontSize: '11px', color: isEditImageDragActive ? '#AC8E66' : '#555', flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', 
+              padding: '18px 10px', boxShadow: 'none', }}>
+              <FontAwesomeIcon icon={faImage} style={{ 
+                fontSize: '9px', color: isEditImageDragActive ? '#AC8E66' : '#1a1a1a', 
+                flexShrink: 0 }} />
               <input
                 type="text"
                 value={editImageUrl}
                 onChange={(e) => setEditImageUrl(e.target.value)}
                 placeholder={isEditImageDragActive ? 'Bild hier ablegen…' : 'Titelbild URL — oder Bild hierher ziehen'}
                 style={{
-                  flex: 1, padding: '10px', backgroundColor: 'transparent', border: 'none',
+                  flex: 1, padding: '10px', 
+                  backgroundColor: 'transparent', 
+             
                   color: editImageUrl ? '#e5e5e5' : '#555',
-                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', outline: 'none',
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', 
+                  outline: 'none',
                 }}
               />
             </div>
@@ -4744,17 +4903,25 @@ export function ZenPlannerModal({
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '9px' }} /> Datum
+                <FontAwesomeIcon icon={faCalendarDays} 
+                style={{ fontSize: '9px' }} /> Datum
               </label>
               <input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)}
-                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                style={{ 
+                  padding: '8px 10px', 
+                  backgroundColor: 'transparent', 
+                  border: '1px solid #3A3A3A', 
+                   boxShadow: 'none',
+                  borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ 
+              display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <FontAwesomeIcon icon={faClock} style={{ fontSize: '9px' }} /> Uhrzeit
               </label>
               <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)}
-                style={{ padding: '8px 10px', backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
+                style={{ padding: '8px 10px',  boxShadow: 'none',
+                backgroundColor: 'transparent', border: '1px solid #3A3A3A', borderRadius: '6px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', outline: 'none', width: '100%', boxSizing: 'border-box' }} />
             </div>
           </div>
 
@@ -4766,7 +4933,7 @@ export function ZenPlannerModal({
               placeholder="Post-Inhalt bearbeiten..."
               height="200px"
               showPreview={false}
-              showLineNumbers={false}
+              showLineNumbers={true}
               showCharCount={true}
               title={editTitle || undefined}
               subtitle={editSubtitle || undefined}
@@ -4776,13 +4943,40 @@ export function ZenPlannerModal({
 
           {/* Buttons */}
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', paddingTop: '4px' }}>
-            <ZenRoughButton label="Abbrechen" onClick={() => setEditingPost(null)} size="small" />
-            <ZenRoughButton
-              label="Speichern"
+            <button
+              className="zen-planner-btn"
+              type="button"
+              onClick={() => setEditingPost(null)}
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '8px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Abbrechen
+            </button>
+            <button
+              className="zen-planner-btn"
+              type="button"
               onClick={saveInlineEdit}
-              size="small"
-              variant="default"
-            />
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '8px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Speichern
+            </button>
           </div>
         </div>
       </ZenModal>
@@ -4851,21 +5045,43 @@ export function ZenPlannerModal({
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-            <ZenRoughButton
-              label="Abbrechen"
+            <button
+              className="zen-planner-btn"
+              type="button"
               onClick={() => setReschedulePost(null)}
-              size="small"
-            />
-            <ZenRoughButton
-              label="Speichern"
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '8px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 if (!reschedulePost) return;
                 upsertPostSchedule(reschedulePost.id, rescheduleDate, rescheduleTime);
                 setReschedulePost(null);
               }}
-              size="small"
-              variant="default"
-            />
+              style={{
+                padding: '9px 12px',
+                backgroundColor: 'transparent',
+                border: '1px solid #777',
+                borderRadius: '8px',
+                color: '#555',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                cursor: 'pointer',
+              }}
+            >
+              Speichern
+            </button>
           </div>
         </div>
       </ZenModal>

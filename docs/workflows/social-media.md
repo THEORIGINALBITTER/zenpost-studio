@@ -1,11 +1,11 @@
-# Social Media – Direkt posten
+# Social Media – Direkt posten, wie geht das?
 
 ZenPost Studio kann Inhalte nach der Transformation direkt auf 6 Plattformen veroeffentlichen — ohne Browser-Umweg, direkt aus der App.
 
 ## Unterstuetzte Plattformen
 
 | Plattform | Direkt posten | API-Key benoetigt | Besonderheit |
-|-----------|:---:|---|---|
+|-----------|---|---|---|
 | **Twitter / X** | Ja | Bearer Token | Thread-Unterstuetzung |
 | **Reddit** | Ja | Client ID + Secret + Username + Passwort | Subreddit waehlbar |
 | **LinkedIn** | Ja | Access Token + Person ID | Max. 3000 Zeichen |

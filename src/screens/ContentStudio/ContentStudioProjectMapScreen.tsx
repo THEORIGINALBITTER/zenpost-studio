@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faArrowDownAZ, faCalendarDays, faCloud, faFileImport, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faArrowDownAZ, faCalendarDays, faCloud, faFileImport, faFolderOpen, faStickyNote } from '@fortawesome/free-solid-svg-icons';
 import { importDocumentToMarkdown } from '../../services/documentImportService';
 import { isCloudProjectPath } from '../../services/cloudProjectService';
 
@@ -48,7 +48,7 @@ export function ContentStudioProjectMapScreen({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fileSearch, setFileSearch] = useState('');
   const [fileSort, setFileSort] = useState<'name-asc' | 'name-desc' | 'date-desc' | 'date-asc'>('name-asc');
-  const [activeTab, setActiveTab] = useState<'files' | 'web' | 'cloud'>(isDesktopRuntime ? 'files' : 'web');
+  const [activeTab, setActiveTab] = useState<'files' | 'web' | 'cloud' | 'zennote'>(isDesktopRuntime ? 'files' : 'web');
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
   const [titleHovered, setTitleHovered] = useState(false);
 
@@ -91,9 +91,23 @@ export function ContentStudioProjectMapScreen({
   );
 
   const filteredCloudDocuments = useMemo(
-    () => cloudDocuments.filter((doc) => matchesFileSearch(doc.fileName, doc.fileName, fileSearch)),
+    () => cloudDocuments.filter((doc) =>
+      !doc.fileName.endsWith('.json') &&
+      !doc.fileName.endsWith('.zennote') &&
+      matchesFileSearch(doc.fileName, doc.fileName, fileSearch)
+    ),
     [cloudDocuments, fileSearch]
   );
+
+  const filteredZenNoteDocuments = useMemo(
+    () => cloudDocuments.filter((doc) =>
+      doc.fileName.endsWith('.zennote') &&
+      matchesFileSearch(doc.fileName, doc.fileName, fileSearch)
+    ),
+    [cloudDocuments, fileSearch]
+  );
+
+  const zenNoteCount = cloudDocuments.filter((doc) => doc.fileName.endsWith('.zennote')).length;
 
   useEffect(() => {
     if (projectPath && isCloudProjectPath(projectPath)) {
@@ -155,7 +169,7 @@ export function ContentStudioProjectMapScreen({
             <div style={{ position: 'relative', overflow: 'hidden', height: '27px' }}>
               {/* Original text — slides up on hover */}
               <h2 style={{
-                fontSize: '18px', fontWeight: 200, color: '#AC8E66', margin: 0,
+                fontSize: '18px', fontWeight: 400, color: '#AC8E66', margin: 0,
                 fontFamily: 'IBM Plex Mono, monospace', whiteSpace: 'nowrap',
                 transform: titleHovered ? 'translateY(-100%)' : 'translateY(0)',
                 opacity: titleHovered ? 0 : 1,
@@ -165,7 +179,7 @@ export function ContentStudioProjectMapScreen({
               </h2>
               {/* Hover text — slides in from below */}
               <h2 style={{
-                fontSize: '18px', fontWeight: 200, color: '#AC8E66', margin: 0,
+                fontSize: '18px', fontWeight: 400, color: '#AC8E66', margin: 0,
                 fontFamily: 'IBM Plex Mono, monospace', whiteSpace: 'nowrap',
                 position: 'absolute', top: 0, left: 0,
                 transform: titleHovered ? 'translateY(0)' : 'translateY(100%)',
@@ -178,8 +192,8 @@ export function ContentStudioProjectMapScreen({
           </div>
         </div>
 
-        <p style={{ color: '#d0cbb8', marginBottom: '14px', fontSize: '10px', fontFamily: 'IBM Plex Mono, monospace' }}>
-          {projectPath ? `Projekt: ${projectPath}` : 'Kein Projekt ausgewählt'}
+        <p style={{ color: '#d0cbb8', marginBottom: '14px', fontSize: '11px', fontFamily: 'IBM Plex Mono, monospace' }}>
+          {projectPath ? `Dein Projekt Ordner: ${projectPath}` : 'Kein Projekt ausgewählt'}
         </p>
 
         <div
@@ -295,13 +309,32 @@ export function ContentStudioProjectMapScreen({
             }}
           >
             <FontAwesomeIcon icon={faCloud} style={{ fontSize: '10px' }} />
-            Cloud · {cloudDocuments.length}
+            Cloud · {cloudDocuments.filter((d) => !d.fileName.endsWith('.json') && !d.fileName.endsWith('.zennote')).length}
+          </button>
+          <button
+            onClick={() => setActiveTab('zennote')}
+            style={{
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: `1px solid ${activeTab === 'zennote' ? '#AC8E66' : '#3A3A3A'}`,
+              background: activeTab === 'zennote' ? '#d0cbb8' : 'transparent',
+              color: activeTab === 'zennote' ? '#1a1a1a' : '#777',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '5px',
+            }}
+          >
+            <FontAwesomeIcon icon={faStickyNote} style={{ fontSize: '10px' }} />
+            ZenNote · {zenNoteCount}
           </button>
         </div>
 
         <div style={{ marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#BEBEBE' }}>
-            {activeTab === 'files' ? 'Projektdateien' : activeTab === 'cloud' ? 'Cloud-Dokumente' : 'Web-Dokumente'}
+            {activeTab === 'files' ? 'Projektdateien' : activeTab === 'cloud' ? 'Cloud-Dokumente' : activeTab === 'zennote' ? 'ZenNote Notizen' : 'Web-Dokumente'}
           </span>
           {activeTab === 'files' && isDesktopRuntime && (
             <button
@@ -340,7 +373,7 @@ export function ContentStudioProjectMapScreen({
           type="text"
           value={fileSearch}
           onChange={(event) => setFileSearch(event.target.value)}
-          placeholder="Suche nach Name/Pfad oder *.md"
+          placeholder="Suchen...und finden"
           style={{
             width: '100%',
             boxSizing: 'border-box',
@@ -411,6 +444,35 @@ export function ContentStudioProjectMapScreen({
                   </div>
                 </button>
               ))
+            : activeTab === 'zennote'
+            ? filteredZenNoteDocuments.map((doc) => (
+                <button
+                  key={doc.id}
+                  onClick={() => onOpenCloudDocument(doc.id, doc.fileName)}
+                  onMouseEnter={() => setHoveredItemId(String(doc.id))}
+                  onMouseLeave={() => setHoveredItemId(null)}
+                  style={{
+                    border: hoveredItemId === String(doc.id) ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    background: hoveredItemId === String(doc.id) ? 'rgba(172,142,102,0.10)' : 'transparent',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    color: '#7a7a7a',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    transform: hoveredItemId === String(doc.id) ? 'translateX(3px)' : 'translateX(0)',
+                    transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', color: '#d3d3d3', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <FontAwesomeIcon icon={faStickyNote} style={{ fontSize: '9px', color: '#AC8E66' }} />
+                    {doc.fileName.replace(/\.zennote$/, '')}
+                  </div>
+                  <div style={{ fontSize: '9px', color: '#7a7a7a' }}>
+                    {new Date(doc.createdAt).toLocaleString('de-DE')}
+                  </div>
+                </button>
+              ))
             : filteredWebDocuments.map((doc) => (
                 <button
                   key={doc.id}
@@ -451,6 +513,11 @@ export function ContentStudioProjectMapScreen({
         {activeTab === 'cloud' && filteredCloudDocuments.length === 0 && (
           <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
             {cloudDocuments.length === 0 ? 'Keine Cloud-Dokumente gefunden.' : 'Keine Treffer.'}
+          </div>
+        )}
+        {activeTab === 'zennote' && filteredZenNoteDocuments.length === 0 && (
+          <div style={{ marginTop: '10px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+            {zenNoteCount === 0 ? 'Keine ZenNote-Notizen gefunden.' : 'Keine Treffer.'}
           </div>
         )}
       </div>

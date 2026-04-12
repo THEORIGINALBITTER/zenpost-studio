@@ -7,13 +7,12 @@ import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCheck,
-  faRocket,
   faKey,
   faFileLines,
-  faCalendarDays,
   faWandMagicSparkles,
   faCodeBranch,
   faFolder,
+  faLayerGroup,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal } from '../index';
 import { useLicense } from '../../../../contexts/LicenseContext';
@@ -63,49 +62,48 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
   };
 
   // PRO features list
-  const highlightedFeature = highlightFeature ? FEATURES[highlightFeature] : null;
   const docFeatureHighlights = [
     {
       id: 'DOC_STUDIO',
       icon: faFolder,
       badge: 'Core',
       fallbackName: 'Doc Studio',
-      fallbackDescription: 'Projekt scannen, Datenfelder ergänzen und strukturierte Dokumente erstellen.',
+      fallbackDescription: 'Projekt analysieren, Dokumente anlegen und alles in einem Arbeitsbereich verwalten.',
     },
     {
       id: 'BLOCK_EDITOR',
-      icon: faFileLines,
+      icon: faLayerGroup,
       badge: 'Editor',
       fallbackName: 'Block Editor',
-      fallbackDescription: 'Visuelles Bearbeiten mit sauberem Markdown-Output und schnellem Workflow.',
+      fallbackDescription: 'Abschnitte modular bearbeiten, Inhalte umstellen und Dokumente sauber strukturieren.',
     },
     {
       id: 'AI_TEXT_PREVIEW',
       icon: faWandMagicSparkles,
       badge: 'AI',
       fallbackName: 'AI Text Preview',
-      fallbackDescription: 'Im Preview direkt verbessern, übersetzen und formatieren.',
+      fallbackDescription: 'Texte direkt im Workflow überarbeiten, präzisieren und verständlicher machen.',
     },
     {
       id: 'EXPORT_PDF',
       icon: faFileLines,
       badge: 'Export',
-      fallbackName: 'PDF/HTML Export',
-      fallbackDescription: 'Dokumente professionell als PDF oder HTML ausgeben.',
+      fallbackName: 'PDF Export',
+      fallbackDescription: 'Dokumentation als präsentierbares PDF für Teams, Kunden oder Übergaben exportieren.',
     },
     {
-      id: 'CONTENT_CALENDAR',
-      icon: faCalendarDays,
-      badge: 'Workflow',
-      fallbackName: 'Content Kalender',
-      fallbackDescription: 'Dokumentation und Veröffentlichungsplanung in einem Ablauf verbinden.',
+      id: 'DOC_WIZARD',
+      icon: faWandMagicSparkles,
+      badge: 'Wizard',
+      fallbackName: 'Doc Wizard',
+      fallbackDescription: 'Docs-Websites, GitHub Pages und strukturierte Vorlagen direkt aus Markdown erzeugen.',
     },
     {
       id: 'GITHUB_INTEGRATION',
       icon: faCodeBranch,
       badge: 'Integration',
       fallbackName: 'GitHub Sync',
-      fallbackDescription: 'Änderungen mit Repository-Workflows verbinden.',
+      fallbackDescription: 'Docs mit GitHub verbinden und Änderungen direkt in bestehende Repositories übernehmen.',
     },
   ].map((entry) => ({
     ...entry,
@@ -241,18 +239,18 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 8px 32px rgba(172, 142, 102, 0.4)',
+            
             }}
           >
-            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 36, color: '#AC8E66' }} />
+            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 36, color: '#d0cbb8' }} />
           </div>
 
-          <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#AC8E66', margin: '0 0 8px 0' }}>
-            Upgrade auf Doc Studio [ BETA ]
+          <h1 style={{ fontFamily: 'monospace', fontSize: 24, color: '#d0cbb8', margin: '0 0 8px 0' }}>
+            Upgrade auf Doc Studio <span style={{color: '#AC8E66'}}>[ BETA ]</span> 
           </h1>
 
-          <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#888', margin: 0 }}>
-            Schalte alle DocStudio-Features frei
+          <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#d0cbb8', margin: 0 }}>
+            Erstelle technische Dokumentation schneller: scannen, generieren, bearbeiten und veröffentlichen.
           </p>
         </div>
 
@@ -264,43 +262,22 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
             padding: '24px 32px 32px 32px',
           }}
         >
-          {/* Highlighted Feature */}
-          {highlightedFeature && (
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                padding: 16,
-          
-                borderRadius: 12,
-                marginBottom: 24,
-                border: '1px solid #AC8E66',
-              }}
-            >
-              <FontAwesomeIcon icon={faRocket} style={{ fontSize: 20, color: '#AC8E66' }} />
-              <div>
-                <p style={{ fontFamily: 'monospace', fontSize: 13, color: '#e5e5e5', margin: 0 }}>
-                  <strong style={{ color: '#AC8E66' }}>{highlightedFeature.name}</strong> ist ein PRO Feature
-                </p>
-                <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '4px 0 0 0' }}>
-                  {highlightedFeature.description}
-                </p>
-              </div>
-            </div>
-          )}
-
+         
       
 
           {/* Doc Features Grid */}
           <div style={{ marginBottom: 24 }}>
-            <h4 style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1 }}>
+            <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#1a1a1a', marginBottom: 0, 
+              textTransform: 'uppercase', letterSpacing: 1 }}>
               Doc Studio PRO Feature Pack
-            </h4>
-            <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#888', margin: '0 0 12px 0', lineHeight: 1.5 }}>
-              Für technische Dokumentation, Team-Workflows und KI-gestützte Überarbeitung in einem Studio.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            <p style={{ 
+              fontFamily: 'monospace', 
+              fontSize: 11, 
+              color: '#666', margin: '0 0 12px 0', lineHeight: 1.6 }}>
+              Für Produktdokumentation, interne Wissensbasen und Projekt-Docs mit KI-Unterstützung in einem Editor.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8,  }}>
               {docFeatureHighlights.map((entry) => {
                 const f = entry.feature;
                 const name = f?.name ?? entry.fallbackName;
@@ -313,20 +290,21 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 8,
+                    
                     padding: '10px 12px',
-                    backgroundColor: isHighlighted ? 'transparent' : '#1a1a1a',
+                    backgroundColor: '#1a1a1a',
                     borderRadius: 8,
-                    border: isHighlighted ? '1px solid #AC8E66' : '1px solid #2e2e2e',
+                    border:  '1px solid #2e2e2e',
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <FontAwesomeIcon icon={entry.icon} style={{ fontSize: 11, color: '#AC8E66' }} />
+                      <FontAwesomeIcon icon={entry.icon} style={{ fontSize: 11, color: '#d0cbb8' }} />
                       <span
                         style={{
                           fontFamily: 'monospace',
                           fontSize: 11,
-                          color: isHighlighted ? '#AC8E66' : '#d0d0d0',
+                          color: isHighlighted ? '#d0cbb8' : '#d0cbb8',
                         }}
                       >
                         {name}
@@ -336,16 +314,21 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                       style={{
                         fontFamily: 'monospace',
                         fontSize: 9,
-                        color: '#c9a978',
-                        border: '1px solid rgba(172, 142, 102, 0.45)',
-                        borderRadius: 999,
+                        color: '#1a1a1a',
+                        width: 60,
+                      
+                        textAlign: 'right',
+                        border: '1px solid rgba(172, 142, 102, 0.85)',
+                        borderRadius: 3,
                         padding: '1px 6px',
+                        background: '#d0cbb8'
                       }}
                     >
                       {entry.badge}
                     </span>
                   </div>
-                  <p style={{ margin: 0, fontFamily: 'monospace', fontSize: 10, color: '#8e8e8e', lineHeight: 1.4 }}>
+                  <p style={{ margin: 0, fontFamily: 'monospace', 
+                    fontSize: 10, color: '#d0cbb8', lineHeight: 1.4 }}>
                     {description}
                   </p>
                 </div>
@@ -361,15 +344,15 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
               alignItems: 'stretch',
               gap: 12,
               padding: '12px 14px',
-              border: '1px solid #AC8E66',
-              borderRadius: 10,
+
+              borderRadius: 8,
               background: 'transparent',
               marginBottom: 24,
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#1a1a1a' }}>
-                Beta verfügbar zum testen einfach Key generieren
+                Beta testen und alle Doc-Studio-Pro-Funktionen sofort freischalten
               </span>
             </div>
 
@@ -384,9 +367,10 @@ export const ZenUpgradeModal: React.FC<ZenUpgradeModalProps> = ({
                 width: '100%',
                 padding: '16px 24px',
                 backgroundColor: 'transparent',
+                boxShadow: 'none',
                 color: '#AC8E66',
-                border: '0.5px solid #1a1a1a',
-                borderRadius: 12,
+                border: '0.5px solid #AC8E66',
+                borderRadius: 6,
                 fontFamily: 'monospace',
                 fontSize: 14,
                 cursor: 'pointer',

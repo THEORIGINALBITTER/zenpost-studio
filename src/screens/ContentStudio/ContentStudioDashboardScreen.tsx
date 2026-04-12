@@ -20,6 +20,7 @@ import { readTextFile, writeTextFile, exists, readDir, remove } from '@tauri-app
 import { ftpUpload } from '../../services/ftpService';
 import { phpBlogManifestUpdate } from '../../services/phpBlogService';
 import { join } from '@tauri-apps/api/path';
+import { openAppSettings } from '../../services/appShellBridgeService';
 import { loadZenStudioSettings, type BlogConfig } from '../../services/zenStudioSettingsService';
 
 type DashboardDocument = {
@@ -369,7 +370,7 @@ export function ContentStudioDashboardScreen({
 
   const activeProjectName = activeProjectPath
     ? (isCloudProjectPath(activeProjectPath)
-        ? (getCloudProjectName(activeProjectPath) ?? 'Cloud-Projekt')
+        ? (loadZenStudioSettings().cloudProjectName ?? getCloudProjectName(activeProjectPath) ?? 'Cloud-Projekt')
         : isWebProjectPath(activeProjectPath)
           ? (getWebProjectName(activeProjectPath) ?? 'Web-Projekt')
           : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Projekt')
@@ -400,12 +401,40 @@ export function ContentStudioDashboardScreen({
           textAlign: 'left',
         }}
       >
+          {showWebWarning && (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '10px 14px',
+              borderRadius: '8px',
+              border: '1px solid rgba(172,142,102,0.4)',
+              background: '#d0cbb8',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <span style={{ color: '#1a1a1a' }}>
+              Nicht bei ZenCloud eingeloggt — Daten werden lokal gespeichert.
+            </span>
+            <button
+              className="zen-gold-btn"
+              onClick={() => openAppSettings('cloud')}
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Anmelden
+            </button>
+          </div>
+        )}
         <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
           <FontAwesomeIcon icon={faPenNib} style={{ fontSize: '24px', color: '#AC8E66' }} />
           <h2
             style={{
               fontSize: '18px',
-              fontWeight: '200',
+             
               color: '#AC8E66',
               margin: 0,
               fontFamily: 'IBM Plex Mono, monospace',
@@ -415,34 +444,7 @@ export function ContentStudioDashboardScreen({
             Content AI Studio starten
           </h2>
         </div>
-        {showWebWarning && (
-          <div
-            style={{
-              marginBottom: '16px',
-              padding: '10px 14px',
-              borderRadius: '8px',
-              border: '1px solid rgba(172,142,102,0.4)',
-              background: 'rgba(172,142,102,0.08)',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '10px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-            }}
-          >
-            <span style={{ color: '#d0cbb8' }}>
-              Nicht bei ZenCloud eingeloggt — Daten werden lokal gespeichert.
-            </span>
-            <button
-              className="zen-gold-btn"
-              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
-              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-            >
-              Anmelden
-            </button>
-          </div>
-        )}
+      
 
         <p
           style={{
@@ -1181,7 +1183,7 @@ export function ContentStudioDashboardScreen({
                     }}
                   >
                     {activeProjectIsCloud
-                      ? 'Cloud-Projekt (Server)'
+                      ? `Cloud-Projekt (${activeProjectName})`
                       : activeProjectIsWeb
                         ? (activeProjectWebType === 'directory' ? 'Ordner-Projekt (Browser)' : 'Virtuelles Projekt (Browser)')
                         : (activeProjectPath || 'Noch kein Projekt ausgewählt')}
@@ -1418,6 +1420,7 @@ export function ContentStudioDashboardScreen({
                 border: '0.5px solid #2F2F2F',
                 padding: '12px',
                 color: '#7E7E7E',
+               
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '11px',
               }}
@@ -1425,7 +1428,13 @@ export function ContentStudioDashboardScreen({
               Noch keine letzten Dokumente.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '240px', overflowY: 'auto', paddingRight: '4px' }}>
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              gap: '8px', maxHeight: '240px', 
+              overflowY: 'auto',
+              
+              paddingRight: '4px' }}>
               {recent.map((doc) => (
                 <div
                   key={doc.id}
@@ -1438,7 +1447,7 @@ export function ContentStudioDashboardScreen({
                     style={{
                       flex: 1,
                       borderRadius: '5px',
-                      border: hoveredDocId === doc.id ? '1px solid #4caf50' : '0.5px solid #3A3A3A',
+                      border: hoveredDocId === doc.id ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
                       background: hoveredDocId === doc.id ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
                       padding: '10px 12px',
                       textAlign: 'left',
@@ -1446,16 +1455,26 @@ export function ContentStudioDashboardScreen({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
+                       
                       gap: '12px',
                       transform: hoveredDocId === doc.id ? 'translateX(2px)' : 'translateX(0)',
                       transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ color: '#E7CCAA', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ 
+                        color: '#d0cbb8', 
+                        fontFamily: 'IBM Plex Mono, monospace', 
+                        fontSize: '11px', overflow: 'hidden', 
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {doc.name}
                       </div>
-                      <div style={{ color: '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ 
+                        color: '#888', 
+                        fontFamily: 'IBM Plex Mono, monospace', 
+                        fontSize: '9px', overflow: 'hidden', 
+                        padding: '10px',
+                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {doc.subtitle || 'Dokument öffnen'}
                       </div>
                     </div>

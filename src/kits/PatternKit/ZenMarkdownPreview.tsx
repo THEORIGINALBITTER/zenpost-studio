@@ -1,6 +1,11 @@
 import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ZenEngine from '../../services/zenEngineService';
 import { internalizeImages, clearImageStore } from '../../services/zenImageStore';
+import {
+  EDITOR_MARGIN_PRESETS,
+  detectEditorMarginPreset,
+  type EditorMarginPresetId,
+} from '../../services/editorSettingsService';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -134,14 +139,15 @@ interface ZenMarkdownPreviewProps {
   marginBottom?: number;
   marginLeft?: number;
   marginRight?: number;
+  onMarginPresetChange?: (preset: Exclude<EditorMarginPresetId, 'custom'>) => void;
   /** Override the paper background color (default: 'rgb(217, 212, 197)'). Use 'transparent' to let parent gradient show through. */
   paperBackground?: string;
 }
 
 export type { PreviewThemeId } from './zenMarkdownPreviewTypes';
-export { PREVIEW_THEME_LABELS } from './zenMarkdownPreviewTypes';
+export { PREVIEW_THEME_LABELS, PREVIEW_THEME_OPTIONS } from './zenMarkdownPreviewTypes';
 import type { PreviewThemeId } from './zenMarkdownPreviewTypes';
-import { PREVIEW_THEME_LABELS } from './zenMarkdownPreviewTypes';
+import { PREVIEW_THEME_OPTIONS } from './zenMarkdownPreviewTypes';
 
 export const ZenMarkdownPreview = ({
   content,
@@ -164,6 +170,7 @@ export const ZenMarkdownPreview = ({
   marginBottom = 48,
   marginLeft = 64,
   marginRight = 64,
+  onMarginPresetChange,
   paperBackground: _paperBackground,
 }: ZenMarkdownPreviewProps) => {
   const { openExternal } = useOpenExternal();
@@ -172,6 +179,7 @@ export const ZenMarkdownPreview = ({
   const previewStyle: 'color' | 'mono' = previewTheme.startsWith('mono') ? 'mono' : 'color';
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
+  const [showMarginMenu, setShowMarginMenu] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [isReadingCursorHidden, setIsReadingCursorHidden] = useState(false);
@@ -252,6 +260,7 @@ export const ZenMarkdownPreview = ({
     if (areControlsExpanded) return;
     setShowLanguageMenu(false);
     setShowThemeMenu(false);
+    setShowMarginMenu(false);
   }, [areControlsExpanded]);
 
   useEffect(() => {
@@ -322,7 +331,7 @@ export const ZenMarkdownPreview = ({
       codeText: '#8b6914',
       codeBlockBg: '#2a2a2a',
       codeBlockText: '#e5e5e5',
-      quoteBg: '#e8e4dc',
+      quoteBg: '#dfd49d',
       quoteText: '#5a5a5a',
       tableHeadBg: '#1A1A1A',
       tableHeadText: '#AC8E66',
@@ -340,7 +349,7 @@ export const ZenMarkdownPreview = ({
       codeText: '#7a5a20',
       codeBlockBg: '#22252d',
       codeBlockText: '#f1f1f1',
-      quoteBg: '#eee8de',
+      quoteBg: '#dfddbf',
       quoteText: '#505050',
       tableHeadBg: '#1A1A1A',
       tableHeadText: '#B28E5F',
@@ -374,11 +383,11 @@ export const ZenMarkdownPreview = ({
       link: '#222222',
       codeBg: '#f1ece2',
       codeText: '#111111',
-      codeBlockBg: '#151515',
+      codeBlockBg: '#1a1a1a',
       codeBlockText: '#e5e5e5',
-      quoteBg: '#ebe6dc',
-      quoteText: '#3f3f3f',
-      tableHeadBg: '#151515',
+      quoteBg: '#e1dcd0',
+      quoteText: '#1a1a1a',
+      tableHeadBg: '#1a1a1a',
       tableHeadText: '#dfd7c8',
       tableCellBg: '#f0ebdf',
       tableCellText: '#1f1f1f',
@@ -387,12 +396,12 @@ export const ZenMarkdownPreview = ({
   } as const;
 
   const palette = palettes[previewTheme];
-  const previewThemeOptions: Array<{ id: PreviewThemeId; label: string; baseStyle: 'color' | 'mono' }> = [
-    { id: 'color-classic', label: PREVIEW_THEME_LABELS['color-classic'], baseStyle: 'color' },
-    { id: 'color-soft', label: PREVIEW_THEME_LABELS['color-soft'], baseStyle: 'color' },
-    { id: 'mono-clean', label: PREVIEW_THEME_LABELS['mono-clean'], baseStyle: 'mono' },
-    { id: 'mono-ink', label: PREVIEW_THEME_LABELS['mono-ink'], baseStyle: 'mono' },
-  ];
+  const previewThemeOptions: Array<{ id: PreviewThemeId; label: string; baseStyle: 'color' | 'mono' }> =
+    PREVIEW_THEME_OPTIONS.map((theme) => ({
+      id: theme.id,
+      label: theme.label,
+      baseStyle: theme.group,
+    }));
 
   const languages: Array<{ value: TargetLanguage; label: string }> = [
     { value: 'deutsch', label: '🇩Deutsch' },
@@ -435,6 +444,21 @@ export const ZenMarkdownPreview = ({
     const baseStyle = themeId.startsWith('mono') ? 'mono' : 'color';
     onPreviewStyleChange?.(baseStyle);
     setShowThemeMenu(false);
+  };
+
+  const activeMarginPreset = detectEditorMarginPreset({
+    marginTop,
+    marginBottom,
+    marginLeft,
+    marginRight,
+  });
+
+  const activeMarginLabel =
+    EDITOR_MARGIN_PRESETS.find((preset) => preset.id === activeMarginPreset)?.label ?? 'Custom';
+
+  const handleSelectMarginPreset = (presetId: Exclude<EditorMarginPresetId, 'custom'>) => {
+    onMarginPresetChange?.(presetId);
+    setShowMarginMenu(false);
   };
 
   const handlePrint = async () => {
@@ -696,8 +720,8 @@ export const ZenMarkdownPreview = ({
     },
     pre: ({ node, ...props }: any) => (
       <pre
-        className="rounded-lg p-4 mb-4 overflow-x-auto text-sm"
-        style={{ background: palette.codeBlockBg, border: `1px solid ${palette.heading}`, color: palette.codeBlockText }}
+        className="rounded-lg p-[5px] mb-[10px] overflow-x-auto text-sm"
+        style={{ background: palette.codeBlockBg, margin: '10px',border: `0.7px solid ${palette.heading}`, borderRadius: '8.5px', color: palette.codeBlockText }}
         {...props}
       />
     ),
@@ -709,14 +733,14 @@ export const ZenMarkdownPreview = ({
     thead: ({ node, ...props }: any) => <thead style={{ background: palette.tableHeadBg }} {...props} />,
     th: ({ node, ...props }: any) => (
       <th
-        className="px-4 py-2 text-left font-bold"
+        className="px-[5px] py-[2px] text-left font-bold "
         style={{ border: `1px solid ${palette.hr}`, color: palette.tableHeadText }}
         {...props}
       />
     ),
     td: ({ node, ...props }: any) => (
       <td
-        className="px-4 py-2"
+        className="px-[4px] py-[3px]"
         style={{ border: `1px solid ${palette.hr}`, color: palette.tableCellText, background: palette.tableCellBg }}
         {...props}
       />
@@ -781,8 +805,8 @@ export const ZenMarkdownPreview = ({
             disabled:opacity-50 disabled:cursor-not-allowed
           transition
           ${areControlsExpanded
-            ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
-            : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
+            ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#2e2e2e]'
+            : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#d0cbb8] hover:bg-[#1D1D1D]'
           }
         `}
         title={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
@@ -808,7 +832,7 @@ export const ZenMarkdownPreview = ({
                 disabled:opacity-50 disabled:cursor-not-allowed
                 ${showTextAI
                   ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
-                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
+                  : 'bg-[#171717] text-[#d0cbb8] border-[#2E2E2E] hover:text-[#d0cbb8] hover:border-[#d0cbb8] hover:bg-[#1D1D1D]'
                 }
               `}
               title="Text-AI"
@@ -829,10 +853,10 @@ export const ZenMarkdownPreview = ({
                   rounded-lg
                   bg-[#171717]
                   border border-[#2E2E2E]
-                  text-[#A0A0A0]
+                  text-[#d0cbb8]
                   text-[10px]
                   hover:text-[#AC8E66]
-                  hover:border-[#3A3328]
+                  hover:border-[#d0cbb8]
                   hover:bg-[#1D1D1D]
                   active:translate-y-[1px]
                   transition
@@ -856,7 +880,7 @@ export const ZenMarkdownPreview = ({
                     z-[9999]
                   "
                 >
-                  <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                  <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#d0cbb8] border-b border-[#1F1F1F]">
                     Sprache wählen
                   </div>
 
@@ -866,7 +890,7 @@ export const ZenMarkdownPreview = ({
                       onClick={() => handleTranslate(lang.value)}
                       className="
                         w-full px-4 py-2.5 text-left
-                        text-[#dbd9d5]
+                        text-[#d0cbb8]
                         hover:bg-[#1A1A1A]
                         hover:text-[#AC8E66]
                         transition-colors
@@ -891,7 +915,7 @@ export const ZenMarkdownPreview = ({
               rounded-lg
               bg-[#171717]
               border border-[#2E2E2E]
-              text-[#A0A0A0]
+              text-[#d0cbb8]
               text-[10px]
               hover:text-[#AC8E66]
               hover:border-[#3A3328]
@@ -912,7 +936,7 @@ export const ZenMarkdownPreview = ({
               rounded-lg
               bg-[#141414]
               border border-[#2E2E2E]
-              text-[#7A7A7A]
+              text-[#d0cbb8]
               font-mono text-[10px]
               hover:text-[#AC8E66]
               hover:border-[#3A3328]
@@ -935,7 +959,7 @@ export const ZenMarkdownPreview = ({
               rounded-lg
               bg-[#171717]
               border border-[#2E2E2E]
-              text-[#A0A0A0]
+              text-[#d0cbb8]
               text-[10px]
               hover:text-[#AC8E66]
               hover:border-[#3A3328]
@@ -950,18 +974,84 @@ export const ZenMarkdownPreview = ({
 
           <div className="w-px h-7 bg-[#232323] mx-1" />
 
+          <div className="relative">
+            <button
+              onClick={() => setShowMarginMenu((prev) => !prev)}
+              className={`
+                h-9 px-3
+                inline-flex items-center justify-center gap-1
+                rounded-lg
+                border
+                font-mono text-[10px]
+                active:translate-y-[1px]
+                transition
+                ${activeMarginPreset !== 'custom'
+                  ? 'bg-[#1D1D1D] text-[#d0cbb8] border-[#232323]'
+                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66]  hover:bg-[#1D1D1D]'
+                }
+              `}
+              title="Seitenränder"
+              aria-label="Seitenränder"
+            >
+              <span>Rand</span>
+              <span className="text-[9px] ">{activeMarginLabel}</span>
+            </button>
+
+            {showMarginMenu && (
+              <div
+                className="
+                  absolute top-11 right-0
+                  min-w-[188px]
+                  overflow-hidden
+                  rounded-xl
+                  bg-[#121212]
+                  border border-[#2E2E2E]
+                  shadow-[0_16px_40px_rgba(0,0,0,0.55)]
+                  z-[9999]
+                "
+              >
+                <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                  Seitenränder
+                </div>
+                {EDITOR_MARGIN_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => handleSelectMarginPreset(preset.id)}
+                    className={`
+                      w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors flex items-center justify-between gap-3
+                      ${activeMarginPreset === preset.id
+                        ? 'bg-[#1A1A1A] text-[#AC8E66]'
+                        : 'text-[#dbd9d5] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
+                      }
+                    `}
+                  >
+                    <span>{preset.label}</span>
+                    <span className="text-[9px] opacity-70">
+                      {preset.margins.marginLeft}/{preset.margins.marginTop}
+                    </span>
+                  </button>
+                ))}
+                {activeMarginPreset === 'custom' && (
+                  <div className="px-4 py-2 text-[9px] font-mono text-[#777] border-t border-[#1F1F1F]">
+                    Aktuell: Custom
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handlePrint}
             className="
-              h-9 w-9
+              w-[14px]
               inline-flex items-center justify-center
               rounded-lg
               bg-[#171717]
               border border-[#2E2E2E]
-              text-[#A0A0A0]
-              text-[10px]
+              text-[#d0cbb8]
+              text-[12px]
               hover:text-[#AC8E66]
-              hover:border-[#3A3328]
+              hover:border-[#d0cbb8]
               hover:bg-[#1D1D1D]
               active:translate-y-[1px]
               transition
@@ -984,7 +1074,7 @@ export const ZenMarkdownPreview = ({
                 active:translate-y-[1px]
                 transition
                 ${previewStyle === 'mono'
-                  ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
+                  ? 'bg-[#1D1D1D] text-[#d0cbb8] border-[#2E2E2E]'
                   : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
                 }
               `}
@@ -1007,7 +1097,7 @@ export const ZenMarkdownPreview = ({
                 "
               >
                 <div className="px-3 py-2 text-[10px] font-mono 
-                tracking-wide text-[#666] border-b border-[#1F1F1F]">
+                tracking-wide text-[#d0cbb8] border-b border-[#1F1F1F]">
                   Theme wählen
                 </div>
                 {previewThemeOptions.map((theme) => (
@@ -1017,8 +1107,8 @@ export const ZenMarkdownPreview = ({
                     className={`
                       w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors
                       ${previewTheme === theme.id
-                        ? 'bg-[#1A1A1A] text-[#AC8E66]'
-                        : 'text-[#dbd9d5] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
+                        ? 'bg-[#1A1A1A] text-[#d0cbb8]'
+                        : 'text-[#d0cbb8] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
                       }
                     `}
                   >

@@ -47,6 +47,14 @@ pub struct ProcessedImage {
     pub size_bytes: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlatformThumbnailResult {
+    pub data_url: String,
+    pub width: u32,
+    pub height: u32,
+    pub platform: String,
+}
+
 fn detect_format(data: &[u8]) -> Option<ImageFormat> {
     image::guess_format(data).ok()
 }
@@ -99,6 +107,68 @@ pub fn optimize_image(data: &[u8], opts: OptimizeOptions) -> Result<ProcessedIma
     };
 
     encode_image(processed, opts.output_format.as_deref(), opts.quality)
+}
+
+pub fn generate_platform_thumbnail(
+    markdown_content: &str,
+    platform: &str,
+) -> Result<Option<PlatformThumbnailResult>, String> {
+    let (width, height, mode) = match platform {
+        "linkedin" => (1200, 627, "fill"),
+        "twitter" => (1200, 675, "fill"),
+        "youtube" => (1280, 720, "fill"),
+        "devto" => (1000, 420, "fill"),
+        "medium" => (1400, 936, "fit"),
+        "reddit" => (1200, 628, "fill"),
+        "github-blog" | "blog-post" | "github-discussion" => (1200, 630, "fit"),
+        _ => return Ok(None),
+    };
+
+    let image_data = match extract_first_markdown_data_image(markdown_content)? {
+        Some(data) => data,
+        None => return Ok(None),
+    };
+
+    let processed = resize_image(
+        &image_data,
+        ResizeOptions {
+            width,
+            height,
+            mode: Some(mode.to_string()),
+            output_format: Some("jpeg".to_string()),
+            quality: Some(85),
+        },
+    )?;
+
+    Ok(Some(PlatformThumbnailResult {
+        data_url: processed.data_url,
+        width: processed.width,
+        height: processed.height,
+        platform: platform.to_string(),
+    }))
+}
+
+fn extract_first_markdown_data_image(markdown_content: &str) -> Result<Option<Vec<u8>>, String> {
+    let marker = "(data:image/";
+    let Some(start_idx) = markdown_content.find(marker) else {
+        return Ok(None);
+    };
+
+    let candidate = &markdown_content[start_idx + 1..];
+    let Some(end_idx) = candidate.find(')') else {
+        return Ok(None);
+    };
+    let data_url = &candidate[..end_idx];
+
+    let Some(base64_marker_idx) = data_url.find(";base64,") else {
+        return Ok(None);
+    };
+    let base64_data = data_url[base64_marker_idx + ";base64,".len()..].replace('\n', "");
+
+    BASE64
+        .decode(base64_data.as_bytes())
+        .map(Some)
+        .map_err(|e| format!("Base64-Dekodierung fehlgeschlagen: {}", e))
 }
 
 fn encode_image(img: DynamicImage, format: Option<&str>, quality: Option<u8>) -> Result<ProcessedImage, String> {

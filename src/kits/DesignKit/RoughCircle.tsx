@@ -1,6 +1,5 @@
 // ./kits/DesignKit/RoughCircle.tsx
-import { useEffect, useRef, type ReactNode } from "react";
-import rough from "roughjs/bin/rough";
+import { type ReactNode } from "react";
 
 interface RoughCircleProps {
   size?: number;
@@ -10,40 +9,20 @@ interface RoughCircleProps {
   bowing?: number;
   goldTone?: boolean;
   children?: ReactNode;
-  blueTone ?: boolean;
+  blueTone?: boolean;
 }
 
 const RoughCircle = ({
   size = 150,
   stroke = "#AC8E66",
   strokeWidth = 2,
-  roughness = 0.5,
-  bowing = 1,
   goldTone = true,
   blueTone = false,
   children,
 }: RoughCircleProps) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rc = rough.canvas(canvas);
-    const strokeColor = goldTone ? "#AC8E66" : blueTone ? "#4A90E2" : stroke;
-
-
-    const centerX = size / 2;
-    const centerY = size / 2;
-    const radius = (size - 10) / 2;
-
-    rc.circle(centerX, centerY, radius * 2, {
-      roughness,
-      bowing,
-      stroke: strokeColor,
-     
-      strokeWidth,
-    });
-  }, [size, stroke, strokeWidth, roughness, bowing, goldTone, blueTone]);
+  const strokeColor = goldTone ? "#AC8E66" : blueTone ? "#4A90E2" : stroke;
+  const normalizedStroke = Math.max(1, strokeWidth);
+  const radius = 50 - normalizedStroke * 2;
 
   return (
     <div
@@ -53,16 +32,25 @@ const RoughCircle = ({
         height: size,
       }}
     >
-      <canvas
-        ref={canvasRef}
+      <svg
         width={size}
         height={size}
+        viewBox="0 0 100 100"
         style={{
           position: "absolute",
           top: 0,
           left: 0,
         }}
-      />
+      >
+        <circle
+          cx="50"
+          cy="50"
+          r={radius}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={normalizedStroke * 2}
+        />
+      </svg>
       <div
         style={{
           position: "relative",

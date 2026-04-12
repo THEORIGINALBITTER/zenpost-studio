@@ -20,25 +20,17 @@ import {
   listCloudDocuments,
   downloadCloudDocumentText,
 } from '../../services/cloudStorageService';
+import { openAppSettings } from '../../services/appShellBridgeService';
+import { insertContentStudioSnippet } from '../../services/contentStudioBridgeService';
+import { subscribeToCloudSessionSync } from '../../services/cloudSessionSyncService';
+import { loadLocalZenNoteMeta, subscribeToZenNoteMetaSync, toZenNoteMetaState } from '../../services/zenNoteMetaService';
+import {
+  parseZenNoteFileName,
+  resolveZenNoteFolderColor,
+  resolveZenNoteTagColor,
+} from '../../services/zenNoteColorService';
 
 const ZEN_NOTE_MIME = 'text/zennote';
-const KNOWN_TAGS = ['js', 'ts', 'php', 'css', 'html', 'sql', 'bash', 'py', 'markdown', 'text'];
-
-function loadCustomTags(): string[] {
-  try {
-    const raw = localStorage.getItem('zenpost_zennote_custom_tags');
-    if (raw) return JSON.parse(raw) as string[];
-  } catch { /* ignore */ }
-  return [];
-}
-
-function loadTagColors(): Record<string, string> {
-  try {
-    const raw = localStorage.getItem('zenpost_zennote_tag_colors');
-    if (raw) return JSON.parse(raw) as Record<string, string>;
-  } catch { /* ignore */ }
-  return {};
-}
 
 interface PanelNote {
   id: number;
@@ -51,39 +43,6 @@ const gold = '#AC8E66';
 const fontMono = 'IBM Plex Mono, monospace';
 const border = '#2A2A2A';
 const textPrimary = '#E7CCAA';
-
-const BASE_TAG_COLORS: Record<string, string> = {
-  js: '#f0db4f', ts: '#007acc', php: '#787cb5', css: '#264de4',
-  html: '#e34c26', sql: '#cc2927', bash: '#4eaa25', py: '#3776ab',
-  markdown: '#6a9fb5', text: '#888',
-};
-
-function parseFileName(fileName: string): { title: string; tag: string; folder: string } {
-  const base = fileName.replace(/\.zennote$/, '');
-  let folder = '';
-  let rest = base;
-
-  const atIdx = base.indexOf('@@');
-  if (atIdx !== -1) {
-    folder = base.slice(0, atIdx);
-    rest = base.slice(atIdx + 2);
-  } else {
-    const slashIdx = base.indexOf('/');
-    if (slashIdx !== -1) {
-      folder = base.slice(0, slashIdx);
-      rest = base.slice(slashIdx + 1);
-    }
-  }
-
-  const sep = rest.lastIndexOf('__');
-  if (sep === -1) return { title: rest, tag: '', folder };
-  const maybeTag = rest.slice(sep + 2);
-  const allTags = [...KNOWN_TAGS, ...loadCustomTags()];
-  if (maybeTag && (/^[a-zA-Z0-9_-]+$/.test(maybeTag) || allTags.includes(maybeTag))) {
-    return { title: rest.slice(0, sep), tag: maybeTag, folder };
-  }
-  return { title: rest, tag: '', folder };
-}
 
 interface ZenNotePanelProps {
   onClose: () => void;
@@ -100,9 +59,10 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
   const [previewNote, setPreviewNote] = useState<{ id: number; content: string | null } | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const tagColors = loadTagColors();
-  const getTagColor = (tag: string) => tagColors[tag] ?? BASE_TAG_COLORS[tag] ?? '#888';
+  const [tagColors, setTagColors] = useState<Record<string, string>>(() => loadLocalZenNoteMeta().tagColors);
+  const [folderColors, setFolderColors] = useState<Record<string, string>>(() => loadLocalZenNoteMeta().folderColors);
+  const getTagColor = (tag: string) => resolveZenNoteTagColor(tag, tagColors);
+  const getFolderColor = (folder: string) => resolveZenNoteFolderColor(folder, folderColors, gold);
 
   const settings = loadZenStudioSettings();
   const isLoggedIn = !!settings.cloudAuthToken && !!settings.cloudProjectId;
@@ -115,7 +75,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
     const zenNotes = docs
       .filter((d) => d.mimeType === ZEN_NOTE_MIME || d.fileName.endsWith('.zennote'))
       .map((d) => {
-        const { title, tag, folder } = parseFileName(d.fileName);
+        const { title, tag, folder } = parseZenNoteFileName(d.fileName);
         return { id: d.id, title, tag, folder };
       });
     setNotes(zenNotes);
@@ -123,6 +83,28 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
   }, [settings.cloudProjectId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!settings.cloudProjectId) return;
+    return subscribeToZenNoteMetaSync(settings.cloudProjectId, ({ meta }) => {
+      const next = toZenNoteMetaState(meta);
+      setTagColors(next.tagColors);
+      setFolderColors(next.folderColors);
+    });
+  }, [settings.cloudProjectId]);
+
+  useEffect(() => {
+    return subscribeToCloudSessionSync(({ current, reason }) => {
+      if (!current.projectId) {
+        setNotes([]);
+        setLoading(false);
+        return;
+      }
+      if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        void load();
+      }
+    }, { intervalMs: 5000 });
+  }, [load]);
 
   const usedTags = Array.from(new Set(notes.map((n) => n.tag).filter(Boolean))).sort();
   const usedFolders = Array.from(new Set(notes.map((n) => n.folder).filter(Boolean))).sort();
@@ -141,9 +123,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
     setInserting(note.id);
     const content = await downloadCloudDocumentText(note.id);
     if (content) {
-      window.dispatchEvent(new CustomEvent('zenpost:insert-snippet', {
-        detail: { content },
-      }));
+      insertContentStudioSnippet({ content });
     }
     setInserting(null);
     setInsertedId(note.id);
@@ -171,14 +151,14 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
       <div style={{ padding: '10px 12px 8px', borderBottom: `1px solid #1e1e1e`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 11, color: gold }} />
-          <span style={{ fontSize: 10, color: gold, letterSpacing: '0.07em', textTransform: 'uppercase' }}>ZenNote</span>
+          <span style={{ fontSize: 11, color: '#d0cbb8', letterSpacing: '0.07em', textTransform: 'uppercase' }}>ZenNote</span>
           {hasActiveFilter && (
             <button
               onClick={() => { setTagFilter(''); setFolderFilter(''); setSearch(''); }}
               title="Filter zurücksetzen"
               style={{ background: 'transparent', border: 'none', color: '#666', cursor: 'pointer', fontSize: 9, padding: '1px 4px', marginLeft: 2 }}
             >
-              <FontAwesomeIcon icon={faXmark} style={{ marginRight: 2 }} />alle
+              <FontAwesomeIcon icon={faXmark} style={{ marginRight: 2,  }} />alle
             </button>
           )}
         </div>
@@ -213,7 +193,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
             style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#d4cfbf', fontFamily: fontMono, fontSize: 10 }}
           />
           {search && (
-            <button onClick={() => setSearch('')} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 9, padding: 0 }}>
+            <button onClick={() => setSearch('')} style={{ background: 'transparent', border: 'none', color: '#d0cbb8', cursor: 'pointer', fontSize: 9, padding: 0 }}>
               <FontAwesomeIcon icon={faXmark} />
             </button>
           )}
@@ -224,15 +204,16 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
       {usedFolders.length > 0 && (
         <div style={{ padding: '6px 10px', borderBottom: `1px solid #1e1e1e`, display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0 }}>
           {usedFolders.map((f) => {
+            const color = getFolderColor(f);
             const active = folderFilter === f;
             return (
               <button
                 key={f}
                 onClick={() => setFolderFilter(active ? '' : f)}
                 style={{
-                  background: active ? `${gold}20` : 'transparent',
-                  border: `1px solid ${active ? gold : '#333'}`,
-                  borderRadius: 4, color: active ? gold : '#666',
+                  background: active ? `${color}20` : 'transparent',
+                  border: `1px solid ${active ? color : '#333'}`,
+                  borderRadius: 4, color: active ? color : '#666',
                   fontFamily: fontMono, fontSize: 9, padding: '2px 7px', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 4,
                 }}
@@ -280,14 +261,14 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
             </div>
             <button
               className="zen-gold-btn"
-              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+              onClick={() => openAppSettings('cloud')}
             >
               Anmelden
             </button>
           </div>
         )}
         {isLoggedIn && loading && (
-          <div style={{ padding: '20px', color: '#555', fontSize: 11, textAlign: 'center' }}>
+          <div style={{ padding: '20px', color: '#d0cbb8', fontSize: 11, textAlign: 'center' }}>
             <FontAwesomeIcon icon={faSpinner} spin style={{ marginRight: 6 }} />
           </div>
         )}
@@ -301,6 +282,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
           const isInserting = inserting === note.id;
           const isInserted = insertedId === note.id;
           const tagColor = note.tag ? getTagColor(note.tag) : undefined;
+          const folderColor = note.folder ? getFolderColor(note.folder) : undefined;
           const isPreviewOpen = previewNote?.id === note.id;
           return (
             <div
@@ -325,14 +307,14 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
               {isPreviewOpen && (
                 <div style={{
                   position: 'absolute', right: '100%', top: 0, width: 240,
-                  background: '#1a1a1a', border: `1px solid ${gold}40`,
-                  borderRadius: 8, padding: '10px 12px', zIndex: 100,
+                  background: '#fff', border: `1px solid ${gold}40`,
+                  borderRadius: 8, padding: '10px 12px', zIndex: 10000,
                   boxShadow: '-6px 4px 24px rgba(0,0,0,0.6)',
                   pointerEvents: 'none',
                 }}>
                   <div style={{ fontSize: 9, color: gold, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>Vorschau</div>
                   {previewLoading ? (
-                    <FontAwesomeIcon icon={faSpinner} spin style={{ color: '#555', fontSize: 11 }} />
+                    <FontAwesomeIcon icon={faSpinner} spin style={{ color: '#d0cbb8', fontSize: 11 }} />
                   ) : (
                     <div style={{ fontSize: 10, color: '#aaa', fontFamily: fontMono, lineHeight: 1.6, maxHeight: 160, overflow: 'hidden', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {(previewNote?.content ?? '').slice(0, 300) || '(leer)'}
@@ -350,7 +332,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                   {note.folder && (
-                    <span style={{ fontSize: 9, color: gold, background: `${gold}15`, border: `1px solid ${gold}35`, borderRadius: 3, padding: '0 4px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    <span style={{ fontSize: 9, color: folderColor, background: `${folderColor}15`, border: `1px solid ${folderColor}35`, borderRadius: 3, padding: '0 4px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                       <FontAwesomeIcon icon={faFolder} style={{ fontSize: 7 }} />
                       {note.folder}
                     </span>
@@ -372,7 +354,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
                 style={{
                   background: isInserted ? 'rgba(76,175,80,0.1)' : 'transparent',
                   border: 'none', borderLeft: `1px solid #1e1e1e`,
-                  color: isInserted ? '#4caf50' : '#555',
+                  color: isInserted ? '#4caf50' : '#d0cbb8',
                   cursor: 'pointer', padding: '0 12px', alignSelf: 'stretch',
                   fontSize: 11, transition: 'color 0.2s', flexShrink: 0,
                 }}
@@ -387,7 +369,7 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
       </div>
 
       {/* Footer hint */}
-      <div style={{ padding: '6px 12px', borderTop: `1px solid #1a1a1a`, fontSize: 9, color: '#333', textAlign: 'center', flexShrink: 0 }}>
+      <div style={{ padding: '6px 12px', borderTop: `1px solid #1a1a1a`, fontSize: 9, color: '#d0cbb8', textAlign: 'center', flexShrink: 0 }}>
         <FontAwesomeIcon icon={faArrowRightToBracket} style={{ margin: '0 3px' }} /> = in Editor einfügen
       </div>
     </div>

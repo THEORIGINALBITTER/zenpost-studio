@@ -39,7 +39,7 @@ export function ZenOutlinePanel({
           cursor: 'pointer',
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '10px',
-          color: '#D9D4C5',
+          color: '#d0cbb8',
           letterSpacing: '0.03em',
           zIndex: 1,
         }}

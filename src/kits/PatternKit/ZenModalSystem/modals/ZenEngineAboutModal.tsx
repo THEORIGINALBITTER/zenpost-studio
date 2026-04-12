@@ -22,13 +22,18 @@ interface ZenEngineAboutModalProps {
 }
 
 const BUILT_IN_RULES = [
-  { id: 'passive_voice',    label: 'Passive Voice',     count: 5,  desc: 'wird, wurde, wurden, worden, werden' },
-  { id: 'filler_word',      label: 'Füllwörter',        count: 8,  desc: 'eigentlich, irgendwie, halt, sozusagen …' },
-  { id: 'weak_word',        label: 'Schwache Wörter',   count: 6,  desc: 'sehr, wirklich, natürlich, einfach …' },
-  { id: 'nominal_style',    label: 'Nominalstil',       count: 8,  desc: 'Durchführung, Verwendung, Umsetzung …' },
-  { id: 'double_space',     label: 'Doppelte Leerzeichen', count: 1, desc: 'Formatierungs-Check' },
-  { id: 'exclamation',      label: 'Ausrufezeichen',    count: 1,  desc: 'Mehrfach-!! erkennen' },
+  { id: 'passive_voice',    label: 'Passive Voice',          count: 8,  desc: 'wird, wurde, wurden, worden, werden, sei, wäre …' },
+  { id: 'filler_word',      label: 'Füllwörter',             count: 12, desc: 'eigentlich, irgendwie, halt, sozusagen, quasi, ja …' },
+  { id: 'weak_word',        label: 'Schwache Wörter',        count: 10, desc: 'sehr, wirklich, natürlich, einfach, gewissermaßen …' },
+  { id: 'nominal_style',    label: 'Nominalstil',            count: 12, desc: 'Durchführung, Verwendung, Umsetzung, Erstellung …' },
+  { id: 'redundancy',       label: 'Redundante Ausdrücke',   count: 12, desc: 'weißer Schimmel, alter Greis, vorher ankündigen …' },
+  { id: 'cliche',           label: 'Klischees & Phrasen',    count: 10, desc: 'am Ende des Tages, auf Augenhöhe, Win-Win …' },
+  { id: 'anglizism',        label: 'Anglizismen',            count: 8,  desc: 'downloaden, updaten, canceln, pushen …' },
+  { id: 'buzzword',         label: 'Buzzwörter',             count: 5,  desc: 'synergetisch, disruptiv, nachhaltig, agil …' },
+  { id: 'double_space',     label: 'Doppelte Leerzeichen',   count: 1,  desc: 'Formatierungs-Check' },
+  { id: 'exclamation',      label: 'Ausrufezeichen',         count: 1,  desc: 'Mehrfach-!! erkennen' },
 ];
+// v1.3.0: 79 Builtin-Rules total (word_boundary-aware, Aho-Corasick-Trie)
 
 const CAPABILITIES: Array<{ icon: IconDefinition; label: string; desc: string; detail: string }> = [
   {
@@ -58,8 +63,8 @@ const CAPABILITIES: Array<{ icon: IconDefinition; label: string; desc: string; d
   {
     icon: faMagnifyingGlass,
     label: 'Rule Engine (C++)',
-    desc: 'Substring-Matching, Phase 2: LLVM JIT / Regex',
-    detail: 'Analysiert Text mit einem regelbasierten C++17-Engine: erkennt Passiv, Füllwörter, schwache Wörter, Nominalstil, doppelte Leerzeichen und Ausrufezeichen-Overuse. Jedes Match enthält Position, Konfidenz und Ersetzungsvorschläge. Phase 2 plant LLVM JIT-Kompilierung für Regex-Regeln.',
+    desc: 'v1.3.0 · 79 Builtin-Rules · word_boundary-aware · Aho-Corasick-Trie',
+    detail: 'V2-Engine mit Aho-Corasick-Trie und word_boundary-Support: erkennt Passiv, Füllwörter, schwache Wörter, Nominalstil, Redundanzen, Klischees, Anglizismen und Buzzwörter. Dual-Format-Loader (JSON + builtin C++), lazy init via ensure_builtin(). Jedes Match enthält Position, Konfidenz, Regelgruppe und Ersetzungsvorschläge.',
   },
   {
     icon: faBookOpen,
@@ -83,7 +88,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
 
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, monospace' };
   const gold = '#AC8E66';
-  const dimmed = 'rgba(172,142,102,0.5)';
+  const dimmed = '#1a1a1a';
   const black = '#1a1a1a';
   const border = 'rgba(172,142,102,0.2)';
 
@@ -163,10 +168,10 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
                 <span style={{ ...mono, fontSize: 9, color: gold, minWidth: 24, textAlign: 'right' }}>
                   {rule.count}×
                 </span>
-                <span style={{ ...mono, fontSize: 10, color: '#333', minWidth: 130 }}>
+                <span style={{ ...mono, fontSize: 10, color: '#1a1a1a', minWidth: 130 }}>
                   {rule.label}
                 </span>
-                <span style={{ ...mono, fontSize: 9, color: '#999', flex: 1 }}>
+                <span style={{ ...mono, fontSize: 9, color: '#555', flex: 1 }}>
                   {rule.desc}
                 </span>
               </div>
@@ -187,7 +192,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {userRules.map((rule, i) => (
                 <div key={rule.pattern} style={{
-                  display: 'flex', alignItems: 'baseline', gap: 10,
+                  display: 'flex', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap',
                   padding: '5px 0',
                   borderBottom: i < userRules.length - 1 ? `1px solid ${border}` : 'none',
                 }}>
@@ -196,18 +201,30 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
                     background: 'rgba(172,142,102,0.12)', color: black,
                     borderRadius: 4, padding: '1px 6px', border: `1px solid rgba(172,142,102,0.3)`,
                     flexShrink: 0,
+                    maxWidth: '100%',
+                    overflowWrap: 'anywhere',
                   }}>
                     {rule.pattern}
                   </span>
-                  <span style={{ ...mono, fontSize: 9, color: '#888', flex: 1 }}>
+                  <span style={{
+                    ...mono,
+                    fontSize: 9,
+                    color: '#555',
+                    flex: '1 1 240px',
+                    minWidth: 0,
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    lineHeight: 1.6,
+                  }}>
                     {rule.suggestion}
                   </span>
                   {rule.replacements.length > 0 && (
-                    <div style={{ display: 'flex', gap: 4 }}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: '100%' }}>
                       {rule.replacements.map(r => (
                         <span key={r} style={{
                           ...mono, fontSize: 9, padding: '0 5px',
                           border: `1px solid ${border}`, borderRadius: 3, color: '#999',
+                          overflowWrap: 'anywhere',
                         }}>
                           {r}
                         </span>
@@ -225,7 +242,7 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
           <p style={{ ...mono, fontSize: 9, color: black, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 6px' }}>
             Lernstatus
           </p>
-          <p style={{ ...mono, fontSize: 9, color: '#888', margin: '0 0 10px', lineHeight: 1.6 }}>
+          <p style={{ ...mono, fontSize: 9, color: '#555', margin: '0 0 10px', lineHeight: 1.6 }}>
             ZenEngine merkt sich welche Vorschläge du annimmst oder ignorierst — und passt sich an deinen Schreibstil an.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 12 }}>
@@ -253,8 +270,8 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
               { icon: '–', text: '"Nie wieder" → dauerhaft stumm geschaltet' },
             ].map(h => (
               <div key={h.icon} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <span style={{ ...mono, fontSize: 10, color: gold, flexShrink: 0, width: 12 }}>{h.icon}</span>
-                <span style={{ ...mono, fontSize: 9, color: '#666', lineHeight: 1.5 }}>{h.text}</span>
+                <span style={{ ...mono, fontSize: 15, color: gold, flexShrink: 0, width: 12,  }}>{h.icon}</span>
+                <span style={{ ...mono, fontSize: 9, color: '#666', lineHeight: 2.6 }}>{h.text}</span>
               </div>
             ))}
           </div>
@@ -271,7 +288,8 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
               style={{
                 ...mono, fontSize: 9, background: 'rgba(239,68,68,0.7)',
                 border: '1px solid rgba(239,68,68,0.35)',
-                borderRadius: 4, color: '#1a1a1a', padding: '6px 10px', cursor: 'pointer', width: '100%',
+                  boxShadow: 'none',
+                borderRadius: 4, color: '#333', padding: '6px 10px', cursor: 'pointer', width: '100%',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.7)'; e.currentTarget.style.color = 'rgba(239,68,68,0.7)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(239,68,68,0.35)'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = 'transparent' }}
@@ -282,9 +300,9 @@ export function ZenEngineAboutModal({ isOpen, onClose }: ZenEngineAboutModalProp
         </div>
 
         {/* Footer note */}
-        <p style={{ ...mono, fontSize: 9, color: black, margin: 0, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: 9 }} />
-          Phase 2 geplant: LLVM JIT · Regex-Regeln · Sprachmodell-Integration
+        <p style={{ ...mono, fontSize: 9, color: '#1a1a1a', margin: 0, textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+          <FontAwesomeIcon icon={faCircleInfo} style={{ fontSize: 9,  }} />
+          v1.3.0 · by Denis Bitter · Phase 2 geplant: LLVM JIT · Regex-Regeln · Local LLM (ARM only)
         </p>
       </div>
     </ZenModal>

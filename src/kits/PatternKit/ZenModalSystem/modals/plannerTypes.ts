@@ -1,5 +1,7 @@
 import type { SocialPlatform, ScheduledPost } from '../../../../types/scheduling';
 import type { ChecklistItem } from '../../../../utils/checklistStorage';
+import type { PlannerDraftPrefill } from '../../../../services/plannerBridgeService';
+import type { PlannerBootstrapState } from '../../../../services/plannerBootstrapService';
 
 export type TabType = 'planen' | 'kalender' | 'checklist' | 'übersicht';
 export type CalendarView = 'month' | 'week';
@@ -48,6 +50,9 @@ export interface ZenPlannerModalProps {
   preSelectedDate?: Date;
   initialSchedules?: Partial<Record<SocialPlatform, PostSchedule>>;
   defaultTab?: TabType;
+  focusPostId?: string | null;
+  prefilledPlanPost?: PlannerDraftPrefill | null;
+  bootstrapState?: PlannerBootstrapState | null;
   suggestedEditorPost?: {
     key: string;
     title: string;

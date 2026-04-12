@@ -9,10 +9,12 @@ import {
   loadPlannerFromCloud,
   savePlannerToCloud,
 } from '../../../../../services/cloudPlannerService';
+import { subscribeToCloudPlannerSync } from '../../../../../services/cloudPlannerSyncService';
 import type { ScheduledPost, SocialPlatform } from '../../../../../types/scheduling';
 import type { ChecklistItem } from '../../../../../utils/checklistStorage';
 import type { PlannerPost, PlannerStorage, PostSchedule, ScheduleMap } from '../plannerTypes';
 import { buildStableContentId, buildScheduleMap, resolvePlannerStorageInfo } from '../plannerUtils';
+import type { PlannerBootstrapState } from '../../../../../services/plannerBootstrapService';
 
 interface UsePlannerStorageOptions {
   isOpen: boolean;
@@ -29,6 +31,7 @@ interface UsePlannerStorageOptions {
   scheduledPosts: ScheduledPost[];
   initialDate: string;
   initialSchedules?: Partial<Record<SocialPlatform, PostSchedule>>;
+  bootstrapState?: PlannerBootstrapState | null;
 }
 
 export interface UsePlannerStorageReturn {
@@ -50,6 +53,7 @@ export function usePlannerStorage({
   scheduledPosts,
   initialDate,
   initialSchedules,
+  bootstrapState,
 }: UsePlannerStorageOptions): UsePlannerStorageReturn {
   const [plannerStoragePath, setPlannerStoragePath] = useState<string | null>(null);
   const [plannerProjectPath, setPlannerProjectPath] = useState<string | null>(null);
@@ -58,6 +62,34 @@ export function usePlannerStorage({
   const [schedules, setSchedules] = useState<ScheduleMap>({});
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const lastLoadedPathRef = useRef<string | null>(null);
+
+  const reconcileSchedules = (
+    nextManualPosts: PlannerPost[],
+    incomingSchedules: ScheduleMap,
+  ): ScheduleMap => {
+    const nextPlanningPosts = buildPlanningPosts(posts, scheduledPosts, nextManualPosts);
+    const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
+    const mergedSchedules: ScheduleMap = {
+      ...baseSchedules,
+      ...incomingSchedules,
+    };
+
+    scheduledPosts.forEach((post) => {
+      let dateStr = '';
+      if (post.scheduledDate) {
+        const value = post.scheduledDate;
+        dateStr = value instanceof Date ? value.toISOString().split('T')[0] : String(value).split('T')[0];
+      }
+      if (dateStr || post.scheduledTime) {
+        mergedSchedules[post.id] = {
+          date: dateStr,
+          time: post.scheduledTime ?? '',
+        };
+      }
+    });
+
+    return mergedSchedules;
+  };
 
   // ── Resolve storage paths when modal opens ──────────────────────────────────
   useEffect(() => {
@@ -82,7 +114,33 @@ export function usePlannerStorage({
     if (!isOpen) return;
 
     if (!isTauri()) {
-      // Browser mode: try cloud only
+      // Use a fingerprint that changes when bootstrapState arrives with real data,
+      // so that reconcileSchedules runs again with the correct scheduledPosts.
+      const bootstrapFingerprint = bootstrapState?.planner?.updatedAt
+        ?? (bootstrapState?.posts && bootstrapState.posts.length > 0 ? `posts:${bootstrapState.posts.length}` : null)
+        ?? 'null';
+      const browserLoadKey = `browser:${projectPath ?? 'default'}:${bootstrapFingerprint}`;
+      if (lastLoadedPathRef.current === browserLoadKey) return;
+      lastLoadedPathRef.current = browserLoadKey;
+      setPlannerLoaded(false);
+
+      if (bootstrapState?.planner) {
+        setManualPosts(bootstrapState.planner.manualPosts);
+        setChecklistItems(bootstrapState.planner.checklistItems);
+        setSchedules(reconcileSchedules(bootstrapState.planner.manualPosts, bootstrapState.planner.schedules));
+        setPlannerLoaded(true);
+        return;
+      }
+
+      // bootstrapState has posts but no planner (schedule-only cloud data)
+      if (bootstrapState?.posts && bootstrapState.posts.length > 0) {
+        // scheduledPosts are now in closure — reconcile with empty manualPosts
+        setSchedules(reconcileSchedules([], {}));
+        setPlannerLoaded(true);
+        return;
+      }
+
+      // Browser mode: try cloud only (bootstrapState not yet available)
       if (!isCloudPlannerAvailable()) {
         setPlannerLoaded(true);
         return;
@@ -91,11 +149,9 @@ export function usePlannerStorage({
         try {
           const cloud = await loadPlannerFromCloud();
           if (cloud) {
-            const nextPlanningPosts = buildPlanningPosts(posts, scheduledPosts, cloud.manualPosts);
-            const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
             setManualPosts(cloud.manualPosts);
             setChecklistItems(cloud.checklistItems);
-            setSchedules({ ...baseSchedules, ...cloud.schedules });
+            setSchedules(reconcileSchedules(cloud.manualPosts, cloud.schedules));
           }
         } catch (error) {
           console.error('[Planner] Failed to load planner from cloud (browser mode)', error);
@@ -168,12 +224,9 @@ export function usePlannerStorage({
             : {};
         const savedSchedules = { ...localSchedules, ...cloudSchedules };
 
-        const nextPlanningPosts = buildPlanningPosts(posts, scheduledPosts, savedManualPosts);
-        const baseSchedules = buildScheduleMap(nextPlanningPosts, initialDate, initialSchedules);
-
         setManualPosts(savedManualPosts);
         setChecklistItems(savedChecklist);
-        setSchedules({ ...baseSchedules, ...savedSchedules });
+        setSchedules(reconcileSchedules(savedManualPosts, savedSchedules));
       } catch (error) {
         console.error('[Planner] Failed to load planner storage', error);
       } finally {
@@ -182,7 +235,7 @@ export function usePlannerStorage({
     };
 
     void loadPlannerData();
-  }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts, scheduledPosts]);
+  }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts, scheduledPosts, bootstrapState]);
 
   // ── Autosave: lokal + cloud (debounced 500 ms) ─────────────────────────────
   useEffect(() => {
@@ -219,6 +272,16 @@ export function usePlannerStorage({
 
     return () => clearTimeout(timeout);
   }, [isOpen, plannerLoaded, plannerStoragePath, plannerProjectPath, manualPosts, schedules, checklistItems]);
+
+  useEffect(() => {
+    if (!isOpen || !plannerLoaded || !isCloudPlannerAvailable()) return;
+
+    return subscribeToCloudPlannerSync(({ planner }) => {
+      setManualPosts(planner.manualPosts);
+      setChecklistItems(planner.checklistItems);
+      setSchedules(reconcileSchedules(planner.manualPosts, planner.schedules));
+    });
+  }, [isOpen, plannerLoaded, posts, scheduledPosts, initialDate, initialSchedules]);
 
   return {
     plannerLoaded,

@@ -113,7 +113,7 @@ export const ZenModal = ({
   const borderColor = theme === "paper" ? "#555)" : "#555";
 
   const titleColor = theme === "paper" ? "#AC8E66" : "#AC8E66";
-  const subtitleColor = theme === "paper" ? "#7a6a52" : "#777";
+  const subtitleColor = theme === "paper" ? "#d0cbb8" : "#1a1a1a";
 
   const backdropOpacity = zIndex && zIndex > 10000
     ? "bg-black/60"

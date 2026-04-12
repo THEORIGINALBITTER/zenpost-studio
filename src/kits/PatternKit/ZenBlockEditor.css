@@ -100,12 +100,12 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   z-index: 120;
-  border: 1px solid rgba(172, 142, 102, 0.8);
+  border: 1px solid rgba(208, 203, 184, 0.8);
   border-radius: 12px;
   background: rgba(18, 18, 18, 0.95);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -122,11 +122,11 @@
   justify-content: center;
   aspect-ratio: 1 / 1;
   border-radius: 999px;
-  border: 1px solid rgba(172, 142, 102, 0.95);
-  background: #121317;
+  border: 1px solid rgba(208, 203, 184, 0.95);
+  background: #1a1a1a;
   box-shadow:
     0 0 0 2px rgba(18, 19, 23, 0.72),
-    0 4px 10px rgba(0, 0, 0, 0.35);
+    0 2px 1px rgba(0, 0, 0, 0.35);
   z-index: 121;
   cursor: pointer;
 }
@@ -138,16 +138,16 @@
 
 
 .zen-block-menu-dot:hover {
-  border-color: #918769;
+  border-color: #d0cbb8;
 }
 
 .zen-block-menu-dot::before {
   content: '+';
-  color: #AC8E66;
+  color: #d0cbb8;
   font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
   font-size: 12px;
   line-height: 1;
-  font-weight: 600;
+ 
 }
 
 .zen-block-menu-dot[data-open="true"]::before {
@@ -155,7 +155,7 @@
 }
 
 .zen-overlay-block-menu__section {
-  color: #AC8E66;
+  color: #d0cbb8;
   font-size: 9px;
   letter-spacing: 0.03em;
 }
@@ -181,7 +181,7 @@
 }
 
 .zen-overlay-block-menu__grid button {
-  border: 1px solid rgba(172, 142, 102, 0.45);
+  border: 1px solid rgba(208, 203, 184, 0.45);
   background: rgba(217, 212, 197, 0.06);
   color: #d9d4c5;
   border-radius: 8px;
@@ -200,9 +200,9 @@
 }
 
 .zen-overlay-block-menu__grid button:hover {
-  border-color: #AC8E66;
-  background: rgba(172, 142, 102, 0.22);
-  color: #e2d2b0;
+  border-color: #d0cbb8;
+  background: rgba(26, 26, 26, 0.22);
+  color: #d0cbb8;
 }
 
 .zen-overlay-block-menu__grid button:active {
@@ -265,7 +265,7 @@
 
 /* ZenPost Plus Icon */
 .ce-toolbar__plus::before {
-  content: '';
+  content: '+';
   display: block;
   width: 16px;
   height: 16px;
@@ -298,7 +298,7 @@
 }
 
 .ce-toolbar__settings-btn::before {
-  content: '';
+  content: '+';
   width: 12px;
   height: 12px;
   background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23AC8E66'><circle cx='12' cy='5' r='1.9'/><circle cx='12' cy='12' r='1.9'/><circle cx='12' cy='19' r='1.9'/></svg>") no-repeat center;
@@ -306,7 +306,7 @@
 
 .ce-toolbar__settings-btn:hover {
   background: #1b1e26;
-  border-color: #ac8e66;
+  border-color: #d0cbb8;
 }
 .ce-toolbar__settings-btn:hover::before {
   filter: brightness(1.25);
@@ -577,7 +577,7 @@
 .zen-block-editor .ce-popover .cdx-input:focus,
 .zen-block-editor .ce-popover .ce-popover-item input:focus {
   outline: none !important;
-  box-shadow: 0 0 0 2px rgba(172, 142, 102, 0.18) !important;
+  box-shadow: 0 0 0 2px rgba(212, 141, 48, 0.18) !important;
 }
 
 /* Confirmation / delete */
@@ -616,7 +616,7 @@
 
 /* Text */
 .ce-code__textarea {
-  background: #171717!important;
+  background: #1a1a1a!important;
 
   /* warmes Grau statt Neon */
   color: #d9d4c5 !important;
@@ -637,7 +637,7 @@
 /* Auswahl */
 .ce-code__textarea::selection {
   background: rgba(172,142,102,0.22) !important;
-  color: #d9d4c5 !important;
+  color: #d0cbb8 !important;
 }
 
 
@@ -649,16 +649,40 @@
 /* ================= Custom Link/Image/Code Block Tools ================= */
 .zen-link-block-tool,
 .zen-image-block-tool,
-.zen-code-block-tool,
-.zen-cta-block-tool,
-.zen-table-block-tool {
+.zen-code-block-tool {
   overflow: hidden;
-  background: rgba(21, 21, 21, 0.92);
-  border: 1px solid rgba(172, 142, 102, 0.55);
+  background: rgba(21, 21, 21, 0.15);
+  border: 1px solid rgba(26,26,26, 0.35);
   border-radius: 8px;
   padding: 8px;
 }
 
+.zen-table-block-tool {
+  overflow: hidden;
+  background: rgba(21, 21, 21, 0.15);
+  border: 1px solid rgba(26,26,26, 0.35);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.zen-link-block-tool {
+   overflow: hidden;
+  background: rgba(21, 21, 21, 0.9);
+  border: 1px solid rgba(26,26,26, 0.95);
+  border-radius: 4px;
+  padding: 8px;
+  color: #E9DFC7;
+}
+
+.zen-cta-block-tool {
+  overflow: hidden;
+  background: rgba(21, 21, 21, 0.9);
+  border: 1px solid rgba(26,26,26, 0.95);
+  border-radius: 4px;
+  padding: 8px;
+  color: #E9DFC7;
+ 
+}
 .zen-link-block-tool,
 .zen-image-block-tool,
 .zen-cta-block-tool {
@@ -699,21 +723,22 @@
 .zen-image-block-action-btn {
   height: 24px;
   padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(172, 142, 102, 0.55);
-  background: rgba(0, 0, 0, 0.55);
-  color: #E9DFC7;
+  border-radius: 3px;
+  box-shadow: none;
+  border: 1px solid rgba(26,26,26, 0.55);
+  background: rgba(21,21,21 , 0.90);
+  color: #d0cbb8;
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
   line-height: 22px;
   cursor: pointer;
-  opacity: 0.9;
+  opacity: 1;
   transition: opacity 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
 }
 
 .zen-image-block-action-btn:hover {
   opacity: 1;
-  border-color: rgba(172, 142, 102, 0.9);
+  border-color: rgba(208, 203, 184, 0.9);
   transform: translateY(-1px);
 }
 
@@ -722,10 +747,11 @@
   display: none;
   font-family: "IBM Plex Mono", monospace;
   font-size: 10px;
+  box-shadow: none;
   color: #E9DFC7;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(172, 142, 102, 0.45);
-  border-radius: 4px;
+  background: rgba(21, 21, 21, 0.9);
+  border: 1px solid rgba(208, 203, 184, 0.45);
+  border-radius: 3px;
   padding: 4px 6px;
 }
 
@@ -738,6 +764,7 @@
   font-family: "IBM Plex Mono", monospace;
   font-size: 10px;
   color: #E9DFC7;
+  box-shadow: none;
   background: transparent;
   border: none;
   outline: none;
@@ -750,31 +777,32 @@
 /* Größen-Badge oben links auf dem Bild */
 .zen-image-block-size-badge {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  bottom: -20px;
+  right: -6px;
   font-family: "IBM Plex Mono", monospace;
-  font-size: 10px;
-  color: rgba(172, 142, 102, 0.9);
-  background: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  color: rgba(208, 203, 184, 0.9);
+  background: rgba(26, 26, 26, 0.9);
   padding: 2px 5px;
   border-radius: 3px;
+  border:  rgba(208, 203, 184, 0.9);
   pointer-events: none;
 }
 
 .zen-image-block-alt {
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
-  color: #6B6355;
+  color: #1a1a1a;
   background: transparent;
-  border: none;
-  border-bottom: 1px solid #2A2A2A;
-  outline: none;
-  padding: 2px 0;
+  border-radius: 3px;
+  box-shadow: none;
+ 
+  padding: 5px 5px;
   width: 100%;
 }
 
 .zen-image-block-alt::placeholder {
-  color: #3A3530;
+  color: #555;
 }
 
 /* Settings-Toolbar (⚙️ Menü von EditorJS) */
@@ -833,12 +861,12 @@
 .zen-code-block-tool__textarea {
   width: 100%;
   font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .zen-code-block-tool__header {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   margin-bottom: 8px;
 }
 
@@ -855,7 +883,7 @@
   min-height: 120px;
   border: 1px solid rgba(172, 142, 102, 0.35);
   border-radius: 6px;
-  background: #111;
+  background: #1a1a1a;
   color: #d9d4c5;
   padding: 10px;
   line-height: 1.55;
@@ -873,11 +901,13 @@
 }
 
 .zen-table-block-tool__btn {
-  border: 1px solid rgba(172, 142, 102, 0.45);
-  background: rgba(217, 212, 197, 0.08);
+ 
+  background: rgba(26, 26, 26, 1);
+  box-shadow: none;
   color: #d9d4c5;
-  border-radius: 8px;
+  border-radius: 4px;
   height: 28px;
+  margin-top: '2px';
   padding: 0 10px;
   font-size: 9px;
   font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
@@ -885,16 +915,17 @@
 }
 
 .zen-table-block-tool__btn:hover {
-  border-color: #AC8E66;
-  background: rgba(172, 142, 102, 0.22);
+  border-color: #1a1a1a;
+  color: #242424;
+  background: rgba(208, 203, 184, 1);
 }
 
 .zen-table-block-tool__btn:disabled,
 .zen-table-block-tool__btn.is-disabled {
   opacity: 0.45;
   cursor: not-allowed;
-  background: rgba(217, 212, 197, 0.04);
-  border-color: rgba(172, 142, 102, 0.22);
+  background: rgba(217, 212, 197, 0.4);
+  border-color: rgba(21,21,21, 0.22);
   color: rgba(217, 212, 197, 0.52);
 }
 
@@ -915,11 +946,12 @@
 }
 
 .zen-table-block-tool__cell {
-  width: 100%;
+  width: 90%;
   min-width: 120px;
-  background: #1c1c1c1c;
+  background: #1c1c1c;
   color: #d9d4c5;
   border: 0px dotted rgba(172, 142, 102, 0.35);
+  border-radius: 3px;
   outline: 0;
   padding: 8px 10px;
   font-size: 11px;
@@ -1107,15 +1139,15 @@
 /* ================= Light Theme ================= */
 .zen-editor-theme-light .codex-editor,
 .zen-editor-theme-light .codex-editor__redactor {
-  color: #1a1a1a;
+  color: var(--zen-editor-text, #1a1a1a);
 }
 
 .zen-editor-theme-light .ce-paragraph {
-  color: #1a1a1a;
+  color: var(--zen-editor-text, #1a1a1a);
 }
 
 .zen-editor-theme-light .ce-header {
-  color: #8B7355;
+  color: var(--zen-editor-heading, #8B7355);
 }
 
 .zen-editor-theme-light.zen-editor-line-numbers {
@@ -1129,7 +1161,7 @@
 }
 
 .zen-editor-theme-light.zen-editor-line-numbers .ce-block::before {
-  color: #8B7355;
+  color: var(--zen-editor-line-number, #8B7355);
 }
 
 .zen-editor-theme-light .ce-block--focused .ce-block__content {

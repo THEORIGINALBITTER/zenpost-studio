@@ -14,6 +14,9 @@ import {
 } from '@fortawesome/free-brands-svg-icons';
 import type { SocialPlatform } from '../../../../types/scheduling';
 import { getPublishingPaths } from '../../../../services/publishingService';
+import { isTauri } from '@tauri-apps/api/core';
+import { isCloudProjectPath } from '../../../../services/cloudProjectService';
+import { isWebProjectPath } from '../../../../services/webProjectService';
 import type { PlannerPost, PostSchedule, ScheduleMap, TabType } from './plannerTypes';
 import { faCalendarDays, faClipboardList, faClock, faEarthEurope } from '@fortawesome/free-solid-svg-icons';
 
@@ -21,7 +24,7 @@ import { faCalendarDays, faClipboardList, faClock, faEarthEurope } from '@fortaw
 
 export const PLATFORM_INFO: Record<SocialPlatform, { name: string; color: string; icon: IconDefinition; bg: string }> = {
   linkedin: { name: 'LinkedIn', color: '#0077B5', icon: faLinkedin, bg: '#0077B51A' },
-  reddit:   { name: 'Reddit',   color: '#FF4500', icon: faReddit,   bg: '#FF45001A1A' },
+  reddit:   { name: 'Reddit',   color: '#FF4500', icon: faReddit,   bg: '#FF45001A' },
   github:   { name: 'GitHub',   color: '#181717', icon: faGithub,   bg: '#1817171A' },
   devto:    { name: 'Dev.to',   color: '#0A0A0A', icon: faDev,      bg: '#0A0A0A1A' },
   medium:   { name: 'Medium',   color: '#00AB6C', icon: faMedium,   bg: '#00AB6C1A' },
@@ -87,6 +90,8 @@ export const resolvePlannerStorageInfo = async (projectPath?: string | null) => 
     projectPath ?? (typeof window !== 'undefined' ? localStorage.getItem('zenpost_last_project_path') : null);
 
   if (!storedPath) return null;
+  if (isCloudProjectPath(storedPath) || isWebProjectPath(storedPath)) return null;
+  if (!isTauri()) return null;
 
   const paths = await getPublishingPaths(storedPath);
   return {

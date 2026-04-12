@@ -4,7 +4,7 @@ import { ZenModalFooter } from '../components/ZenModalFooter';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 import { getModalPreset } from '../config/ZenModalConfig';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheckCircle, faFolderOpen, faCalendarDays, faCopy } from '@fortawesome/free-solid-svg-icons';
+import { faFolderOpen, faCalendarDays, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { isTauri } from '@tauri-apps/api/core';
 import { Command } from '@tauri-apps/plugin-shell';
 
@@ -54,15 +54,18 @@ export const ZenSaveSuccessModal = ({
   const isHttpPrimaryPath = !!primaryPath && /^https?:\/\//i.test(primaryPath);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'ok' | 'error'>('idle');
 
-  const defaultMessage = hasMultipleFiles
-    ? (webRuntime || isBrowserDownloadPath)
-      ? 'Die Dateien wurden als Browser-Downloads gespeichert.'
-      : 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
-    : (webRuntime || isBrowserDownloadPath)
-      ? 'Die Datei wurde als Browser-Download gespeichert.'
-      : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.';
+  const isCloudSave = isHttpPrimaryPath;
+  const defaultMessage = isCloudSave
+    ? 'In der Cloud gesichert. Für einen lokalen Export gehe auf Export → MD.'
+    : hasMultipleFiles
+      ? (webRuntime || isBrowserDownloadPath)
+        ? 'Die Dateien wurden als Browser-Downloads gespeichert.'
+        : 'Die Dateien wurden erfolgreich in deinem Projektordner gespeichert.'
+      : (webRuntime || isBrowserDownloadPath)
+        ? 'Die Datei wurde als Browser-Download gespeichert.'
+        : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.';
   const resolvedMessage = message ?? defaultMessage;
-  const resolvedPathsLabel = pathsLabel ?? ((webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:');
+  const resolvedPathsLabel = pathsLabel ?? (isCloudSave ? 'Details:' : (webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:');
 
   // Debug: Log filePath to see if it's being passed - only when modal is open
   if (isOpen) {
@@ -136,7 +139,7 @@ export const ZenSaveSuccessModal = ({
       >
         {/* Success Icon */}
         <FontAwesomeIcon
-          icon={faCheckCircle}
+          icon={faFolderOpen}
           style={{
             fontSize: '64px',
             color: '#AC8E66',
@@ -152,8 +155,8 @@ export const ZenSaveSuccessModal = ({
             fontFamily: 'monospace',
             fontSize: '12px',
             fontWeight: 'unset',
-            color: '#AC8E66',
-            backgroundColor: '#1A1A1A',
+            color: '#1a1a1a',
+            backgroundColor: 'transparent',
             padding: '12px 24px',
             borderRadius: '6px',
             border: '1px solid #3A3A3A',
@@ -213,7 +216,7 @@ export const ZenSaveSuccessModal = ({
                 {path}
               </code>
             ))}
-            {(webRuntime || isBrowserDownloadPath) && (
+            {(webRuntime || isBrowserDownloadPath) && !isCloudSave && (
               <div
                 style={{
                   fontFamily: 'monospace',

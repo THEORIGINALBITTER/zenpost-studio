@@ -7,8 +7,11 @@ import { isTauri } from '@tauri-apps/api/core';
 
 import { ZenSlider } from '../../components/ZenSlider';
 import {
+  EDITOR_MARGIN_PRESETS,
+  detectEditorMarginPreset,
   defaultEditorSettings,
   getEditorSettingsPath,
+  getEditorMarginValuesFromPreset,
   loadEditorSettings,
   saveEditorSettings,
   type EditorSettings,
@@ -133,7 +136,7 @@ export const ZenEditorSettingsContent = () => {
 
   return (
     <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
-      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl overflow-hidden">
+      <div className="w-full max-w-[860px] rounded-[10px] bg-[#E8E1D2] border border-[#AC8E66]/60 overflow-hidden">
 
         {/* Panel Header */}
         <div
@@ -184,7 +187,7 @@ export const ZenEditorSettingsContent = () => {
                   border: '1px solid rgba(172,142,102,0.4)',
                   borderRadius: 3,
                   position: 'relative',
-                  boxShadow: '2px 4px 12px rgba(0,0,0,0.18)',
+             
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
@@ -258,7 +261,7 @@ export const ZenEditorSettingsContent = () => {
                       border: '1px solid rgba(172,142,102,0.4)',
                       borderRadius: 3,
                       position: 'relative',
-                      boxShadow: '2px 4px 12px rgba(0,0,0,0.18)',
+                      
                       overflow: 'hidden',
                     }}>
                       {/* Inhaltsfläche */}
@@ -296,35 +299,35 @@ export const ZenEditorSettingsContent = () => {
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
                 {/* Presets */}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {([
-                    { label: 'Kein', top: 0,  bottom: 0,  left: 0,  right: 0  },
-                    { label: 'Eng',  top: 24, bottom: 24, left: 32, right: 32 },
-                    { label: 'Normal', top: 48, bottom: 48, left: 64, right: 64 },
-                    { label: 'Weit', top: 80, bottom: 80, left: 120, right: 120 },
-                  ] as const).map((p) => {
-                    const isSelected =
-                      settings.marginTop === p.top &&
-                      settings.marginBottom === p.bottom &&
-                      settings.marginLeft === p.left &&
-                      settings.marginRight === p.right;
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap',  }}>
+                  {EDITOR_MARGIN_PRESETS.map((preset) => {
+                    const isSelected = detectEditorMarginPreset({
+                      marginTop: settings.marginTop,
+                      marginBottom: settings.marginBottom,
+                      marginLeft: settings.marginLeft,
+                      marginRight: settings.marginRight,
+                    }) === preset.id;
                     return (
                       <button
-                        key={p.label}
-                        onClick={() => setSettings((prev) => ({ ...prev, marginTop: p.top, marginBottom: p.bottom, marginLeft: p.left, marginRight: p.right }))}
+                        key={preset.id}
+                        onClick={() => setSettings((prev) => ({
+                          ...prev,
+                          ...getEditorMarginValuesFromPreset(preset.id),
+                        }))}
                         style={{
                           padding: '3px 10px',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
-                          border: isSelected ? '1px solid #AC8E66' : '1px solid #3A3A3A',
+                          border: isSelected ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
                           borderRadius: 4,
+                          boxShadow: 'none',
                           background: isSelected ? 'rgba(172,142,102,0.12)' : 'transparent',
                           color: isSelected ? '#AC8E66' : '#888',
                           cursor: 'pointer',
                           transition: 'all 0.15s',
                         }}
                       >
-                        {p.label}
+                        {preset.label}
                       </button>
                     );
                   })}
@@ -333,6 +336,7 @@ export const ZenEditorSettingsContent = () => {
                 <ZenSlider
                   label="Oben"
                   value={settings.marginTop}
+                 
                   min={0} max={120} step={4}
                   valueFormatter={(v) => `${v}px`}
                   onChange={(v) => setSettings((prev) => ({ ...prev, marginTop: v }))}
@@ -426,6 +430,7 @@ export const ZenEditorSettingsContent = () => {
                           background: 'transparent', border: '1px solid rgba(172,142,102,0.25)',
                           borderRadius: 4, padding: '4px 8px', overflow: 'hidden',
                           textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          
                         }}>
                           {settings.autoSaveCustomPath ?? 'Standard (Projektordner)'}
                         </div>
@@ -439,8 +444,10 @@ export const ZenEditorSettingsContent = () => {
                           }}
                           style={{
                             fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
-                            background: 'transparent', border: '1px solid rgba(172,142,102,0.4)',
-                            borderRadius: 4, color: '#AC8E66', padding: '4px 10px', cursor: 'pointer', whiteSpace: 'nowrap',
+                            background: 'transparent', border: '0.5px solid rgba(172,142,102,0.4)',
+                            borderRadius: 4, color: '#666', 
+                            boxShadow: 'none',
+                            padding: '10px 8px', cursor: 'pointer', whiteSpace: 'nowrap',
                           }}
                         >
                           Ordner wählen
@@ -452,7 +459,9 @@ export const ZenEditorSettingsContent = () => {
                             style={{
                               fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
                               background: 'transparent', border: '1px solid rgba(172,142,102,0.25)',
-                              borderRadius: 4, color: '#666', padding: '4px 8px', cursor: 'pointer',
+                              borderRadius: 4, 
+                                boxShadow: 'none',
+                              color: '#db756b', padding: '10px 8px', cursor: 'pointer',
                             }}
                           >
                             Zurücksetzen

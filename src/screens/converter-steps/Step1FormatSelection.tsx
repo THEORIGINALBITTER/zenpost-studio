@@ -2,7 +2,7 @@ import { useState, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faFile, faFolderOpen, faArrowRight } from '@fortawesome/free-solid-svg-icons';
 import type { SupportedFormat } from '../../utils/fileConverter';
-
+import  { ZenBackButton as _ZenBackButton } from '../../kits/DesignKit';
 interface FormatOption {
   value: SupportedFormat;
   label: string;
@@ -146,16 +146,16 @@ export const Step1FormatSelection = ({
                 ? 'Loslassen zum Importieren'
                 : hasInputContent
                 ? fileName
-                : 'Datei hier ablegen'}
+                : 'Datei hier ablegen oder klicken'}
             </span>
-            <span style={{ fontSize: '9px', color: '#9a8870', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'center' }}>
+            <span style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'center' }}>
               {isPreparingInput
                 ? ''
                 : isDropActive
                 ? ''
                 : hasInputContent
                 ? `${detectedFormatLabel} erkannt · klicken zum Wechseln`
-                : 'oder klicken zum Auswählen · .md .txt .json .html .pdf .docx .pages .png .jpg .jpeg .webp .svg'}
+                : 'Formate · .md .txt .json .html .pdf .docx .pages .png .jpg .jpeg .webp .svg'}
             </span>
           </div>
 

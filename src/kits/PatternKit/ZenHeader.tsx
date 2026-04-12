@@ -1,9 +1,9 @@
 // ./kits/PatternKit/ZenHeader.tsx
 import { ZenBackButton } from "../DesignKit/ZenBackButton";
 import { ZenHomeButton } from "../DesignKit/ZenHomeButton";
-import { ZenSettingsButton } from "../DesignKit/ZenSettingsButton";
 import { ZenSettingsNotification } from "./ZenSettingsNotification";
 import { ZenInfoButton } from "../DesignKit/ZenInfoButton";
+import { faCog } from "@fortawesome/free-solid-svg-icons";
 
 interface ZenHeaderProps {
   leftText?: React.ReactNode;
@@ -44,7 +44,7 @@ export const ZenHeader = ({
         {/* LEFT */}
         <div className="flex items-center gap-3">
           {onBack && <ZenBackButton onClick={onBack} size="sm" />}
-          <p className="font-mono text-[9px] tracking-tight text-[#b4b3b0]">
+          <p className="font-mono text-[10px] tracking-tight text-[#d0cbb8]">
             {leftText}
           </p>
         </div>
@@ -58,7 +58,7 @@ export const ZenHeader = ({
 
         {/* RIGHT */}
         <div className="flex items-center gap-3 min-w-0">
-          <p className="font-mono text-[9px] text-[#b4b3b0] tracking-tight mr-[10px]
+          <p className="font-mono text-[10px] text-[#d0cbb8] tracking-tight mr-[10px]
           text-right max-w-[50vw] truncate">
             {rightText}
           </p>
@@ -66,7 +66,12 @@ export const ZenHeader = ({
             {rightAddon}
             {onSettings && (
               <div style={{ position: "relative" }}>
-                <ZenSettingsButton onClick={onSettings} size="sm" />
+                <ZenInfoButton
+                  onClick={onSettings}
+                  size="sm"
+                  icon={faCog}
+                  ariaLabel="Settings"
+                />
                 <ZenSettingsNotification
                   show={showSettingsNotification}
                   onDismiss={onDismissNotification}

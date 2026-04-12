@@ -22,7 +22,9 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
 import { ZenThoughtLine } from '../components/ZenThoughtLine';
+import { openAppSettings } from '../services/appShellBridgeService';
 import { loadZenStudioSettings } from '../services/zenStudioSettingsService';
+import { subscribeToCloudSessionSync } from '../services/cloudSessionSyncService';
 import * as QRCode from 'qrcode';
 
 import type { ScheduledPost } from '../types/scheduling';
@@ -40,7 +42,7 @@ export type GettingStartedRecentItem = {
 interface GettingStartedScreenProps {
   onBack: () => void;
   onOpenDocStudio?: () => void;
-  onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site') => void;
+  onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site' ) => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
   onOpenZenNote?: () => void;
@@ -101,7 +103,13 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
       }}
     >
       {/* Label fade: text ↔ "→" on hover */}
-      <div style={{ position: 'relative', width: '100%', height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ 
+        position: 'relative', 
+        width: '100%', 
+        height: '80px', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center' }}>
         <span style={{
           writingMode: 'vertical-rl',
           textOrientation: 'mixed',
@@ -120,7 +128,7 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
         <span style={{
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '13px',
-          color: '#AC8E66',
+          color: '#d0cbb8',
           position: 'absolute',
           opacity: showHover ? 1 : 0,
           transition: 'opacity 0.18s ease',
@@ -321,6 +329,42 @@ export function GettingStartedScreen({
   }, [activeStudio]);
 
   useEffect(() => {
+    return subscribeToCloudSessionSync(({ current, reason }) => {
+      if (activeStudio !== 'zen-note') return;
+      if (!current.projectId) {
+        setZenNoteRecent([]);
+        setZenNoteRecentLoading(false);
+        return;
+      }
+      if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        const settings = loadZenStudioSettings();
+        const projectId = settings.cloudProjectId;
+        if (!projectId) return;
+        setZenNoteRecentLoading(true);
+        listCloudDocuments(projectId).then((docs) => {
+          if (!docs) { setZenNoteRecentLoading(false); return; }
+          const parsed = docs
+            .filter((d) => d.fileName.endsWith('.zennote'))
+            .map((d) => {
+              const base = d.fileName.replace(/\.zennote$/, '');
+              let folder = '';
+              let rest = base;
+              const atIdx = base.indexOf('@@');
+              if (atIdx !== -1) { folder = base.slice(0, atIdx); rest = base.slice(atIdx + 2); }
+              const sep = rest.lastIndexOf('__');
+              const tag = sep !== -1 && /^[a-zA-Z0-9_-]+$/.test(rest.slice(sep + 2)) ? rest.slice(sep + 2) : '';
+              const title = sep !== -1 && tag ? rest.slice(0, sep) : rest;
+              return { id: d.id, title, tag, folder };
+            })
+            .slice(0, 8);
+          setZenNoteRecent(parsed);
+          setZenNoteRecentLoading(false);
+        });
+      }
+    }, { intervalMs: 5000 });
+  }, [activeStudio]);
+
+  useEffect(() => {
     let isMounted = true;
     void QRCode.toDataURL(MOBILE_DEV_BLOG_URL, {
       margin: 1,
@@ -347,17 +391,17 @@ export function GettingStartedScreen({
       id: 'content-ai',
       label: 'Content AI',
       shortLabel: 'Content AI',
-      description: 'KI-gestütztes Schreiben für Social Media, Artikel und Planung',
+      description: '1mal schreiben. 9mal transformieren für Social Media, Artikel und Blog',
       useCases: [
         {
           title: 'Dokumenten Dashboard',
-          description: 'LinkedIn, X, Medium und weitere Kanäle bespielen',
+          description: 'LinkedIn, X, Medium , Dev, Substack und mehr ',
           icon: faWandMagicSparkles,
           action: () => onOpenContentAI?.(),
         },
         {
           title: 'Artikel schreiben',
-          description: 'Direkt mit KI-Unterstützung starten',
+          description: 'Hier haben deine Gedanken platzt',
           icon: faPencil,
           action: () => onOpenContentAI?.(),
         },
@@ -465,8 +509,8 @@ export function GettingStartedScreen({
           <br />
            <span style={{
           fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '11px',
-          fontWeight: 100,
+          fontSize: '10px',
+          
           color: '#d0cbb8',
           letterSpacing: '0.3px',
           margin: '0 0 0 0px',
@@ -867,7 +911,7 @@ export function GettingStartedScreen({
                             <span>Nicht eingeloggt — ZenCloud konfigurieren</span>
                             <button
                               className="zen-gold-btn"
-                              onClick={() => window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }))}
+                              onClick={() => openAppSettings('cloud')}
                             >
                               Anmelden
                             </button>
@@ -884,7 +928,7 @@ export function GettingStartedScreen({
                             display: 'flex',
                             alignItems: 'center',
                             gap: 10,
-                            padding: '9px 16px',
+                            padding: '16px 16px',
                             background: 'transparent',
                             border: 'none',
                             borderBottom: '0.5px solid rgba(172,142,102,0.12)',
@@ -917,11 +961,12 @@ export function GettingStartedScreen({
                 {serverArticles !== null && activeStudio === 'content-ai' && (
                   <div
                     style={{
-                      border: '0.5px solid rgba(31,138,65,0.3)',
-                      borderRadius: '12px',
-                      padding: '20px',
+             
+                      padding: '2px',
                       overflow: 'hidden',
-                      background: 'rgba(255,255,255,0.3)',
+                      boxShadow: 'none',
+                   
+
                     }}
                   >
                     {serverError && (
@@ -970,7 +1015,7 @@ export function GettingStartedScreen({
                     {serverArticles.length === 0 && !serverError && (
                       <p style={{ margin: 0, 
                       padding: '12px 16px', 
-                      fontSize: '10px', 
+                      fontSize: '12px', 
                       color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace' }}>
                         Keine Artikel gefunden.
                       </p>
@@ -998,13 +1043,15 @@ export function GettingStartedScreen({
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
-                              padding: '10px 16px',
+                              padding: '10px 25px',
                               background: 'transparent',
                               border: 'none',
                               cursor: 'pointer',
                               fontFamily: 'IBM Plex Mono, monospace',
                               textAlign: 'left',
+                              boxShadow: 'none',
                               transition: 'background 0.15s',
+
                             }}
                             onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(31,138,65,0.08)'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
@@ -1041,6 +1088,7 @@ export function GettingStartedScreen({
                               fontSize: '9px',
                               cursor: isDeleting ? 'default' : 'pointer',
                               whiteSpace: 'nowrap',
+                                boxShadow: 'none',
                               transition: 'all 0.15s',
                             }}
                           >
@@ -1135,7 +1183,7 @@ const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
     >
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <div style={{ fontSize: '10px', fontWeight: 200, color: '#e5e5e5' }}>{item.title}</div>
+          <div style={{ fontSize: '10px', color: '#e5e5e5' }}>{item.title}</div>
           <span style={{ border: '0.5px dotted #3A3328', color: '#c9ab82', borderRadius: '999px', fontSize: '9px', padding: '1px 7px' }}>
             {sourceLabel}
           </span>

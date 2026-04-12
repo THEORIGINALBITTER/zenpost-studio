@@ -1,0 +1,70 @@
+{
+  "scanVersion": "1.0.0",
+  "createdAt": "2026-03-24T14:08:10.642Z",
+  "projectType": [],
+  "signals": {
+    "packageJson": false,
+    "composerJson": false,
+    "tauri": false,
+    "docker": false,
+    "python": false,
+    "rust": false,
+    "go": false,
+    "prisma": false,
+    "migrations": false
+  },
+  "project": {
+    "name": "docs",
+    "description": "No description available",
+    "version": "0.1.0"
+  },
+  "structure": {
+    "topFolders": [
+      "_theme",
+      "ai",
+      "dev",
+      "docs",
+      "fixtures",
+      "help",
+      "posts",
+      "workflows",
+      "zenpostmobil"
+    ],
+    "classified": {
+      "app": [],
+      "ui": [],
+      "logic": [],
+      "backend": [],
+      "docs": [
+        "docs"
+      ],
+      "tests": [],
+      "scripts": [],
+      "assets": []
+    },
+    "hasTests": false,
+    "hasCI": false,
+    "hasDocs": true,
+    "hasDocker": false
+  },
+  "build": {
+    "scripts": [],
+    "hasTestScript": false,
+    "entrypoints": []
+  },
+  "dependencies": {
+    "prodCount": 0,
+    "devCount": 0,
+    "top": [],
+    "lockfiles": []
+  },
+  "fileTypes": [
+    "css",
+    "example",
+    "html",
+    "json",
+    "md",
+    "php",
+    "txt"
+  ]
+}

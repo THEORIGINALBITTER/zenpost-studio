@@ -30,10 +30,22 @@ export async function phpBlogImageUpload(
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': config.apiKey },
       body: JSON.stringify({ imageData, fileName }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      let errBody = '';
+      try { errBody = (await response.json() as { error?: string }).error ?? ''; } catch { /* ignore */ }
+      console.error(`[phpBlogImageUpload] HTTP ${response.status}${errBody ? `: ${errBody}` : ''}`);
+      return null;
+    }
     const json = await response.json() as { success?: boolean; url?: string };
-    return json.success && json.url ? json.url : null;
-  } catch { return null; }
+    if (!json.success || !json.url) {
+      console.error('[phpBlogImageUpload] Unexpected response:', json);
+      return null;
+    }
+    return json.url;
+  } catch (e) {
+    console.error('[phpBlogImageUpload] Network/fetch error:', e);
+    return null;
+  }
 }
 
 /**

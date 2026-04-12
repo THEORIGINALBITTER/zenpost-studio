@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faBookOpen,
@@ -15,6 +15,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { DocStudioRuntime } from '../types';
 import { GitHubDocsWizard } from '../components/GitHubDocsWizard';
 import { DocsSiteWizard } from '../components/DocsSiteWizard';
+import { DocsServerWizard, loadDocsServerConfig, loadDocsSyncTimestamp, type DocsServerConfig } from '../components/DocsServerWizard';
 import type { DocsPushSummary, GeneratedTemplate } from '../../../services/githubDocsService';
 import type { DocsSiteConfig } from '../../../services/docsSiteService';
 
@@ -80,13 +81,41 @@ export function StepSelectProject({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [cardHovered, setCardHovered] = useState(false);
   const [hoveredTab, setHoveredTab] = useState<string | null>(null);
+  const [cardTab, setCardTab] = useState<'local' | 'server'>('local');
+  const [serverDocs, setServerDocs] = useState<Array<{ slug: string; title: string; date?: string }>>([]);
+  const [serverDocsLoading, setServerDocsLoading] = useState(false);
   const [showInlineAdd, setShowInlineAdd] = useState(false);
   const [inlinePathInput, setInlinePathInput] = useState('');
   const [showGitHubWizard, setShowGitHubWizard] = useState(() => initialWizard === 'github');
   const [showDocsSiteWizard, setShowDocsSiteWizard] = useState(() => initialWizard === 'docs-site');
-
+  const [showDocsServerWizard, setShowDocsServerWizard] = useState(false);
   const activeProjectPath = selectedPath ?? projectPath ?? allProjects[0] ?? null;
+
+  const [docsServerConfig, setDocsServerConfig] = useState<DocsServerConfig | null>(
+    activeProjectPath ? loadDocsServerConfig(activeProjectPath) : null,
+  );
   const desktopDisabled = runtime === 'web';
+
+  // Load manifest.json when Server tab is selected
+  useEffect(() => {
+    if (cardTab !== 'server' || !activeProjectPath) { setServerDocs([]); return; }
+    setServerDocsLoading(true);
+    import('@tauri-apps/plugin-fs').then(async ({ readTextFile, exists }) => {
+      try {
+        const { join } = await import('@tauri-apps/api/path');
+        const manifestPath = await join(activeProjectPath, 'manifest.json');
+        if (!(await exists(manifestPath))) { setServerDocs([]); return; }
+        const raw = JSON.parse(await readTextFile(manifestPath));
+        const posts = Array.isArray(raw?.posts) ? raw.posts : [];
+        setServerDocs(posts.map((p: Record<string, unknown>) => ({
+          slug: String(p.slug ?? ''),
+          title: String(p.title ?? p.slug ?? ''),
+          date: p.date ? String(p.date) : undefined,
+        })));
+      } catch { setServerDocs([]); }
+      finally { setServerDocsLoading(false); }
+    });
+  }, [cardTab, activeProjectPath]);
   const isWebFolderPath = (p: string | null) => p?.startsWith('@web-folder:') ?? false;
   const activeProjectName = activeProjectPath
     ? isWebFolderPath(activeProjectPath)
@@ -463,7 +492,7 @@ export function StepSelectProject({
               return (
                 <div
                   style={{ position: 'relative', width: '280px', minHeight: '320px', zIndex: 15 }}
-                  onMouseEnter={() => hasDocs && setCardHovered(true)}
+                  onMouseEnter={() => setCardHovered(true)}
                   onMouseLeave={() => setCardHovered(false)}
                 >
                   <button
@@ -576,95 +605,101 @@ export function StepSelectProject({
                     </div>
                   </button>
 
-                  {/* Hover overlay: project documents */}
-                  {cardHovered && hasDocs && (
+                  {/* Tab panel: Lokal / Server */}
+                  {cardHovered && (
                     <div
                       style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                         borderRadius: '0 12px 12px 0',
                         background: 'linear-gradient(180deg, #EDE6D8 0%, #E7DFD0 100%)',
-                        borderTop: '1px solid #b8b0a0',
-                        borderRight: '1px solid #b8b0a0',
-                        borderBottom: '1px solid #b8b0a0',
-                        borderLeft: 'none',
-                        padding: '14px 16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '6px',
-                        overflow: 'hidden',
-                        zIndex: 25,
+                        borderTop: '1px solid #b8b0a0', borderRight: '1px solid #b8b0a0',
+                        borderBottom: '1px solid #b8b0a0', borderLeft: 'none',
+                        display: 'flex', flexDirection: 'column', overflow: 'hidden', zIndex: 25,
                       }}
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <p
-                        style={{
-                          fontSize: '10px',
-                          color: '#7a7060',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          margin: '0 0 4px 0',
-                          textTransform: 'uppercase',
-                          letterSpacing: '1px',
-                        }}
-                      >
-                        Projekt Dokumente
-                      </p>
-                      <div style={{ flex: 1, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        {projectDocs.slice(0, 8).map((doc) => (
-                          <div
-                            key={doc.path}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenRecentDocument?.(doc.path);
-                            }}
-                            style={{
-                              borderRadius: '6px',
-                              border: '0.5px solid rgba(172, 142, 102, 0.3)',
-                              background: 'rgba(255,255,255,0.4)',
-                              padding: '8px 10px',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {doc.name}
-                            </p>
-                            <p style={{ margin: '2px 0 0 0', fontSize: '8px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {doc.path.split('/').slice(-2).join('/')}
-                            </p>
-                          </div>
-                        ))}
+                      {/* Tab bar */}
+                      <div style={{ display: 'flex', borderBottom: '1px solid rgba(172,142,102,0.3)', padding: '10px 14px 0' }}>
+                        {(['local', 'server'] as const).map((tab) => {
+                          const isServer = tab === 'server';
+                          const label = isServer ? '● Server' : 'Lokal';
+                          const hasServer = !!docsServerConfig;
+                          if (isServer && !hasServer) return null;
+                          return (
+                            <button
+                              key={tab}
+                              onClick={() => setCardTab(tab)}
+                              style={{
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                                padding: '4px 10px 6px',
+                                marginRight: '4px',
+                                color: cardTab === tab ? (isServer ? '#3a873d' : '#1a1a1a') : '#9a8a72',
+                                borderBottom: cardTab === tab ? `2px solid ${isServer ? '#3a873d' : '#AC8E66'}` : '2px solid transparent',
+                                fontWeight: cardTab === tab ? '600' : '400',
+                              }}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '4px' }}>
+
+                      {/* Content */}
+                      <div style={{ flex: 1, overflow: 'auto', padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {cardTab === 'local' ? (
+                          hasDocs ? projectDocs.slice(0, 8).map((doc) => (
+                            <div
+                              key={doc.path}
+                              onClick={() => onOpenRecentDocument?.(doc.path)}
+                              style={{ borderRadius: '6px', border: '0.5px solid rgba(172,142,102,0.3)', background: 'rgba(255,255,255,0.4)', padding: '7px 10px', cursor: 'pointer' }}
+                            >
+                              <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.name}</p>
+                              <p style={{ margin: '2px 0 0', fontSize: '8px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.path.split('/').slice(-2).join('/')}</p>
+                            </div>
+                          )) : (
+                            <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#9a8a72' }}>Noch keine Dokumente</p>
+                          )
+                        ) : (
+                          serverDocsLoading ? (
+                            <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#9a8a72' }}>Lade…</p>
+                          ) : serverDocs.length === 0 ? (
+                            <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#9a8a72' }}>Kein manifest.json gefunden — noch nie synchronisiert.</p>
+                          ) : serverDocs.map((doc) => (
+                            <div
+                              key={doc.slug}
+                              style={{ borderRadius: '6px', border: '0.5px solid rgba(58,135,61,0.3)', background: 'rgba(58,135,61,0.06)', padding: '7px 10px' }}
+                            >
+                              <p style={{ margin: 0, fontSize: '10px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                <span style={{ color: '#3a873d', marginRight: '5px' }}>●</span>{doc.title}
+                              </p>
+                              {doc.date && <p style={{ margin: '2px 0 0', fontSize: '8px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>{doc.date}</p>}
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Footer */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 14px', borderTop: '1px solid rgba(172,142,102,0.2)' }}>
                         {activeProjectPath && runtime !== 'web' ? (
-                          <button
-                            title="Im Finder öffnen"
-                            onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
-                            style={{
-                              background: 'none',
-                              border: 'none',
-                              padding: '2px 4px',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontFamily: 'IBM Plex Mono, monospace',
-                              fontSize: '8px',
-                              color: '#AC8E66',
-                              opacity: 0.7,
-                              borderRadius: '4px',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.background = 'none'; }}
+                          <button onClick={(e) => { e.stopPropagation(); revealItemInDir(activeProjectPath); }}
+                            style={{ background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', opacity: 0.7, borderRadius: '4px' }}
+                            onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; }}
                           >
-                            <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} />
-                            Im Finder
+                            <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '9px' }} /> Im Finder lokal
                           </button>
                         ) : <span />}
-                        <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }}>
-                          Klicken zum Öffnen →
-                        </div>
+                        {cardTab === 'server' && docsServerConfig && (
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#3a873d' }}>
+                            ● {serverDocs.length} Server on
+                          </span>
+                        )}
+                        {cardTab === 'local' && (
+                          <div style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', opacity: 0.7 }} onClick={() => activeProjectPath && onSelect(activeProjectPath)}>
+                            Klicken zum Öffnen →
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
@@ -712,7 +747,7 @@ export function StepSelectProject({
           <>
             <div
               style={{
-                display: (showGitHubWizard || showDocsSiteWizard) ? 'none' : 'grid',
+                display: (showGitHubWizard || showDocsSiteWizard || showDocsServerWizard) ? 'none' : 'grid',
                 gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
                 gap: '12px',
               }}
@@ -788,7 +823,40 @@ export function StepSelectProject({
                   setShowDocsSiteWizard(true);
                 }}
               />
+              <ActionTile
+                title="Docs → Server"
+                description={(() => {
+                  if (!docsServerConfig) return 'Docs via FTP/SFTP auf deinen Server hochladen';
+                  const ts = activeProjectPath ? loadDocsSyncTimestamp(activeProjectPath) : null;
+                  if (!ts) return 'FTP-Sync konfiguriert · Noch nie synchronisiert';
+                  const now = new Date();
+                  const diffMin = Math.round((now.getTime() - ts.getTime()) / 60000);
+                  const label = diffMin < 1 ? 'gerade eben' : diffMin < 60 ? `vor ${diffMin} Min.` : diffMin < 1440 ? `vor ${Math.round(diffMin / 60)} Std.` : ts.toLocaleDateString('de-DE');
+                  return `● Letzter Sync: ${label}`;
+                })()}
+                icon={faCloudArrowUp}
+                locked={!activeProjectPath}
+                onClick={() => {
+                  if (!activeProjectPath) return;
+                  ensureProjectSelected();
+                  setShowDocsServerWizard(true);
+                }}
+              />
             </div>
+
+              {showDocsServerWizard && activeProjectPath && (
+                <div style={{ marginTop: '16px' }}>
+                  <DocsServerWizard
+                    projectPath={activeProjectPath}
+                    projectName={activeProjectName}
+                    onBack={() => setShowDocsServerWizard(false)}
+                    onConfigSaved={(cfg) => {
+                      setDocsServerConfig(cfg);
+                      setShowDocsServerWizard(false);
+                    }}
+                  />
+                </div>
+              )}
 
               {showDocsSiteWizard && onSaveDocsSiteLocally && (
                 <div style={{ marginTop: '16px' }}>

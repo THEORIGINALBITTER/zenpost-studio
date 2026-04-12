@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /Users/denisbitter/project/ReactNativ/ZenPostStudio/zenpost-studio/docs/*.html /Users/denisbitter/project/ReactNativ/ZenPostStudio/zenpost-studio/docs/*.js)",
+      "Bash(git rm:*)",
+      "Bash(grep -n \"getPhpUploadScript\\\\|GET\\\\|$_ET\\\\|ping\\\\|action\" /Users/denisbitter/project/ReactNativ/ZenPostStudio/zenpost-studio/src/services/phpBlogService.ts)",
+      "Bash(grep -r \"exportBlog\\\\|zipBlog\\\\|exportMultiple\\\\|blog.*zip\" --include=*.ts --include=*.tsx src/)",
+      "Bash(grep -n \"activeAccordion === ''publish''\" /Users/denisbitter/project/ReactNativ/ZenPostStudio/zenpost-studio/src/kits/PatternKit/ZenModalSystem/modals/ZenExportModal.tsx)",
+      "Bash(cargo build:*)",
+      "Bash(head -5 grep -n \"convertFileSrc\\\\|asset.*protocol\\\\|protocol.*asset\" /Users/denisbitter/project/ReactNativ/ZenPostStudio/zenpost-studio/src-tauri/tauri.conf.json)"
+    ]
+  }
+}

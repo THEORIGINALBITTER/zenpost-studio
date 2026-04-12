@@ -7,6 +7,8 @@ import {
   faPaperPlane,
   faCheck,
   faForwardStep,
+  faPencil,
+  faCalendarDays,
 } from '@fortawesome/free-solid-svg-icons';
 import {
   faLinkedin,
@@ -58,6 +60,8 @@ interface ZenPublishingBannerProps {
   results: Map<string, PostResult>;
   onPublish: (post: ScheduledPost) => void;
   onSkip: (postId: string) => void;
+  onEdit?: (post: ScheduledPost) => void;
+  onReschedule?: (post: ScheduledPost) => void;
 }
 
 export function ZenPublishingBanner({
@@ -66,6 +70,8 @@ export function ZenPublishingBanner({
   results,
   onPublish,
   onSkip,
+  onEdit,
+  onReschedule,
 }: ZenPublishingBannerProps) {
   const [expanded, setExpanded] = useState(false);
 
@@ -88,7 +94,9 @@ export function ZenPublishingBanner({
       {expanded && visiblePosts.length > 0 && (
         <div
           style={{
-            background: 'linear-gradient(0deg, #111 0%, #1a1a1a 100%)',
+            background: '#1a1a1a9a',
+            WebkitBackdropFilter: 'blur(15px)',
+            backdropFilter: 'blur (15px)',
             borderTop: '1px solid #2a2a2a',
             borderLeft: '1px solid #2a2a2a',
             borderRight: '1px solid #2a2a2a',
@@ -180,21 +188,62 @@ export function ZenPublishingBanner({
                     />
                   ) : (
                     <>
+                      {onEdit && (
+                        <button
+                          onClick={() => onEdit(post)}
+                          title="Im Content AI Studio bearbeiten"
+                          style={{ 
+                            background: '#d0cbb89a',
+                            color: '#1a1a1a', 
+                            border: '1px solid #333', 
+                            borderRadius: '4px', 
+                            padding: '4px 10px', 
+                            fontSize: '11px', 
+                            cursor: 'pointer', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '5px', 
+                            fontFamily: 'IBM Plex Mono, monospace' }}
+
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = '#d0cbb8' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.color = '#1a1a1a';e.currentTarget.style.background = '#d0cbb89a' }}
+                        >
+                          <FontAwesomeIcon icon={faPencil} style={{ fontSize: '10px' }} />
+                          Bearbeiten
+                        </button>
+                      )}
+                      {onReschedule && (
+                        <button
+                          onClick={() => onReschedule(post)}
+                          title="Neu planen"
+                          style={{ 
+                            background: '#d0cbb89a', 
+                            color: '#1a1a1a', 
+                            border: '1px solid #333', 
+                            borderRadius: '4px', padding: '4px 10px', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', fontFamily: 'IBM Plex Mono, monospace' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = '#d0cbb8' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.color = '#1a1a1a';e.currentTarget.style.background = '#d0cbb89a' }}
+                        >
+                          <FontAwesomeIcon icon={faCalendarDays} style={{ fontSize: '10px' }} />
+                          Neu planen
+                        </button>
+                      )}
                       <button
                         onClick={() => onPublish(post)}
-                        style={{
-                          background: '#AC8E66',
-                          color: '#0a0a0a',
-                          border: 'none',
-                          borderRadius: '4px',
-                          padding: '4px 10px',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '5px',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                        }}
+                        style={{ 
+                          background: '#d0cbb89a',
+                          color: '#1a1a1a', 
+                          border: '1px solid #333', 
+                          borderRadius: '4px', 
+                          padding: '4px 10px', 
+                          fontSize: '11px', 
+                          cursor: 'pointer', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '5px', 
+                          fontFamily: 'IBM Plex Mono, monospace' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = '#d0cbb8' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.color = '#1a1a1a';e.currentTarget.style.background = '#d0cbb89a' }}
                       >
                         <FontAwesomeIcon icon={faPaperPlane} style={{ fontSize: '10px' }} />
                         Posten
@@ -202,21 +251,23 @@ export function ZenPublishingBanner({
                       <button
                         onClick={() => onSkip(post.id)}
                         title="Überspringen (auf Entwurf setzen)"
-                        style={{
-                          background: 'transparent',
-                          color: '#555',
-                          border: '1px solid #333',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          fontSize: '11px',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                        }}
+                        style={{ 
+                          background: '#d0cbb89a', 
+                          color: '#1a1a1a', 
+                          border: '1px solid #333', 
+                          borderRadius: '4px', 
+                          padding: '4px 8px', 
+                          fontSize: '11px', 
+                          cursor: 'pointer', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '4px', 
+                          fontFamily: 'IBM Plex Mono, monospace' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#1a1a1a'; e.currentTarget.style.background = '#d0cbb8' }}
+                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#1a1a1a'; e.currentTarget.style.color = '#1a1a1a';e.currentTarget.style.background = '#d0cbb89a' }}
                       >
                         <FontAwesomeIcon icon={faForwardStep} style={{ fontSize: '10px' }} />
+                        Auf Entwurf
                       </button>
                     </>
                   )}
@@ -256,10 +307,10 @@ export function ZenPublishingBanner({
 
         <FontAwesomeIcon icon={faBell} style={{ color: '#AC8E66', fontSize: '12px' }} />
 
-        <span style={{ color: '#AC8E66', fontSize: '12px', flex: 1 }}>
+        <span style={{ color: '#AC8E66', fontSize: '11px', flex: 1 }}>
           {visiblePosts.length === 1
             ? `1 Post bereit zur Veröffentlichung`
-            : `${visiblePosts.length} Posts bereit zur Veröffentlichung`}
+            : `${visiblePosts.length} Posts stehen bereit zur Veröffentlichung`}
         </span>
 
         {/* Summary of platforms */}
@@ -268,7 +319,7 @@ export function ZenPublishingBanner({
             <FontAwesomeIcon
               key={p.id}
               icon={PLATFORM_ICON[p.platform] ?? faPaperPlane}
-              style={{ color: PLATFORM_COLOR[p.platform] ?? '#AC8E66', fontSize: '13px' }}
+              style={{ color: PLATFORM_COLOR[p.platform] ?? '#AC8E66', fontSize: '15px' }}
             />
           ))}
           {visiblePosts.length > 5 && (
@@ -278,7 +329,7 @@ export function ZenPublishingBanner({
 
         <FontAwesomeIcon
           icon={expanded ? faChevronDown : faChevronUp}
-          style={{ color: '#555', fontSize: '11px', marginLeft: '4px' }}
+          style={{ color: '#d0cbb8', fontSize: '11px', marginLeft: '4px' }}
         />
       </div>
 

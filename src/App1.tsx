@@ -44,9 +44,13 @@ import { ZenBootstrapModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBo
 import { createDefaultProjectMetadata, type ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { ScheduledPost } from "./types/scheduling";
 import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
-import { initializePublishingProject, loadSchedule, saveScheduledPostsWithFiles } from "./services/publishingService";
+import { saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
-import { isCloudLoggedIn, saveScheduleToCloud, loadScheduleFromCloud } from "./services/cloudScheduleService";
+import { isCloudLoggedIn, saveScheduleToCloud } from "./services/cloudScheduleService";
+import {
+  loadPlannerCloudBridgeState,
+  subscribeToPlannerCloudBridge,
+} from "./services/plannerCloudBridgeService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
 import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -72,8 +76,16 @@ import {
 } from "./services/webProjectService";
 import { encodeCloudProjectPath, decodeCloudProjectId, isCloudProjectPath, type CloudProject } from "./services/cloudProjectService";
 import { deleteCloudDocument, downloadCloudDocumentText, listCloudDocuments, type CloudDocumentInfo } from "./services/cloudStorageService";
+import {
+  openContentStudioAsDraft,
+  subscribeToOpenContentStudioAsDraft,
+  subscribeToEditScheduledPostInContentStudio,
+} from "./services/contentStudioBridgeService";
+import { navigateToAppScreen, openAppSettings, subscribeToAppNavigation, subscribeToOpenAppSettings } from "./services/appShellBridgeService";
+import { subscribeToOpenPlannerWithScheduledPost } from "./services/plannerBridgeService";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
+import { subscribeToCloudSessionSync } from "./services/cloudSessionSyncService";
 
 import ZenCursor from "./components/ZenCursor";
 
@@ -225,6 +237,7 @@ function AppContent() {
   const [transferContent, setTransferContent] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
   const [transferPostMeta, setTransferPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string } | null>(null);
+  const [contentStudioInitialRequestId, setContentStudioInitialRequestId] = useState<string | null>(null);
   const [cameFromDocStudio, setCameFromDocStudio] = useState(false);
   const [cameFromDashboard, setCameFromDashboard] = useState(false);
   const [returnToDocStudioStep, setReturnToDocStudioStep] = useState<number>(0);
@@ -308,18 +321,52 @@ function AppContent() {
   });
   // On mount: if logged into cloud, load from cloud (overrides localStorage fallback)
   useEffect(() => {
-    if (!isCloudLoggedIn()) return;
-    void loadScheduleFromCloud().then((posts) => {
-      if (posts && posts.length > 0) {
-        setScheduledPosts(posts);
-        try { localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts)); } catch { /* ignore */ }
-      }
+    void loadPlannerCloudBridgeState(getLastProjectPath()).then((nextState) => {
+      setPlannerBootstrapState(nextState);
+      const { posts, source } = nextState;
+      if (source === 'empty') return;
+      setScheduledPosts(posts);
+      try { localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts)); } catch { /* ignore */ }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (!isCloudLoggedIn()) return;
+    return subscribeToPlannerCloudBridge((nextState) => {
+      if (nextState.source !== 'cloud') return;
+      setPlannerBootstrapState(nextState);
+      setScheduledPosts(nextState.posts);
+      try { localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(nextState.posts)); } catch { /* ignore */ }
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToCloudSessionSync(({ current, reason }) => {
+      if (!current.authToken) {
+        setPlannerBootstrapState(null);
+        setCloudDocuments([]);
+        return;
+      }
+
+      if (current.projectId) {
+        void handleCloudProjectSelected({
+          id: current.projectId,
+          name: current.projectName ?? 'Cloud-Projekt',
+        });
+      }
+
+      if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        void reloadScheduledPosts();
+      }
+    }, { intervalMs: 5000 });
+  }, []);
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [plannerDefaultTab, setPlannerDefaultTab] = useState<'planen' | 'kalender' | 'checklist'>('planen');
+  const [plannerFocusPostId, setPlannerFocusPostId] = useState<string | null>(null);
   const [selectedDateFromCalendar, setSelectedDateFromCalendar] = useState<Date | undefined>(undefined);
+  const [plannerPrefilledPlanPost, setPlannerPrefilledPlanPost] = useState<import('./services/plannerBridgeService').PlannerDraftPrefill | null>(null);
+  const [plannerBootstrapState, setPlannerBootstrapState] = useState<import('./services/plannerBootstrapService').PlannerBootstrapState | null>(null);
+  const [requestedZenNoteId, setRequestedZenNoteId] = useState<number | null>(null);
   const [schedulerPlatformPosts, setSchedulerPlatformPosts] = useState<Array<{ platform: string; content: string }>>([]);
   const [contentPlannerSuggestion, setContentPlannerSuggestion] = useState<{
     key: string;
@@ -669,6 +716,47 @@ function AppContent() {
       setTimeout(() => setCloudToast(null), 4000);
     }
   };
+
+  useEffect(() => {
+    return subscribeToOpenContentStudioAsDraft(({ title = '', content = '', requestId }) => {
+      setTransferContent(content);
+      setTransferFileName(title.trim() || 'Entwurf');
+      setTransferPostMeta(null);
+      setContentStudioInitialRequestId(requestId);
+      setActiveServerArticleSlug(null);
+      setContentStudioServerCachePath(null);
+      setActiveBlogForEditor(null);
+      setContentStudioRequestedArticleId(null);
+      setContentStudioRequestedFilePath(null);
+      setCameFromDocStudio(false);
+      setCameFromDashboard(false);
+      setMultiPlatformMode(false);
+      setContentStudioDashboardView("dashboard");
+      setContentTransformStep(1);
+      setCurrentScreen("content-transform");
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToEditScheduledPostInContentStudio(({ post }) => {
+      void handleEditScheduledPost(post);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToOpenPlannerWithScheduledPost(({ post, focusPostId, defaultTab, preSelectedDate, prefilledPlanPost }) => {
+      if (post) {
+        setScheduledPosts((prev) => {
+          const without = prev.filter((item) => item.id !== post.id);
+          return [...without, post];
+        });
+      }
+      setPlannerFocusPostId(focusPostId ?? null);
+      setSelectedDateFromCalendar(preSelectedDate);
+      setPlannerPrefilledPlanPost(prefilledPlanPost ?? null);
+      void openPlannerModal(defaultTab);
+    });
+  }, []);
 
   const handleEditScheduledPost = async (post: ScheduledPost) => {
     // Use the post content directly - don't add headers automatically
@@ -1050,24 +1138,32 @@ function AppContent() {
   };
 
   const reloadScheduledPosts = async () => {
-    if (!isTauri()) return;
     const projectPath =
       docStudioState?.projectPath ||
       contentStudioProjectPath ||
       getLastProjectPath();
-    if (!projectPath) return;
+    const nextState = await loadPlannerCloudBridgeState(projectPath);
+    setPlannerBootstrapState(nextState);
+    const { posts, source } = nextState;
+    if (source === 'empty') return;
+    setScheduledPosts(posts);
     try {
-      await initializePublishingProject(projectPath);
-      const project = await loadSchedule(projectPath);
-      setScheduledPosts(project.posts);
-      // Keep localStorage fallback in sync with filesystem
-      try {
-        localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(project.posts));
-      } catch { /* ignore */ }
-    } catch (error) {
-      console.error('[PublishingService] Failed to reload scheduled posts:', error);
-    }
+      localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts));
+    } catch { /* ignore */ }
   };
+
+  const openPlannerModal = async (
+    tab: 'planen' | 'kalender' | 'checklist',
+    options?: { clearSchedulerPosts?: boolean },
+  ) => {
+    if (options?.clearSchedulerPosts) {
+      setSchedulerPlatformPosts([]);
+    }
+    await reloadScheduledPosts();
+    setPlannerDefaultTab(tab);
+    setShowPlannerModal(true);
+  };
+
   const handleSelectZenNote = () => {
     setCurrentScreen("zen-note");
   };
@@ -1979,20 +2075,17 @@ const handleSelectDocStudio = () => {
   }, [docStudioState?.projectPath]);
 
   useEffect(() => {
-    if (!isTauri()) return;
     const projectPath = docStudioState?.projectPath ?? contentStudioProjectPath;
     if (!projectPath) return;
     const loadScheduled = async () => {
+      const nextState = await loadPlannerCloudBridgeState(projectPath);
+      setPlannerBootstrapState(nextState);
+      const { posts, source } = nextState;
+      if (source === 'empty') return;
+      setScheduledPosts(posts);
       try {
-        await initializePublishingProject(projectPath);
-        const project = await loadSchedule(projectPath);
-        setScheduledPosts(project.posts);
-        try {
-          localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(project.posts));
-        } catch { /* ignore */ }
-      } catch (error) {
-        console.error('[PublishingService] Failed to load scheduled posts:', error);
-      }
+        localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts));
+      } catch { /* ignore */ }
     };
     void loadScheduled();
   }, [docStudioState?.projectPath, contentStudioProjectPath]);
@@ -2129,9 +2222,25 @@ const handleSelectDocStudio = () => {
   }, []);
 
   useEffect(() => {
+    return subscribeToAppNavigation(({ screen, noteId }) => {
+      if (screen === 'zen-note') {
+        setRequestedZenNoteId(noteId ?? null);
+        setCurrentScreen('zen-note');
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToOpenAppSettings((tab) => {
+      setSettingsDefaultTab(tab);
+      setShowAISettingsModal(true);
+    });
+  }, []);
+
+  useEffect(() => {
     const handler = (e: Event) => {
       const screen = (e as CustomEvent<{ screen: string }>).detail?.screen;
-      if (screen === 'zen-note') setCurrentScreen('zen-note');
+      if (screen === 'zen-note') navigateToAppScreen('zen-note');
     };
     window.addEventListener('zenpost:navigate', handler);
     return () => window.removeEventListener('zenpost:navigate', handler);
@@ -2140,8 +2249,7 @@ const handleSelectDocStudio = () => {
   useEffect(() => {
     const handler = (e: Event) => {
       const tab = (e as CustomEvent<{ tab: string }>).detail?.tab;
-      if (tab) setSettingsDefaultTab(tab as 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud');
-      setShowAISettingsModal(true);
+      openAppSettings((tab as 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud') ?? 'ai');
     };
     window.addEventListener('zenpost:open-settings', handler);
     return () => window.removeEventListener('zenpost:open-settings', handler);
@@ -2191,9 +2299,9 @@ const handleSelectDocStudio = () => {
         const transformText = contentTransformStep === 0
           ? (contentStudioDashboardView === "project-map" ? 'Projektmappe' : 'Dashboard')
           :
-                              contentTransformStep === 1 ? 'Quelle eingeben' :
+                              contentTransformStep === 1 ? 'Inhalt eingeben' :
                               contentTransformStep === 2 ? 'Plattform wählen' :
-                              contentTransformStep === 3 ? 'Post Stil anpassen' : 'Ergebnis';
+                              contentTransformStep === 3 ? 'Post Stil anpassen' : 'Preview';
         return <>Step {contentTransformStep === 0 ? 1 : contentTransformStep}/4 • <span style={{ color: "#AC8E66" }}>{transformText}</span></>;
       case "doc-studio":
         const docText = docStudioStep === 0 ? 'Projekt' :
@@ -2421,9 +2529,7 @@ const handleSelectDocStudio = () => {
                 label="Planen"
                 icon={<FontAwesomeIcon icon={faClock} />}
                 onClick={() => {
-                  setSchedulerPlatformPosts([]);
-                  setPlannerDefaultTab('planen');
-                  setShowPlannerModal(true);
+                  void openPlannerModal('planen', { clearSchedulerPosts: true });
                 }}
               />
             </div>
@@ -2626,9 +2732,7 @@ const handleSelectDocStudio = () => {
                   label="Planen"
                   icon={<FontAwesomeIcon icon={faClock} />}
                   onClick={() => {
-                    setSchedulerPlatformPosts([]);
-                    setPlannerDefaultTab('planen');
-                    setShowPlannerModal(true);
+                    void openPlannerModal('planen', { clearSchedulerPosts: true });
                   }}
                 />
               </div>
@@ -2923,7 +3027,7 @@ const handleSelectDocStudio = () => {
     >
       <ZenCursor />
       {/* Corner Ribbon - Desktop/Web Switch */}
-      <CornerRibbon />
+      {currentScreen !== "zen-note" && <CornerRibbon />}
 
       {/* Globaler Header - Fixed */}
       <ZenHeader
@@ -3016,7 +3120,7 @@ const handleSelectDocStudio = () => {
                     updatedAt: doc.updatedAt,
                   })) : []),
                   // Cloud-Dokumente nur anzeigen wenn das aktive Projekt ein Cloud-Projekt ist
-                  ...(isCloudProjectPath(contentStudioProjectPath ?? '') ? cloudDocuments.filter((doc) => isTextDocument(doc.fileName)).map((doc) => ({
+                  ...(isCloudProjectPath(contentStudioProjectPath ?? '') ? cloudDocuments.filter((doc) => isTextDocument(doc.fileName) && !doc.fileName.endsWith('.json')).map((doc) => ({
                     id: `cloud:${doc.id}`,
                     name: doc.fileName,
                     projectPath: contentStudioProjectPath ?? undefined,
@@ -3105,13 +3209,10 @@ const handleSelectDocStudio = () => {
                   setContentStudioDashboardView("project-map");
                 }}
                 onOpenPlanner={() => {
-                  setSchedulerPlatformPosts([]);
-                  setPlannerDefaultTab('planen');
-                  setShowPlannerModal(true);
+                  void openPlannerModal('planen', { clearSchedulerPosts: true });
                 }}
                 onOpenCalendar={() => {
-                  setPlannerDefaultTab('kalender');
-                  setShowPlannerModal(true);
+                  void openPlannerModal('kalender');
                 }}
                 serverArticles={contentStudioServerArticles}
                 serverArticlesLoading={contentStudioServerArticlesLoading}
@@ -3159,6 +3260,7 @@ const handleSelectDocStudio = () => {
               currentStep={contentTransformStep}
               initialContent={transferContent}
               initialFileName={transferFileName}
+              initialRequestId={contentStudioInitialRequestId}
               initialPostMeta={transferPostMeta}
               initialPlatform={cameFromDashboard ? 'blog-post' : undefined}
               cameFromDocStudio={cameFromDocStudio}
@@ -3221,16 +3323,13 @@ const handleSelectDocStudio = () => {
               scheduledPosts={scheduledPosts}
               onScheduledPostsChange={setScheduledPosts}
               onShowScheduler={() => {
-                setPlannerDefaultTab('planen');
-                setShowPlannerModal(true);
+                void openPlannerModal('planen');
               }}
               onShowCalendar={() => {
-                setPlannerDefaultTab('kalender');
-                setShowPlannerModal(true);
+                void openPlannerModal('kalender');
               }}
               onShowChecklist={() => {
-                setPlannerDefaultTab('checklist');
-                setShowPlannerModal(true);
+                void openPlannerModal('checklist');
               }}
               onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
               onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
@@ -3304,14 +3403,8 @@ const handleSelectDocStudio = () => {
         {currentScreen === "zen-note" && (
           <ZenNoteStudioScreen
             insertTargetActive={true}
-            onAddToPlanner={(post) => {
-              setScheduledPosts((prev) => {
-                const without = prev.filter((p) => p.id !== post.id);
-                return [...without, post];
-              });
-              setPlannerDefaultTab('planen');
-              setShowPlannerModal(true);
-            }}
+            requestedNoteId={requestedZenNoteId}
+            onRequestedNoteHandled={() => setRequestedZenNoteId(null)}
           />
         )}
       </div>
@@ -3451,6 +3544,8 @@ const handleSelectDocStudio = () => {
         onClose={() => {
           setShowPlannerModal(false);
           setSelectedDateFromCalendar(undefined);
+          setPlannerFocusPostId(null);
+          setPlannerPrefilledPlanPost(null);
         }}
         scheduledPosts={scheduledPosts}
         projectPath={
@@ -3462,7 +3557,9 @@ const handleSelectDocStudio = () => {
           const p = currentScreen === 'doc-studio'
             ? docStudioState?.projectPath ?? contentStudioProjectPath
             : contentStudioProjectPath;
-          return p ? p.split('/').pop() ?? null : null;
+          if (!p) return null;
+          if (isCloudProjectPath(p)) return loadZenStudioSettings().cloudProjectName ?? null;
+          return p.split('/').pop() ?? null;
         })()}
         onReloadSchedule={reloadScheduledPosts}
         onScheduledPostsChange={persistScheduledPosts}
@@ -3485,9 +3582,13 @@ const handleSelectDocStudio = () => {
         onAddPost={(date) => {
           setSelectedDateFromCalendar(date);
           setPlannerDefaultTab('planen');
+          setPlannerFocusPostId(null);
         }}
         preSelectedDate={selectedDateFromCalendar}
         defaultTab={plannerDefaultTab}
+        focusPostId={plannerFocusPostId}
+        prefilledPlanPost={plannerPrefilledPlanPost}
+        bootstrapState={plannerBootstrapState}
       />
 
       {/* Export Modal */}
@@ -3525,17 +3626,13 @@ const handleSelectDocStudio = () => {
         onPublish={publishingEngine.publish}
         onSkip={publishingEngine.skip}
         onEdit={(post) => {
-          window.dispatchEvent(new CustomEvent('zenpost:open-as-draft', {
-            detail: { title: post.title, content: post.content },
-          }));
-          setCurrentScreen('content-transform');
+          openContentStudioAsDraft({ title: post.title, content: post.content });
         }}
         onReschedule={(post) => {
           setScheduledPosts((prev) =>
             prev.map((p) => p.id === post.id ? { ...p, status: 'draft' as const } : p)
           );
-          setPlannerDefaultTab('kalender');
-          setShowPlannerModal(true);
+          void openPlannerModal('kalender');
         }}
       />
       </div>
@@ -3656,7 +3753,7 @@ const StudioBarButton = ({
       padding: "0 10px",
       background:
         active
-          ? "#151515"
+          ? "#d0cbb8"
           : "#121212",
       display: "flex",
       alignItems: "center",
@@ -3667,7 +3764,7 @@ const StudioBarButton = ({
       fontWeight: active ? "normal" : "normal",
       // Textfarbe anpassen
       color: 
-      active ? "#EFEBDC" : "#a1a1a1",
+        active ? "#1a1a1a" : "#d0cbb8",
      
       cursor: disabled ? "not-allowed" : "pointer",
       transition: "all 0.2s ease",
@@ -3684,13 +3781,18 @@ const StudioBarButton = ({
     }}
     onMouseLeave={(e) => {
       if (!disabled) {
-        e.currentTarget.style.borderColor = active ? "#AC8E66" : "#3A3A3A";
+        e.currentTarget.style.borderColor = active ? "#2a2a2a" : "#3A3A3A";
        
         e.currentTarget.style.transform = "translateY(0)";
       }
     }}
   >
-    <span style={{ color: "#AC8E66", display: "inline-flex" }}>{icon}</span>
+    <span style={{ 
+      color:   
+        active ? "#1a1a1a" : "#d0cbb8",
+      display: "inline-flex" }}>
+        {icon}
+        </span>
     <span
       style={{
         overflow: "hidden",

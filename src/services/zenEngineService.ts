@@ -201,6 +201,30 @@ export const ZenEngine = {
     });
   },
 
+  /** Erstes eingebettetes Bild aus Markdown als plattformoptimiertes Thumbnail rendern */
+  async generatePlatformThumbnail(
+    markdownContent: string,
+    platform: string,
+  ): Promise<PlatformThumbnailResult | null> {
+    if (isTauri()) {
+      const result = await invoke<NativePlatformThumbnailResult | null>(
+        'engine_generate_platform_thumbnail',
+        { markdown_content: markdownContent, platform },
+      );
+
+      if (!result) return null;
+
+      return {
+        dataUrl: result.data_url,
+        width: result.width,
+        height: result.height,
+        platform: result.platform,
+      };
+    }
+
+    return generatePlatformThumbnailWeb(markdownContent, platform);
+  },
+
   // ── Rule Engine (C++) ─────────────────────────────────────────────────────
 
   /** Text regelbasiert analysieren (Füllwörter, Passive Voice, etc.) */
@@ -279,12 +303,26 @@ export interface PlatformThumbnailResult {
   platform: string;
 }
 
+interface NativePlatformThumbnailResult {
+  data_url: string;
+  width: number;
+  height: number;
+  platform: string;
+}
+
 /**
  * Extrahiert das erste Bild aus Markdown-Content und erzeugt ein
  * plattform-optimiertes Thumbnail via ZenEngine.imageResize.
  * Gibt null zurück wenn kein Bild vorhanden oder Plattform kein Thumbnail braucht.
  */
 export async function generatePlatformThumbnail(
+  markdownContent: string,
+  platform: string,
+): Promise<PlatformThumbnailResult | null> {
+  return ZenEngine.generatePlatformThumbnail(markdownContent, platform);
+}
+
+async function generatePlatformThumbnailWeb(
   markdownContent: string,
   platform: string,
 ): Promise<PlatformThumbnailResult | null> {

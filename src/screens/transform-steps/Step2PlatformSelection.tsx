@@ -85,7 +85,7 @@ export const Step2PlatformSelection = ({
           {/* Selection Info for Multi-Select */}
           {multiSelectMode && (
             <div>
-              <p className="font-mono text-[12px] text-[#AC8E66]">
+              <p className="font-mono text-[12px] text-[#1a1a1a]">
                 {selectedPlatforms.length === 0
                   ? 'Noch keine Plattform gewählt'
                   : `1 Text → ${selectedPlatforms.length} Version${selectedPlatforms.length > 1 ? 'en' : ''}`

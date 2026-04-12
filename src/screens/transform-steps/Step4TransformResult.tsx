@@ -48,8 +48,14 @@ import {
   SocialPlatform,
   PostResult,
 } from '../../services/socialMediaService';
-import { ZenCloseButton } from '../../kits/DesignKit/ZenCloseButton';
-import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
+
+import {
+  defaultEditorSettings,
+  getEditorMarginValuesFromPreset,
+  saveEditorSettings,
+  type EditorMarginPresetId,
+  type EditorSettings,
+} from '../../services/editorSettingsService';
 import { EDITOR_SETTINGS_STORAGE_KEY } from '../../constants/settingsKeys';
 import { applySteuerFormatConfig, autoFixSteuerFormatContent, validateSteuerFormatContent } from '../../config/formatConfigTrans';
 import { preparePostContent } from '../../config/platformPostRules';
@@ -89,6 +95,8 @@ interface Step4TransformResultProps {
   originalLabel?: string;
   projectPath?: string | null;
   onNewDraft?: () => void;
+  previewTheme?: PreviewThemeId;
+  onPreviewThemeChange?: (theme: PreviewThemeId) => void;
 }
 
 type ImproveOption = {
@@ -212,6 +220,8 @@ export const Step4TransformResult = ({
   originalLabel = 'Original',
   projectPath,
   onNewDraft: _onNewDraft,
+  previewTheme: externalPreviewTheme,
+  onPreviewThemeChange,
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
@@ -232,6 +242,29 @@ export const Step4TransformResult = ({
   const [_isPosting, setIsPosting] = useState(false);
   const [postResult, setPostResult] = useState<PostResult | null>(null);
   const [currentContent, setCurrentContent] = useState(transformedContent);
+
+  const handleMarginPresetChange = useCallback(
+    (preset: Exclude<EditorMarginPresetId, 'custom'>) => {
+      const nextSettings = {
+        ...editorSettings,
+        ...getEditorMarginValuesFromPreset(preset),
+      };
+
+      setEditorSettings(nextSettings);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(EDITOR_SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+        window.dispatchEvent(new CustomEvent('zen-editor-settings-updated', { detail: nextSettings }));
+      }
+
+      if (projectPath) {
+        saveEditorSettings(projectPath, nextSettings).catch((error) => {
+          console.error('[EditorSettings] Failed to save margin preset:', error);
+        });
+      }
+    },
+    [editorSettings, projectPath]
+  );
 
   // Sync currentContent when transformedContent changes (e.g., tab switch in multi-platform mode)
   useEffect(() => {
@@ -365,9 +398,6 @@ export const Step4TransformResult = ({
   // Success feedback
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastAction, setLastAction] = useState<string>('');
-  const [previewThemeByKey, setPreviewThemeByKey] = useState<Record<string, PreviewThemeId>>({
-    default: 'mono-clean',
-  });
   const [activePanel, setActivePanel] = useState<'vergleich' | 'engine' | 'thumbnail' | 'qa' | null>(null);
   const togglePanel = (panel: 'vergleich' | 'engine' | 'thumbnail' | 'qa') =>
     setActivePanel(prev => prev === panel ? null : panel);
@@ -418,13 +448,7 @@ export const Step4TransformResult = ({
   };
   const [comparisonSource, setComparisonSource] = useState<string>('original');
 
-  const previewContextKey = useMemo(() => {
-    if (activeDocTabId) return `doc:${activeDocTabId}`;
-    if (multiPlatformMode && activeResultTab) return `platform:${activeResultTab}`;
-    return 'default';
-  }, [activeDocTabId, activeResultTab, multiPlatformMode]);
-
-  const activePreviewTheme = previewThemeByKey[previewContextKey] ?? previewThemeByKey.default ?? 'mono-clean';
+  const activePreviewTheme = externalPreviewTheme ?? 'mono-clean';
   const failedMultiPostResults = useMemo(
     () => multiPostResults.filter((result) => !result.success),
     [multiPostResults]
@@ -1258,16 +1282,17 @@ const handleDownload = async () => {
               style={{
                 padding: '12px 14px',
                 borderRadius: '16px',
+               
                 border: '1px solid rgba(179,38,30,0.45)',
-                background: ' rgba(26,26,26,0.92)',
+                background: ' transparent',
                 boxShadow: '0 10px 24px rgba(0,0,0,0.22)',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: '9px', }}>
                 <FontAwesomeIcon icon={faTriangleExclamation} 
-                style={{ color: '#ffb4ab', fontSize: '12px' }} />
+                style={{ color: '#d0cbb8', fontSize: '12px' }} />
                 <span style={{ fontFamily: 'IBM Plex Mono, monospace', 
-                  fontSize: '11px', color: '#ffb4ab', fontWeight: 200 }}>
+                  fontSize: '11px', color: '#d0cbb8',  }}>
                   Posting Einstellungs Fehler
                 </span>
               </div>
@@ -1285,8 +1310,8 @@ const handleDownload = async () => {
                       gap: 8,
                     }}
                   >
-                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#ffb4ab', fontSize: '10px' }} />
-                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#f8d6d1' }}>
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
                       {platformLabels[platform]}: {postResult.error || 'Unbekannter Fehler'}
                     </span>
                   </div>
@@ -1298,15 +1323,15 @@ const handleDownload = async () => {
                     style={{
                       padding: '8px 10px',
                       borderRadius: '8px',
-                      border: '1px solid rgba(255,180,171,0.35)',
+                      border: 'none',
                       background: 'rgba(20,20,20,0.65)',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 8,
                     }}
                   >
-                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#ffb4ab', fontSize: '10px' }} />
-                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#f8d6d1' }}>
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
                       {result.platform}: {result.error || 'Unbekannter Fehler'}
                     </span>
                   </div>
@@ -1318,9 +1343,9 @@ const handleDownload = async () => {
                   type="button"
                   onClick={() => onOpenSettings(preferredSettingsPlatform)}
                   style={{
-                    border: '1px solid rgba(255,180,171,0.45)',
-                    background: 'rgba(26,26,26,0.6)',
-                    color: '#ffb4ab',
+                    border: '1px solid #888',
+                    background: '#d0cbb8',
+                    color: '#1a1a1a',
                     borderRadius: '8px',
                     padding: '7px 12px',
                     fontFamily: 'IBM Plex Mono, monospace',
@@ -1348,9 +1373,9 @@ const handleDownload = async () => {
                   }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 5,
-                    border: '1px solid rgba(172,142,102,0.5)',
-                    background: 'rgba(172,142,102,0.12)',
-                    color: '#AC8E66',
+                    border: '1px solid #888',
+                    background: '#d0cbb8',
+                    color: '#1a1a1a',
                     borderRadius: '8px',
                     padding: '7px 12px',
                     fontFamily: 'IBM Plex Mono, monospace',
@@ -1383,8 +1408,8 @@ const handleDownload = async () => {
                   cursor: 'pointer',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '10px',
-                  fontWeight: activePanel === 'vergleich' ? 200 : 400,
-                  color: activePanel === 'vergleich' ? '#151515' : '#888',
+                 
+                  color: activePanel === 'vergleich' ? '#1a1a1a' : '#d0cbb8',
                   transition: 'all 0.2s',
                   writingMode: 'vertical-rl',
                   transform: 'rotate(180deg)',
@@ -1399,7 +1424,7 @@ const handleDownload = async () => {
                 }}
                 onMouseLeave={(e) => {
                   if (activePanel !== 'vergleich') {
-                    e.currentTarget.style.color = '#888';
+                    e.currentTarget.style.color = '#d0cbb8';
                     e.currentTarget.style.borderColor = '#3A3A3A';
                   }
                 }}
@@ -1416,8 +1441,8 @@ const handleDownload = async () => {
                   cursor: 'pointer',
                   fontFamily: 'IBM Plex Mono, monospace',
                   fontSize: '10px',
-                  fontWeight: activePanel === 'engine' ? 200 : 400,
-                  color: activePanel === 'engine' ? '#1a1a1a' : '#dbd9ce',
+             
+                  color: activePanel === 'engine' ? '#1a1a1a' : '#d0cbb8',
                   transition: 'all 0.2s',
                   writingMode: 'vertical-rl',
                   transform: 'rotate(180deg)',
@@ -1432,7 +1457,7 @@ const handleDownload = async () => {
                 }}
                 onMouseLeave={(e) => {
                   if (activePanel !== 'engine') {
-                    e.currentTarget.style.color = '#888';
+                    e.currentTarget.style.color = '#d0cbb8';
                     e.currentTarget.style.borderColor = '#3A3A3A';
                   }
                 }}
@@ -1450,8 +1475,8 @@ const handleDownload = async () => {
                     cursor: 'pointer',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '10px',
-                    fontWeight: activePanel === 'qa' ? 200 : 400,
-                    color: activePanel === 'qa' ? '#151515' : '#888',
+                   
+                    color: activePanel === 'qa' ? '#1a1a1a' : '#d0cbb8',
                     transition: 'all 0.2s',
                     writingMode: 'vertical-rl',
                     transform: 'rotate(180deg)',
@@ -1466,7 +1491,7 @@ const handleDownload = async () => {
                   }}
                   onMouseLeave={(e) => {
                     if (activePanel !== 'qa') {
-                      e.currentTarget.style.color = '#888';
+                      e.currentTarget.style.color = '#d0cbb8';
                       e.currentTarget.style.borderColor = '#3A3A3A';
                     }
                   }}
@@ -1485,8 +1510,8 @@ const handleDownload = async () => {
                     cursor: 'pointer',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '8px',
-                    fontWeight: activePanel === 'thumbnail' ? 200 : 400,
-                    color: activePanel === 'thumbnail' ? '#151515' : '#888',
+                    
+                    color: activePanel === 'thumbnail' ? '#1a1a1a' : '#d0cbb8',
                     transition: 'all 0.2s',
                     writingMode: 'vertical-rl',
                     transform: 'rotate(180deg)',
@@ -1501,7 +1526,7 @@ const handleDownload = async () => {
                   }}
                   onMouseLeave={(e) => {
                     if (activePanel !== 'thumbnail') {
-                      e.currentTarget.style.color = '#888';
+                      e.currentTarget.style.color = '#d0cbb8';
                       e.currentTarget.style.borderColor = '#3A3A3A';
                     }
                   }}
@@ -1524,14 +1549,17 @@ const handleDownload = async () => {
             }}
           >
           {/* ── Header: platform + status + stats ─────────────────── */}
-          <div style={{ padding: '0.75rem 1.5rem 0.75rem 1.75rem', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ 
+            padding: '0.75rem 1.5rem 0.75rem 1.75rem', 
+            display: 'flex', flexDirection: 'column', gap: 6 }}>
 
             {/* Row 1: platform name + status badge + image picker */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', minWidth: 0 }}>
 
                 {/* Platform label */}
-                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', fontWeight: 600, color: '#AC8E66', letterSpacing: '0.04em' }}>
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '12px', 
+                 color: '#1a1a1a', letterSpacing: '0.04em' }}>
                   {platformLabels[activeQaPlatform]}     <span color="#dbd9ce"  > | Preview Theme {PREVIEW_THEME_LABELS[activePreviewTheme]}</span>
                  
                 </span>
@@ -1582,15 +1610,17 @@ const handleDownload = async () => {
                       onClick={() => onOpenSettings(socialPlatform)}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
-                        padding: '3px 8px', borderRadius: '8px',
+                        padding: '4px 8px', 
+                        borderRadius: '4px',
+                        boxShadow: 'none',
                         border: '1px solid rgba(172,142,102,0.35)',
                         background: 'rgba(172,142,102,0.06)',
                         fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-                        color: '#AC8E66', letterSpacing: '0.03em',
+                        color: '#1a1a1a', letterSpacing: '0.03em',
                         cursor: 'pointer', transition: 'background 0.15s',
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'rgba(172,142,102,0.14)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(172,142,102,0.06)'; }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#d0cbb8'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = 'rgba(172,142,102,0.1)'; }}
                     >
                       <FontAwesomeIcon icon={faCog} style={{ fontSize: '7px' }} />
                       API einrichten
@@ -1643,7 +1673,7 @@ const handleDownload = async () => {
               </div>
 
               {/* Right: close only */}
-              <ZenCloseButton onClick={onBack} size="sm" />
+        
             </div>
 
             {/* Row 2: stats — muted, smaller */}
@@ -2129,13 +2159,13 @@ const handleDownload = async () => {
                         flex: '0 0 auto',
                         padding: '12px 16px',
                         backgroundColor: isActive ? '#d9d4c5' : '#2a2a2a',
-                        border: isActive ? '1px solid #AC8E66' : '1px dotted #3A3A3A',
+                        border: isActive ? '0.5px solid #666' : '1px dotted #1A1A1A',
                         borderRadius: '8px 8px 0px 0px',
                         borderBottom: 'none',
                         cursor: 'pointer',
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: isActive ? '9px' : '10px',
-                        fontWeight: isActive ? '200' : '400',
+                        
                         color: isActive ? '#1a1a1a' : '#999',
                         transition: 'all 0.1s',
                         transform: isActive ? 'translateY(0)' : 'translateY(12px)',
@@ -2228,7 +2258,7 @@ const handleDownload = async () => {
                     </div>
                     <button
                       onClick={onBack}
-                      className="font-mono bg-transparent text-[9px]  px-2 py-1 rounded border border-[#AC8E66] text-[#AC8E66] hover:bg-[#dbd9ce]/90 transition-colors"
+                      className="font-mono bg-transparent text-[9px]  px-2 py-1 rounded border border-[#AC8E66] text-[#1a1a1a] hover:bg-[#d0cbb8]/90 transition-colors"
                       title="Änderungen als neue Version in den Editor übernehmen"
                     >
                       Änderungen übernehmen
@@ -2292,7 +2322,8 @@ const handleDownload = async () => {
                   padding: '10px',
                   border: '0.5px solid #3a3a3a',
                   borderRadius: '0 0 0 0',
-                  backgroundColor: '#101010',
+                  backgroundColor: '#1a1a1a',
+                  boxShadow: 'none'
                 }}
               >
                 <div
@@ -2300,18 +2331,18 @@ const handleDownload = async () => {
                     padding: '12px 16px',
                     borderRadius: '8px',
                     border: qaResult.errors.length > 0 ? '1px solid #ef4444' : '1px solid #AC8E66',
-                    backgroundColor: qaResult.errors.length > 0 ? 'rgba(127,29,29,1)' : '#d0cbb8',
+                    backgroundColor: qaResult.errors.length > 0 ? 'transparent' : '#d0cbb8',
                   }}
                 >
-                  <div className="flex items-center border-b border-[#1a1a1a] justify-between gap-3">
+                  <div className="flex items-center  border-[#1a1a1a] justify-between gap-3">
                     <p
                       style={{
                         margin: 0,
                         fontSize: '12px',
                         fontFamily: 'monospace',
                        
-                        color: qaResult.errors.length > 0 ? '#fca5a5' : '#1a1a1a',
-                        fontWeight: 100,
+                        color: qaResult.errors.length > 0 ? '#d0cbb8' : '#1a1a1a',
+                        
                       }}
                     >
                       QA Check · {platformLabels[activeQaPlatform]}
@@ -2324,9 +2355,10 @@ const handleDownload = async () => {
                         fontSize: '10px',
                         fontFamily: 'monospace',
                         borderRadius: '6px',
-                        border: '1px solid #AC8E66',
-                        background: 'transparent',
-                        color: '#AC8e66',
+                        boxShadow: 'none',
+                        border: '0.5px solid #1a1a1a',
+                        background: '#d0cbb8',
+                        color: '#1a1a1a',
                         cursor: 'pointer',
                       }}
                     >
@@ -2338,9 +2370,9 @@ const handleDownload = async () => {
                       key={`err-${issue.code}-${issue.message}`}
                       style={{
                         margin: '6px 0 0 0',
-                        fontSize: '10px',
+                        fontSize: '11px',
                         fontFamily: 'monospace',
-                        color: '#fecaca',
+                        color: '#d0cbb8',
                       }}
                     >
                       Fehler: {issue.message}
@@ -2486,16 +2518,12 @@ const handleDownload = async () => {
                 autoHideReadingCursor={isIdle}
                 collapseControlsByDefault
                 previewTheme={activePreviewTheme}
-                onPreviewThemeChange={(theme) => {
-                  setPreviewThemeByKey((prev) => ({
-                    ...prev,
-                    [previewContextKey]: theme,
-                  }));
-                }}
+                onPreviewThemeChange={onPreviewThemeChange}
                 marginTop={editorSettings.marginTop}
                 marginBottom={editorSettings.marginBottom}
                 marginLeft={editorSettings.marginLeft}
                 marginRight={editorSettings.marginRight}
+                onMarginPresetChange={handleMarginPresetChange}
               />
             ) : (
               <div

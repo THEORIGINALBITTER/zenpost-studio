@@ -104,7 +104,7 @@ a {
 }
 
 a:hover {
-  color: #535bf2;
+  color: #d0cbb8;
 }
 
 h1 {
@@ -122,7 +122,7 @@ button {
   color: #0f0f0f;
   background-color: #ffffff;
   transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: none;
 }
 
 button {
@@ -130,21 +130,21 @@ button {
 }
 
 button:hover {
-  border-color: #396cd8;
+  border-color: #d0cbb8;
 }
 button:active {
-  border-color: #396cd8;
+  border-color: #d0cbb8;
   background-color: #e8e8e8;
 }
 
 .zen-gold-btn {
-  background: rgba(172,142,102,0.12) !important;
+  background: #d0cbb8 !important;
   border: 1px solid rgba(172,142,102,0.5) !important;
   border-radius: 5px;
-  color: #AC8E66 !important;
+  color: #1a1a1a !important;
   font-family: 'IBM Plex Mono', monospace;
   font-size: 9px;
-  font-weight: 600;
+
   letter-spacing: 0.05em;
   padding: 5px 12px;
   cursor: pointer;
@@ -152,7 +152,7 @@ button:active {
   transition: background 0.15s, border-color 0.15s;
 }
 .zen-gold-btn:hover {
-  background: rgba(172,142,102,0.28) !important;
+  background: #d0cbb8 !important;
   border-color: #AC8E66 !important;
 }
 .zen-gold-btn:active {
@@ -206,7 +206,7 @@ button::-moz-focus-inner {
 
   input,
   button {
-    color: #ffffff;
+    color: #d0cbb8;
     background-color: #0f0f0f98;
   }
   button:active {
@@ -254,30 +254,30 @@ button::-moz-focus-inner {
 
 /* Zen Scrollbar */
 .zen-scrollbar::-webkit-scrollbar {
-  width: 8px;
+  width: 4px;
 }
 
 .zen-scrollbar::-webkit-scrollbar-track {
-  background: #2A2A2A;
-  border-radius: 4px;
+  background: #1a1a1a;
+  border-radius: 2px;
 }
 
 .zen-scrollbar::-webkit-scrollbar-thumb {
   background: #AC8E66;
   border-radius: 4px;
-  border: 2px solid #2A2A2A;
+  border: 2px solid #1a1a1a;
     transition: background 0.3s;
 
 }
 
 .zen-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: #c4a578;
+  background: #d0cbb8;
 }
 
 /* Firefox */
 .zen-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: #AC8E66 #2A2A2A;
+  scrollbar-color: #AC8E66 #1a1a1a;
 }
 
 .zen-tauri,
@@ -322,7 +322,7 @@ button::-moz-focus-inner {
 /* Base track */
 .zen-slider {
   width: 100%;
-  height: 8px;
+  height: 0.5px;
   border-radius: 999px;
   outline: none;
   cursor: pointer;
@@ -353,23 +353,23 @@ button::-moz-focus-inner {
   -webkit-appearance: none;
   appearance: none;
 
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
 
   background: #ac8e66;
-  border: 2px solid #d4af78;
+  border: 2px solid #1a1a1a;
 
   transition: transform 140ms ease, background 140ms ease, border 140ms ease;
 }
 
 .zen-slider:hover::-webkit-slider-thumb {
-  background: #d4af78;
+  background: #d0cbb8;
 }
 
 .zen-slider:active::-webkit-slider-thumb {
   transform: scale(0.96);
-  border: 2px solid #d4af78;
+  border: 2px solid #d0cbb8;
 }
 
 /* Firefox thumb */
@@ -379,23 +379,23 @@ button::-moz-focus-inner {
   border-radius: 999px;
 
   background: #ac8e66;
-  border: 2px solid #d4af78;
+  border: 2px solid #d0cbb8;
 
   transition: transform 140ms ease, background 140ms ease, border 140ms ease;
 }
 
 .zen-slider:hover::-moz-range-thumb {
-  background: #d4af78;
+  background: #d0cbb8;
 }
 
 .zen-slider:active::-moz-range-thumb {
   transform: scale(0.96);
-  border: 2px solid #d4af78;
+  border: 2px solid #d0cbb8;
 }
 
 /* Firefox track (optional; the linear-gradient on input works in modern FF, but this stabilizes) */
 .zen-slider::-moz-range-track {
-  height: 8px;
+  height: 0.5px;
   border-radius: 999px;
   background: transparent;
 }
@@ -503,7 +503,44 @@ button::-moz-focus-inner {
   background: linear-gradient(to right, rgba(0,0,0,0), rgba(172,142,102,0.35), rgba(0,0,0,0));
 }
 
+.zen-planner-btn {
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  box-shadow: none !important;
+}
 
+.zen-planner-btn:hover {
+  background-color: rgba(172,142,102,0.1) !important;
+  border-color: #AC8E66 !important;
+  color: #1a1a1a !important;
+}
+
+.zen-planner-btn:active {
+  background-color: rgba(172,142,102,0.16) !important;
+}
+
+.zen-planner-title-input::placeholder {
+  color: #1a1a1a;
+  opacity: 1;
+}
+
+.zen-planner-title-input {
+  color: #1a1a1a !important;
+  caret-color: #1a1a1a;
+}
+
+.planner-image-input::placeholder {
+  color: #555;
+  
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.planner-image-input {
+  box-shadow: none !important;
+}
+
+.planner-image-input::placeholder {
+  text-shadow: none;
+}
 
 
 

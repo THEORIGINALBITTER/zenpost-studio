@@ -35,6 +35,7 @@ export interface BlogConfig {
   path: string;
   siteUrl?: string;
   // Deployment
+  siteType?: 'blog' | 'docs';
   deployType?: 'none' | 'git' | 'ftp' | 'php-api';
   gitAutoPush?: boolean;
   ftpHost?: string;
@@ -108,12 +109,43 @@ export const defaultNewsletterConfig: NewsletterConfig = {
   phpGen: { ...defaultPhpGenConfig },
 };
 
+export interface ConverterConfig {
+  autoSave: boolean;
+  useOpfsInWeb: boolean;
+  imagesFolderName: string | null;   // Anzeigename (Browser: Ordnername, Tauri: Pfad-Basename)
+  archiveFolderName: string | null;
+  imagesFolderPath: string | null;   // Tauri: vollständiger Pfad
+  archiveFolderPath: string | null;
+  maxImageOutputSize: number | null; // null = Original, sonst z.B. 800, 1280, 1920
+  uiMaxSizeOpen: boolean;
+  uiFiltersOpen: boolean;
+  uiExportOpen: boolean;
+}
+
+export const defaultConverterConfig: ConverterConfig = {
+  autoSave: false,
+  useOpfsInWeb: false,
+  imagesFolderName: null,
+  archiveFolderName: null,
+  imagesFolderPath: null,
+  archiveFolderPath: null,
+  maxImageOutputSize: null,
+  uiMaxSizeOpen: true,
+  uiFiltersOpen: true,
+  uiExportOpen: true,
+};
+
 export interface ZenStudioSettings {
   showInGettingStarted: boolean;
   showInDocStudio: boolean;
   showInContentAIStudio: boolean;
   thoughts: string[];
   thoughtsFilePath: string | null;
+  cloudApiBaseUrl: string | null;
+  cloudAuthToken: string | null;
+  cloudUserEmail: string | null;
+  cloudProjectId: number | null;
+  cloudProjectName: string | null;
   contentServerApiUrl: string | null;
   contentServerApiKey: string | null;
   contentServerLocalCachePath: string | null;
@@ -128,6 +160,7 @@ export interface ZenStudioSettings {
   zenpostmobilPath: string | null;
   blogs: BlogConfig[];
   newsletter: NewsletterConfig;
+  converter: ConverterConfig;
 }
 
 export const defaultZenStudioSettings: ZenStudioSettings = {
@@ -136,6 +169,11 @@ export const defaultZenStudioSettings: ZenStudioSettings = {
   showInContentAIStudio: true,
   thoughts: [...defaultZenThoughts],
   thoughtsFilePath: null,
+  cloudApiBaseUrl: 'https://denisbitter.de/stage02/api',
+  cloudAuthToken: null,
+  cloudUserEmail: null,
+  cloudProjectId: null,
+  cloudProjectName: null,
   contentServerApiUrl: null,
   contentServerApiKey: null,
   contentServerLocalCachePath: null,
@@ -150,6 +188,7 @@ export const defaultZenStudioSettings: ZenStudioSettings = {
   zenpostmobilPath: null,
   blogs: [],
   newsletter: { ...defaultNewsletterConfig },
+  converter: { ...defaultConverterConfig },
 };
 
 export const loadZenStudioSettings = (): ZenStudioSettings => {
@@ -168,6 +207,26 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
       thoughtsFilePath: typeof parsed.thoughtsFilePath === 'string' && parsed.thoughtsFilePath.trim().length > 0
         ? parsed.thoughtsFilePath.trim()
         : null,
+      cloudApiBaseUrl:
+        typeof parsed.cloudApiBaseUrl === 'string' && parsed.cloudApiBaseUrl.trim().length > 0
+          ? parsed.cloudApiBaseUrl.trim()
+          : defaultZenStudioSettings.cloudApiBaseUrl,
+      cloudAuthToken:
+        typeof parsed.cloudAuthToken === 'string' && parsed.cloudAuthToken.trim().length > 0
+          ? parsed.cloudAuthToken.trim()
+          : null,
+      cloudUserEmail:
+        typeof parsed.cloudUserEmail === 'string' && parsed.cloudUserEmail.trim().length > 0
+          ? parsed.cloudUserEmail.trim()
+          : null,
+      cloudProjectId:
+        typeof parsed.cloudProjectId === 'number' && parsed.cloudProjectId > 0
+          ? parsed.cloudProjectId
+          : null,
+      cloudProjectName:
+        typeof parsed.cloudProjectName === 'string' && parsed.cloudProjectName.trim().length > 0
+          ? parsed.cloudProjectName.trim()
+          : null,
       contentServerApiUrl:
         typeof parsed.contentServerApiUrl === 'string' && parsed.contentServerApiUrl.trim().length > 0
           ? parsed.contentServerApiUrl.trim()
@@ -205,6 +264,8 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
           ? parsed.contentServerImageBaseUrl.trim()
           : null,
       servers: (() => {
+        // Explicit empty array — user deleted all servers, respect that
+        if (Array.isArray(parsed.servers) && parsed.servers.length === 0) return [];
         if (Array.isArray(parsed.servers) && parsed.servers.length > 0) {
           return (parsed.servers as Partial<ServerConfig>[]).map((s) => ({
             name: typeof s.name === 'string' && s.name.trim().length > 0 ? s.name.trim() : 'Server',
@@ -219,7 +280,7 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
             contentServerImageBaseUrl: typeof s.contentServerImageBaseUrl === 'string' && s.contentServerImageBaseUrl.trim().length > 0 ? s.contentServerImageBaseUrl.trim() : null,
           }));
         }
-        // Migration: build Server A from existing flat fields
+        // Migration: build Server A from existing flat fields (only for old settings without servers key)
         const flatUrl = typeof parsed.contentServerApiUrl === 'string' && parsed.contentServerApiUrl.trim().length > 0 ? parsed.contentServerApiUrl.trim() : null;
         const flatKey = typeof parsed.contentServerApiKey === 'string' && parsed.contentServerApiKey.trim().length > 0 ? parsed.contentServerApiKey.trim() : null;
         const flatCachePath = typeof parsed.contentServerLocalCachePath === 'string' && parsed.contentServerLocalCachePath.trim().length > 0 ? parsed.contentServerLocalCachePath.trim() : null;
@@ -255,6 +316,7 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
               ftpProtocol: b.ftpProtocol,
               phpApiUrl: typeof b.phpApiUrl === 'string' && b.phpApiUrl.trim() ? b.phpApiUrl.trim() : undefined,
               phpApiKey: typeof b.phpApiKey === 'string' && b.phpApiKey.trim() ? b.phpApiKey.trim() : undefined,
+              siteType: b.siteType === 'docs' ? 'docs' : b.siteType === 'blog' ? 'blog' : undefined,
             }));
         }
         // Migration: promote legacy zenpostmobilPath to first blog entry
@@ -292,6 +354,22 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
             siteUrl:        typeof g.siteUrl === 'string' ? g.siteUrl : '',
             apiBaseUrl:     typeof g.apiBaseUrl === 'string' ? g.apiBaseUrl : '',
           },
+        };
+      })(),
+      converter: (() => {
+        const c = parsed.converter as Partial<ConverterConfig> | undefined;
+        if (!c) return { ...defaultConverterConfig };
+        return {
+          autoSave: typeof c.autoSave === 'boolean' ? c.autoSave : false,
+          useOpfsInWeb: typeof c.useOpfsInWeb === 'boolean' ? c.useOpfsInWeb : false,
+          imagesFolderName: typeof c.imagesFolderName === 'string' && c.imagesFolderName.trim() ? c.imagesFolderName.trim() : null,
+          archiveFolderName: typeof c.archiveFolderName === 'string' && c.archiveFolderName.trim() ? c.archiveFolderName.trim() : null,
+          imagesFolderPath: typeof c.imagesFolderPath === 'string' && c.imagesFolderPath.trim() ? c.imagesFolderPath.trim() : null,
+          archiveFolderPath: typeof c.archiveFolderPath === 'string' && c.archiveFolderPath.trim() ? c.archiveFolderPath.trim() : null,
+          maxImageOutputSize: typeof c.maxImageOutputSize === 'number' && c.maxImageOutputSize > 0 ? c.maxImageOutputSize : null,
+          uiMaxSizeOpen: typeof c.uiMaxSizeOpen === 'boolean' ? c.uiMaxSizeOpen : true,
+          uiFiltersOpen: typeof c.uiFiltersOpen === 'boolean' ? c.uiFiltersOpen : true,
+          uiExportOpen: typeof c.uiExportOpen === 'boolean' ? c.uiExportOpen : true,
         };
       })(),
     };
@@ -453,6 +531,34 @@ export const patchZenStudioSettings = (patch: Partial<ZenStudioSettings>): ZenSt
       typeof patch.thoughtsFilePath === 'string'
         ? (patch.thoughtsFilePath.trim().length > 0 ? patch.thoughtsFilePath.trim() : null)
         : current.thoughtsFilePath,
+    cloudApiBaseUrl:
+      typeof patch.cloudApiBaseUrl === 'string'
+        ? (patch.cloudApiBaseUrl.trim().length > 0 ? patch.cloudApiBaseUrl.trim() : null)
+        : current.cloudApiBaseUrl,
+    cloudAuthToken:
+      typeof patch.cloudAuthToken === 'string'
+        ? (patch.cloudAuthToken.trim().length > 0 ? patch.cloudAuthToken.trim() : null)
+        : patch.cloudAuthToken === null
+          ? null
+          : current.cloudAuthToken,
+    cloudUserEmail:
+      typeof patch.cloudUserEmail === 'string'
+        ? (patch.cloudUserEmail.trim().length > 0 ? patch.cloudUserEmail.trim() : null)
+        : patch.cloudUserEmail === null
+          ? null
+          : current.cloudUserEmail,
+    cloudProjectId:
+      typeof patch.cloudProjectId === 'number'
+        ? (patch.cloudProjectId > 0 ? patch.cloudProjectId : null)
+        : patch.cloudProjectId === null
+          ? null
+          : current.cloudProjectId,
+    cloudProjectName:
+      typeof patch.cloudProjectName === 'string'
+        ? (patch.cloudProjectName.trim().length > 0 ? patch.cloudProjectName.trim() : null)
+        : patch.cloudProjectName === null
+          ? null
+          : current.cloudProjectName,
     contentServerApiUrl:
       typeof patch.contentServerApiUrl === 'string'
         ? (patch.contentServerApiUrl.trim().length > 0 ? patch.contentServerApiUrl.trim() : null)
@@ -489,7 +595,7 @@ export const patchZenStudioSettings = (patch: Partial<ZenStudioSettings>): ZenSt
       typeof patch.contentServerImageBaseUrl === 'string'
         ? (patch.contentServerImageBaseUrl.trim().length > 0 ? patch.contentServerImageBaseUrl.trim() : null)
         : current.contentServerImageBaseUrl,
-    servers: Array.isArray(patch.servers) && patch.servers.length > 0 ? patch.servers : current.servers,
+    servers: Array.isArray(patch.servers) ? patch.servers : current.servers,
     activeServerIndex: typeof patch.activeServerIndex === 'number' ? patch.activeServerIndex : current.activeServerIndex,
   };
   saveZenStudioSettings(next);

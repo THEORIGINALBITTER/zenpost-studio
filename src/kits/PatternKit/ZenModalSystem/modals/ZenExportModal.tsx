@@ -5,13 +5,14 @@ import {
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
 import { preparePostContent } from '../../../../config/platformPostRules';
-import { writeFile, writeTextFile, readTextFile, exists, mkdir } from '@tauri-apps/plugin-fs';
+import { readFile, writeFile, writeTextFile, readTextFile, readDir, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
 import { join } from '@tauri-apps/api/path';
 import { loadZenStudioSettings, type BlogConfig } from '../../../../services/zenStudioSettingsService';
 import { gitCommitAndPush } from '../../../../services/gitService';
 import { ftpUpload } from '../../../../services/ftpService';
+import { phpBlogImageUpload, phpBlogUpload } from '../../../../services/phpBlogService';
 import ZenEngine from '../../../../services/zenEngineService';
 import { marked } from 'marked';
 import { Document as DocxDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
@@ -29,6 +30,7 @@ import {
   faCopy,
   faExternalLinkAlt,
   faImage,
+  faBoxArchive,
 } from '@fortawesome/free-solid-svg-icons';
 import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
 
@@ -48,6 +50,8 @@ import {
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { useOpenExternal } from '../../../../hooks/useOpenExternal';
+import { loadOpfsImageAsBlobUrl, isOpfsImagePath } from '../../../../utils/editorImageCompression';
+import { uploadCloudDocument } from '../../../../services/cloudStorageService';
 
 interface ZenExportModalProps {
   isOpen: boolean;
@@ -59,6 +63,7 @@ interface ZenExportModalProps {
   subtitle?: string;
   imageUrl?: string;
   onNavigateToTransform?: () => void;
+  onBlogPublished?: (info: { blogId: string; blogPath: string; blogName: string }) => void;
 }
 
 const sanitizeBaseName = (value: string): string =>
@@ -236,7 +241,36 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
 ];
 
-export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], subtitle, imageUrl, onNavigateToTransform: _onNavigateToTransform }: ZenExportModalProps) {
+// Ersetzt alle opfs://-Bildpfade im Markdown durch Cloud-URLs (documents_upload.php).
+// Bilder ohne Cloud-Konfiguration oder mit fehlgeschlagenem Upload bleiben unverändert.
+const resolveOpfsImagesInContent = async (markdown: string): Promise<string> => {
+  const imageRegex = /!\[([^\]]*)\]\((opfs:\/\/[^)]+)\)/g;
+  const matches = [...markdown.matchAll(imageRegex)];
+  if (matches.length === 0) return markdown;
+
+  let resolved = markdown;
+  for (const match of matches) {
+    const [fullMatch, alt, opfsPath] = match;
+    if (!isOpfsImagePath(opfsPath)) continue;
+    try {
+      const blobUrl = await loadOpfsImageAsBlobUrl(opfsPath);
+      const res = await fetch(blobUrl);
+      const blob = await res.blob();
+      URL.revokeObjectURL(blobUrl);
+      const fileName = opfsPath.split('/').pop() ?? 'image';
+      const file = new File([blob], fileName, { type: blob.type });
+      const result = await uploadCloudDocument(file);
+      if (result) {
+        resolved = resolved.replace(fullMatch, `![${alt}](${result.url})`);
+      }
+    } catch {
+      // opfs:// Pfad bleibt unverändert wenn Upload fehlschlägt
+    }
+  }
+  return resolved;
+};
+
+export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], subtitle, imageUrl, onNavigateToTransform: _onNavigateToTransform, onBlogPublished }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -245,7 +279,9 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [_optimizedPlatform, setOptimizedPlatform] = useState<string | null>(null);
   const [showToneSelector, setShowToneSelector] = useState(false);
   const [pendingPlatform, setPendingPlatform] = useState<PublishOption | null>(null);
-  const [activeAccordion, setActiveAccordion] = useState<'quick' | 'additional' | 'publish'>('quick');
+  const [activeAccordion, setActiveAccordion] = useState<'quick' | 'additional' | 'publish' | 'package'>('quick');
+  const [zipExportingId, setZipExportingId] = useState<string | null>(null);
+  const [zipExportDone, setZipExportDone] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishedId, setPublishedId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
@@ -260,6 +296,58 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const socialConfig = useMemo<SocialMediaConfig>(() => loadSocialConfig(), [isOpen]);
   const blogs = useMemo<BlogConfig[]>(() => loadZenStudioSettings().blogs ?? [], [isOpen]);
   const { openExternal } = useOpenExternal();
+
+  const handleExportBlogZip = async (blog: BlogConfig) => {
+    if (!isTauri()) return;
+    setZipExportingId(blog.id);
+    setZipExportDone(null);
+    try {
+      const zip = new JSZip();
+      const isDocsSite = blog.siteType === 'docs';
+
+      if (isDocsSite) {
+        // Docs-Paket: alle Dateien aus dem konfigurierten Ordner (flach + 1 Ebene tief)
+        const entries = await readDir(blog.path);
+        for (const entry of entries) {
+          if (!entry.isFile) continue;
+          const filePath = await join(blog.path, entry.name);
+          try {
+            const content = await readTextFile(filePath);
+            zip.file(entry.name, content);
+          } catch { /* binäre Dateien überspringen */ }
+        }
+      } else {
+        // Blog-Archiv: posts/*.md + manifest.json
+        const manifestPath = await join(blog.path, 'manifest.json');
+        if (await exists(manifestPath)) {
+          zip.file('manifest.json', await readTextFile(manifestPath));
+        }
+        const postsDir = await join(blog.path, 'posts');
+        if (await exists(postsDir)) {
+          const postEntries = await readDir(postsDir);
+          for (const entry of postEntries) {
+            if (!entry.isFile || !entry.name.endsWith('.md')) continue;
+            const filePath = await join(postsDir, entry.name);
+            zip.folder('posts')!.file(entry.name, await readTextFile(filePath));
+          }
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const zipName = `${blog.name.toLowerCase().replace(/\s+/g, '-')}-${isDocsSite ? 'docs' : 'blog'}-archiv.zip`;
+      const arrayBuffer = await zipBlob.arrayBuffer();
+      const savePath = await save({ defaultPath: zipName, filters: [{ name: 'ZIP', extensions: ['zip'] }] });
+      if (savePath) {
+        await writeFile(savePath, new Uint8Array(arrayBuffer));
+        setZipExportDone(blog.id);
+        setTimeout(() => setZipExportDone(null), 3000);
+      }
+    } catch (e) {
+      console.error('ZIP Export Fehler:', e);
+    } finally {
+      setZipExportingId(null);
+    }
+  };
 
   const createPdfBytes = async (text: string) => {
     const toWinAnsiSafe = (input: string) =>
@@ -1166,7 +1254,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
     setExportingId(option.id);
     setExportError(null);
     try {
-      const normalizedContent = normalizeHtmlEntities(content);
+      const normalizedContent = await resolveOpfsImagesInContent(normalizeHtmlEntities(content));
       let fileContent = normalizedContent;
       let binaryContent: Uint8Array | null = null;
       let extension = 'md';
@@ -1300,7 +1388,7 @@ ${renderedHtml}
               : option.format === 'odt'
               ? 'application/vnd.oasis.opendocument.text'
               : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-          const blob = new Blob([binaryContent], { type: mimeType });
+          const blob = new Blob([binaryContent.buffer as ArrayBuffer], { type: mimeType });
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
@@ -1367,6 +1455,20 @@ ${renderedHtml}
         const wordCount = content.trim().split(/\s+/).length;
         const readingTime = Math.max(1, Math.round(wordCount / 220));
         const allTags = tags.length > 0 ? tags.join(', ') : tag;
+
+        // Lokalen Bildpfad in relativen _assets/-Pfad umwandeln
+        const isLocalPath = (url: string) => /^(file:\/\/|\/|[a-zA-Z]:[\\/])/i.test(url);
+        let coverImageValue = imageUrl ?? '';
+        let localCoverImagePath: string | null = null;
+        if (coverImageValue && isTauri() && isLocalPath(coverImageValue)) {
+          localCoverImagePath = coverImageValue.replace(/^file:\/\//i, '');
+          const fileName = localCoverImagePath.split(/[\\/]/).pop() || `${slug}-cover.jpg`;
+          coverImageValue = `_assets/${fileName}`;
+        } else if (coverImageValue && isTauri() && coverImageValue.startsWith('_assets/')) {
+          // Relativer _assets/-Pfad → absoluten Pfad auflösen
+          localCoverImagePath = await join(blog.path, coverImageValue);
+        }
+
         const frontmatterLines = [
           '---',
           `title: "${titleText.replace(/"/g, '\\"')}"`,
@@ -1374,7 +1476,7 @@ ${renderedHtml}
           `date: "${date}"`,
           `tags: [${allTags}]`,
           `readingTime: ${readingTime}`,
-          imageUrl ? `coverImage: "${imageUrl}"` : null,
+          coverImageValue ? `coverImage: "${coverImageValue}"` : null,
           '---',
           '',
           '',
@@ -1399,13 +1501,46 @@ ${renderedHtml}
         };
         const newEntry: Record<string, unknown> = { slug, title: titleText, date, tags: tags.length > 0 ? tags : [tag], readingTime };
         if (subtitle) newEntry.subtitle = subtitle;
-        if (imageUrl) newEntry.coverImage = imageUrl;
+        if (coverImageValue) newEntry.coverImage = coverImageValue;
         const existingIdx = manifest.posts.findIndex((p) => p.slug === slug);
         if (existingIdx >= 0) manifest.posts[existingIdx] = newEntry;
         else manifest.posts.unshift(newEntry);
-        await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
 
         const deployType = blog.deployType ?? (blog.gitAutoPush ? 'git' : 'none');
+        const phpCfg = deployType === 'php-api' && blog.phpApiUrl && blog.phpApiKey
+          ? { apiUrl: blog.phpApiUrl, apiKey: blog.phpApiKey }
+          : null;
+
+        // Hilfsfunktion: Bytes → base64 (chunk-safe, kein Stack Overflow bei großen Dateien)
+        const bytesToBase64 = (bytes: Uint8Array): string => {
+          let binary = '';
+          const CHUNK = 8192;
+          for (let i = 0; i < bytes.length; i += CHUNK) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+          }
+          return btoa(binary);
+        };
+        const extToMime = (ext: string) =>
+          ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/png';
+
+        // PHP-API: Bild hochladen, coverImage mit Server-URL aktualisieren
+        if (phpCfg && localCoverImagePath) {
+          try {
+            const imageFileName = coverImageValue.replace(/^_assets\//, '') || `cover-${slug}.jpg`;
+            const bytes = await readFile(localCoverImagePath);
+            const ext = localCoverImagePath.split('.').pop()?.toLowerCase() ?? 'jpg';
+            const dataUrl = `data:${extToMime(ext)};base64,${bytesToBase64(bytes)}`;
+            const uploadedUrl = await phpBlogImageUpload(dataUrl, imageFileName, phpCfg);
+            if (uploadedUrl) {
+              coverImageValue = uploadedUrl;
+              newEntry.coverImage = uploadedUrl;
+              const idx2 = manifest.posts.findIndex((p) => p.slug === slug);
+              if (idx2 >= 0) manifest.posts[idx2] = newEntry;
+            }
+          } catch { /* Bild-Upload non-fatal */ }
+        }
+
+        await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
 
         if (deployType === 'git') {
           const gitErr = await gitCommitAndPush(blog.path, `post: ${titleText}`);
@@ -1414,24 +1549,27 @@ ${renderedHtml}
             setTimeout(() => setPublishError(null), 6000);
           }
         } else if (deployType === 'ftp' && blog.ftpHost && blog.ftpUser && blog.ftpPassword && blog.ftpRemotePath) {
+          const ftpBase = { host: blog.ftpHost, user: blog.ftpUser, password: blog.ftpPassword, protocol: blog.ftpProtocol };
+          const blogRoot = blog.ftpRemotePath.replace(/\/posts\/?$/, '');
+          // Lokales Bild per FTP hochladen
+          if (localCoverImagePath) {
+            const imageFileName = coverImageValue.replace(/^_assets\//, '') || `cover-${slug}.jpg`;
+            await ftpUpload(localCoverImagePath, imageFileName, { ...ftpBase, remotePath: `${blogRoot}/_assets/` }).catch(() => {});
+          }
           // Convert markdown to HTML and upload
           const htmlBody = await marked(content);
           const fullHtml = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>${titleText}</title></head><body>${htmlBody}</body></html>`;
           const htmlFilePath = await join(blog.path, 'posts', `${slug}.html`);
           await writeTextFile(htmlFilePath, fullHtml);
           const ftpErr = await ftpUpload(htmlFilePath, `${slug}.html`, {
-            host: blog.ftpHost,
-            user: blog.ftpUser,
-            password: blog.ftpPassword,
+            ...ftpBase,
             remotePath: blog.ftpRemotePath,
           });
           // Also upload manifest.json
           if (!ftpErr) {
             const manifestRemotePath = blog.ftpRemotePath.replace(/\/posts\/?$/, '/');
             await ftpUpload(manifestPath, 'manifest.json', {
-              host: blog.ftpHost,
-              user: blog.ftpUser,
-              password: blog.ftpPassword,
+              ...ftpBase,
               remotePath: manifestRemotePath,
             });
           }
@@ -1439,9 +1577,61 @@ ${renderedHtml}
             setPublishError({ id: option.id, message: `Lokal gespeichert, aber FTP Upload fehlgeschlagen: ${ftpErr}` });
             setTimeout(() => setPublishError(null), 6000);
           }
+        } else if (phpCfg) {
+          // PHP-API: Post + Manifest auf den Server laden
+          // Zuerst: lokale Bildpfade im Editor-Content hochladen und URLs ersetzen
+          let uploadedContent = content;
+          if (isTauri()) {
+            const imgPattern = /!\[([^\]]*)\]\(([^)]+)\)/g;
+            const localImgs: Array<{ fullMatch: string; alt: string; url: string }> = [];
+            let m: RegExpExecArray | null;
+            while ((m = imgPattern.exec(content)) !== null) {
+              const url = m[2].trim();
+              if (isLocalPath(url) || url.startsWith('asset://')) {
+                localImgs.push({ fullMatch: m[0], alt: m[1], url });
+              }
+            }
+            for (const { fullMatch, alt, url } of localImgs) {
+              try {
+                const localPath = url.startsWith('asset://')
+                  ? decodeURIComponent(url.replace(/^asset:\/\/localhost\//, '/'))
+                  : url.replace(/^file:\/\//i, '');
+                const imgBytes = await readFile(localPath);
+                const imgExt = localPath.split('.').pop()?.toLowerCase() ?? 'jpg';
+                const imgFileName = localPath.split(/[\\/]/).pop() || `img-${Date.now()}.${imgExt}`;
+                const dataUrl = `data:${extToMime(imgExt)};base64,${bytesToBase64(imgBytes)}`;
+                const uploadedUrl = await phpBlogImageUpload(dataUrl, imgFileName, phpCfg);
+                if (uploadedUrl) {
+                  uploadedContent = uploadedContent.replace(fullMatch, `![${alt}](${uploadedUrl})`);
+                }
+              } catch { /* non-fatal: Bild wird übersprungen */ }
+            }
+          }
+          // Frontmatter mit ggf. aktualisierter coverImageValue (volle Server-URL nach Bild-Upload)
+          const serverFrontmatter = [
+            '---',
+            `title: "${titleText.replace(/"/g, '\\"')}"`,
+            subtitle ? `subtitle: "${subtitle.replace(/"/g, '\\"')}"` : null,
+            `date: "${date}"`,
+            `tags: [${allTags}]`,
+            `readingTime: ${readingTime}`,
+            coverImageValue ? `coverImage: "${coverImageValue}"` : null,
+            '---',
+            '',
+            '',
+          ].filter((l): l is string => l !== null).join('\n');
+          const phpErr = await phpBlogUpload(
+            { filename: `${slug}.md`, content: serverFrontmatter + uploadedContent, manifest },
+            phpCfg,
+          );
+          if (phpErr) {
+            setPublishError({ id: option.id, message: `Lokal gespeichert, aber Server Upload fehlgeschlagen: ${phpErr}` });
+            setTimeout(() => setPublishError(null), 6000);
+          }
         }
 
         setPublishedId(option.id);
+        onBlogPublished?.({ blogId: blog.id, blogPath: blog.path, blogName: blog.name });
         setTimeout(() => setPublishedId(null), 3000);
       } catch (err) {
         setPublishError({ id: option.id, message: err instanceof Error ? err.message : 'Fehler beim Blog-Publish' });
@@ -1657,7 +1847,7 @@ ${renderedHtml}
           </div>
         )}
         {/* Schnell-Export - Accordion */}
-        <div style={{ marginBottom: '14px', border: '0.5px solid #3A3A3A', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ marginBottom: '14px', border: '0.5px solid #3A3A3A', borderRadius: '12px 12px 0 0', overflow: 'hidden' }}>
           <button
             type="button"
             onClick={() => setActiveAccordion('quick')}
@@ -1665,15 +1855,16 @@ ${renderedHtml}
               width: '100%',
               padding: '12px 14px',
               backgroundColor: 'transparent',
-              border: 'none',
+            borderRadius: '12px 12px 0 0',
               borderBottom: activeAccordion === 'quick' ? '0.5px solid #3A3A3A' : 'none',
               cursor: 'pointer',
+              boxShadow: 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               color: '#555',
               fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '13px',
+              fontSize: '12px',
             }}
           >
             <span>Schnell-Export</span>
@@ -1740,7 +1931,7 @@ ${renderedHtml}
         </div>
 
         {/* Datei-Export (Weitere Formate) - Accordion */}
-        <div style={{ marginBottom: '14px', border: '0.5px solid #3A3A3A', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ marginBottom: '14px', border: '0.5px solid #3A3A3A',borderRadius: '12px 12px 0 0', overflow: 'hidden' }}>
           <button
             type="button"
             onClick={() => setActiveAccordion('additional')}
@@ -1748,15 +1939,16 @@ ${renderedHtml}
               width: '100%',
               padding: '12px 14px',
               backgroundColor: 'transparent',
-              border: 'none',
+              borderRadius: '12px 12px 0 0',
               borderBottom: activeAccordion === 'additional' ? '0.5px solid #3A3A3A' : 'none',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
               color: '#555',
+              boxShadow: 'none',
               fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '13px',
+              fontSize: '12px',
             }}
           >
             <span>Datei-Export (Weitere Formate)</span>
@@ -1826,7 +2018,7 @@ ${renderedHtml}
         </div>
 
         {/* Direkt veröffentlichen - Accordion */}
-        <div style={{ border: '0.5px solid #3A3A3A', borderRadius: '12px', overflow: 'hidden' }}>
+        <div style={{ border: '0.5px solid #3A3A3A', borderRadius: '12px 12px 0 0', overflow: 'hidden' }}>
           <button
             type="button"
             onClick={() => setActiveAccordion('publish')}
@@ -1834,15 +2026,16 @@ ${renderedHtml}
               width: '100%',
               padding: '12px 14px',
               backgroundColor: 'transparent',
-              border: 'none',
+              borderRadius: '12px 12px 0 0',
               borderBottom: activeAccordion === 'publish' ? '0.5px solid #3A3A3A' : 'none',
               cursor: 'pointer',
               display: 'flex',
+              boxShadow: 'none',
               alignItems: 'center',
               justifyContent: 'space-between',
               color: '#555',
               fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '13px',
+              fontSize: '12px',
             }}
           >
             <span>Direkt veröffentlichen</span>
@@ -1851,19 +2044,7 @@ ${renderedHtml}
 
           {activeAccordion === 'publish' && (
             <div style={{ padding: '12px 14px' }}>
-              <h3 style={{
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '14px',
-            color: '#555',
-            marginBottom: '8px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            fontWeight: 'normal'
-          }}>
-            <FontAwesomeIcon icon={faMedium} style={{ color: '#AC8E66' }} />
-            Direkt Veröffentlichen
-          </h3>
+        
           <p style={{
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '12px',
@@ -2168,6 +2349,64 @@ ${renderedHtml}
             </div>
           )}
         </div>
+
+        {/* Als Paket exportieren - Accordion */}
+        {blogs.length > 0 && isTauri() && (
+          <div style={{ border: '0.5px solid #3A3A3A', borderRadius: '12px', overflow: 'hidden', marginTop: '8px' }}>
+            <button
+              type="button"
+              onClick={() => setActiveAccordion('package')}
+              style={{
+                width: '100%', padding: '12px 14px', backgroundColor: 'transparent', border: 'none',
+                borderBottom: activeAccordion === 'package' ? '0.5px solid #3A3A3A' : 'none',
+                cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                color: '#555', fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px',
+              }}
+            >
+              <span>Als Paket exportieren</span>
+              <span style={{ color: '#777' }}>{activeAccordion === 'package' ? '−' : '+'}</span>
+            </button>
+            {activeAccordion === 'package' && (
+              <div style={{ padding: '12px 14px' }}>
+                <p style={{ margin: '0 0 10px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#666', lineHeight: 1.6 }}>
+                  Exportiert den gesamten Blog oder die Docs-Site als ZIP-Archiv — für Backup, Migration oder manuelle Weiterverarbeitung.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {blogs.map((blog) => {
+                    const isExporting = zipExportingId === blog.id;
+                    const isDone = zipExportDone === blog.id;
+                    const isDocsSite = blog.siteType === 'docs';
+                    return (
+                      <div key={blog.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', border: '0.5px solid #333', borderRadius: '8px' }}>
+                        <div>
+                          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#ccc' }}>{blog.name}</div>
+                          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#666', marginTop: '2px' }}>
+                            {isDocsSite ? 'Docs-Paket — alle Dateien aus dem Ordner' : 'Blog-Archiv — posts/*.md + manifest.json'}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleExportBlogZip(blog)}
+                          disabled={isExporting}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
+                            border: `0.5px solid ${isDone ? '#4caf50' : 'rgba(172,142,102,0.5)'}`,
+                            borderRadius: '6px', background: isDone ? 'rgba(76,175,80,0.1)' : 'transparent',
+                            cursor: isExporting ? 'default' : 'pointer', opacity: isExporting ? 0.6 : 1,
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                            color: isDone ? '#4caf50' : '#AC8E66', whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <FontAwesomeIcon icon={isDone ? faCheck : isExporting ? faSpinner : faBoxArchive} spin={isExporting} style={{ fontSize: '12px' }} />
+                          {isDone ? 'Gespeichert!' : isExporting ? 'Erstelle ZIP…' : '.zip herunterladen'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Post selected platforms bar */}
         {selectedPlatformIds.size > 0 && (

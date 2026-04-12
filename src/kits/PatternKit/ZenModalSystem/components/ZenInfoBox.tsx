@@ -46,10 +46,10 @@ export const ZenInfoBox = ({
       hover: '#111',
     },
     success: {
-      bg: 'rgba(76, 17, 80, 0.1)',
+      bg: 'transparent',
       border: 'rgba(11, 11, 11, 0.3)',
       text: '#555',
-      hover: '#AC8E66',
+      hover: '#1a1a1a',
     },
     error: {
       bg: 'rgba(255, 107, 107, 0.1)',
@@ -91,7 +91,7 @@ export const ZenInfoBox = ({
         >
           {/* Title */}
           <p style={{ marginBottom: '12px' }}>
-            <strong>{title}:</strong> {description}
+            <p>{title}:</p> {description}
           </p>
 
           {/* Links */}
@@ -122,11 +122,12 @@ export const ZenInfoBox = ({
                     font: 'inherit',
                     textAlign: 'center',
                     backgroundColor: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
                     
+                    cursor: 'pointer',
+                     boxShadow: 'none',
+                    border: '0.5px solid #1a1a1a',
                     color: colorStyle.text,
-                    fontSize: '12px',
+                    fontSize: '10px',
                    
                   }}
                 >

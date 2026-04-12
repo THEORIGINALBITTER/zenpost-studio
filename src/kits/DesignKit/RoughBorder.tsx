@@ -1,6 +1,5 @@
 // ./kits/DesignKit/RoughBorder.tsx
-import { useEffect, useRef, type ReactNode } from "react";
-import rough from "roughjs/bin/rough";
+import { type ReactNode } from "react";
 
 interface RoughBorderProps {
   width?: number;
@@ -19,45 +18,13 @@ const RoughBorder = ({
   height = 150,
   stroke = "#AC8E66",
   strokeWidth = 0.6,
-  roughness = 0.4,
-  bowing = 0.8,
   goldTone = true,
   radius = 10,
   children,
 }: RoughBorderProps) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rc = rough.canvas(canvas);
-    const ctx = canvas.getContext("2d");
-    const strokeColor = goldTone ? "rgba(172,142,102,0.9)" : stroke;
-
-    if (!ctx) return;
-
-    // SVG-Pfad mit Rundung definieren
-    const r = radius;
-    const pathStr = `
-      M ${4 + r} 4
-      L ${width - 4 - r} 4
-      Q ${width - 4} 4, ${width - 4} ${4 + r}
-      L ${width - 4} ${height - 4 - r}
-      Q ${width - 4} ${height - 4}, ${width - 4 - r} ${height - 4}
-      L ${4 + r} ${height - 4}
-      Q 4 ${height - 4}, 4 ${height - 4 - r}
-      L 4 ${4 + r}
-      Q 4 4, ${4 + r} 4
-    `;
-
-    // RoughJS zeichnet jetzt nur diesen Pfad (keine zweite Linie!)
-    rc.path(pathStr, {
-      roughness,
-      bowing,
-      stroke: strokeColor,
-      strokeWidth,
-    });
-  }, [width, height, stroke, strokeWidth, roughness, bowing, goldTone, radius]);
+  const strokeColor = goldTone ? "rgba(172,142,102,0.9)" : stroke;
+  const normalizedStroke = Math.max(1, strokeWidth);
+  const inset = normalizedStroke * 2;
 
   return (
     <div
@@ -68,17 +35,29 @@ const RoughBorder = ({
         borderRadius: radius,
       }}
     >
-      <canvas
-        ref={canvasRef}
+      <svg
         width={width}
         height={height}
+        viewBox={`0 0 ${width} ${height}`}
         style={{
           position: "absolute",
           top: 0,
           left: 0,
           borderRadius: radius,
         }}
-      />
+      >
+        <rect
+          x={inset}
+          y={inset}
+          width={Math.max(0, width - inset * 2)}
+          height={Math.max(0, height - inset * 2)}
+          rx={Math.max(0, radius - inset / 2)}
+          ry={Math.max(0, radius - inset / 2)}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={normalizedStroke * 2}
+        />
+      </svg>
       <div
         style={{
           position: "relative",

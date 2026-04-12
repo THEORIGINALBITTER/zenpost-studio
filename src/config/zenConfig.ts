@@ -66,7 +66,7 @@ export interface ZenConfig {
 export const zenConfig: ZenConfig = {
   app: {
     name: "ZenPost Studio",
-    version: "1.0.0",
+    version: "1.0.8",
     description:
       "Transform your Markdown files into Editor.js JSON format with ease.",
   },

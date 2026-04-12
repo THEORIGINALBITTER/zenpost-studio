@@ -5,6 +5,7 @@ import { getFeedback, recordAccepted, recordIgnored, isSuppressed } from '../../
 import { getEngineProfile, isRuleGroupActive } from '../../services/zenEngineProfileService';
 import { recordAnalysisRun } from '../../services/zenEngineStatsService';
 import { ZenEngineAboutModal } from './ZenModalSystem/modals/ZenEngineAboutModal';
+import { ZenShortcutsModal } from './ZenModalSystem/modals/ZenShortcutsModal';
 import { createRoot, Root } from 'react-dom/client';
 import { createPortal } from 'react-dom';
 import EditorJS, { OutputData } from '@editorjs/editorjs';
@@ -21,7 +22,10 @@ import {
   faClone,
   faTrash,
   faRotateLeft,
+  faNoteSticky,
 } from '@fortawesome/free-solid-svg-icons';
+import { ZenNotePanel } from './ZenNotePanel';
+import { subscribeToInsertContentStudioSnippet } from '../../services/contentStudioBridgeService';
 import Header from '@editorjs/header';
 import List from '@editorjs/list';
 import Quote from '@editorjs/quote';
@@ -29,7 +33,11 @@ import Delimiter from '@editorjs/delimiter';
 import Paragraph from '@editorjs/paragraph';
 import DragDrop from 'editorjs-drag-drop';
 import { ZenDropdown } from './ZenModalSystem/components/ZenDropdown';
+import { PREVIEW_THEME_EDITOR_TOKENS, type PreviewThemeId } from './zenMarkdownPreviewTypes';
+import { canUploadToZenCloud, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
 import './ZenBlockEditor.css';
+
+const DEBUG_BLOCK_EDITOR_SYNC = false;
 
 // ─── Image Auto-Optimization ──────────────────────────────────────────────────
 // Wird beim Einlesen von data:image/ URLs im Editor aufgerufen (Paste, URL-Input).
@@ -64,6 +72,15 @@ async function autoOptimizeDataUrl(url: string): Promise<string> {
   } catch {
     return url;
   }
+}
+
+async function persistEditorImageUrl(url: string, fileNameHint = 'editor-image.jpg'): Promise<string> {
+  if (!url.startsWith('data:image/')) return url;
+  if (canUploadToZenCloud()) {
+    const uploaded = await uploadCloudImageDataUrl(url, fileNameHint);
+    if (uploaded?.url) return uploaded.url;
+  }
+  return autoOptimizeDataUrl(url);
 }
 
 export type EditorTheme = 'dark' | 'light';
@@ -173,7 +190,9 @@ class ZenImageBlockTool {
     urlInput.type = 'url';
     urlInput.addEventListener('change', async () => {
       const raw = urlInput.value.trim();
-      this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
+      this.data.url = raw.startsWith('data:image/')
+        ? await persistEditorImageUrl(raw)
+        : raw;
       if (this.data.url) {
         outer.innerHTML = '';
         outer.appendChild(this._buildPreview(outer));
@@ -205,7 +224,9 @@ class ZenImageBlockTool {
     urlInput.placeholder = 'Image URL (https://...)';
     urlInput.addEventListener('change', async () => {
       const raw = urlInput.value.trim();
-      this.data.url = raw.startsWith('data:image/') ? await autoOptimizeDataUrl(raw) : raw;
+      this.data.url = raw.startsWith('data:image/')
+        ? await persistEditorImageUrl(raw)
+        : raw;
       if (this._outer) {
         this._outer.innerHTML = '';
         this._outer.appendChild(this._buildPreview(this._outer));
@@ -605,6 +626,7 @@ class ZenTableBlockTool {
     const addCol = document.createElement('button');
     addCol.type = 'button';
     addCol.className = 'zen-table-block-tool__btn';
+    addCol.textContent = '+ Spalte';
 
     const removeRow = document.createElement('button');
     removeRow.type = 'button';
@@ -1058,6 +1080,7 @@ interface ZenBlockEditorProps {
   wrapLines?: boolean;
   showLineNumbers?: boolean;
   theme?: EditorTheme;
+  previewTheme?: PreviewThemeId;
   focusHeadingRequest?: { headingIndex: number; token: number } | null;
   onActiveHeadingChange?: (headingIndex: number) => void;
   onKeywordsChange?: (keywords: string[]) => void;
@@ -1214,6 +1237,7 @@ export const ZenBlockEditor = ({
   wrapLines = true,
   showLineNumbers = true,
   theme = 'light',
+  previewTheme = 'mono-clean',
   focusHeadingRequest = null,
   onActiveHeadingChange,
   onKeywordsChange,
@@ -1226,6 +1250,7 @@ export const ZenBlockEditor = ({
   const holderRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
+  const [showZenNotePanel, setShowZenNotePanel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: MENU_LEFT_OFFSET, y: 96 });
   const [dotPosition, setDotPosition] = useState({ x: DOT_LEFT_OFFSET, y: 0 });
@@ -1241,6 +1266,10 @@ export const ZenBlockEditor = ({
   const imageResizeCommitIsIdleRef = useRef(false);
   const blockTypeObserverRef = useRef<MutationObserver | null>(null);
   const lastLocalMarkdownRef = useRef<string>(value);
+  const latestValueRef = useRef<string>(value);
+  const suppressOnChangeRef = useRef<boolean>(true);
+  const lastUserEditAtRef = useRef<number>(0);
+  const userInteractedRef = useRef<boolean>(false);
 
   // Stats sind jetzt Teil von contentIntel — kein separater IPC-Call mehr nötig
 
@@ -1404,6 +1433,14 @@ export const ZenBlockEditor = ({
         e.stopPropagation();
         closeSearch();
       }
+      // ? → Shortcuts Overlay (nur wenn kein Input/Textarea fokussiert)
+      if (e.key === '?' && !showSearch) {
+        const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea') {
+          e.preventDefault();
+          setShowShortcuts(p => !p);
+        }
+      }
     };
     document.addEventListener('keydown', onKeyDown, true);
     return () => document.removeEventListener('keydown', onKeyDown, true);
@@ -1498,6 +1535,7 @@ export const ZenBlockEditor = ({
   const [contentIntel, setContentIntel] = useState<ContentIntel | null>(null);
   const [showIntelPanel, setShowIntelPanel] = useState(false);
   const [showEngineAbout, setShowEngineAbout] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stop words as module-level constant — not recreated on every render
@@ -1697,6 +1735,9 @@ export const ZenBlockEditor = ({
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
 
   const getCurrentMarkdownSnapshot = async (): Promise<string> => {
     const editor = editorRef.current as any;
@@ -2368,8 +2409,30 @@ export const ZenBlockEditor = ({
         try {
           const outputData = await editorRef.current.save();
           const markdown = editorJSToMarkdown(outputData);
+          if (suppressOnChangeRef.current) {
+            lastLocalMarkdownRef.current = latestValueRef.current ?? '';
+            if (DEBUG_BLOCK_EDITOR_SYNC) {
+              console.info('[ZenBlockEditor] onChange suppressed (programmatic render)');
+            }
+            return;
+          }
+          if (!userInteractedRef.current) {
+            lastLocalMarkdownRef.current = latestValueRef.current ?? '';
+            if (DEBUG_BLOCK_EDITOR_SYNC) {
+              console.info('[ZenBlockEditor] onChange suppressed (no user interaction)');
+            }
+            return;
+          }
+          if (
+            !userInteractedRef.current &&
+            markdown.trim() === '' &&
+            (latestValueRef.current ?? '').trim() !== ''
+          ) {
+            return;
+          }
           trackUndoOnChange(markdown);
           lastLocalMarkdownRef.current = markdown;
+          lastUserEditAtRef.current = Date.now();
           // Use ref to always call the latest onChange callback
           onChangeRef.current(markdown);
         } catch (error) {
@@ -2378,6 +2441,7 @@ export const ZenBlockEditor = ({
       },
       onReady: () => {
         setIsReady(true);
+        suppressOnChangeRef.current = false;
 
         // Enable drag-and-drop
         if (editorRef.current) {
@@ -2805,7 +2869,15 @@ export const ZenBlockEditor = ({
       attributeFilter: ['title', 'data-tooltip', 'data-tooltip-position'],
     });
 
+    const handleUserInput = () => {
+      userInteractedRef.current = true;
+    };
+    holder.addEventListener('keydown', handleUserInput, true);
+    holder.addEventListener('input', handleUserInput, true);
+
     return () => {
+      holder.removeEventListener('keydown', handleUserInput, true);
+      holder.removeEventListener('input', handleUserInput, true);
       observer.disconnect();
     };
   }, [isReady]);
@@ -2823,8 +2895,19 @@ export const ZenBlockEditor = ({
         const currentMarkdown = editorJSToMarkdown(currentData);
 
         // Only update if the markdown has actually changed
+        userInteractedRef.current = false;
+        if (
+          value.trim() === '' &&
+          currentMarkdown.trim() !== '' &&
+          Date.now() - lastUserEditAtRef.current > 500
+        ) {
+          return;
+        }
         if (currentMarkdown !== value) {
+          suppressOnChangeRef.current = true;
           await editorRef.current!.render(markdownToEditorJS(value));
+          lastLocalMarkdownRef.current = value;
+          suppressOnChangeRef.current = false;
         }
       } catch (error) {
         console.error('Error updating editor:', error);
@@ -2991,17 +3074,18 @@ export const ZenBlockEditor = ({
   // Theme-based colors
   const themeStyles = {
     dark: {
-      background: '#151515',
-      text: '#dbd9d5',
-      placeholder: '#dbd9d5',
-      border: '#AC8E66',
+      background: '#1a1a1a',
+      text: '#d0cbb8',
+      placeholder: '#d0cbb8',
+      border: '#5a5a5a',
       BorderStyle: 'dotted',
     },
     light: {
       background: '#D9D4C5',
-      text: '#1a1a1a',
-      placeholder: '#6b6b6b',
+      text: PREVIEW_THEME_EDITOR_TOKENS[previewTheme].text,
+      placeholder: PREVIEW_THEME_EDITOR_TOKENS[previewTheme].placeholder,
       border: '#AC8E66',
+      BorderStyle: '0.5px dotted',
     },
   };
 
@@ -3157,7 +3241,10 @@ export const ZenBlockEditor = ({
           images.map(async (image) => ({
             ...image,
             url: image.url.startsWith('data:image/')
-              ? await autoOptimizeDataUrl(image.url)
+              ? await persistEditorImageUrl(
+                  image.url,
+                  `${(image.alt ?? 'editor-image').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'editor-image'}.jpg`
+                )
               : image.url,
           }))
         );
@@ -3938,6 +4025,29 @@ export const ZenBlockEditor = ({
     };
   }, [menuOpen, showInsertSection, showConvertSection, showArrangeSection]);
 
+  // ZenNote Insert-Bridge: insert snippet as paragraph block at last known cursor position
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const snippet = (e as CustomEvent<{ content: string }>).detail?.content;
+      if (!snippet) return;
+      const editor = editorRef.current as any;
+      if (!editor?.blocks) return;
+      // Prefer lastActiveBlockIndexRef (survives focus loss) over getCurrentBlockIndex
+      const liveIndex = editor.blocks.getCurrentBlockIndex?.();
+      const knownIndex = lastActiveBlockIndexRef.current;
+      const baseIndex = (typeof liveIndex === 'number' && liveIndex >= 0)
+        ? liveIndex
+        : (typeof knownIndex === 'number' && knownIndex >= 0 ? knownIndex : 0);
+      const insertIndex = baseIndex + 1;
+      editor.blocks.insert('paragraph', { text: snippet.replace(/\n/g, '<br>') }, undefined, insertIndex, true);
+    };
+    return subscribeToInsertContentStudioSnippet(({ content = '' }) => {
+      if (!content) return;
+      const event = { detail: { content } } as CustomEvent<{ content: string }>;
+      handler(event);
+    });
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -3954,12 +4064,20 @@ export const ZenBlockEditor = ({
         fontFamily: '"IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace',
         ...(fontSize ? { ['--zen-editor-font-size' as any]: `${fontSize}px` } : {}),
         ['--zen-editor-placeholder' as any]: colors.placeholder,
+        ['--zen-editor-text' as any]: theme === 'light' ? PREVIEW_THEME_EDITOR_TOKENS[previewTheme].text : colors.text,
+        ['--zen-editor-heading' as any]: theme === 'light' ? PREVIEW_THEME_EDITOR_TOKENS[previewTheme].heading : colors.text,
+        ['--zen-editor-line-number' as any]: theme === 'light' ? PREVIEW_THEME_EDITOR_TOKENS[previewTheme].lineNumbers : colors.text,
         ['--color-placeholder' as any]: colors.placeholder,
         ['--color-text-secondary' as any]: colors.placeholder,
         position: 'relative',
         ['--zen-line-gutter' as any]: `${LINE_GUTTER_WIDTH}px`,
       }}
     >
+      {/* ZenNote Panel */}
+      {showZenNotePanel && (
+        <ZenNotePanel onClose={() => setShowZenNotePanel(false)} />
+      )}
+
       {/* Find & Replace Bar (Cmd+F / Ctrl+F) */}
       {showSearch && (
         <div
@@ -4433,7 +4551,7 @@ export const ZenBlockEditor = ({
             background: showIntelPanel
               ? (theme === 'dark' ? 'rgba(172,142,102,0.18)' : 'rgba(172,142,102,0.15)')
               : 'transparent',
-            border: `1px solid ${showIntelPanel ? 'rgba(172,142,102,0.5)' : 'transparent'}`,
+            border: `1px solid ${showIntelPanel ? 'rgba(172,142,102,0.5)' : '#1a1a1a'}`,
             borderRadius: 4,
             color: showIntelPanel ? '#AC8E66' : colors.placeholder,
             cursor: 'pointer',
@@ -4449,7 +4567,7 @@ export const ZenBlockEditor = ({
           onMouseLeave={e => {
             if (!showIntelPanel) {
               (e.currentTarget as HTMLButtonElement).style.color = colors.placeholder;
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'transparent';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a1a1a';
             }
           }}
         >
@@ -4533,20 +4651,35 @@ export const ZenBlockEditor = ({
             </button>
           </>
         )}
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={() => setShowEngineAbout(true)}
-          onKeyDown={e => e.key === 'Enter' && setShowEngineAbout(true)}
-          onMouseEnter={e => (e.currentTarget.style.color = gold)}
-          onMouseLeave={e => (e.currentTarget.style.color = colors.border)}
-          style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: colors.border, marginLeft: 'auto', cursor: 'pointer', userSelect: 'none' }}
-        >
-          ZenEngine
-        </span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowShortcuts(p => !p)}
+            onKeyDown={e => e.key === 'Enter' && setShowShortcuts(p => !p)}
+            onMouseEnter={e => (e.currentTarget.style.color = gold)}
+            onMouseLeave={e => (e.currentTarget.style.color = theme === 'dark' ? colors.text : '#1a1a1a')}
+            title="Keyboard Shortcuts (?)"
+            style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: theme === 'dark' ? colors.text : '#1a1a1a', cursor: 'pointer', userSelect: 'none', lineHeight: 1, padding: '1px 5px', border: `1px solid ${theme === 'dark' ? colors.border : 'rgba(0,0,0,1)'}`, borderRadius: 3 }}
+          >
+            ?
+          </span>
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={() => setShowEngineAbout(true)}
+            onKeyDown={e => e.key === 'Enter' && setShowEngineAbout(true)}
+            onMouseEnter={e => (e.currentTarget.style.color = gold)}
+            onMouseLeave={e => (e.currentTarget.style.color = theme === 'dark' ? colors.text : '#1a1a1a')}
+            style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: theme === 'dark' ? '#dbd9d5' : '#1a1a1a', cursor: 'pointer', userSelect: 'none' }}
+          >
+            ZenEngine
+          </span>
+        </div>
       </div>
 
       <ZenEngineAboutModal isOpen={showEngineAbout} onClose={() => setShowEngineAbout(false)} />
+      <ZenShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
 
       <button
         type="button"
@@ -4646,6 +4779,15 @@ export const ZenBlockEditor = ({
                 <FontAwesomeIcon icon={faTable} />
                 </button>
               <button type="button" onClick={() => insertBlock('code', { language: 'text', code: '' })}>Code</button>
+              <button
+                type="button"
+                title="ZenNote einfügen"
+                onClick={() => { setShowZenNotePanel((v) => !v); setMenuOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, color: showZenNotePanel ? '#AC8E66' : undefined }}
+              >
+                <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 10 }} />
+                <span>Note</span>
+              </button>
             </div>
 
             {showConvertSection && (

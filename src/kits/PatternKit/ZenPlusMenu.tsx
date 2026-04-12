@@ -167,7 +167,7 @@ export const ZenPlusMenu = ({
           borderRadius: '50%',
           backgroundColor: isOpen ? '#151515' : '#171717',
           border: isOpen ? '1px solid #AC8E66' : '1px solid #2E2E2E',
-          color: '#AC8E66',
+          color: '#d0cbb8',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -199,7 +199,7 @@ export const ZenPlusMenu = ({
             width: 320,
             maxHeight: 400,
             color: '#555',
-            backgroundColor: '#151515',
+            backgroundColor: '#1a1a1a',
             backdropFilter: 'blur(8px)',
             border: '1px solid #AC8E66',
             borderRadius: 8,
@@ -216,7 +216,7 @@ export const ZenPlusMenu = ({
               type="text"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Suchen..."
+              placeholder="Suchen...und mehr"
               style={{
                 width: '91%',
                 padding: '8px 12px',
@@ -245,7 +245,7 @@ export const ZenPlusMenu = ({
                 style={{
                   padding: 16,
                   textAlign: 'center',
-                  color: '#AC8E66',
+                  color: '#d0cbb8',
                   fontSize: 11,
                   fontFamily: 'monospace',
                 }}
@@ -270,8 +270,8 @@ export const ZenPlusMenu = ({
                       width: '100%',
                       padding: '10px 12px',
                       backgroundColor:
-                        index === selectedIndex ? '#AC8E66' : 'transparent',
-                      color: index === selectedIndex ? '#1E1E1E' : '#e5e5e5',
+                        index === selectedIndex ? '#d0cbb8' : 'transparent',
+                      color: index === selectedIndex ? '#1a1a1a' : '#e5e5e5',
                       border: 'none',
                       borderRadius: 4,
                       cursor: 'pointer',
@@ -285,10 +285,12 @@ export const ZenPlusMenu = ({
                   >
                     <FontAwesomeIcon
                       icon={item.icon}
-                      style={{ fontSize: 10, width: 16, color: '#d9d4c5' }}
+                      style={{ fontSize: 10, width: 16, color: '#AC8E66' }}
                     />
                     <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: 10, color: '#d9d4c5', fontFamily: 'monospace', fontWeight: 500 }}>
+                      <div style={{ fontSize: 10, 
+                        color:     index === selectedIndex ? '#1a1a1a' : '#d0cbb8',
+                        fontFamily: 'monospace', fontWeight: 500 }}>
                         {item.label}
                       </div>
                       {item.description && (
@@ -309,10 +311,10 @@ export const ZenPlusMenu = ({
                         style={{
                           fontSize: 10,
                           fontFamily: 'monospace',
-                          opacity: 0.5,
+                          opacity: 1,
                           padding: '2px 6px',
                           backgroundColor:
-                            index === selectedIndex ? '#d9d4c5' : '#2A2A2A',
+                            index === selectedIndex ? '#d0cbb8' : '#2A2A2A',
                           borderRadius: 3,
                         }}
                       >
@@ -338,7 +340,7 @@ export const ZenPlusMenu = ({
                       style={{
                         paddingLeft: 28,
                         marginBottom: 4,
-                        backgroundColor: '#2A2A2A',
+                        backgroundColor: '#2a2a2a',
                         borderRadius: 4,
                         padding: '8px 8px 8px 28px',
                       }}
@@ -355,9 +357,10 @@ export const ZenPlusMenu = ({
                           style={{
                             width: '100%',
                             padding: '8px 12px',
-                            backgroundColor: 'transparent',
-                            color: '#e5e5e5',
+                            backgroundColor: '#d0cbb8',
+                            color: '#1a1a1a',
                             border: 'none',
+                            boxShadow: 'none',
                             borderRadius: 4,
                             cursor: 'pointer',
                             display: 'block',

@@ -1,5 +1,4 @@
-import React, { useEffect, useRef } from "react";
-import rough from "roughjs/bin/rough";
+import React from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 
@@ -16,42 +15,17 @@ export const ZenAddButton: React.FC<ZenAddButtonProps> = ({
   className = "",
   disabled = false,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const pixelSize = size === "sm" ? 32 : size === "lg" ? 48 : 40;
+  const iconSize = size === "sm" ? 12 : size === "lg" ? 18 : 14;
+  const ringInset = size === "lg" ? 2.5 : 3;
+  const ringColor = disabled ? "#555" : "#AC8E66";
+  const hoverRingColor = disabled ? "#555" : "#d8b27c";
+  const iconColor = disabled ? "#555" : "#1a1a1a";
+  const hoverIconColor = disabled ? "#555" : "#d8b27c";
 
-  /** Zeichnet den Kreis mit gewünschter Farbe */
-  const drawCircle = (strokeColor: string) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rc = rough.canvas(canvas);
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, pixelSize, pixelSize);
-    rc.circle(pixelSize / 2, pixelSize / 2, pixelSize - 4, {
-      stroke: strokeColor,
-      roughness: 0.5,
-      strokeWidth: 1.2,
-    });
-  };
-
-  useEffect(() => {
-    drawCircle(disabled ? "#555" : "#AC8E66");
-  }, [pixelSize, disabled]);
-
-  /** Hover-Status */
-  const handleMouseEnter = () => {
-    if (!disabled) drawCircle("#d8b27c");
-  };
-  const handleMouseLeave = () => {
-    if (!disabled) drawCircle("#AC8E66");
-  };
-
-  /** Klick */
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
-    if (!disabled) {
-      onClick?.();
-    }
+    if (!disabled) onClick?.();
   };
 
   return (
@@ -59,38 +33,46 @@ export const ZenAddButton: React.FC<ZenAddButtonProps> = ({
       type="button"
       aria-label="Add"
       onClick={handleClick}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
       disabled={disabled}
       className={`group relative flex items-center justify-center rounded-full
-        select-none active:scale-95
+        zen-add-button
+        select-none shrink-0 p-0 aspect-square active:scale-95
         transition-all duration-200 ${className}
-        ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+        ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
       style={{
         width: pixelSize,
+        minWidth: pixelSize,
+        maxWidth: pixelSize,
         height: pixelSize,
+        minHeight: pixelSize,
+        maxHeight: pixelSize,
         border: "none",
         outline: "none",
         background: "transparent",
         WebkitTapHighlightColor: "transparent",
       }}
     >
-      {/* Canvas liegt ganz unten → blockiert nichts */}
-      <canvas
-        ref={canvasRef}
-        width={pixelSize}
-        height={pixelSize}
-        className="absolute top-0 left-0 z-0 pointer-events-none"
-      />
-      {/* Icon bleibt oben */}
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 100 100"
+        className="absolute inset-0 w-full h-full pointer-events-none"
+      >
+        <circle
+          cx="50"
+          cy="50"
+          r={50 - ringInset}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="4"
+          className="transition-colors duration-200"
+          style={{ color: ringColor }}
+        />
+      </svg>
+      {!disabled && <style>{`.zen-add-button:hover svg circle { color: ${hoverRingColor}; } .zen-add-button:hover .zen-add-icon { color: ${hoverIconColor}; }`}</style>}
       <FontAwesomeIcon
         icon={faPlus}
-        className={`z-10 pointer-events-none ${
-          disabled
-            ? 'text-[#555]'
-            : 'text-[#AC8E66] group-hover:text-[#d8b27c]'
-        }`}
-        style={{ fontSize: size === "sm" ? 12 : size === "lg" ? 18 : 14 }}
+        className="zen-add-icon z-10 pointer-events-none transition-colors duration-200"
+        style={{ fontSize: iconSize, color: iconColor }}
       />
     </button>
   );

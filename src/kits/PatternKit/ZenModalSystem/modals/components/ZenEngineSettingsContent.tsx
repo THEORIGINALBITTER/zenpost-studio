@@ -87,7 +87,7 @@ export function ZenEngineSettingsContent() {
 
   return (
     <div className="w-full flex justify-center" style={{ padding: '32px 32px' }}>
-      <div className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 shadow-2xl rounded-[10px]" style={{ overflow: 'hidden' }}>
+      <div className="w-full max-w-[860px] bg-[#E8E1D2] border border-[#AC8E66]/60 rounded-[10px]" style={{ overflow: 'hidden' }}>
 
         {/* Header */}
         <div style={{ padding: '20px 28px 18px', borderBottom: '1px solid rgba(172,142,102,0.25)', background: 'rgba(172,142,102,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -106,6 +106,7 @@ export function ZenEngineSettingsContent() {
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               fontFamily: mono, fontSize: 9, color: black,
+              boxShadow: 'none',
               background: 'rgba(172,142,102,0.1)', border: `1px solid rgba(172,142,102,0.35)`,
               borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
               transition: 'background 0.15s',
@@ -132,6 +133,7 @@ export function ZenEngineSettingsContent() {
                   onClick={() => selectStyle(s.id)}
                   style={{
                     fontFamily: mono, fontSize: 10, padding: '10px 12px',
+                      boxShadow: 'none',
                     borderRadius: 7, cursor: 'pointer', textAlign: 'left',
                     border: active ? `1.5px solid ${gold}` : '1.5px solid rgba(172,142,102,0.25)',
                     background: active ? `rgba(172,142,102,0.12)` : 'transparent',
@@ -208,25 +210,37 @@ export function ZenEngineSettingsContent() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {userRules.map((rule, i) => (
                 <div key={rule.pattern} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0',
+                  display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0', flexWrap: 'wrap',
                   borderBottom: i < userRules.length - 1 ? '1px solid rgba(172,142,102,0.15)' : 'none',
                 }}>
                   <span style={{
                     fontFamily: mono, fontSize: 10, background: 'rgba(172,142,102,0.12)',
                     color: black, borderRadius: 4, padding: '1px 7px',
                     border: '1px solid rgba(172,142,102,0.3)', flexShrink: 0,
+                    maxWidth: '100%',
+                    overflowWrap: 'anywhere',
                   }}>
                     {rule.pattern}
                   </span>
-                  <span style={{ fontFamily: mono, fontSize: 9, color: '#1a1a1a', flex: 1 }}>
+                  <span style={{
+                    fontFamily: mono,
+                    fontSize: 9,
+                    color: '#1a1a1a',
+                    flex: '1 1 240px',
+                    minWidth: 0,
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    lineHeight: 1.6,
+                  }}>
                     {rule.suggestion}
                   </span>
                   {rule.replacements.length > 0 && (
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                      {rule.replacements.slice(0, 3).map(r => (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', maxWidth: '100%' }}>
+                      {rule.replacements.map(r => (
                         <span key={r} style={{
                           fontFamily: mono, fontSize: 9, padding: '0 5px',
                           border: '1px solid rgba(172,142,102,0.25)', borderRadius: 3, color: '#1a1a1a',
+                          overflowWrap: 'anywhere',
                         }}>
                           {r}
                         </span>
@@ -240,6 +254,7 @@ export function ZenEngineSettingsContent() {
                     style={{
                       background: 'transparent', border: '#fff', cursor: 'pointer',
                       color: '#ccc', padding: '5px 5pxx', flexShrink: 0,
+                        boxShadow: 'none',
                       fontSize: 11,
                     
                     }}
@@ -283,7 +298,9 @@ export function ZenEngineSettingsContent() {
               type="button"
               onClick={handleResetFeedback}
               style={{
-                fontFamily: mono, fontSize: 9, display: 'flex', alignItems: 'center', gap: 7,
+                fontFamily: mono, fontSize: 9, display: 'flex', 
+                boxShadow: 'none',
+                alignItems: 'center', gap: 7,
                 background: 'transparent', border: '1px solid rgba(172,142,102,0.3)',
                 borderRadius: 5, color: `${black}aa`, padding: '5px 12px', cursor: 'pointer',
               }}
@@ -347,6 +364,7 @@ export function ZenEngineSettingsContent() {
                     onClick={() => { resetRuleStats(); setRuleStats({}); }}
                     style={{
                       marginTop: 14, fontFamily: mono, fontSize: 9,
+                      boxShadow: 'none',
                       display: 'flex', alignItems: 'center', gap: 7,
                       background: 'transparent', border: '1px solid rgba(172,142,102,0.3)',
                       borderRadius: 5, color: `${black}aa`, padding: '5px 12px', cursor: 'pointer',
@@ -354,7 +372,7 @@ export function ZenEngineSettingsContent() {
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = gold; (e.currentTarget as HTMLButtonElement).style.color = gold; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(172,142,102,0.3)'; (e.currentTarget as HTMLButtonElement).style.color = `${gold}aa`; }}
                   >
-                    <FontAwesomeIcon icon={faRotateLeft} style={{ fontSize: 9 }} />
+                    <FontAwesomeIcon icon={faRotateLeft} style={{ fontSize: 9, boxShadow: 'none',}} />
                     Statistik zurücksetzen
                   </button>
                 )}

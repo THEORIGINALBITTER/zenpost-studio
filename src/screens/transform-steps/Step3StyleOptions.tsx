@@ -184,7 +184,7 @@ export const Step3StyleOptions = ({
           </div>
         </div>
 
-        <p className="font-mono text-[12px] text-[#777] mb-3 text-center">{title}</p>
+        <p className="font-mono text-[10px] text-[#1a1a1a] mb-3 text-center">{title}</p>
 
         <div className="flex items-center justify-center w-full">
           {children}
@@ -202,7 +202,7 @@ export const Step3StyleOptions = ({
       <div className="flex flex-col items-center w-full" style={{ maxWidth: '1320px' }}>
         <div className="flex flex-col items-center  mb-6">
           <p className="font-mono text-[12px] text-center">
-            <span className="text-[#AC8E66]">AI Einstellungen:</span>
+            <span className="text-[#1a1a1a]">AI Einstellungen:</span>
             <span className="text-[#1a1a1a]"> {displayPlatformLabel}</span>
           </p>
 

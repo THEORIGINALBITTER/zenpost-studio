@@ -15,11 +15,12 @@ export default {
       colors: {
         zen: {
           bg: "#121212",
-          panel: "#1b1b1b",
+          panel: "#1a1a1a",
           accent: "#b59a68",
           text: "#e5e5e5",
           muted: "#888888",
           border: "#2a2a2a",
+          gold: "#AC8E66",
 
         },
       },

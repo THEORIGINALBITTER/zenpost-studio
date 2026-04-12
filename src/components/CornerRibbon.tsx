@@ -2,13 +2,13 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faNoteSticky,
-  faPlus,
+ 
   faArrowRightToBracket,
   faSpinner,
   faCheck,
   faCloudArrowUp,
   faSearch,
-  faXmark,
+ 
   faArrowUpRightFromSquare,
 } from '@fortawesome/free-solid-svg-icons';
 import { loadZenStudioSettings } from '../services/zenStudioSettingsService';
@@ -17,6 +17,15 @@ import {
   uploadCloudDocument,
   downloadCloudDocumentText,
 } from '../services/cloudStorageService';
+import { navigateToAppScreen, openAppSettings } from '../services/appShellBridgeService';
+import { insertContentStudioSnippet } from '../services/contentStudioBridgeService';
+import { subscribeToCloudSessionSync } from '../services/cloudSessionSyncService';
+import {
+  parseZenNoteFileName,
+  resolveZenNoteFolderColor,
+  resolveZenNoteTagColor,
+} from '../services/zenNoteColorService';
+import { loadLocalZenNoteMeta, subscribeToZenNoteMetaSync, toZenNoteMetaState } from '../services/zenNoteMetaService';
 
 const ZEN_NOTE_MIME = 'text/zennote';
 const gold = '#AC8E66';
@@ -25,6 +34,8 @@ const fontMono = 'IBM Plex Mono, monospace';
 interface QuickNote {
   id: number;
   title: string;
+  tag: string;
+  folder: string;
 }
 
 export function CornerRibbon() {
@@ -38,6 +49,8 @@ export function CornerRibbon() {
   const [search, setSearch] = useState('');
   const [inserting, setInserting] = useState<number | null>(null);
   const [insertedId, setInsertedId] = useState<number | null>(null);
+  const [tagColors, setTagColors] = useState<Record<string, string>>(() => loadLocalZenNoteMeta().tagColors);
+  const [folderColors, setFolderColors] = useState<Record<string, string>>(() => loadLocalZenNoteMeta().folderColors);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -54,7 +67,10 @@ export function CornerRibbon() {
         docs
           .filter((d) => d.mimeType === ZEN_NOTE_MIME || d.fileName.endsWith('.zennote'))
           .slice(0, 20)
-          .map((d) => ({ id: d.id, title: d.fileName.replace(/(__[a-z]+)?\.zennote$/, '') }))
+          .map((d) => {
+            const { title, tag, folder } = parseZenNoteFileName(d.fileName);
+            return { id: d.id, title, tag, folder };
+          })
       );
     }
     setLoadingNotes(false);
@@ -63,6 +79,28 @@ export function CornerRibbon() {
   useEffect(() => {
     if (open && isLoggedIn) void loadNotes();
   }, [open, isLoggedIn, loadNotes]);
+
+  useEffect(() => {
+    if (!settings.cloudProjectId) return;
+    return subscribeToZenNoteMetaSync(settings.cloudProjectId, ({ meta }) => {
+      const next = toZenNoteMetaState(meta);
+      setTagColors(next.tagColors);
+      setFolderColors(next.folderColors);
+    });
+  }, [settings.cloudProjectId]);
+
+  useEffect(() => {
+    return subscribeToCloudSessionSync(({ current, reason }) => {
+      if (!current.projectId) {
+        setNotes([]);
+        return;
+      }
+      if (!open) return;
+      if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        void loadNotes();
+      }
+    }, { intervalMs: 5000 });
+  }, [open, loadNotes]);
 
   // ── Close on outside click ─────────────────────────────────────────────────
   useEffect(() => {
@@ -88,7 +126,7 @@ export function CornerRibbon() {
     if (result) {
       setSaveOk(true);
       setQuickText('');
-      setNotes((prev) => [{ id: result.id, title }, ...prev]);
+      setNotes((prev) => [{ id: result.id, title, tag: '', folder: '' }, ...prev]);
       setTimeout(() => setSaveOk(false), 2000);
     }
   };
@@ -98,7 +136,7 @@ export function CornerRibbon() {
     setInserting(note.id);
     const content = await downloadCloudDocumentText(note.id);
     if (content) {
-      window.dispatchEvent(new CustomEvent('zenpost:insert-snippet', { detail: { content } }));
+      insertContentStudioSnippet({ content });
     }
     setInserting(null);
     setInsertedId(note.id);
@@ -108,6 +146,8 @@ export function CornerRibbon() {
   const filtered = notes.filter((n) =>
     !search || n.title.toLowerCase().includes(search.toLowerCase())
   );
+  const getTagColor = (tag: string) => resolveZenNoteTagColor(tag, tagColors);
+  const getFolderColor = (folder: string) => resolveZenNoteFolderColor(folder, folderColors, gold);
 
   return (
     <div
@@ -118,8 +158,10 @@ export function CornerRibbon() {
       {open && (
         <div
           onMouseDown={(e) => {
-            // Prevent stealing focus from editor — except when clicking the quick-note textarea
-            if ((e.target as HTMLElement).tagName !== 'TEXTAREA') e.preventDefault();
+            // Prevent stealing focus from editor, but allow interaction with form controls.
+            const target = e.target as HTMLElement;
+            if (target.closest('textarea, input, button, select, [contenteditable="true"]')) return;
+            e.preventDefault();
           }}
           style={{
           position: 'absolute',
@@ -134,15 +176,7 @@ export function CornerRibbon() {
           overflow: 'hidden',
         }}>
           {/* Header */}
-          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #1e1e1e', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 10, color: gold, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              <FontAwesomeIcon icon={faNoteSticky} style={{ marginRight: 6 }} />
-              ZenNote Quick
-            </span>
-            <button onClick={() => setOpen(false)} style={{ background: 'transparent', border: 'none', color: '#555', cursor: 'pointer', fontSize: 12 }}>
-              <FontAwesomeIcon icon={faXmark} />
-            </button>
-          </div>
+        
 
           {!isLoggedIn ? (
             <div style={{ padding: '20px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
@@ -153,7 +187,7 @@ export function CornerRibbon() {
                 className="zen-gold-btn"
                 onClick={() => {
                   setOpen(false);
-                  window.dispatchEvent(new CustomEvent('zenpost:open-settings', { detail: { tab: 'cloud' } }));
+                  openAppSettings('cloud');
                 }}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 16px' }}
               >
@@ -178,9 +212,14 @@ export function CornerRibbon() {
                     }
                   }}
                   style={{
-                    width: '100%', background: '#1a1a1a', border: `1px solid #2a2a2a`,
-                    borderRadius: 6, color: '#d4cfbf', fontFamily: fontMono, fontSize: 11,
-                    lineHeight: 1.7, padding: '8px 10px', outline: 'none', resize: 'none',
+                    width: '100%', 
+                    height: '150px',
+                    background: '#1a1a1a', 
+                    border: `1px solid #2a2a2a`,
+                    borderRadius: 6, 
+                    color: '#d4cfbf', fontFamily: fontMono, fontSize: 11,
+                    lineHeight: 1.7, 
+                    padding: '8px 10px', outline: 'none', resize: 'none',
                     boxSizing: 'border-box',
                   }}
                 />
@@ -233,14 +272,53 @@ export function CornerRibbon() {
                 {!loadingNotes && filtered.map((note) => {
                   const isIns = inserting === note.id;
                   const isOk = insertedId === note.id;
+                  const tagColor = note.tag ? getTagColor(note.tag) : '';
+                  const folderColor = note.folder ? getFolderColor(note.folder) : '';
                   return (
                     <div key={note.id} style={{ display: 'flex', alignItems: 'center', borderBottom: '1px solid #1a1a1a' }}>
-                      <div style={{ flex: 1, padding: '7px 12px', fontSize: 10, color: '#999', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        <FontAwesomeIcon icon={faNoteSticky} style={{ marginRight: 6, color: '#444', fontSize: 9 }} />
-                        {note.title}
-                      </div>
                       <button
-                        onClick={() => { void insertNote(note); }}
+                        onClick={() => {
+                          setOpen(false);
+                          navigateToAppScreen('zen-note', { noteId: note.id });
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '7px 12px',
+                          minWidth: 0,
+                          background: 'transparent',
+                          border: 'none',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ fontSize: 10, color: '#d0cbb8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <FontAwesomeIcon icon={faNoteSticky} style={{ marginRight: 6, color: note.folder ? folderColor : note.tag ? tagColor : '#444', fontSize: 9 }} />
+                          {note.folder ? <span style={{ color: folderColor, marginRight: 4 }}>{note.folder} /</span> : null}
+                          {note.title}
+                        </div>
+                        {note.tag ? (
+                          <div style={{ marginTop: 4 }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                fontSize: 8,
+                                color: tagColor,
+                                background: `${tagColor}18`,
+                                border: `1px solid ${tagColor}44`,
+                                borderRadius: 999,
+                                padding: '1px 6px',
+                              }}
+                            >
+                              <span style={{ width: 6, height: 6, borderRadius: '10%', background: tagColor, border: '1px solid rgba(255,255,255,0.45)', boxShadow: '0 0 0 1px rgba(0,0,0,0.35)' }} />
+                              {note.tag}
+                            </span>
+                          </div>
+                        ) : null}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); void insertNote(note); }}
                         disabled={isIns}
                         title="In Editor einfügen"
                         style={{
@@ -260,11 +338,18 @@ export function CornerRibbon() {
               </div>
 
               {/* Footer */}
-              <div style={{ padding: '6px 12px', borderTop: '1px solid #1a1a1a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6 }}>
+              <div style={{ 
+                padding: '8px 12px', 
+                marginTop: '20px',
+                borderTop: '1px solid #1a1a1a', 
+                display: 'flex', 
+                justifyContent: 'flex-end', 
+                alignItems: 'center', 
+                gap: 6 }}>
                 <button
                   onClick={() => {
                     setOpen(false);
-                    window.dispatchEvent(new CustomEvent('zenpost:navigate', { detail: { screen: 'zen-note' } }));
+                    navigateToAppScreen('zen-note');
                   }}
                   style={{ background: 'transparent', border: `1px solid #2a2a2a`, borderRadius: 4, color: '#888', cursor: 'pointer', padding: '2px 8px', fontSize: 9, fontFamily: fontMono, display: 'flex', alignItems: 'center', gap: 4 }}
                   onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = gold; (e.currentTarget as HTMLButtonElement).style.borderColor = `${gold}60`; }}
@@ -272,12 +357,7 @@ export function CornerRibbon() {
                 >
                   <FontAwesomeIcon icon={faArrowUpRightFromSquare} style={{ fontSize: 8 }} />ZenNote Studio
                 </button>
-                <button
-                  onClick={() => { setQuickText(''); setTimeout(() => textareaRef.current?.focus(), 50); }}
-                  style={{ background: 'transparent', border: `1px solid #2a2a2a`, borderRadius: 4, color: '#AC8E66', cursor: 'pointer', padding: '2px 8px', fontSize: 9, fontFamily: fontMono }}
-                >
-                  <FontAwesomeIcon icon={faPlus} style={{ marginRight: 3 }} />Neue Notiz
-                </button>
+                
               </div>
             </>
           )}
@@ -294,10 +374,10 @@ export function CornerRibbon() {
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
         style={{
-          transform: isHovered || open ? 'translateX(0)' : 'translateX(185px)',
-          width: 200,
+          transform: isHovered || open ? 'translateX(0)' : 'translateX(260px)',
+          width: 270,
           padding: '9px 18px 9px 12px',
-          background: open ? gold : '#AC8E66',
+          background: open ? '#d0cbb8' : isHovered ? '#d0cbb8' : '#AC8E66',
           color: '#1a1a1a',
           fontFamily: fontMono,
           fontSize: '10px',
@@ -310,7 +390,7 @@ export function CornerRibbon() {
           justifyContent: 'space-between',
           gap: '10px',
           boxShadow: '-6px 6px 18px rgba(0,0,0,0.1)',
-          transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+          transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94), background-color 0.2s ease',
           whiteSpace: 'nowrap',
           userSelect: 'none',
         }}
