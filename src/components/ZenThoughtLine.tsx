@@ -19,9 +19,10 @@ interface ZenThoughtLineProps {
   thoughts: string[];
   visible?: boolean;
   containerStyle?: CSSProperties;
+   textStyle?: CSSProperties;
 }
 
-export const ZenThoughtLine = ({ thoughts, visible = true, containerStyle }: ZenThoughtLineProps) => {
+export const ZenThoughtLine = ({ thoughts, visible = true, containerStyle, textStyle }: ZenThoughtLineProps) => {
   const [thought] = useState<string>(() => getNextThought(thoughts));
 
   if (!visible || !thought) return null;
@@ -33,8 +34,9 @@ export const ZenThoughtLine = ({ thoughts, visible = true, containerStyle }: Zen
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '10px',
           
-          color: '#d0cbb8',
+          color: '#3e362c',
           letterSpacing: '0.2px',
+          ...textStyle
         }}
       >
         <span style={{ color: '#AC8E66', textTransform: 'uppercase' }}>ZEN Gedanke </span>

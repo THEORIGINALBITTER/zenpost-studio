@@ -31,13 +31,9 @@ html, body, #root {
   text-rendering: optimizeLegibility;
 }
 
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
 
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafb);
-}
+
+
 :root {
   font-family: 'IBM Plex Mono', 'Courier Prime', ui-monospace, SFMono-Regular, monospace;
   font-size: 16px;
@@ -46,8 +42,8 @@ html, body, #root {
     --zen-scrollbar-track: #f6f6f6;
   --color-active-icon: #AC8E66;
 
-  color: #0f0f0f;
-  background-color: #f6f6f6;
+  color: #252525;
+  background-color: #e8e3d8;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;

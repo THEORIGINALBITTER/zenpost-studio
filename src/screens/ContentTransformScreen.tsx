@@ -58,7 +58,7 @@ import {
 } from '../services/zenStudioSettingsService';
 import { ftpUpload } from '../services/ftpService';
 import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../services/phpBlogService';
-import { canUploadToZenCloud, uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
+import { canUploadToZenCloud, downloadCloudDocumentText, uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
 import { subscribeToInsertContentStudioSnippet } from '../services/contentStudioBridgeService';
 import { isCloudProjectPath } from '../services/cloudProjectService';
 import ZenEngine from '../services/zenEngineService';
@@ -2620,6 +2620,10 @@ export const ContentTransformScreen = ({
 
   useEffect(() => {
     if (!requestedFilePath) return;
+    const cloudPathMatch = requestedFilePath.match(/^@cloud:(\d+)(?:\/(.+))?$/);
+    const isCloudRequestedFile = !!cloudPathMatch;
+    const cloudRequestedDocId = cloudPathMatch ? parseInt(cloudPathMatch[1], 10) : NaN;
+    const cloudRequestedFileName = cloudPathMatch?.[2] || 'Cloud-Dokument.md';
     const tabId = `file:${requestedFilePath}`;
     const existingFileTab =
       openDocTabsRef.current.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
@@ -2632,10 +2636,12 @@ export const ContentTransformScreen = ({
       pendingContentOwnerTabIdRef.current = targetTabId;
       lastProgrammaticLoadAtRef.current = Date.now();
       setSourceContent(content);
-      const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+      const fileNameFromPath = isCloudRequestedFile
+        ? cloudRequestedFileName
+        : requestedFilePath.split(/[\\/]/).pop() || 'Datei';
       setFileName(fileNameFromPath);
       const extractedMeta2 = extractPostMetaFromContent(content, fileNameFromPath);
-      void loadMetaFromManifest(requestedFilePath).then((manifestMeta2) => {
+      void (isCloudRequestedFile ? Promise.resolve(null) : loadMetaFromManifest(requestedFilePath)).then((manifestMeta2) => {
         const nextMeta: PostMeta = {
           title: manifestMeta2?.title || extractedMeta2.title,
           subtitle: manifestMeta2?.subtitle || extractedMeta2.subtitle,
@@ -2655,10 +2661,17 @@ export const ContentTransformScreen = ({
     const loadRequestedFile = async () => {
       try {
         // Manifest ZUERST lesen — bevor irgendwelche State-Updates den useEffect triggern
-        const manifestMeta = await loadMetaFromManifest(requestedFilePath);
-        const content = await readTextFile(requestedFilePath);
+        const manifestMeta = isCloudRequestedFile ? null : await loadMetaFromManifest(requestedFilePath);
+        const content = isCloudRequestedFile
+          ? await downloadCloudDocumentText(cloudRequestedDocId)
+          : await readTextFile(requestedFilePath);
         if (!isMounted) return;
-        const fileNameFromPath = requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+        if (!content) {
+          throw new Error('Cloud-Dokument konnte nicht geladen werden.');
+        }
+        const fileNameFromPath = isCloudRequestedFile
+          ? cloudRequestedFileName
+          : requestedFilePath.split(/[\\/]/).pop() || 'Datei';
         const resolvedTabId =
           existingFileTab?.id ||
           openDocTabsRef.current.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
@@ -4279,7 +4292,7 @@ export const ContentTransformScreen = ({
               style={{
                 padding: '6px 12px', border: 'none',
                 borderRadius: '6px', background: '#AC8E66',
-                color: '#fff', cursor: 'pointer',
+                color: '#e8e3d8', cursor: 'pointer',
                 fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', whiteSpace: 'nowrap',
               }}
             >
@@ -4339,10 +4352,10 @@ export const ContentTransformScreen = ({
             display: 'flex', flexDirection: 'column', gap: '14px',
           }}>
             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', color: '#AC8E66' }}>
-              In Cloud speichern
+              In ZenCloud speichern
             </div>
-            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#7a7a7a' }}>
-              Dateiname für das Cloud-Dokument:
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#e8e3d8' }}>
+              Dateiname für das ZenCloud-Dokument:
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <input
@@ -4356,7 +4369,7 @@ export const ContentTransformScreen = ({
                   flex: 1,
                   fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px',
                   padding: '8px 10px',
-                  background: '#111', color: '#d0cbb8',
+                  background: '#252525', color: '#d0cbb8',
                   border: '1px solid #3A3A3A', borderRadius: '6px',
                   outline: 'none',
                 }}
@@ -4419,6 +4432,7 @@ export const ContentTransformScreen = ({
         isOpen={!!pendingCloseTabId}
         onClose={() => setPendingCloseTabId(null)}
         size="md"
+        
       >
         <ZenModalHeader
           title="Ungespeicherte Änderungen"
@@ -4429,8 +4443,9 @@ export const ContentTransformScreen = ({
           display: 'flex', 
           flexDirection: 'column', gap: '16px' }}>
           <p style={{ 
+           
             fontFamily: 'IBM Plex Mono, monospace', 
-            fontSize: '12px', color: '#555', textAlign: 'center'  }}>
+            fontSize: '12px', color: '#252525', textAlign: 'center'  }}>
             Möchtest du vor dem Schließen speichern?
           </p>
           <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>

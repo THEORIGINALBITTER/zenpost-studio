@@ -92,8 +92,8 @@ export function ZenEngineSettingsContent() {
         {/* Header */}
         <div style={{ padding: '20px 28px 18px', borderBottom: '1px solid rgba(172,142,102,0.25)', background: 'rgba(172,142,102,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <div style={{ fontFamily: mono, fontSize: 13, fontWeight: 700, color: '#222', letterSpacing: 0.3 }}>
-              ZenEngine
+            <div style={{ fontFamily: mono, fontSize: 10,  color: '#222', letterSpacing: 0.3 }}>
+              ZenEngine 
             </div>
             <div style={{ fontFamily: mono, fontSize: 10, color: '#333', marginTop: 3 }}>
               Regeln · Stil · Lernhistorie

@@ -11,6 +11,7 @@ import {
   faWrench,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton } from '../kits/PatternKit/ZenModalSystem';
+import { StudioActionCard } from '../components/StudioActionCard';
 import {
   initializePublishingProject,
   loadArticles,
@@ -116,30 +117,34 @@ export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, on
             gap: '16px',
           }}
         >
-          <StudioCard
+          <StudioActionCard
             icon={<FontAwesomeIcon icon={faMagicWandSparkles} />}
-            label="Content AI Studio"
+            title="Content AI Studio"
             description="Artikel schreiben & transformieren"
             onClick={onOpenContentAI}
-            variant="primary"
+            surface="dark"
+            highlighted
           />
-          <StudioCard
+          <StudioActionCard
             icon={<FontAwesomeIcon icon={faFileLines} />}
-            label="Doc Studio"
+            title="Doc Studio"
             description="Projekt-Dokumentation"
             onClick={onOpenDocStudio}
+            surface="dark"
           />
-          <StudioCard
+          <StudioActionCard
             icon={<FontAwesomeIcon icon={faWrench} />}
-            label="Converter"
+            title="Converter"
             description="Format-Konvertierung"
             onClick={onOpenConverter}
+            surface="dark"
           />
-          <StudioCard
+          <StudioActionCard
             icon={<FontAwesomeIcon icon={faCalendarDays} />}
-            label="Publishing Kalender"
+            title="Publishing Kalender"
             description="Posts planen (via Doc Studio)"
             onClick={onOpenDocStudio}
+            surface="dark"
           />
         </div>
       </div>
@@ -221,54 +226,6 @@ export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, on
     </div>
   );
 }
-
-// Studio Card Component
-interface StudioCardProps {
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-  onClick?: () => void;
-  variant?: 'default' | 'primary';
-}
-
-const StudioCard = ({ icon, label, description, onClick, variant = 'default' }: StudioCardProps) => (
-  <button
-    onClick={onClick}
-    style={{
-      border: variant === 'primary' ? '2px solid #AC8E66' : '1px solid #3A3A3A',
-      borderRadius: '12px',
-      padding: '20px',
-      background: variant === 'primary' ? 'linear-gradient(145deg, rgba(172,142,102,0.1), rgba(172,142,102,0.05))' : '#0A0A0A',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'flex-start',
-      gap: '8px',
-      fontFamily: 'monospace',
-      cursor: onClick ? 'pointer' : 'default',
-      transition: 'all 0.2s ease',
-      color: '#e5e5e5',
-      textAlign: 'left',
-    }}
-    onMouseEnter={(e) => {
-      if (onClick) {
-        e.currentTarget.style.borderColor = '#AC8E66';
-        e.currentTarget.style.transform = 'translateY(-2px)';
-      }
-    }}
-    onMouseLeave={(e) => {
-      if (onClick) {
-        e.currentTarget.style.borderColor = variant === 'primary' ? '#AC8E66' : '#3A3A3A';
-        e.currentTarget.style.transform = 'translateY(0)';
-      }
-    }}
-  >
-    <div style={{ fontSize: '24px', color: '#AC8E66' }}>{icon}</div>
-    <div>
-      <div style={{ fontSize: '14px', fontWeight: 600, color: '#e5e5e5' }}>{label}</div>
-      <div style={{ fontSize: '10px', color: '#777', marginTop: '4px' }}>{description}</div>
-    </div>
-  </button>
-);
 
 // Article Card Component
 interface ArticleCardProps {

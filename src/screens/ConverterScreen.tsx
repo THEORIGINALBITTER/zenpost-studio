@@ -12,7 +12,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile, writeTextFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
 import JSZip from 'jszip';
-import { ZenSettingsModal, ZenGeneratingModal } from '../kits/PatternKit/ZenModalSystem';
+import { ZenSettingsModal, ZenGeneratingModal, ZenImageGalleryModal } from '../kits/PatternKit/ZenModalSystem';
 import { Step1FormatSelection } from './converter-steps/Step1FormatSelection';
 import { Step4Result } from './converter-steps/Step4Result';
 import {
@@ -23,9 +23,11 @@ import {
   isImageFormat,
 } from '../utils/fileConverter';
 import { importDocumentToMarkdown } from '../services/documentImportService';
-import { loadConverterHistory, saveConverterHistory } from '../services/converterHistoryService';
+import type { OpenConverterWithFileRequest } from '../services/converterBridgeService';
+import { loadConverterHistory, saveConverterHistory, type ConverterHistoryItem } from '../services/converterHistoryService';
 import { loadZenStudioSettings, patchZenStudioSettings } from '../services/zenStudioSettingsService';
-import { saveToConverterFolder, dataUrlToUint8Array } from '../services/converterStorageService';
+import { saveToConverterFolder, saveToLocalConverterFolder, dataUrlToUint8Array } from '../services/converterStorageService';
+import { canUploadToZenCloud, getCloudDocumentUrl, uploadCloudDocument, uploadCloudImageDataUrl } from '../services/cloudStorageService';
 
 interface FormatOption {
   value: SupportedFormat;
@@ -53,15 +55,9 @@ interface ConverterScreenProps {
   onBack?: () => void;
   onStepChange?: (step: number) => void;
   onOpenInContentStudio?: (content: string, fileName: string) => void;
+  pendingOpenFileRequest?: OpenConverterWithFileRequest | null;
+  onPendingOpenFileHandled?: (requestId: string) => void;
 }
-
-type RecentConversionItem = {
-  id: string;
-  fileName: string;
-  fromFormat: SupportedFormat;
-  targetFormats: SupportedFormat[];
-  createdAt: number;
-};
 
 type ImagePreset = 'logo' | 'illustration' | 'photo' | 'custom';
 type CropRect = { x: number; y: number; w: number; h: number };
@@ -80,7 +76,44 @@ export const ConverterScreen = ({
   onBack: _onBack,
   onStepChange,
   onOpenInContentStudio,
+  pendingOpenFileRequest,
+  onPendingOpenFileHandled,
 }: ConverterScreenProps) => {
+  const ensureZenCloudImageUrl = async (image: { fileName: string; url: string }): Promise<string | null> => {
+    if (!image.url) return null;
+    if (/^https?:\/\//i.test(image.url)) return image.url;
+    if (/^data:image\//i.test(image.url)) {
+      const uploaded = await uploadCloudImageDataUrl(image.url, image.fileName);
+      return uploaded?.url ?? null;
+    }
+    if (/^blob:/i.test(image.url)) {
+      const response = await fetch(image.url);
+      const blob = await response.blob();
+      const file = new File([blob], image.fileName, { type: blob.type || 'image/png' });
+      const uploaded = await uploadCloudDocument(file);
+      return uploaded?.url ?? null;
+    }
+    return image.url;
+  };
+
+  const toPreviewUrl = (format: SupportedFormat, content: string): string | null => {
+    if (!isImageFormat(format)) return null;
+    if (content.startsWith('data:image/') || content.startsWith('blob:') || /^https?:\/\//i.test(content)) {
+      return content;
+    }
+    if (format === 'svg' && content.trim().startsWith('<svg')) {
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`;
+    }
+    return null;
+  };
+
+  const getImageMimeType = (format: SupportedFormat): string => {
+    if (format === 'png') return 'image/png';
+    if (format === 'webp') return 'image/webp';
+    if (format === 'svg') return 'image/svg+xml';
+    return 'image/jpeg';
+  };
+
   // Step State
   const [currentStep, setCurrentStep] = useState(1);
 
@@ -125,13 +158,50 @@ export const ConverterScreen = ({
   });
   const [activeImagePreset, setActiveImagePreset] = useState<ImagePreset>('custom');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [cloudSaveFeedback, setCloudSaveFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string>('');
   const [detectedSourceFormat, setDetectedSourceFormat] = useState<SupportedFormat | null>(null);
-  const [recentConversions, setRecentConversions] = useState<RecentConversionItem[]>([]);
+  const [recentConversions, setRecentConversions] = useState<ConverterHistoryItem[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isImageGalleryOpen, setIsImageGalleryOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastConversionRef = useRef<{ outputs: Record<string, string>; sizes: Record<string, number> } | null>(null);
+  const historyHydratedRef = useRef(false);
+  const handledPendingRequestIdsRef = useRef<Set<string>>(new Set());
+
+  const applyPendingPreset = async (
+    preset: OpenConverterWithFileRequest['preset'],
+    file: File,
+  ): Promise<void> => {
+    const detectedFormat = detectFormatFromFilename(file.name);
+    const isImage = !!detectedFormat && isImageFormat(detectedFormat);
+    if (!isImage) return;
+
+    if (preset === 'format-change') {
+      const targets: SupportedFormat[] = detectedFormat === 'svg' ? ['png'] : ['jpg', 'png', 'webp'];
+      setSelectedToFormats(targets);
+      setActiveResultFormat(targets[0]);
+      return;
+    }
+
+    if (preset === 'compress-image') {
+      const targets: SupportedFormat[] = detectedFormat === 'svg' ? ['png'] : ['webp'];
+      setSelectedToFormats(targets);
+      setActiveResultFormat(targets[0]);
+      const success = await runConversion();
+      if (success) handleSetCurrentStep(2);
+      return;
+    }
+
+    if (preset === 'image-filters') {
+      const targets: SupportedFormat[] = detectedFormat === 'svg' ? ['png'] : ['png', 'webp'];
+      setSelectedToFormats(targets);
+      setActiveResultFormat(targets[0]);
+      const success = await runConversion();
+      if (success) handleSetCurrentStep(2);
+    }
+  };
 
   const targetFormatOptions = formatOptions.filter((option) => option.value !== 'code');
   const availableOutputFormats = useMemo(
@@ -141,16 +211,51 @@ export const ConverterScreen = ({
   const activeOutputContent = outputByFormat[activeResultFormat] ?? '';
   const hasAnyInput = inputBinaryContent !== null || inputContent.trim().length > 0;
   const showImageOptions = Boolean(detectedSourceFormat && isImageFormat(detectedSourceFormat));
+  const currentSettings = loadZenStudioSettings();
+  const converterSettings = currentSettings.converter;
+  const zenCloudImageModeEnabled = converterSettings.imageStorageMode === 'cloud';
+  const zenCloudUploadAvailable = canUploadToZenCloud();
+  const converterStorageStatus = zenCloudImageModeEnabled
+    ? zenCloudUploadAvailable
+      ? {
+          tone: 'ready' as const,
+          title: 'Bildziel: ZenCloud aktiv',
+          detail: `Neue Bild-Konvertierungen werden direkt in ZenCLoud // ${currentSettings.cloudProjectName ?? 'ZenCloud'} gespeichert.`,
+        }
+      : {
+          tone: 'warning' as const,
+          title: 'Bildziel: ZenCloud gewählt, aber nicht verbunden',
+          detail: 'Für echte Cloud-Assets fehlen Login oder aktives ZenCloud-Projekt.',
+        }
+    : {
+        tone: 'neutral' as const,
+        title: 'Bildziel: Lokal',
+        detail: 'Bilder bleiben lokal, bis du den Bilder-Ordner oder ZenCloud-Modus aktivierst.',
+      };
 
   useEffect(() => {
     void loadConverterHistory().then((items) => {
-      if (items.length > 0) setRecentConversions(items as RecentConversionItem[]);
+      if (items.length > 0) setRecentConversions(items);
+      historyHydratedRef.current = true;
     });
   }, []);
 
   useEffect(() => {
+    if (!historyHydratedRef.current) return;
     void saveConverterHistory(recentConversions);
   }, [recentConversions]);
+
+  useEffect(() => {
+    if (!pendingOpenFileRequest?.requestId || !pendingOpenFileRequest.file) return;
+    if (handledPendingRequestIdsRef.current.has(pendingOpenFileRequest.requestId)) return;
+    handledPendingRequestIdsRef.current.add(pendingOpenFileRequest.requestId);
+    handleSetCurrentStep(1);
+    void (async () => {
+      await handleFileUpload(pendingOpenFileRequest.file);
+      await applyPendingPreset(pendingOpenFileRequest.preset, pendingOpenFileRequest.file);
+      onPendingOpenFileHandled?.(pendingOpenFileRequest.requestId);
+    })();
+  }, [onPendingOpenFileHandled, pendingOpenFileRequest]);
 
   const isRasterOutput = (format: SupportedFormat) =>
     format === 'png' || format === 'jpg' || format === 'jpeg' || format === 'webp';
@@ -538,8 +643,16 @@ export const ConverterScreen = ({
     try {
       const nextOutputs: Record<string, string> = {};
       const failedFormats: SupportedFormat[] = [];
+      const cloudOutputUrls: Partial<Record<SupportedFormat, string>> = {};
+      let cloudSavedImages = 0;
+      const cloudImageAssets: NonNullable<ConverterHistoryItem['cloudImageAssets']> = [];
+      const previewImages: NonNullable<ConverterHistoryItem['previewImages']> = [];
 
       const converterSettings = loadZenStudioSettings().converter;
+      const zenCloudImageModeEnabled = converterSettings.imageStorageMode === 'cloud';
+      const zenCloudUploadAvailable = canUploadToZenCloud();
+      const preferZenCloudImageSave = zenCloudImageModeEnabled && zenCloudUploadAvailable;
+      const hasImageTargets = selectedToFormats.some((format) => isImageFormat(format));
 
       // Alte Blob-URLs freigeben bevor neue erstellt werden
       blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
@@ -585,6 +698,14 @@ export const ConverterScreen = ({
             if (sized) data = sized;
           }
           nextOutputs[targetFormat] = data;
+          const previewUrl = typeof data === 'string' ? toPreviewUrl(targetFormat, data) : null;
+          if (previewUrl) {
+            previewImages.push({
+              format: targetFormat,
+              fileName: `${(fileName ? fileName.replace(/\.[^/.]+$/, '') : 'converted')}${getFileExtension(targetFormat)}`,
+              url: previewUrl,
+            });
+          }
           if (data.startsWith('blob:')) {
             blobUrlsRef.current.push(data);
             if (byteSize) nextSizes[targetFormat] = byteSize;
@@ -599,29 +720,8 @@ export const ConverterScreen = ({
         return false;
       }
 
-      setOutputByFormat(nextOutputs);
-      setOutputSizeByFormat(nextSizes);
-      lastConversionRef.current = { outputs: nextOutputs, sizes: nextSizes };
-      const firstSuccessFormat = selectedToFormats.find((format) => Boolean(nextOutputs[format]));
-      if (firstSuccessFormat && !preserveActiveFormat) {
-        setActiveResultFormat(firstSuccessFormat);
-      }
-
-      if (!silent && !skipHistory) {
-        setRecentConversions((prev) => [
-          {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            fileName: fileName?.trim() || 'Untitled',
-            fromFormat,
-            targetFormats: Object.keys(nextOutputs) as SupportedFormat[],
-            createdAt: Date.now(),
-          },
-          ...prev,
-        ].slice(0, 12));
-      }
-
       // Auto-Save in konfigurierte Ordner
-      if (!silent && converterSettings.autoSave) {
+      if (converterSettings.autoSave || preferZenCloudImageSave) {
         const baseFileName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'converted';
         const autoSaveErrors: string[] = [];
 
@@ -629,6 +729,11 @@ export const ConverterScreen = ({
           const format = fmt as SupportedFormat;
           const outFileName = `${baseFileName}${getFileExtension(format)}`;
           const folderType = isImageFormat(format) ? 'images' : 'archive';
+          const shouldSaveImageToZenCloud = folderType === 'images' && preferZenCloudImageSave;
+
+          if (preferZenCloudImageSave && folderType !== 'images' && !converterSettings.autoSave) {
+            continue;
+          }
 
           let payload: string | Uint8Array;
           if (content.startsWith('blob:')) {
@@ -640,15 +745,124 @@ export const ConverterScreen = ({
             payload = content;
           }
 
-          const saved = await saveToConverterFolder(folderType, outFileName, payload);
-          if (!saved) autoSaveErrors.push(fmt);
+          if (shouldSaveImageToZenCloud) {
+            try {
+              const cloudUpload = await uploadCloudDocument(
+                new File([payload], outFileName, { type: getImageMimeType(format) })
+              );
+              if (cloudUpload) {
+                cloudSavedImages += 1;
+                cloudOutputUrls[format] = cloudUpload.url;
+                cloudImageAssets.push({
+                  format,
+                  fileName: outFileName,
+                  docId: cloudUpload.id,
+                  url: cloudUpload.url,
+                });
+              } else {
+                autoSaveErrors.push(fmt);
+              }
+            } catch {
+              autoSaveErrors.push(fmt);
+            }
+          }
+
+          if (converterSettings.autoSave) {
+            const saved = shouldSaveImageToZenCloud
+              ? await saveToLocalConverterFolder(folderType, outFileName, payload)
+              : await saveToConverterFolder(folderType, outFileName, payload);
+
+            if (!saved.success && !shouldSaveImageToZenCloud) {
+              autoSaveErrors.push(fmt);
+            } else if (folderType === 'images' && saved.success && saved.storage === 'cloud') {
+              cloudSavedImages += 1;
+              cloudOutputUrls[format] = saved.cloudAsset.url;
+              cloudImageAssets.push({
+                format,
+                fileName: saved.cloudAsset.fileName,
+                docId: saved.cloudAsset.id,
+                url: saved.cloudAsset.url,
+              });
+            }
+          } else if (!shouldSaveImageToZenCloud && !preferZenCloudImageSave) {
+            continue;
+          }
         }
 
-        if (autoSaveErrors.length > 0) {
-          const hint = !isTauri() && converterSettings.useOpfsInWeb
-            ? 'Browser-Speicher verfügbar?'
-            : 'Ordner konfiguriert?';
+        if (!silent && cloudSavedImages > 0) {
+          const projectName = loadZenStudioSettings().cloudProjectName ?? 'ZenCloud';
+          showCloudSaveFeedback(
+            `${cloudSavedImages} Bild${cloudSavedImages !== 1 ? 'er' : ''} in ${projectName} gespeichert`
+          );
+        }
+
+        if (!silent && autoSaveErrors.length > 0) {
+          const hint = preferZenCloudImageSave
+            ? 'ZenCloud verbunden?'
+            : !isTauri() && converterSettings.useOpfsInWeb
+              ? 'Browser-Speicher verfügbar?'
+              : 'Ordner konfiguriert?';
           setError(`Auto-Save fehlgeschlagen für: ${autoSaveErrors.join(', ')} — ${hint}`);
+        }
+      }
+
+      for (const [format, url] of Object.entries(cloudOutputUrls)) {
+        if (!url) continue;
+        nextOutputs[format as SupportedFormat] = url;
+      }
+
+      if (preferZenCloudImageSave) {
+        for (const format of selectedToFormats) {
+          if (!isImageFormat(format)) continue;
+          if (cloudOutputUrls[format]) continue;
+          delete nextOutputs[format];
+          delete nextSizes[format];
+        }
+      }
+
+      setOutputByFormat({ ...nextOutputs });
+      setOutputSizeByFormat(nextSizes);
+      lastConversionRef.current = { outputs: { ...nextOutputs }, sizes: nextSizes };
+      const firstSuccessFormat = selectedToFormats.find((format) => Boolean(nextOutputs[format]));
+      if (firstSuccessFormat && !preserveActiveFormat) {
+        setActiveResultFormat(firstSuccessFormat);
+      }
+
+      const cloudHistoryBlocked = preferZenCloudImageSave && hasImageTargets && cloudImageAssets.length === 0;
+      if (cloudHistoryBlocked) {
+        setError('ZenCloud-Speicherung fehlgeschlagen — Eintrag nicht in die Konvertierungs-Mappe übernommen.');
+      }
+
+      if (!silent && !skipHistory) {
+        const mustUseCloudPreviewImages = preferZenCloudImageSave;
+        const historyPreviewImages =
+          mustUseCloudPreviewImages
+            ? cloudImageAssets.map((asset) => ({
+                format: asset.format as SupportedFormat,
+                fileName: asset.fileName,
+                url: asset.url,
+              }))
+            : cloudImageAssets.length > 0
+            ? cloudImageAssets.map((asset) => ({
+                format: asset.format as SupportedFormat,
+                fileName: asset.fileName,
+                url: asset.url,
+              }))
+            : previewImages;
+
+        if (!cloudHistoryBlocked) {
+          setRecentConversions((prev) => [
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              fileName: fileName?.trim() || 'Untitled',
+              fromFormat,
+              targetFormats: Object.keys(nextOutputs) as SupportedFormat[],
+              createdAt: Date.now(),
+              previewImages: historyPreviewImages.length > 0 ? historyPreviewImages : undefined,
+              cloudImageAssets: cloudImageAssets.length > 0 ? cloudImageAssets : undefined,
+            },
+            ...prev,
+          ].slice(0, 12));
         }
       }
 
@@ -674,7 +888,9 @@ export const ConverterScreen = ({
   const handleFileUpload = async (file: File) => {
     setFileName(file.name);
     setOutputByFormat({});
+    setOutputSizeByFormat({});
     setError(null);
+    setCloudSaveFeedback(null);
     setIsPreparingInput(true);
     setInputBinaryContent(null);
     setCropRect(null);
@@ -814,7 +1030,7 @@ export const ConverterScreen = ({
 
       // Hilfsfunktion: blob: URL oder data: URL → Uint8Array
       const contentToBytes = async (content: string): Promise<Uint8Array<ArrayBuffer>> => {
-        if (content.startsWith('blob:')) {
+        if (content.startsWith('blob:') || /^https?:\/\//i.test(content)) {
           const ab = await (await fetch(content)).arrayBuffer();
           return new Uint8Array(ab.slice(0));
         }
@@ -840,6 +1056,26 @@ export const ConverterScreen = ({
         }
         setError(null);
         return;
+      }
+
+      // Cloud-Upload wenn Cloud-Modus aktiv (auch in Tauri)
+      if (isRasterOutput && zenCloudImageModeEnabled && zenCloudUploadAvailable) {
+        try {
+          const bytes = await contentToBytes(outputContent);
+          const mime = `image/${format === 'jpg' ? 'jpeg' : format}`;
+          const cloudResult = await uploadCloudDocument(new File([bytes], defaultFileName, { type: mime }));
+          if (cloudResult) {
+            const projectName = loadZenStudioSettings().cloudProjectName ?? 'ZenCloud';
+            showCloudSaveFeedback(`${defaultFileName} in ${projectName} gespeichert`);
+            setError(null);
+            return;
+          }
+          setError('Cloud-Upload fehlgeschlagen — bitte ZenCloud-Verbindung prüfen.');
+          return;
+        } catch {
+          setError('Cloud-Upload fehlgeschlagen.');
+          return;
+        }
       }
 
       // Öffne Save-Dialog mit Tauri
@@ -902,6 +1138,13 @@ export const ConverterScreen = ({
       return bytes;
     };
 
+    const contentToBytes = async (content: string) => {
+      if (content.startsWith('blob:') || /^https?:\/\//i.test(content)) {
+        return new Uint8Array(await (await fetch(content)).arrayBuffer());
+      }
+      return decodeDataUrl(content);
+    };
+
     try {
       const zip = new JSZip();
       for (const fmt of formatsToSave) {
@@ -909,11 +1152,8 @@ export const ConverterScreen = ({
         const filename = `${baseFileName}${getFileExtension(fmt)}`;
 
         if (fmt === 'png' || fmt === 'jpg' || fmt === 'jpeg' || fmt === 'webp') {
-          if (content.startsWith('blob:')) {
-            const ab = await (await fetch(content)).arrayBuffer();
-            zip.file(filename, ab.slice(0));
-          } else if (content.startsWith('data:image/')) {
-            zip.file(filename, decodeDataUrl(content));
+          if (content.startsWith('blob:') || content.startsWith('data:image/') || /^https?:\/\//i.test(content)) {
+            zip.file(filename, await contentToBytes(content));
           }
           continue;
         }
@@ -1005,6 +1245,24 @@ export const ConverterScreen = ({
       }
     }
 
+    if (/^https?:\/\//i.test(content)) {
+      try {
+        const resp = await fetch(content);
+        const blob = await resp.blob();
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = String(reader.result ?? '');
+            resolve({ dataUrl, base64: dataUrl.split(',')[1] ?? '' });
+          };
+          reader.onerror = () => resolve({ dataUrl: '', base64: '' });
+          reader.readAsDataURL(blob);
+        });
+      } catch {
+        return { dataUrl: '', base64: '' };
+      }
+    }
+
     if (content.startsWith('data:')) {
       return { dataUrl: content, base64: content.split(',')[1] ?? '' };
     }
@@ -1038,6 +1296,11 @@ export const ConverterScreen = ({
   const showCopyFeedback = (message: string) => {
     setCopyFeedback(message);
     window.setTimeout(() => setCopyFeedback(null), 2000);
+  };
+
+  const showCloudSaveFeedback = (message: string) => {
+    setCloudSaveFeedback(message);
+    window.setTimeout(() => setCloudSaveFeedback(null), 3500);
   };
 
   const handleCopyImageDataUrl = async () => {
@@ -1149,11 +1412,41 @@ export const ConverterScreen = ({
     onClearRecentItems: () => {
       setRecentConversions([]);
     },
+    onInsertRecentIntoContentStudio: (item: ConverterHistoryItem) => {
+      if (!item.cloudImageAssets || item.cloudImageAssets.length === 0) return;
+      const snippet = item.cloudImageAssets
+        .map((asset) => `![${asset.fileName}](${getCloudDocumentUrl(asset.docId) ?? asset.url})`)
+        .join('\n\n');
+      onOpenInContentStudio?.(snippet, item.fileName || 'ZenCloud-Bilder.md');
+    },
+    onCreateRecentAsZenNote: async (item: ConverterHistoryItem) => {
+      if (!canUploadToZenCloud()) return false;
+      const images = item.cloudImageAssets?.length ? item.cloudImageAssets : item.previewImages;
+      if (!images || images.length === 0) return false;
+      const noteLines: string[] = [];
+      for (const image of images) {
+        const cloudUrl = await ensureZenCloudImageUrl({
+          fileName: image.fileName,
+          url: image.url,
+        });
+        if (!cloudUrl) continue;
+        noteLines.push(`![${image.fileName}](${cloudUrl})`);
+      }
+      if (noteLines.length === 0) return false;
+      const noteContent = noteLines.join('\n\n');
+      const baseName = (item.fileName || 'Quicknote').replace(/\.[^.]+$/, '').trim() || 'Quicknote';
+      const noteTitle = `${baseName} Quicknote`;
+      const blob = new Blob([noteContent], { type: 'text/zennote' });
+      const file = new File([blob], `${noteTitle}.zennote`, { type: 'text/zennote' });
+      const result = await uploadCloudDocument(file);
+      return !!result;
+    },
     onUploadFile: (file: File) => { void handleFileUpload(file); },
     onConvert: async () => {
       const success = await handleConvert();
       if (success) handleSetCurrentStep(2);
     },
+    onOpenImageGallery: zenCloudUploadAvailable ? () => setIsImageGalleryOpen(true) : undefined,
   };
 
   const renderStepContent = () => {
@@ -1220,6 +1513,7 @@ export const ConverterScreen = ({
             }}
             onImagePresetSelect={handleImagePresetSelect}
             copyFeedback={copyFeedback}
+            cloudSaveFeedback={cloudSaveFeedback}
             onCopyImageDataUrl={handleCopyImageDataUrl}
             onCopyImageBase64={handleCopyImageBase64}
             onSaveDataUrlTxt={() => void handleSaveImageText('dataurl')}
@@ -1257,6 +1551,7 @@ export const ConverterScreen = ({
               });
               setActiveImagePreset('custom');
               setError(null);
+              setCloudSaveFeedback(null);
             }}
             showOpenInContentStudio={
               !isTauri() &&
@@ -1267,6 +1562,7 @@ export const ConverterScreen = ({
               const name = fileName?.trim() || `converted${getFileExtension(activeResultFormat)}`;
               onOpenInContentStudio?.(activeOutputContent, name);
             }}
+            onOpenImageGallery={zenCloudUploadAvailable ? () => setIsImageGalleryOpen(true) : undefined}
           />
         );
       default:
@@ -1292,6 +1588,56 @@ export const ConverterScreen = ({
         ))}
       </div>
 
+      <div className="flex justify-center px-[10px] pb-[10px]">
+        <div
+          style={{
+            marginTop: '10px',
+            width: 'min(100%, 660px)',
+            paddingTop: '10px',
+            borderRadius: '10px',
+            border:
+              converterStorageStatus.tone === 'ready'
+                ? '1px solid rgba(94,163,111,0.34)'
+                : converterStorageStatus.tone === 'warning'
+                ? '1px solid rgba(172,142,102,0.34)'
+                : '1px solid rgba(120,120,120,0.28)',
+            background:
+              converterStorageStatus.tone === 'ready'
+                ? 'rgba(94,163,111,0.10)'
+                : converterStorageStatus.tone === 'warning'
+                ? 'rgba(172,142,102,0.10)'
+                : 'rgba(255,255,255,0.03)',
+            padding: '10px 14px',
+            boxSizing: 'border-box',
+          }}
+        >
+          <div
+            style={{
+              color:
+                converterStorageStatus.tone === 'ready'
+                  ? '#9ad1a9'
+                  : converterStorageStatus.tone === 'warning'
+                  ? '#E7CCAA'
+                  : '#c9c4bc',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+            }}
+          >
+            {converterStorageStatus.title}
+          </div>
+          <div
+            style={{
+              color: '#b7b0a5',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '10px',
+              marginTop: '4px',
+            }}
+          >
+            {converterStorageStatus.detail}
+          </div>
+        </div>
+      </div>
+
       {/* Step Content */}
       {renderStepContent()}
 
@@ -1308,6 +1654,12 @@ export const ConverterScreen = ({
         isOpen={isConverting}
         templateName={`${selectedToFormats.map((format) => format.toUpperCase()).join(', ')} Konvertierung`}
         onClose={() => setIsConverting(false)}
+      />
+
+      {/* ZenImage Gallery */}
+      <ZenImageGalleryModal
+        isOpen={isImageGalleryOpen}
+        onClose={() => setIsImageGalleryOpen(false)}
       />
     </div>
   );

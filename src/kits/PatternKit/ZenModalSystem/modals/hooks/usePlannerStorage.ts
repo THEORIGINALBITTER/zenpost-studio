@@ -10,6 +10,8 @@ import {
   savePlannerToCloud,
 } from '../../../../../services/cloudPlannerService';
 import { subscribeToCloudPlannerSync } from '../../../../../services/cloudPlannerSyncService';
+import { subscribeToCloudSessionSync } from '../../../../../services/cloudSessionSyncService';
+import { isCloudProjectPath } from '../../../../../services/cloudProjectService';
 import type { ScheduledPost, SocialPlatform } from '../../../../../types/scheduling';
 import type { ChecklistItem } from '../../../../../utils/checklistStorage';
 import type { PlannerPost, PlannerStorage, PostSchedule, ScheduleMap } from '../plannerTypes';
@@ -61,6 +63,7 @@ export function usePlannerStorage({
   const [manualPosts, setManualPosts] = useState<PlannerPost[]>([]);
   const [schedules, setSchedules] = useState<ScheduleMap>({});
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
+  const [cloudSessionRevision, setCloudSessionRevision] = useState(0);
   const lastLoadedPathRef = useRef<string | null>(null);
 
   const reconcileSchedules = (
@@ -235,7 +238,7 @@ export function usePlannerStorage({
     };
 
     void loadPlannerData();
-  }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts, scheduledPosts, bootstrapState]);
+  }, [isOpen, plannerStoragePath, plannerProjectPath, initialDate, initialSchedules, posts, scheduledPosts, bootstrapState, cloudSessionRevision]);
 
   // ── Autosave: lokal + cloud (debounced 500 ms) ─────────────────────────────
   useEffect(() => {
@@ -282,6 +285,27 @@ export function usePlannerStorage({
       setSchedules(reconcileSchedules(planner.manualPosts, planner.schedules));
     });
   }, [isOpen, plannerLoaded, posts, scheduledPosts, initialDate, initialSchedules]);
+
+  useEffect(() => {
+    if (!isOpen || !projectPath || !isCloudProjectPath(projectPath)) return;
+
+    return subscribeToCloudSessionSync(({ reason, current }) => {
+      if (reason === 'logout' || !current.authToken || !current.projectId) {
+        lastLoadedPathRef.current = null;
+        setManualPosts([]);
+        setSchedules({});
+        setChecklistItems([]);
+        setPlannerLoaded(true);
+        setCloudSessionRevision(prev => prev + 1);
+        return;
+      }
+
+      if (reason === 'login' || reason === 'project-change') {
+        lastLoadedPathRef.current = null;
+        setCloudSessionRevision(prev => prev + 1);
+      }
+    }, { intervalMs: 5000 });
+  }, [isOpen, projectPath]);
 
   return {
     plannerLoaded,

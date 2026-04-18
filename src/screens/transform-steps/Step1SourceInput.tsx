@@ -1027,14 +1027,14 @@ export const Step1SourceInput = ({
         const slash = dp.indexOf('/');
         const docPart = slash >= 0 ? dp.slice(slash + 1) : null;
         return cloudName
-          ? (docPart ? `@cloud: ${cloudName} / ${docPart}` : `@cloud: ${cloudName}`)
+          ? (docPart ? `@ZenCloud // ${cloudName} / ${docPart}` : `@cloud: ${cloudName}`)
           : dp;
       }
       return dp;
     }
     if (projectPath?.startsWith('@cloud:')) {
       const cloudName = loadZenStudioSettings().cloudProjectName;
-      return cloudName ? `@cloud: ${cloudName} / ${displayFileName}` : `@cloud: ${displayFileName}`;
+      return cloudName ? `@ZenCloud // ${cloudName} / ${displayFileName}` : `@cloud: ${displayFileName}`;
     }
     return projectPath ? `${projectPath}/${displayFileName}` : displayFileName;
   })();
@@ -1205,13 +1205,18 @@ export const Step1SourceInput = ({
                 containerStyle={{
                   marginBottom: '6px',
                   paddingLeft: '2px',
+                  
                 }}
+                textStyle={{
+    color: '#e8e3d8',
+  }}
+                
               />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
-                <p className="font-mono fontWeight-[200] text-[10px] text-[#888]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                <p className="font-mono fontWeight-[200] text-[11px] text-[#e8e3d8]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                    <FontAwesomeIcon
                      icon={faFolderOpen}
-                     style={{ color: '#AC8E66', fontSize: '10px', flexShrink: 0, cursor: revealPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
+                     style={{ color: '#e8e3d8', fontSize: '10px', flexShrink: 0, cursor: revealPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
                      onClick={() => revealPath && revealItemInDir(revealPath)}
                      onMouseEnter={(e) => { if (revealPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
@@ -1516,7 +1521,7 @@ export const Step1SourceInput = ({
                   : '1px dashed #1a1a1a',
                 background: isDragActive
                   ? 'rgba(172,142,102,0.1)'
-                  : '#d0cbb8',
+                  : '#d2cabd',
                 padding: '36px 20px',
                 display: 'flex',
                 flexDirection: 'column',

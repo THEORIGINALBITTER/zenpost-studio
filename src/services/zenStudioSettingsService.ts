@@ -112,6 +112,7 @@ export const defaultNewsletterConfig: NewsletterConfig = {
 export interface ConverterConfig {
   autoSave: boolean;
   useOpfsInWeb: boolean;
+  imageStorageMode: 'local' | 'cloud';
   imagesFolderName: string | null;   // Anzeigename (Browser: Ordnername, Tauri: Pfad-Basename)
   archiveFolderName: string | null;
   imagesFolderPath: string | null;   // Tauri: vollständiger Pfad
@@ -125,6 +126,7 @@ export interface ConverterConfig {
 export const defaultConverterConfig: ConverterConfig = {
   autoSave: false,
   useOpfsInWeb: false,
+  imageStorageMode: 'local',
   imagesFolderName: null,
   archiveFolderName: null,
   imagesFolderPath: null,
@@ -183,7 +185,7 @@ export const defaultZenStudioSettings: ZenStudioSettings = {
   contentServerListEndpoint: '/articles.php',
   contentServerDeleteEndpoint: '/delete_articles.php',
   contentServerImageBaseUrl: null,
-  servers: [{ ...defaultServerConfig }],
+  servers: [],
   activeServerIndex: 0,
   zenpostmobilPath: null,
   blogs: [],
@@ -197,6 +199,49 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
   if (!raw) return { ...defaultZenStudioSettings };
   try {
     const parsed = JSON.parse(raw) as Partial<ZenStudioSettings>;
+    const normalizedServers = (() => {
+      // Explicit empty array — user deleted all servers, respect that
+      if (Array.isArray(parsed.servers) && parsed.servers.length === 0) return [];
+      if (Array.isArray(parsed.servers) && parsed.servers.length > 0) {
+        return (parsed.servers as Partial<ServerConfig>[]).map((s) => ({
+          name: typeof s.name === 'string' && s.name.trim().length > 0 ? s.name.trim() : 'Server',
+          contentServerApiUrl: typeof s.contentServerApiUrl === 'string' && s.contentServerApiUrl.trim().length > 0 ? s.contentServerApiUrl.trim() : null,
+          contentServerApiKey: typeof s.contentServerApiKey === 'string' && s.contentServerApiKey.trim().length > 0 ? s.contentServerApiKey.trim() : null,
+          contentServerLocalCachePath: typeof s.contentServerLocalCachePath === 'string' && s.contentServerLocalCachePath.trim().length > 0 ? s.contentServerLocalCachePath.trim() : null,
+          contentServerApiEndpoint: typeof s.contentServerApiEndpoint === 'string' && s.contentServerApiEndpoint.trim().length > 0 ? s.contentServerApiEndpoint.trim() : defaultServerConfig.contentServerApiEndpoint,
+          contentServerImageUploadEndpoint: typeof s.contentServerImageUploadEndpoint === 'string' && s.contentServerImageUploadEndpoint.trim().length > 0 ? s.contentServerImageUploadEndpoint.trim() : defaultServerConfig.contentServerImageUploadEndpoint,
+          contentServerPingEndpoint: typeof s.contentServerPingEndpoint === 'string' && s.contentServerPingEndpoint.trim().length > 0 ? s.contentServerPingEndpoint.trim() : defaultServerConfig.contentServerPingEndpoint,
+          contentServerListEndpoint: typeof s.contentServerListEndpoint === 'string' && s.contentServerListEndpoint.trim().length > 0 ? s.contentServerListEndpoint.trim() : defaultServerConfig.contentServerListEndpoint,
+          contentServerDeleteEndpoint: typeof s.contentServerDeleteEndpoint === 'string' && s.contentServerDeleteEndpoint.trim().length > 0 ? s.contentServerDeleteEndpoint.trim() : defaultServerConfig.contentServerDeleteEndpoint,
+          contentServerImageBaseUrl: typeof s.contentServerImageBaseUrl === 'string' && s.contentServerImageBaseUrl.trim().length > 0 ? s.contentServerImageBaseUrl.trim() : null,
+        }));
+      }
+      // Migration: build a server only when old flat server settings were actually configured.
+      const flatUrl = typeof parsed.contentServerApiUrl === 'string' && parsed.contentServerApiUrl.trim().length > 0 ? parsed.contentServerApiUrl.trim() : null;
+      const flatKey = typeof parsed.contentServerApiKey === 'string' && parsed.contentServerApiKey.trim().length > 0 ? parsed.contentServerApiKey.trim() : null;
+      const flatCachePath = typeof parsed.contentServerLocalCachePath === 'string' && parsed.contentServerLocalCachePath.trim().length > 0 ? parsed.contentServerLocalCachePath.trim() : null;
+      const flatEndpoint = typeof parsed.contentServerApiEndpoint === 'string' && parsed.contentServerApiEndpoint.trim().length > 0 ? parsed.contentServerApiEndpoint.trim() : defaultServerConfig.contentServerApiEndpoint;
+      const flatUpload = typeof parsed.contentServerImageUploadEndpoint === 'string' && parsed.contentServerImageUploadEndpoint.trim().length > 0 ? parsed.contentServerImageUploadEndpoint.trim() : defaultServerConfig.contentServerImageUploadEndpoint;
+      const flatPing = typeof parsed.contentServerPingEndpoint === 'string' && parsed.contentServerPingEndpoint.trim().length > 0 ? parsed.contentServerPingEndpoint.trim() : defaultServerConfig.contentServerPingEndpoint;
+      const flatList = typeof parsed.contentServerListEndpoint === 'string' && parsed.contentServerListEndpoint.trim().length > 0 ? parsed.contentServerListEndpoint.trim() : defaultServerConfig.contentServerListEndpoint;
+      const flatDelete = typeof parsed.contentServerDeleteEndpoint === 'string' && parsed.contentServerDeleteEndpoint.trim().length > 0 ? parsed.contentServerDeleteEndpoint.trim() : defaultServerConfig.contentServerDeleteEndpoint;
+      const flatImageBase = typeof parsed.contentServerImageBaseUrl === 'string' && parsed.contentServerImageBaseUrl.trim().length > 0 ? parsed.contentServerImageBaseUrl.trim() : null;
+      const hasLegacyServerConfig = !!(flatUrl || flatCachePath || flatKey || flatImageBase);
+      if (!hasLegacyServerConfig) return [];
+      return [{ name: 'Server A', contentServerApiUrl: flatUrl, contentServerApiKey: flatKey, contentServerLocalCachePath: flatCachePath, contentServerApiEndpoint: flatEndpoint, contentServerImageUploadEndpoint: flatUpload, contentServerPingEndpoint: flatPing, contentServerListEndpoint: flatList, contentServerDeleteEndpoint: flatDelete, contentServerImageBaseUrl: flatImageBase }];
+    })();
+
+    const normalizedActiveServerIndex =
+      normalizedServers.length === 0
+        ? 0
+        : Math.max(
+            0,
+            Math.min(
+              typeof parsed.activeServerIndex === 'number' && parsed.activeServerIndex >= 0 ? parsed.activeServerIndex : 0,
+              normalizedServers.length - 1
+            )
+          );
+
     return {
       ...defaultZenStudioSettings,
       ...parsed,
@@ -263,36 +308,8 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
         typeof parsed.contentServerImageBaseUrl === 'string' && parsed.contentServerImageBaseUrl.trim().length > 0
           ? parsed.contentServerImageBaseUrl.trim()
           : null,
-      servers: (() => {
-        // Explicit empty array — user deleted all servers, respect that
-        if (Array.isArray(parsed.servers) && parsed.servers.length === 0) return [];
-        if (Array.isArray(parsed.servers) && parsed.servers.length > 0) {
-          return (parsed.servers as Partial<ServerConfig>[]).map((s) => ({
-            name: typeof s.name === 'string' && s.name.trim().length > 0 ? s.name.trim() : 'Server',
-            contentServerApiUrl: typeof s.contentServerApiUrl === 'string' && s.contentServerApiUrl.trim().length > 0 ? s.contentServerApiUrl.trim() : null,
-            contentServerApiKey: typeof s.contentServerApiKey === 'string' && s.contentServerApiKey.trim().length > 0 ? s.contentServerApiKey.trim() : null,
-            contentServerLocalCachePath: typeof s.contentServerLocalCachePath === 'string' && s.contentServerLocalCachePath.trim().length > 0 ? s.contentServerLocalCachePath.trim() : null,
-            contentServerApiEndpoint: typeof s.contentServerApiEndpoint === 'string' && s.contentServerApiEndpoint.trim().length > 0 ? s.contentServerApiEndpoint.trim() : defaultServerConfig.contentServerApiEndpoint,
-            contentServerImageUploadEndpoint: typeof s.contentServerImageUploadEndpoint === 'string' && s.contentServerImageUploadEndpoint.trim().length > 0 ? s.contentServerImageUploadEndpoint.trim() : defaultServerConfig.contentServerImageUploadEndpoint,
-            contentServerPingEndpoint: typeof s.contentServerPingEndpoint === 'string' && s.contentServerPingEndpoint.trim().length > 0 ? s.contentServerPingEndpoint.trim() : defaultServerConfig.contentServerPingEndpoint,
-            contentServerListEndpoint: typeof s.contentServerListEndpoint === 'string' && s.contentServerListEndpoint.trim().length > 0 ? s.contentServerListEndpoint.trim() : defaultServerConfig.contentServerListEndpoint,
-            contentServerDeleteEndpoint: typeof s.contentServerDeleteEndpoint === 'string' && s.contentServerDeleteEndpoint.trim().length > 0 ? s.contentServerDeleteEndpoint.trim() : defaultServerConfig.contentServerDeleteEndpoint,
-            contentServerImageBaseUrl: typeof s.contentServerImageBaseUrl === 'string' && s.contentServerImageBaseUrl.trim().length > 0 ? s.contentServerImageBaseUrl.trim() : null,
-          }));
-        }
-        // Migration: build Server A from existing flat fields (only for old settings without servers key)
-        const flatUrl = typeof parsed.contentServerApiUrl === 'string' && parsed.contentServerApiUrl.trim().length > 0 ? parsed.contentServerApiUrl.trim() : null;
-        const flatKey = typeof parsed.contentServerApiKey === 'string' && parsed.contentServerApiKey.trim().length > 0 ? parsed.contentServerApiKey.trim() : null;
-        const flatCachePath = typeof parsed.contentServerLocalCachePath === 'string' && parsed.contentServerLocalCachePath.trim().length > 0 ? parsed.contentServerLocalCachePath.trim() : null;
-        const flatEndpoint = typeof parsed.contentServerApiEndpoint === 'string' && parsed.contentServerApiEndpoint.trim().length > 0 ? parsed.contentServerApiEndpoint.trim() : defaultServerConfig.contentServerApiEndpoint;
-        const flatUpload = typeof parsed.contentServerImageUploadEndpoint === 'string' && parsed.contentServerImageUploadEndpoint.trim().length > 0 ? parsed.contentServerImageUploadEndpoint.trim() : defaultServerConfig.contentServerImageUploadEndpoint;
-        const flatPing = typeof parsed.contentServerPingEndpoint === 'string' && parsed.contentServerPingEndpoint.trim().length > 0 ? parsed.contentServerPingEndpoint.trim() : defaultServerConfig.contentServerPingEndpoint;
-        const flatList = typeof parsed.contentServerListEndpoint === 'string' && parsed.contentServerListEndpoint.trim().length > 0 ? parsed.contentServerListEndpoint.trim() : defaultServerConfig.contentServerListEndpoint;
-        const flatDelete = typeof parsed.contentServerDeleteEndpoint === 'string' && parsed.contentServerDeleteEndpoint.trim().length > 0 ? parsed.contentServerDeleteEndpoint.trim() : defaultServerConfig.contentServerDeleteEndpoint;
-        const flatImageBase = typeof parsed.contentServerImageBaseUrl === 'string' && parsed.contentServerImageBaseUrl.trim().length > 0 ? parsed.contentServerImageBaseUrl.trim() : null;
-        return [{ name: 'Server A', contentServerApiUrl: flatUrl, contentServerApiKey: flatKey, contentServerLocalCachePath: flatCachePath, contentServerApiEndpoint: flatEndpoint, contentServerImageUploadEndpoint: flatUpload, contentServerPingEndpoint: flatPing, contentServerListEndpoint: flatList, contentServerDeleteEndpoint: flatDelete, contentServerImageBaseUrl: flatImageBase }];
-      })(),
-      activeServerIndex: typeof parsed.activeServerIndex === 'number' && parsed.activeServerIndex >= 0 ? parsed.activeServerIndex : 0,
+      servers: normalizedServers,
+      activeServerIndex: normalizedActiveServerIndex,
       zenpostmobilPath: typeof parsed.zenpostmobilPath === 'string' && parsed.zenpostmobilPath.trim().length > 0
         ? parsed.zenpostmobilPath.trim()
         : null,
@@ -362,6 +379,7 @@ export const loadZenStudioSettings = (): ZenStudioSettings => {
         return {
           autoSave: typeof c.autoSave === 'boolean' ? c.autoSave : false,
           useOpfsInWeb: typeof c.useOpfsInWeb === 'boolean' ? c.useOpfsInWeb : false,
+          imageStorageMode: c.imageStorageMode === 'cloud' ? 'cloud' : 'local',
           imagesFolderName: typeof c.imagesFolderName === 'string' && c.imagesFolderName.trim() ? c.imagesFolderName.trim() : null,
           archiveFolderName: typeof c.archiveFolderName === 'string' && c.archiveFolderName.trim() ? c.archiveFolderName.trim() : null,
           imagesFolderPath: typeof c.imagesFolderPath === 'string' && c.imagesFolderPath.trim() ? c.imagesFolderPath.trim() : null,
@@ -520,6 +538,11 @@ export const importAllSettingsFromFile = (file: File): Promise<void> =>
 
 export const patchZenStudioSettings = (patch: Partial<ZenStudioSettings>): ZenStudioSettings => {
   const current = loadZenStudioSettings();
+  const nextServers = Array.isArray(patch.servers) ? patch.servers : current.servers;
+  const requestedActiveServerIndex = typeof patch.activeServerIndex === 'number' ? patch.activeServerIndex : current.activeServerIndex;
+  const nextActiveServerIndex = nextServers.length === 0
+    ? 0
+    : Math.max(0, Math.min(requestedActiveServerIndex, nextServers.length - 1));
   const next: ZenStudioSettings = {
     ...current,
     ...patch,
@@ -595,8 +618,8 @@ export const patchZenStudioSettings = (patch: Partial<ZenStudioSettings>): ZenSt
       typeof patch.contentServerImageBaseUrl === 'string'
         ? (patch.contentServerImageBaseUrl.trim().length > 0 ? patch.contentServerImageBaseUrl.trim() : null)
         : current.contentServerImageBaseUrl,
-    servers: Array.isArray(patch.servers) ? patch.servers : current.servers,
-    activeServerIndex: typeof patch.activeServerIndex === 'number' ? patch.activeServerIndex : current.activeServerIndex,
+    servers: nextServers,
+    activeServerIndex: nextActiveServerIndex,
   };
   saveZenStudioSettings(next);
   return next;

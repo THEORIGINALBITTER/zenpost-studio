@@ -2224,8 +2224,8 @@ const handleDownload = async () => {
           {/* Content Display */}
           <div style={{ padding: '0 1.5rem 1rem 1.5rem' }}>
             {activePanel === 'vergleich' && !hasComparison && (
-              <div style={{ marginBottom: '0.5px', padding: '10px 14px', border: '0.5px solid #3a3a3a', borderRadius: '0 0 0 0', backgroundColor: '#d0cbb8' }}>
-                <span className="font-mono text-[10px] text-[#555]">Keine Vergleichsquelle verfügbar — öffne mehrere Dokumente als Tabs.</span>
+              <div style={{ marginBottom: '0.5px', padding: '10px 14px', border: '0.5px solid #3a3a3a', borderRadius: '0 0 0 0', backgroundColor: '#252525' }}>
+                <span className="font-mono text-[10px] text-[#e8e3d8]">Keine Vergleichsquelle verfügbar — öffne mehrere Dokumente als Tabs.</span>
               </div>
             )}
             {activePanel === 'vergleich' && hasComparison && (
@@ -2413,16 +2413,16 @@ const handleDownload = async () => {
                   padding: '10px',
                   border: '0.5px solid #1a1a1a',
                   borderRadius: '0 ',
-                  backgroundColor: '#cfcbbc',
+                  backgroundColor: '#252525',
                 }}
               >
                 <div
                   className="rounded-[6px] border border-[#1a1a1a] overflow-hidden"
-                  style={{ background: '#d0cbb8' }}
+                  style={{ background: 'transparent' }}
                 >
                   <div className="px-[3px] py-[1.5px]  border-b 
                   border-[#1a1a1a] flex items-center  justify-between">
-                    <span className="font-mono text-[11px] text-[#1a1a1a] tracking-wider uppercase">
+                    <span className="font-mono text-[11px] text-[#e8e3d8] tracking-wider uppercase">
                       ZenEngine Analyse
                     </span>
                     {qualityAnalysis && (
@@ -2441,7 +2441,7 @@ const handleDownload = async () => {
                             >
                               {Math.round(s.confidence * 100)}%
                             </span>
-                            <span className="px-[3px] px-[3px] font-mono text-[12px] text-[#666]">
+                            <span className="px-[3px] px-[3px] font-mono text-[12px] text-[#e8e3d8]">
                               <span className="text-[#888]">{' · '}</span>
                               <span className="text-[#AC8E66]">
                                 {s.rule.replace(/_/g, ' ')}

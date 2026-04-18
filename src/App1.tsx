@@ -1,5 +1,5 @@
 // App1.tsx
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { Helmet } from "react-helmet-async";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -20,6 +20,7 @@ import {
   faSpinner,
   faCheck,
   faCircleExclamation,
+  faDownload,
 } from "@fortawesome/free-solid-svg-icons";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
@@ -35,6 +36,7 @@ import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSet
 import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutModal";
 import { ZenBugReportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBugReportModal";
 import { ZenMailSuccessModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenMailSuccessModal";
+import { ZenImageGalleryModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenImageGalleryModal";
 import { ZenContentStudioModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenContentStudioModal";
 import { ZenWebProjectPickerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenWebProjectPickerModal";
 import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal";
@@ -46,6 +48,7 @@ import type { ScheduledPost } from "./types/scheduling";
 import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
 import { saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
+import { importDocumentToMarkdown } from "./services/documentImportService";
 import { isCloudLoggedIn, saveScheduleToCloud } from "./services/cloudScheduleService";
 import {
   loadPlannerCloudBridgeState,
@@ -58,6 +61,7 @@ import { exists as fsExists, mkdir as fsMkdir, readDir, readFile, readTextFile, 
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
 import { FeatureGate } from "./components/FeatureGate";
 import { ZenPublishingBanner } from "./components/ZenPublishingBanner";
+import { ZenContentPreviewModal } from "./components/ZenContentPreviewModal";
 import { usePublishingEngine } from "./services/publishingEngine";
 import { pushDocsToGitHub } from "./services/githubDocsService";
 import { loadDocsServerConfig, syncDirectoryToFtp, saveDocsSyncTimestamp } from "./screens/DocStudio/components/DocsServerWizard";
@@ -70,22 +74,34 @@ import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
 import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath, removeProjectPath } from "./utils/projectHistory";
 import {
-  encodeWebProjectPath, isWebProjectPath,
+  encodeWebProjectPath, isWebProjectPath, decodeWebProjectId,
   getDirectoryHandle, readMarkdownFiles,
   type WebProject,
 } from "./services/webProjectService";
 import { encodeCloudProjectPath, decodeCloudProjectId, isCloudProjectPath, type CloudProject } from "./services/cloudProjectService";
-import { deleteCloudDocument, downloadCloudDocumentText, listCloudDocuments, type CloudDocumentInfo } from "./services/cloudStorageService";
+import { canUploadToZenCloud, deleteCloudDocument, downloadCloudDocumentText, getCloudDocumentUrl, listCloudDocuments, uploadCloudDocument, type CloudDocumentInfo } from "./services/cloudStorageService";
 import {
   openContentStudioAsDraft,
   subscribeToOpenContentStudioAsDraft,
   subscribeToEditScheduledPostInContentStudio,
 } from "./services/contentStudioBridgeService";
+import {
+  subscribeToOpenConverterWithFile,
+  type OpenConverterWithFileRequest,
+  openConverterWithFile,
+  getPendingOpenConverterWithFileRequest,
+  clearPendingOpenConverterWithFileRequest,
+} from "./services/converterBridgeService";
 import { navigateToAppScreen, openAppSettings, subscribeToAppNavigation, subscribeToOpenAppSettings } from "./services/appShellBridgeService";
 import { subscribeToOpenPlannerWithScheduledPost } from "./services/plannerBridgeService";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 import { subscribeToCloudSessionSync } from "./services/cloudSessionSyncService";
+import {
+  createImageDataUrlFromBytes,
+  downloadPreviewAsset,
+  type ContentPreviewState,
+} from "./services/contentPreviewService";
 
 import ZenCursor from "./components/ZenCursor";
 
@@ -162,19 +178,6 @@ const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unk
   return lines.join('\n').trim();
 };
 
-const extractFirstImageUrlFromBlocks = (
-  blocks: Array<{ type: string; data: Record<string, unknown> }>
-): string => {
-  for (const block of blocks) {
-    if (block.type !== 'image') continue;
-    const fileObj = block.data.file as Record<string, unknown> | undefined;
-    const url = String(block.data.src ?? fileObj?.url ?? block.data.url ?? '').trim();
-    if (url) return url;
-  }
-  return '';
-};
-
-
 type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox" | "zen-note";
 
 // Files that make no sense to open as text documents in Content AI Studio
@@ -217,7 +220,8 @@ function AppContent() {
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
-  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud'>('ai');
+  const [showImageGalleryModal, setShowImageGalleryModal] = useState(false);
+  const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud' | 'converter'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
   const [showMailSuccessModal, setShowMailSuccessModal] = useState(false);
@@ -258,6 +262,8 @@ function AppContent() {
   const [contentStudioServerCachePath, setContentStudioServerCachePath] = useState<string | null>(null);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
+  const [contentStudioPreview, setContentStudioPreview] = useState<ContentPreviewState | null>(null);
+  const [pendingConverterOpenFileRequest, setPendingConverterOpenFileRequest] = useState<OpenConverterWithFileRequest | null>(null);
   const [docStudioRequestedFilePath, setDocStudioRequestedFilePath] = useState<string | null>(null);
   const [docStudioRequestedWebDocument, setDocStudioRequestedWebDocument] = useState<{ fileName: string; content: string } | null>(null);
   const [showContentStudioModal, setShowContentStudioModal] = useState(false);
@@ -345,6 +351,8 @@ function AppContent() {
       if (!current.authToken) {
         setPlannerBootstrapState(null);
         setCloudDocuments([]);
+        setContentStudioServerArticles(undefined);
+        setContentStudioServerArticlesError(null);
         return;
       }
 
@@ -357,6 +365,7 @@ function AppContent() {
 
       if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
         void reloadScheduledPosts();
+        refetchContentStudioServerArticles();
       }
     }, { intervalMs: 5000 });
   }, []);
@@ -367,6 +376,7 @@ function AppContent() {
   const [plannerPrefilledPlanPost, setPlannerPrefilledPlanPost] = useState<import('./services/plannerBridgeService').PlannerDraftPrefill | null>(null);
   const [plannerBootstrapState, setPlannerBootstrapState] = useState<import('./services/plannerBootstrapService').PlannerBootstrapState | null>(null);
   const [requestedZenNoteId, setRequestedZenNoteId] = useState<number | null>(null);
+  const [zenNoteStudioBar, setZenNoteStudioBar] = useState<ReactNode>(null);
   const [schedulerPlatformPosts, setSchedulerPlatformPosts] = useState<Array<{ platform: string; content: string }>>([]);
   const [contentPlannerSuggestion, setContentPlannerSuggestion] = useState<{
     key: string;
@@ -420,8 +430,27 @@ function AppContent() {
   }, [contentTransformStep, contentStudioDashboardView]);
 
   const refetchContentStudioServerArticles = () => {
+    if (!isCloudLoggedIn()) {
+      setContentStudioServerArticles(undefined);
+      setContentStudioServerArticlesError(null);
+      setContentStudioServerArticlesLoading(false);
+      return;
+    }
     const settings = loadZenStudioSettings();
     const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
+    const hasConfiguredServer = !!(
+      activeServer &&
+      (
+        (activeServer.contentServerApiUrl && activeServer.contentServerApiUrl.trim().length > 0) ||
+        (activeServer.contentServerLocalCachePath && activeServer.contentServerLocalCachePath.trim().length > 0)
+      )
+    );
+    if (!hasConfiguredServer) {
+      setContentStudioServerArticles(undefined);
+      setContentStudioServerArticlesError(null);
+      setContentStudioServerArticlesLoading(false);
+      return;
+    }
     const localCachePath = (
       activeServer?.contentServerLocalCachePath
       ?? settings.contentServerLocalCachePath
@@ -477,6 +506,19 @@ function AppContent() {
     if (currentScreen !== "content-transform" || contentTransformStep !== 0) return;
     refetchContentStudioServerArticles();
   }, [currentScreen, contentTransformStep]);
+
+  const getContentStudioServerState = () => {
+    const settings = loadZenStudioSettings();
+    const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
+    const activeServerApiUrl = activeServer?.contentServerApiUrl?.trim() ?? '';
+    const activeServerCachePath = activeServer?.contentServerLocalCachePath?.trim() ?? '';
+    const hasConfiguredContentServer = !!(activeServer && (activeServerApiUrl || activeServerCachePath));
+    return {
+      hasConfiguredContentServer,
+      serverName: hasConfiguredContentServer ? activeServer?.name ?? undefined : undefined,
+      serverLocalCachePath: hasConfiguredContentServer ? (activeServerCachePath || null) : null,
+    };
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -604,6 +646,11 @@ function AppContent() {
       if (typeof window === "undefined") return;
       if (window.location.hash === "#converter") {
         setIsEditingZenThoughts(false);
+        const pending = getPendingOpenConverterWithFileRequest();
+        if (pending) {
+          setPendingConverterOpenFileRequest(pending);
+        }
+        setConverterStep(1);
         setCurrentScreen("converter");
       }
     };
@@ -703,18 +750,240 @@ function AppContent() {
   };
 
   const handleLoadCloudDocument = async (docId: number, fileName: string) => {
+    setTransferContent(null);
+    setTransferFileName(fileName);
+    setTransferPostMeta(null);
+    setActiveServerArticleSlug(null);
+    setContentStudioServerCachePath(null);
+    setActiveBlogForEditor(null);
+    setCameFromDocStudio(false);
+    setCameFromDashboard(false);
+    setMultiPlatformMode(false);
+    setContentStudioDashboardView("dashboard");
+    setContentStudioRequestedArticleId(null);
+    setContentStudioRequestedFilePath(`@cloud:${docId}/${fileName}`);
+    setContentTransformStep(1);
+    setCurrentScreen("content-transform");
+    setShowContentStudioModal(false);
+  };
+
+  const handlePreviewCloudImage = (docId: number, fileName: string) => {
+    const url = getCloudDocumentUrl(docId);
+    if (!url) return;
+    const extension = fileName.split('.').pop()?.toUpperCase() ?? 'IMAGE';
+    setContentStudioPreview({
+      title: fileName,
+      subtitle: 'Bild-Vorschau aus ZenCloud',
+      items: [{ kind: 'image', src: url, fileName, format: extension }],
+      openAction: {
+        label: 'Öffnen',
+        onOpen: async () => {
+          setContentStudioPreview(null);
+          await handleLoadCloudDocument(docId, fileName);
+          setContentStudioDashboardView("dashboard");
+          setContentTransformStep(1);
+        },
+      },
+    });
+  };
+
+  const handlePreviewCloudDocument = async (docId: number, fileName: string, subtitle = 'Dokument-Vorschau aus ZenCloud') => {
+    const content = await downloadCloudDocumentText(docId);
+    if (!content) return;
+    const extension = fileName.split('.').pop()?.toUpperCase() ?? 'DOKUMENT';
+    setContentStudioPreview({
+      title: fileName,
+      subtitle,
+      items: [{ kind: 'document', fileName, format: extension, content }],
+      openAction: {
+        label: 'Öffnen',
+        onOpen: async () => {
+          setContentStudioPreview(null);
+          await handleLoadCloudDocument(docId, fileName);
+          setContentStudioDashboardView("dashboard");
+          setContentTransformStep(1);
+        },
+      },
+    });
+  };
+
+  const handleOpenPreviewImageInConverter = async (src: string, fileName: string) => {
+    const response = await fetch(src);
+    const blob = await response.blob();
+    const file = new File([blob], fileName, {
+      type: blob.type || 'application/octet-stream',
+    });
+    setContentStudioPreview(null);
+    openConverterWithFile({
+      file,
+      source: 'content-preview',
+    });
+  };
+
+  const handlePreviewLocalImage = async (filePath: string, fileName: string) => {
+    if (!isTauri()) return;
     try {
-      const content = await downloadCloudDocumentText(docId);
-      if (!content) {
-        setCloudToast(`Dokument konnte nicht geladen werden: ${fileName}`);
-        setTimeout(() => setCloudToast(null), 4000);
-        return;
+      const bytes = await readFile(filePath);
+      const CHUNK = 8192;
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
       }
-      handleLoadWebDocument(content, fileName);
-    } catch (err) {
-      setCloudToast(`Cloud-Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`);
-      setTimeout(() => setCloudToast(null), 4000);
+      const extension = fileName.split('.').pop()?.toLowerCase() ?? 'jpg';
+      setContentStudioPreview({
+        title: fileName,
+        subtitle: 'Bild-Vorschau aus der Projektmappe',
+        items: [{
+          kind: 'image',
+          src: createImageDataUrlFromBytes(bytes, fileName),
+          fileName,
+          format: extension.toUpperCase(),
+        }],
+        openAction: {
+          label: 'Öffnen',
+          onOpen: () => {
+            setContentStudioPreview(null);
+            setContentStudioRequestedFilePath(filePath);
+            setContentStudioDashboardView("dashboard");
+            setContentTransformStep(1);
+          },
+        },
+      });
+    } catch {
+      // Falls Bildvorschau fehlschlägt, Datei normal im Editor öffnen.
+      setContentStudioRequestedFilePath(filePath);
+      setContentStudioDashboardView("dashboard");
+      setContentTransformStep(1);
     }
+  };
+
+  const handlePreviewLocalDocument = async (filePath: string, fileName: string) => {
+    if (!isTauri()) return;
+    try {
+      const content = await readTextFile(filePath);
+      const extension = fileName.split('.').pop()?.toUpperCase() ?? 'DOKUMENT';
+      setContentStudioPreview({
+        title: fileName,
+        subtitle: 'Dokument-Vorschau aus der Projektmappe',
+        items: [{ kind: 'document', fileName, format: extension, content }],
+        openAction: {
+          label: 'Öffnen',
+          onOpen: () => {
+            setContentStudioPreview(null);
+            setContentStudioRequestedFilePath(filePath);
+            setContentStudioDashboardView("dashboard");
+            setContentTransformStep(1);
+          },
+        },
+      });
+    } catch {
+      setContentStudioRequestedFilePath(filePath);
+      setContentStudioDashboardView("dashboard");
+      setContentTransformStep(1);
+    }
+  };
+
+  const handlePreviewWebDocument = (content: string, fileName: string) => {
+    const extension = fileName.split('.').pop()?.toUpperCase() ?? 'DOKUMENT';
+    setContentStudioPreview({
+      title: fileName,
+      subtitle: 'Dokument-Vorschau aus dem Web-Projekt',
+      items: [{ kind: 'document', fileName, format: extension, content }],
+      openAction: {
+        label: 'Öffnen',
+        onOpen: () => {
+          setContentStudioPreview(null);
+          handleLoadWebDocument(content, fileName);
+        },
+      },
+    });
+  };
+
+  const fetchServerArticlePreview = async (slug: string) => {
+    const settings = loadZenStudioSettings();
+    let base = (settings.contentServerApiUrl ?? '').trim();
+    if (!base) return null;
+    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
+    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
+    const listUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
+    const url = `${listUrl}?slug=${encodeURIComponent(slug)}`;
+    const headers: Record<string, string> = {};
+    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
+    const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return null;
+    const data = await res.json() as {
+      success?: boolean;
+      title?: string;
+      subtitle?: string;
+      markdown?: string;
+      blocks?: Array<{ type: string; data: Record<string, unknown> }>;
+    };
+    if (data.success === false) return null;
+    const blocks = data.blocks ?? [];
+    const markdown = data.markdown?.trim() ? data.markdown : blocksToMarkdown(blocks, data.title);
+    return {
+      title: data.title?.trim() || slug,
+      subtitle: data.subtitle?.trim() || '',
+      markdown,
+    };
+  };
+
+  const handlePreviewServerArticle = async (slug: string) => {
+    const preview = await fetchServerArticlePreview(slug);
+    if (!preview?.markdown) return;
+    const fileName = `${slug}.md`;
+    setContentStudioPreview({
+      title: preview.title || fileName,
+      subtitle: 'Dokument-Vorschau vom Server',
+      items: [{
+        kind: 'document',
+        fileName,
+        format: 'MD',
+        content: preview.markdown,
+      }],
+      openAction: {
+        label: 'Öffnen',
+        onOpen: async () => {
+          setContentStudioPreview(null);
+          await handleOpenServerArticle(slug);
+          setContentStudioDashboardView("dashboard");
+          setContentTransformStep(1);
+        },
+      },
+    });
+  };
+
+  const handleImportDocumentFromProjectMap = async (
+    file: File,
+    context: 'files' | 'web' | 'cloud' | 'zennote' | 'server'
+  ) => {
+    const result = await importDocumentToMarkdown(file, {
+      convertCode: false,
+      fallbackToRawOnConvertError: false,
+      allowJsonPrettyFallback: true,
+      requireNonEmpty: true,
+    });
+
+    if (!result.success) {
+      throw new Error(result.error || 'Datei konnte nicht geladen werden.');
+    }
+
+    const normalizedName = (file.name?.trim() || 'Dokument.md').replace(/\.[^.]+$/, '') + '.md';
+    const cloudFirstContext = context === 'cloud' || context === 'zennote' || context === 'server';
+
+    if (cloudFirstContext && canUploadToZenCloud()) {
+      const uploaded = await uploadCloudDocument(new File([result.content], normalizedName, { type: 'text/markdown' }));
+      if (!uploaded) {
+        setCloudToast('Cloud-Upload fehlgeschlagen.');
+        setTimeout(() => setCloudToast(null), 4000);
+        throw new Error('Cloud-Upload fehlgeschlagen.');
+      }
+      await ensureContentStudioCloudDocuments();
+      handleLoadCloudDocument(uploaded.id, normalizedName);
+      return;
+    }
+
+    handleLoadWebDocument(result.content, normalizedName);
   };
 
   useEffect(() => {
@@ -734,6 +1003,17 @@ function AppContent() {
       setContentStudioDashboardView("dashboard");
       setContentTransformStep(1);
       setCurrentScreen("content-transform");
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToOpenConverterWithFile((request) => {
+      setPendingConverterOpenFileRequest(request);
+      setContentStudioPreview(null);
+      setShowContentStudioModal(false);
+      setIsEditingZenThoughts(false);
+      setCurrentScreen("converter");
+      setConverterStep(1);
     });
   }, []);
 
@@ -1816,6 +2096,50 @@ const handleSelectDocStudio = () => {
   const handleCloseAboutModal = () => setShowAboutModal(false);
   const handleCloseContentStudioModal = () => setShowContentStudioModal(false);
 
+  const ensureContentStudioCloudDocuments = async (projectIdOverride?: number | null) => {
+    const settings = loadZenStudioSettings();
+    const effectiveProjectId =
+      projectIdOverride ??
+      decodeCloudProjectId(contentStudioProjectPath ?? '') ??
+      settings.cloudProjectId;
+
+    if (!effectiveProjectId) {
+      setCloudDocuments([]);
+      return;
+    }
+
+    const docs = await listCloudDocuments(effectiveProjectId);
+    setCloudDocuments(docs ?? []);
+  };
+
+  const ensureContentStudioWebDocuments = async (projectPathOverride?: string | null) => {
+    const effectiveProjectPath = projectPathOverride ?? contentStudioProjectPath;
+    if (!effectiveProjectPath || !isWebProjectPath(effectiveProjectPath)) return;
+
+    const projectId = decodeWebProjectId(effectiveProjectPath);
+    if (!projectId) return;
+
+    try {
+      const handle = await getDirectoryHandle(projectId);
+      if (!handle) return;
+      const files = await readMarkdownFiles(handle);
+      if (files.length === 0) return;
+      const now = Date.now();
+      setWebDocuments((prev) => {
+        const newDocs = files.map((f, i) => ({
+          id: `webdir_${projectId}_${i}`,
+          name: f.name,
+          content: f.content,
+          updatedAt: now,
+        }));
+        const existingIds = new Set(newDocs.map((d) => d.id));
+        return [...newDocs, ...prev.filter((d) => !existingIds.has(d.id))].slice(0, 40);
+      });
+    } catch {
+      // ignore web directory read failures here; UI can still use already loaded docs
+    }
+  };
+
   const refreshContentStudioData = async (projectPathOverride?: string) => {
     const storedProjectPath = projectPathOverride ?? getLastProjectPath();
     setContentStudioProjectPath(storedProjectPath);
@@ -1825,6 +2149,21 @@ const handleSelectDocStudio = () => {
       setContentStudioAllFiles([]);
       return;
     }
+
+    if (isCloudProjectPath(storedProjectPath)) {
+      setContentStudioRecentArticles([]);
+      setContentStudioAllFiles([]);
+      await ensureContentStudioCloudDocuments(decodeCloudProjectId(storedProjectPath));
+      return;
+    }
+
+    if (isWebProjectPath(storedProjectPath)) {
+      setContentStudioRecentArticles([]);
+      setContentStudioAllFiles([]);
+      await ensureContentStudioWebDocuments(storedProjectPath);
+      return;
+    }
+
     const [articles, files] = await Promise.all([
       loadArticles(storedProjectPath),
       scanProjectFiles(storedProjectPath, 200),
@@ -1882,40 +2221,18 @@ const handleSelectDocStudio = () => {
 
   const handleOpenServerArticle = async (slug: string) => {
     const settings = loadZenStudioSettings();
-    let base = (settings.contentServerApiUrl ?? '').trim();
-    if (!base) return;
-    if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
-    const listUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
-    const url = `${listUrl}?slug=${encodeURIComponent(slug)}`;
-    const headers: Record<string, string> = {};
-    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
-    const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return;
-    const data = await res.json() as {
-      success?: boolean;
-      title?: string;
-      subtitle?: string;
-      date?: string;
-      publishDate?: string;
-      image?: string;
-      imageUrl?: string;
-      markdown?: string;
-      blocks?: Array<{ type: string; data: Record<string, unknown> }>;
-    };
-    if (data.success === false) return;
-    // Prefer pre-rendered markdown field if server provides it
-    const blocks = data.blocks ?? [];
-    const markdown = data.markdown?.trim() ? data.markdown : blocksToMarkdown(blocks, data.title);
-    const imageFromBlocks = extractFirstImageUrlFromBlocks(blocks);
+    const preview = await fetchServerArticlePreview(slug);
+    if (!preview) return;
+    const imageFromBlocks = '';
+    const markdown = preview.markdown;
     persistWebDocument(markdown, `${slug}.md`);
     setTransferContent(markdown);
     setTransferFileName(`${slug}.md`);
     setTransferPostMeta({
-      title: (data.title ?? '').trim(),
-      subtitle: (data.subtitle ?? '').trim(),
-      imageUrl: (((data.image ?? data.imageUrl) ?? imageFromBlocks) ?? '').trim(),
-      date: ((data.date ?? data.publishDate) ?? '').trim(),
+      title: preview.title,
+      subtitle: preview.subtitle,
+      imageUrl: imageFromBlocks,
+      date: '',
     });
     const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
     const resolvedServerCachePath = (
@@ -2215,7 +2532,9 @@ const handleSelectDocStudio = () => {
   useEffect(() => {
     const handler = (event: Event) => {
       const { projectId, projectName } = (event as CustomEvent<{ projectId: number; projectName: string }>).detail;
-      void handleCloudProjectSelected({ id: projectId, name: projectName });
+      void handleCloudProjectSelected({ id: projectId, name: projectName }).then(() => {
+        refetchContentStudioServerArticles();
+      });
     };
     window.addEventListener('zenpost:cloud-login', handler);
     return () => window.removeEventListener('zenpost:cloud-login', handler);
@@ -2271,7 +2590,7 @@ const handleSelectDocStudio = () => {
     }
 
     const studioNames: Record<Exclude<Screen, "welcome">, string> = {
-      "converter": "Zen Converter Studio",
+      "converter": "ZenConverter Studio",
       "content-transform": "Content AI Studio",
       "doc-studio": "Doc Studio",
       "getting-started": "Getting Started",
@@ -2325,6 +2644,13 @@ const handleSelectDocStudio = () => {
   };
   {/ * Hilfefunktion für StudioBar im Header * */}
   const renderStudioBar = () => {
+    if (currentScreen === "zen-note") {
+      return zenNoteStudioBar ? (
+        <div className="flex items-center justify-end flex-wrap gap-2 px-[4vw] py-[3px] mt-[10px]">
+          {zenNoteStudioBar}
+        </div>
+      ) : null;
+    }
     // DocStudio Tab-Leiste (Step 3 - Editor)
     if (currentScreen === "doc-studio" && docStudioStep === 3) {
       const isBugTemplateActive = (docStudioState?.activeTabId ?? "").startsWith("tpl:bug");
@@ -2500,7 +2826,7 @@ const handleSelectDocStudio = () => {
             </div>
             <div className="flex flex-wrap gap-2 ml-auto">
               <StudioBarButton
-                label="Direkt schreiben"
+                label="Schreiben..."
                 icon={<FontAwesomeIcon icon={faPencil} />}
                 onClick={() => {
                   setContentStudioDashboardView("dashboard");
@@ -2764,7 +3090,10 @@ const handleSelectDocStudio = () => {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
               <div style={{ width: "24px", height: "1px", background: "#AC8E66" }} />
-              <span style={{ fontSize: "10px", color: "#AC8E66", letterSpacing: "0.18em", textTransform: "uppercase" as const }}>
+              <span style={{ 
+                fontSize: "10px", 
+                color: "#AC8E66", letterSpacing: "0.18em", 
+                textTransform: "uppercase" as const }}>
                 ZenPost Studio
               </span>
             </div>
@@ -3058,6 +3387,13 @@ const handleSelectDocStudio = () => {
           <ConverterScreen
             onBack={handleBackToWelcome}
             onStepChange={setConverterStep}
+            pendingOpenFileRequest={pendingConverterOpenFileRequest}
+            onPendingOpenFileHandled={(requestId) => {
+              clearPendingOpenConverterWithFileRequest(requestId);
+              setPendingConverterOpenFileRequest((current) => (
+                current?.requestId === requestId ? null : current
+              ));
+            }}
             onOpenInContentStudio={(content, fileName) => {
               setTransferContent(content);
               setTransferFileName(fileName);
@@ -3079,29 +3415,91 @@ const handleSelectDocStudio = () => {
                 allFiles={contentStudioAllFiles}
                 webDocuments={webDocuments}
                 cloudDocuments={cloudDocuments}
+                showServerTab={getContentStudioServerState().hasConfiguredContentServer}
+                serverArticles={contentStudioServerArticles}
+                serverArticlesLoading={contentStudioServerArticlesLoading}
+                serverError={contentStudioServerArticlesError}
+                serverName={getContentStudioServerState().serverName}
+                serverLocalCachePath={getContentStudioServerState().serverLocalCachePath}
+                onActivateWebTab={() => {
+                  void ensureContentStudioWebDocuments(contentStudioProjectPath);
+                }}
+                onActivateCloudTab={() => {
+                  void ensureContentStudioCloudDocuments();
+                }}
+                onActivateZenNoteTab={() => {
+                  void ensureContentStudioCloudDocuments();
+                }}
+                onActivateServerTab={() => {
+                  refetchContentStudioServerArticles();
+                }}
                 onBack={() => setContentStudioDashboardView("dashboard")}
                 onStartWriting={() => {
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
+                onImportDocument={(file, context) => handleImportDocumentFromProjectMap(file, context)}
                 onOpenFile={(filePath) => {
                   setContentStudioRequestedFilePath(filePath);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
+                onPreviewLocalImage={(filePath, fileName) => {
+                  void handlePreviewLocalImage(filePath, fileName);
+                }}
+                onPreviewLocalDocument={(filePath, fileName) => {
+                  void handlePreviewLocalDocument(filePath, fileName);
+                }}
                 onLoadWebDocument={(content, fileName) => {
                   handleLoadWebDocument(content, fileName);
+                }}
+                onPreviewWebDocument={(content, fileName) => {
+                  handlePreviewWebDocument(content, fileName);
                 }}
                 onOpenCloudDocument={(docId, fileName) => {
                   void handleLoadCloudDocument(docId, fileName);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
+                onPreviewCloudDocument={(docId, fileName) => {
+                  void handlePreviewCloudDocument(docId, fileName);
+                }}
+                onOpenZenNoteDocument={(docId) => {
+                  setRequestedZenNoteId(docId);
+                  setCurrentScreen("zen-note");
+                }}
+                onPreviewZenNoteDocument={(docId, fileName) => {
+                  void handlePreviewCloudDocument(docId, fileName, 'ZenNote-Vorschau');
+                }}
+                onPreviewCloudImage={(docId, fileName) => {
+                  handlePreviewCloudImage(docId, fileName);
+                }}
+                onOpenServerArticle={(slug) => {
+                  void handleOpenServerArticle(slug);
+                  setContentStudioDashboardView("dashboard");
+                  setContentTransformStep(1);
+                }}
+                onPreviewServerArticle={(slug) => {
+                  void handlePreviewServerArticle(slug);
+                }}
+                onRefreshProjectMapData={async () => {
+                  await refreshContentStudioData(contentStudioProjectPath ?? undefined);
+                  if (isCloudProjectPath(contentStudioProjectPath ?? '')) {
+                    await ensureContentStudioCloudDocuments();
+                  }
+                  if (isWebProjectPath(contentStudioProjectPath ?? '')) {
+                    await ensureContentStudioWebDocuments(contentStudioProjectPath ?? undefined);
+                  }
+                  if (getContentStudioServerState().hasConfiguredContentServer) {
+                    refetchContentStudioServerArticles();
+                  }
+                }}
               />
             ) : (
               <ContentStudioDashboardScreen
                 projectPath={contentStudioProjectPath}
                 recentProjectPaths={contentStudioRecentProjectPaths}
+                showServerTab={getContentStudioServerState().hasConfiguredContentServer}
                 documents={[
                   ...contentStudioAllFiles.filter((file) => isTextDocument(file.name)).map((file) => ({
                     id: `file:${file.path}`,
@@ -3217,12 +3615,8 @@ const handleSelectDocStudio = () => {
                 serverArticles={contentStudioServerArticles}
                 serverArticlesLoading={contentStudioServerArticlesLoading}
                 serverError={contentStudioServerArticlesError}
-                serverName={(() => { const s = loadZenStudioSettings(); return s.servers?.[s.activeServerIndex ?? 0]?.name ?? undefined; })()}
-                serverLocalCachePath={(() => {
-                  const s = loadZenStudioSettings();
-                  const activeServer = s.servers?.[s.activeServerIndex ?? 0];
-                  return activeServer?.contentServerLocalCachePath ?? s.contentServerLocalCachePath ?? null;
-                })()}
+                serverName={getContentStudioServerState().serverName}
+                serverLocalCachePath={getContentStudioServerState().serverLocalCachePath}
                 onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
                 onDeleteServerArticle={handleDeleteServerArticle}
                 onOpenApiSettings={() => {
@@ -3382,6 +3776,11 @@ const handleSelectDocStudio = () => {
             }}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
+            onOpenConverterSettings={() => {
+              setSettingsDefaultTab('converter');
+              setShowAISettingsModal(true);
+            }}
+            onOpenImageGallery={() => setShowImageGalleryModal(true)}
             onOpenZenNote={handleSelectZenNote}
             onOpenMobileInbox={handleSelectMobileInbox}
             onOpenMobileSettings={() => {
@@ -3392,8 +3791,6 @@ const handleSelectDocStudio = () => {
               setSettingsDefaultTab('api');
               setShowAISettingsModal(true);
             }}
-            recentItems={gettingStartedRecentItems}
-            onContinueRecent={handleContinueRecentItem}
             onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
           />
         )}
@@ -3405,6 +3802,8 @@ const handleSelectDocStudio = () => {
             insertTargetActive={true}
             requestedNoteId={requestedZenNoteId}
             onRequestedNoteHandled={() => setRequestedZenNoteId(null)}
+            onStudioBarChange={setZenNoteStudioBar}
+            publishingBannerVisible={publishingEngine.duePosts.length > 0}
           />
         )}
       </div>
@@ -3491,12 +3890,58 @@ const handleSelectDocStudio = () => {
         onClose={() => setShowMailSuccessModal(false)}
       />
 
+      <ZenImageGalleryModal
+        isOpen={showImageGalleryModal}
+        onClose={() => setShowImageGalleryModal(false)}
+      />
+
       <ZenWebProjectPickerModal
         isOpen={showWebProjectPicker}
         onClose={() => setShowWebProjectPicker(false)}
         onCreated={(project, initialDocs) => { void handleWebProjectCreated(project, initialDocs); }}
         onCloudSelected={(project) => { void handleCloudProjectSelected(project); }}
       />
+
+      {contentStudioPreview && (
+        <ZenContentPreviewModal
+          preview={contentStudioPreview}
+          hideInlineDownload={true}
+          actions={[
+            ...(contentStudioPreview.openAction
+              ? [{
+                  label: contentStudioPreview.openAction.label || 'Öffnen',
+                  variant: 'success' as const,
+                  onClick: async () => {
+                    await contentStudioPreview.openAction?.onOpen();
+                  },
+                }]
+              : []),
+            ...(() => {
+              const imageItem = contentStudioPreview.items.find((item) => item.kind === 'image');
+              if (!imageItem) return [];
+              return [{
+                label: 'Im Converter öffnen',
+                variant: 'accent' as const,
+                onClick: async () => {
+                  await handleOpenPreviewImageInConverter(imageItem.src, imageItem.fileName);
+                },
+              }];
+            })(),
+            {
+              label: 'Download speichern',
+              icon: faDownload,
+              variant: 'accent',
+              onClick: async () => {
+                for (const item of contentStudioPreview.items) {
+                  if (item.kind !== 'image') continue;
+                  await downloadPreviewAsset(item.src, item.fileName);
+                }
+              },
+            },
+          ]}
+          onClose={() => setContentStudioPreview(null)}
+        />
+      )}
 
       <ZenContentStudioModal
         isOpen={showContentStudioModal}

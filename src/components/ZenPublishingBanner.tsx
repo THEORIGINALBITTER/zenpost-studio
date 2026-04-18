@@ -86,7 +86,7 @@ export function ZenPublishingBanner({
         bottom: 0,
         left: 0,
         right: 0,
-        zIndex: 9800,
+        zIndex:999,
         fontFamily: 'IBM Plex Mono, monospace',
       }}
     >
@@ -307,7 +307,7 @@ export function ZenPublishingBanner({
 
         <FontAwesomeIcon icon={faBell} style={{ color: '#AC8E66', fontSize: '12px' }} />
 
-        <span style={{ color: '#AC8E66', fontSize: '11px', flex: 1 }}>
+        <span style={{ color: '#d0cbb8', fontSize: '11px', flex: 1 }}>
           {visiblePosts.length === 1
             ? `1 Post bereit zur Veröffentlichung`
             : `${visiblePosts.length} Posts stehen bereit zur Veröffentlichung`}

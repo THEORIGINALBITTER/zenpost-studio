@@ -42,18 +42,18 @@ export function StepScanProject({
 
   return (
     <div className="flex items-center justify-center mt-[30px] sm:mt-[50px] mb-[24px] px-[12px] pt-[20px] sm:pt-[50px]">
-      <div className="w-full max-w-[840px] rounded-[16px] border-[0.5px] border-[#AC8E66]  p-[20px]">
-        <p className="font-mono text-[14px] text-[#dbd9d5] mb-[10px] px-[50px] flex items-center gap-2">
+      <div className="w-full max-w-[840px] rounded-[16px] border-[0.5px] border-[#AC8E66] bg-[#d2cabd]  p-[20px]">
+        <p className="font-mono text-[14px] text-[#252525] mb-[10px] px-[50px] flex items-center gap-2">
   
           <span>Project Analysis</span>
         </p>
-        <p className="font-mono text-[11px] text-[#777] mb-[12px] px-[50px] leading-relaxed">
-          Scan erfasst nur harte Fakten und legt Reports in `zenstudio/analysis` ab.
+        <p className="font-mono text-[11px] text-[#252525] mb-[12px] px-[50px] leading-relaxed">
+          Dieser Scan erfasst nur harte Fakten und legt Reports in den Ordner deiner Projektes < br/> unter `zenstudio/analysis` ab.
         </p>
 
         <div className="rounded-[10px] border-[0.5px] border-[#2A2A2A]  p-[24px] text-left mb-6">
-          <p className="font-mono text-[10px] text-[#777] mb-1">Projektpfad</p>
-          <p className="font-mono text-[11px] text-[#AC8E66] break-all">{projectPath}</p>
+          <p className="font-mono text-[12px] text-[#252525] mb-1">Dein gewählter Projektpfad</p>
+          <p className="font-mono text-[11px] text-[#252525] break-all">{projectPath}</p>
         </div>
 
         {scanError && (

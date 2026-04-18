@@ -42,7 +42,7 @@ const SHORTCUTS: Array<{ group: string; items: Array<{ keys: string[]; label: st
 
 export function ZenShortcutsModal({ isOpen, onClose }: ZenShortcutsModalProps) {
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, monospace' };
-  const gold = '#AC8E66';
+  const gold = '#3e362c';
   const border = 'rgba(172,142,102,0.2)';
 
   return (
@@ -54,7 +54,7 @@ export function ZenShortcutsModal({ isOpen, onClose }: ZenShortcutsModalProps) {
       zIndex={20000}
       title="Keyboard Shortcuts"
       subtitle={
-        <span style={{ ...mono, fontSize: 11, color: gold, opacity: 0.8 }}>
+        <span style={{ ...mono, fontSize: 11, color: '#e8e3d8', opacity: 0.8 }}>
           <FontAwesomeIcon icon={faKeyboard} style={{ marginRight: 6 }} />
           ZenPost Studio
         </span>

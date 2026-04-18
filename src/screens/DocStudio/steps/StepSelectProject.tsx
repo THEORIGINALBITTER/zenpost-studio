@@ -10,6 +10,7 @@ import {
   faMagnifyingGlass,
   faPlus,
   faCloudArrowUp,
+  faLinkSlash,
 } from '@fortawesome/free-solid-svg-icons';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import type { DocStudioRuntime } from '../types';
@@ -165,7 +166,7 @@ export function StepSelectProject({
           <h2
             style={{
               fontSize: '18px',
-              fontWeight: '200',
+            
               color: '#AC8E66',
               margin: 0,
               fontFamily: 'IBM Plex Mono, monospace',
@@ -177,12 +178,12 @@ export function StepSelectProject({
         </div>
         <p
           style={{
-            color: '#999',
+            color: '#b0ac9b',
             marginBottom: '24px',
             maxWidth: '760px',
             fontSize: '11px',
             fontFamily: 'monospace',
-            fontWeight: '100',
+         
           }}
         >
           Öffne ein bestehendes Projekt oder wähle einen neuen Ordner, um Analyse und Dokumentation fortzusetzen.
@@ -823,25 +824,50 @@ export function StepSelectProject({
                   setShowDocsSiteWizard(true);
                 }}
               />
-              <ActionTile
-                title="Docs → Server"
-                description={(() => {
-                  if (!docsServerConfig) return 'Docs via FTP/SFTP auf deinen Server hochladen';
-                  const ts = activeProjectPath ? loadDocsSyncTimestamp(activeProjectPath) : null;
-                  if (!ts) return 'FTP-Sync konfiguriert · Noch nie synchronisiert';
-                  const now = new Date();
-                  const diffMin = Math.round((now.getTime() - ts.getTime()) / 60000);
-                  const label = diffMin < 1 ? 'gerade eben' : diffMin < 60 ? `vor ${diffMin} Min.` : diffMin < 1440 ? `vor ${Math.round(diffMin / 60)} Std.` : ts.toLocaleDateString('de-DE');
-                  return `● Letzter Sync: ${label}`;
-                })()}
-                icon={faCloudArrowUp}
-                locked={!activeProjectPath}
-                onClick={() => {
-                  if (!activeProjectPath) return;
-                  ensureProjectSelected();
-                  setShowDocsServerWizard(true);
-                }}
-              />
+              <div style={{ position: 'relative' }}>
+                <ActionTile
+                  title="Docs → Server"
+                  description={(() => {
+                    if (!docsServerConfig) return 'Docs via FTP/SFTP auf deinen Server hochladen';
+                    const ts = activeProjectPath ? loadDocsSyncTimestamp(activeProjectPath) : null;
+                    if (!ts) return 'FTP-Sync konfiguriert · Noch nie synchronisiert';
+                    const now = new Date();
+                    const diffMin = Math.round((now.getTime() - ts.getTime()) / 60000);
+                    const label = diffMin < 1 ? 'gerade eben' : diffMin < 60 ? `vor ${diffMin} Min.` : diffMin < 1440 ? `vor ${Math.round(diffMin / 60)} Std.` : ts.toLocaleDateString('de-DE');
+                    return `● Letzter Sync: ${label}`;
+                  })()}
+                  icon={faCloudArrowUp}
+                  locked={!activeProjectPath}
+                  onClick={() => {
+                    if (!activeProjectPath) return;
+                    ensureProjectSelected();
+                    setShowDocsServerWizard(true);
+                  }}
+                />
+                {docsServerConfig && activeProjectPath && (
+                  <button
+                    title="Verbindung trennen"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      localStorage.removeItem(`zenpost_docs_server:${activeProjectPath}`);
+                      setDocsServerConfig(null);
+                    }}
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'rgba(179,38,30,0.08)', border: '1px solid rgba(179,38,30,0.3)',
+                      borderRadius: 6, color: '#B3261E', cursor: 'pointer',
+                      padding: '3px 8px', fontSize: 10,
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      display: 'flex', alignItems: 'center', gap: 5,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(179,38,30,0.15)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(179,38,30,0.08)'; }}
+                  >
+                    <FontAwesomeIcon icon={faLinkSlash} style={{ fontSize: 9 }} />
+                    Trennen
+                  </button>
+                )}
+              </div>
             </div>
 
               {showDocsServerWizard && activeProjectPath && (

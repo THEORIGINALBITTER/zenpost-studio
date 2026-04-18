@@ -23,11 +23,20 @@ const getCloudBaseUrl = (): { baseUrl: string | null; token: string | null } => 
   return { baseUrl: baseUrl || null, token: token || null };
 };
 
-export const canUploadToZenCloud = (): boolean => {
+export const getCloudDocumentUrl = (docId: number): string | null => {
+  const { baseUrl, token } = getCloudBaseUrl();
+  if (!baseUrl || !token || !docId) return null;
+  return `${baseUrl}/image_download.php?id=${docId}&token=${encodeURIComponent(token)}`;
+};
+
+export const canUploadToZenCloudProject = (projectId?: number | null): boolean => {
   const settings = loadZenStudioSettings();
   const { baseUrl, token } = getCloudBaseUrl();
-  return !!(baseUrl && token && settings.cloudProjectId);
+  const effectiveProjectId = typeof projectId === 'number' && projectId > 0 ? projectId : settings.cloudProjectId;
+  return !!(baseUrl && token && effectiveProjectId);
 };
+
+export const canUploadToZenCloud = (): boolean => canUploadToZenCloudProject();
 
 // Tauri-aware GET: uses invoke('http_fetch') in desktop (bypasses CORS), browser fetch in web
 const cloudGet = async (url: string, token: string): Promise<{ ok: boolean; text: string }> => {
@@ -50,9 +59,10 @@ const cloudGet = async (url: string, token: string): Promise<{ ok: boolean; text
   }
 };
 
-export const uploadCloudDocument = async (file: File): Promise<CloudUploadResult | null> => {
-  const settings = loadZenStudioSettings();
-  const projectId = settings.cloudProjectId;
+export const uploadCloudDocumentToProject = async (
+  file: File,
+  projectId: number,
+): Promise<CloudUploadResult | null> => {
   const { baseUrl, token } = getCloudBaseUrl();
   if (!baseUrl || !token || !projectId) return null;
 
@@ -73,7 +83,13 @@ export const uploadCloudDocument = async (file: File): Promise<CloudUploadResult
   if (!json || !json.success || !json.id) return null;
 
   // image_download.php akzeptiert Token als URL-Parameter → <img src> kann es direkt laden
-  return { id: json.id, url: `${baseUrl}/image_download.php?id=${json.id}&token=${encodeURIComponent(token)}` };
+  return { id: json.id, url: getCloudDocumentUrl(json.id) ?? '' };
+};
+
+export const uploadCloudDocument = async (file: File): Promise<CloudUploadResult | null> => {
+  const settings = loadZenStudioSettings();
+  if (!settings.cloudProjectId) return null;
+  return uploadCloudDocumentToProject(file, settings.cloudProjectId);
 };
 
 export const uploadCloudImageDataUrl = async (

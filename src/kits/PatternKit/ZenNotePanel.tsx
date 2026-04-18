@@ -255,7 +255,11 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
       {/* Note list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!isLoggedIn && (
-          <div style={{ padding: '20px 12px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <div style={{ 
+            padding: '20px 12px', 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center', gap: 10 }}>
             <div style={{ color: '#555', fontSize: 10, textAlign: 'center', lineHeight: 1.6, fontFamily: 'IBM Plex Mono, monospace' }}>
               ZenNote benötigt einen<br />ZenCloud Account
             </div>
@@ -273,7 +277,10 @@ export function ZenNotePanel({ onClose }: ZenNotePanelProps) {
           </div>
         )}
         {isLoggedIn && !loading && filtered.length === 0 && (
-          <div style={{ padding: '24px 12px', color: '#444', fontSize: 10, textAlign: 'center', lineHeight: 1.7 }}>
+          <div style={{ 
+            padding: '24px 12px', 
+            color: '#444', 
+            fontSize: 10, textAlign: 'center', lineHeight: 1.7 }}>
             <FontAwesomeIcon icon={faNoteSticky} style={{ display: 'block', margin: '0 auto 8px', fontSize: 20, color: '#222' }} />
             {notes.length === 0 ? 'Noch keine Notizen' : 'Keine Treffer'}
           </div>

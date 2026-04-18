@@ -399,7 +399,7 @@ export const ZenApiSettingsContent = () => {
     return `<?php\nreturn [\n    'db_host' => 'HIER_DB_HOST',\n    'db_name' => 'HIER_DB_NAME',\n    'db_user' => 'HIER_DB_USER',\n    'db_pass' => 'HIER_DB_PASS',\n    'api_key_enabled' => ${apiEnabled ? 'true' : 'false'},\n    'api_key' => '${(settings.contentServerApiKey ?? '').replace(/'/g, "\\'")}',\n    'image_public_base' => '${(settings.contentServerImageBaseUrl ?? '').replace(/'/g, "\\'")}',\n];\n`;
   };
 
-  const buildReadme = () => `ZenPost Server API Setup\n=========================\n\n1) Alle Dateien aus diesem ZIP in /api/zenpost/ auf deinem Server hochladen.\n2) setup.php im Browser aufrufen:\n   https://deine-domain.de/api/zenpost/setup.php\n3) DB-Daten eintragen und speichern.\n4) In ZenPost API Tab eintragen:\n   URL: ${settings.contentServerApiUrl ?? 'https://deine-domain.de'}\n   Upsert: ${settings.contentServerApiEndpoint}\n   Upload: ${settings.contentServerImageUploadEndpoint}\n   Ping: ${settings.contentServerPingEndpoint}\n5) API testen + Test-Insert senden.\n`;
+  const buildReadme = () => `ZenPost Server API Setup\n=========================\n\n1) Alle Dateien aus diesem ZIP in /api/zenpost/ auf deinem Server hochladen.\n2) setup.php einmalig im Browser aufrufen:\n   https://deine-domain.de/api/zenpost/setup.php\n3) DB-Daten eintragen und speichern.\n4) Danach setup.php sofort sperren, entfernen oder nur einmalig nutzbar machen.\n5) In ZenPost API Tab eintragen:\n   URL: ${settings.contentServerApiUrl ?? 'https://deine-domain.de'}\n   Upsert: ${settings.contentServerApiEndpoint}\n   Upload: ${settings.contentServerImageUploadEndpoint}\n   Ping: ${settings.contentServerPingEndpoint}\n6) API testen + Test-Insert senden.\n`;
 
   const buildPingPhp = () => `<?php\nheader("Access-Control-Allow-Origin: *");\nheader("Access-Control-Allow-Methods: GET, OPTIONS");\nheader("Access-Control-Allow-Headers: Content-Type, Authorization");\nif ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(200); exit(); }\nheader("Content-Type: application/json; charset=utf-8");\n\n$configPath = __DIR__ . DIRECTORY_SEPARATOR . 'config.php';\nif (!file_exists($configPath)) { http_response_code(500); echo json_encode(["success"=>false,"message"=>"config.php fehlt. setup.php ausfuehren."]); exit; }\n$config = require $configPath;\n$apiKeyEnabled = !empty($config['api_key_enabled']);\n$expectedApiKey = trim((string)($config['api_key'] ?? ''));\n$authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';\n$token = null;\nif (preg_match('/Bearer\\s+(.+)/i', $authHeader, $m)) { $token = trim($m[1]); }\nif ($apiKeyEnabled && ($expectedApiKey === '' || $token !== $expectedApiKey)) {\n  http_response_code(401); echo json_encode(["success"=>false,"message"=>"Unauthorized"]); exit;\n}\necho json_encode(["success"=>true,"message"=>"pong","time"=>gmdate('c')]);\n`;
 
@@ -461,7 +461,7 @@ export const ZenApiSettingsContent = () => {
 
           <div style={stepTitleStyle}>2. Server konfigurieren</div>
           <div style={hintStyle}>
-            ZIP nach <code>/api/zenpost/</code> hochladen, dann <code>setup.php</code> im Browser oeffnen und DB-Daten speichern.
+            Server-Paket auf den Webserver laden, <code>setup.php</code> einmalig ausfuehren und danach sofort sperren oder loeschen.
           </div>
 
           <div style={stepTitleStyle}>3. API-Daten in ZenPost eintragen</div>

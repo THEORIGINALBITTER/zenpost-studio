@@ -65,7 +65,7 @@ export const ZenSaveSuccessModal = ({
         ? 'Die Datei wurde als Browser-Download gespeichert.'
         : 'Die Datei wurde erfolgreich in deinem Projektordner gespeichert.';
   const resolvedMessage = message ?? defaultMessage;
-  const resolvedPathsLabel = pathsLabel ?? (isCloudSave ? 'Details:' : (webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:');
+  const resolvedPathsLabel = pathsLabel ?? (isCloudSave ? 'Erfolgreich abgelegt unter:' : (webRuntime || isBrowserDownloadPath) ? 'Download-Hinweis:' : 'Gespeicherte Datei-Pfade:');
 
   // Debug: Log filePath to see if it's being passed - only when modal is open
   if (isOpen) {
@@ -207,8 +207,8 @@ export const ZenSaveSuccessModal = ({
                 key={`${path}-${index}`}
                 style={{
                   fontFamily: 'monospace',
-                  fontSize: '10px',
-                  color: '#999',
+                  fontSize: '11px',
+                  color: '#e8e3d8',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden'
                 }}
@@ -220,8 +220,8 @@ export const ZenSaveSuccessModal = ({
               <div
                 style={{
                   fontFamily: 'monospace',
-                  fontSize: '10px',
-                  color: '#8c8c8c',
+                  fontSize: '11px',
+                  color: '#e8e3d8',
                 }}
               >
                 Die Datei liegt in deinem Browser-Download-Ordner.
@@ -251,7 +251,7 @@ export const ZenSaveSuccessModal = ({
           )}
           {showFileExplorerButton && primaryPath && desktopRuntime && !isBrowserDownloadPath && !isHttpPrimaryPath && (
             <ZenRoughButton
-              label="Im Finder anzeigen"
+              label="Speicherort anzeigen"
               icon={<FontAwesomeIcon icon={faFolderOpen} />}
               onClick={() => handleShowInFinder(primaryPath)}
               variant="default"

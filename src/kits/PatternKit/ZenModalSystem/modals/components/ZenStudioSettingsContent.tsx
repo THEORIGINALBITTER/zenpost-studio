@@ -39,7 +39,7 @@ export const ZenStudioSettingsContent = ({ onOpenZenThoughtsEditor }: ZenStudioS
     const checkThoughtsFile = async () => {
       if (!isTauri()) {
         setIsThoughtsFileLoaded(false);
-        setThoughtsFileStatusMessage('Datei-Check nur in der Desktop-App verfuegbar');
+        setThoughtsFileStatusMessage('Datei-Check nur in der Desktop-App oder mit ZenCloud verfuegbar');
         return;
       }
       if (!resolvedThoughtsFilePath) {

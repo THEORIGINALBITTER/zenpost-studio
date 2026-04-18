@@ -16,6 +16,7 @@ import {
   faAlignRight,
   faIndent,
   faOutdent,
+  faImage,
   faTable,
   faArrowUp,
   faArrowDown,
@@ -25,7 +26,11 @@ import {
   faNoteSticky,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenNotePanel } from './ZenNotePanel';
-import { subscribeToInsertContentStudioSnippet } from '../../services/contentStudioBridgeService';
+import { ZenCloudImagePanel } from './ZenCloudImagePanel';
+import {
+  subscribeToInsertContentStudioImages,
+  subscribeToInsertContentStudioSnippet,
+} from '../../services/contentStudioBridgeService';
 import Header from '@editorjs/header';
 import List from '@editorjs/list';
 import Quote from '@editorjs/quote';
@@ -1245,12 +1250,13 @@ export const ZenBlockEditor = ({
   const LARGE_INLINE_IMAGE_SAFE_MODE_LENGTH = 900_000;
   const LINE_GUTTER_WIDTH = 56;
   const DOT_LEFT_OFFSET = 5;
-  const MENU_LEFT_OFFSET = -140;
+  const MENU_LEFT_OFFSET = -170;
   const editorRef = useRef<EditorJS | null>(null);
   const holderRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isReady, setIsReady] = useState(false);
   const [showZenNotePanel, setShowZenNotePanel] = useState(false);
+  const [showZenCloudImagePanel, setShowZenCloudImagePanel] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: MENU_LEFT_OFFSET, y: 96 });
   const [dotPosition, setDotPosition] = useState({ x: DOT_LEFT_OFFSET, y: 0 });
@@ -3290,6 +3296,71 @@ export const ZenBlockEditor = ({
     return () => onRegisterImageInserter(null);
   }, [onRegisterImageInserter, isReady]);
 
+  useEffect(() => {
+    return subscribeToInsertContentStudioImages(({ images = [] }) => {
+      if (!images.length) return;
+      if (typeof onRegisterImageInserter === 'function') return;
+
+      const insertImagesAtCursor = (imagesToInsert: Array<{ url: string; alt?: string }>) => {
+        if (!imagesToInsert.length) return;
+        void (async () => {
+          const editor = editorRef.current as any;
+          if (!editor?.blocks) return;
+
+          const optimizedImages = await Promise.all(
+            imagesToInsert.map(async (image) => ({
+              ...image,
+              url: image.url.startsWith('data:image/')
+                ? await persistEditorImageUrl(
+                    image.url,
+                    `${(image.alt ?? 'editor-image').replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'editor-image'}.jpg`
+                  )
+                : image.url,
+            }))
+          );
+
+          const info = getCurrentBlockInfo(toolbarActionBlockIndexRef.current);
+          let insertIndex: number | undefined;
+          const shouldReplaceCurrent = !!info && !info.hasContent;
+
+          if (shouldReplaceCurrent && info) {
+            insertIndex = info.index;
+            try {
+              editor.blocks.delete(info.index);
+            } catch {
+              // fallback to regular insert below
+            }
+          } else if (info) {
+            insertIndex = info.index + 1;
+          } else {
+            const currentIndex = editor.blocks.getCurrentBlockIndex?.();
+            insertIndex = typeof currentIndex === 'number' ? currentIndex + 1 : undefined;
+          }
+
+          optimizedImages.forEach((image, offset) => {
+            editor.blocks.insert(
+              'imageBlock',
+              { url: image.url, alt: image.alt ?? '' },
+              undefined,
+              typeof insertIndex === 'number' ? insertIndex + offset : undefined,
+              true
+            );
+          });
+
+          const targetIndex =
+            typeof insertIndex === 'number'
+              ? insertIndex + optimizedImages.length - 1
+              : Math.max(0, (editor.blocks.getBlocksCount?.() ?? 1) - 1);
+          toolbarActionBlockIndexRef.current = targetIndex;
+          focusBlockByIndex(targetIndex, 'end');
+        })();
+      };
+
+      insertImagesAtCursor(images);
+      setShowZenCloudImagePanel(false);
+    });
+  }, [onRegisterImageInserter]);
+
   const keepSelection = (event: React.MouseEvent) => {
     event.preventDefault();
   };
@@ -4078,6 +4149,11 @@ export const ZenBlockEditor = ({
         <ZenNotePanel onClose={() => setShowZenNotePanel(false)} />
       )}
 
+      {/* ZenCloud Image Panel */}
+      {showZenCloudImagePanel && (
+        <ZenCloudImagePanel onClose={() => setShowZenCloudImagePanel(false)} />
+      )}
+
       {/* Find & Replace Bar (Cmd+F / Ctrl+F) */}
       {showSearch && (
         <div
@@ -4771,7 +4847,7 @@ export const ZenBlockEditor = ({
             </div>
 
             <div className="zen-overlay-block-menu__section">Einfügen</div>
-            <div className="zen-overlay-block-menu__grid">
+            <div className="zen-overlay-block-menu__grid zen-overlay-block-menu__grid--insert">
               <button type="button" onClick={() => insertBlock('linkBlock', { text: '', url: '' })}>Link</button>
               <button type="button" onClick={() => insertBlock('imageBlock', { url: '', alt: '' })}>Image</button>
               <button type="button" onClick={() => insertBlock('ctaBlock', { text: '', url: '' })}>CTA</button>
@@ -4781,12 +4857,23 @@ export const ZenBlockEditor = ({
               <button type="button" onClick={() => insertBlock('code', { language: 'text', code: '' })}>Code</button>
               <button
                 type="button"
+                className="zen-overlay-block-menu__button--wide"
                 title="ZenNote einfügen"
                 onClick={() => { setShowZenNotePanel((v) => !v); setMenuOpen(false); }}
                 style={{ display: 'flex', alignItems: 'center', gap: 4, color: showZenNotePanel ? '#AC8E66' : undefined }}
               >
                 <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 10 }} />
-                <span>Note</span>
+                <span>ZenNote</span>
+              </button>
+              <button
+                type="button"
+                className="zen-overlay-block-menu__button--wide"
+                title="ZenImage einfügen"
+                onClick={() => { setShowZenCloudImagePanel((v) => !v); setMenuOpen(false); }}
+                style={{ display: 'flex', alignItems: 'center', gap: 4, color: showZenCloudImagePanel ? '#AC8E66' : undefined }}
+              >
+                <FontAwesomeIcon icon={faImage} style={{ fontSize: 10 }} />
+                <span>ZenImage</span>
               </button>
             </div>
 

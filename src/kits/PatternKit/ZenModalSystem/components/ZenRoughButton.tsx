@@ -45,8 +45,8 @@ export const ZenRoughButton = ({
 
   const strokeColor = useMemo(() => {
     if (variant === "active") return "#AC8E66";
-    if (hovered) return "#1a1a1a";
-    return "#555555";
+    if (hovered) return "#d0cbb8";
+    return "#e8e3d8";
   }, [variant, hovered]);
 
   const sizeClasses: Record<Size, string> = {
@@ -60,10 +60,10 @@ export const ZenRoughButton = ({
 
   const base =
     "group transition-colors duration-200 border-0 outline-none focus:outline-none focus:ring-0 active:bg-transparent focus:bg-transparent no-underline";
-  const hover = disabled ? "" : "cursor-pointer hover:text-[#1a1a1a]";
+  const hover = disabled ? "" : "cursor-pointer hover:text-[#d0cbb8]";
   const state = disabled ? "opacity-50 cursor-not-allowed" : "";
   const variantClasses: Record<Variant, string> = {
-    default: "bg-transparent text-[#555]",
+    default: "bg-transparent text-[#e8e3d8]",
     active: "bg-[#AC8E66]/10 text-[#AC8E66]",
   };
 
@@ -72,6 +72,7 @@ export const ZenRoughButton = ({
     height: dims.h,
     outline: "none",
     border: "none",
+    background: "#252525",
     boxShadow: "none",
     WebkitTapHighlightColor: "transparent",
   };
@@ -99,7 +100,7 @@ export const ZenRoughButton = ({
             r={Math.max(0, dims.w / 2 - 4)}
             fill="none"
             stroke={strokeColor}
-            strokeWidth="1.5"
+            strokeWidth="0.5"
           />
         ) : (
           <rect
@@ -118,15 +119,15 @@ export const ZenRoughButton = ({
 
       <span className="relative z-[1] inline-flex items-center justify-center gap-3">
         {size === "compact" ? (
-          icon ? <span className="text-[14px] text-[#AC8E66]">{icon}</span> : null
+          icon ? <span className="text-[14px] text-[#e8e3d8]">{icon}</span> : null
         ) : (
           <>
             {icon ? (
-              <span className="text-[10px] text-[#AC8E66] relative top-[1px] mr-[4px]">
+              <span className="text-[10px] text-[#e8e3d8] relative top-[1px] mr-[4px]">
                 {icon}
               </span>
             ) : null}
-            <span className="text-[9px]">{label}</span>
+            <span className="text-[10px]">{label}</span>
           </>
         )}
       </span>

@@ -71,7 +71,7 @@ export function Step1StyleThemeQuickMenu({
             padding: '0 10px',
           }}
         >
-          Style Themen
+          Style Menu
         </span>
         <span
           style={{

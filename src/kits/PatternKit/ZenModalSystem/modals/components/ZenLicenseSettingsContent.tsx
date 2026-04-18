@@ -164,25 +164,14 @@ export const ZenLicenseSettingsContent = () => {
               <h3 style={{ fontFamily: 'monospace', fontSize: 16, color: '#1a1a1a', margin: 0 }}>
                 ZenPost Studio {tier.toUpperCase()}
               </h3>
-              <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#555', margin: '0px 0 0 0' }}>
-                {isPro ? (isTrial ? 'Trial Version' : 'Vollversion') : 'Kostenlose Version'}
+              <p style={{ fontFamily: 'monospace', fontSize: 11, color: '#252525', margin: '0px 0 0 0' }}>
+                {isPro ? (isTrial ? 'Trial Version' : 'Vollversion') : 'Freie Version'}
               </p>
             </div>
           </div>
 
           {/* Status Badge */}
-          <div
-            style={{
-              padding: '6px 12px',
-              borderRadius: 20,
-              backgroundColor: isPro ? 'transparent' : 'rgba(136, 136, 136, 0.2)',
-              border: `1px solid ${isPro ? '#1a1a1a' : '#555'}`,
-            }}
-          >
-            <span style={{ fontFamily: 'monospace', fontSize: 10, color: isPro ? '#1a1a1a' : '#888' }}>
-              {isPro ? (isTrial ? 'TRIAL AKTIV' : 'PRO AKTIV') : 'FREE'}
-            </span>
-          </div>
+        
         </div>
 
         {/* License Details */}
@@ -270,7 +259,7 @@ export const ZenLicenseSettingsContent = () => {
             <>
               {canStartTrial && (
                 <ZenRoughButton
-                  label="7 Tage kostenlos testen"
+                  label="Beta testen"
                   icon={<FontAwesomeIcon icon={faGift} />}
                   onClick={handleStartTrial}
                   variant="default"

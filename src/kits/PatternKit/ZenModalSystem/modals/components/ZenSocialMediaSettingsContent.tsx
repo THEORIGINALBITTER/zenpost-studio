@@ -546,10 +546,10 @@ export const ZenSocialMediaSettingsContent = ({
       {/* Header */}
       <div style={{ padding: '20px 28px 16px', borderBottom: '1px solid rgba(172,142,102,0.3)', background: 'rgba(172,142,102,0.05)' }}>
         <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, letterSpacing: '0.12em', color: '#AC8E66', textTransform: 'uppercase', marginBottom: 4 }}>
-          Media Transformation
+          Media Transformation für Content AI Studio
         </div>
         <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, fontWeight: 400, color: '#1a1a1a' }}>
-          Social Media APIs
+          Social Media APIs zum Transformieren an LinkedIn, Medium und mehr.
         </div>
         <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#777', marginTop: 3 }}>
           API-Keys sind optional — ohne APIs wird Content kopiert und manuell gepostet.
@@ -1598,7 +1598,7 @@ export const ZenSocialMediaSettingsContent = ({
                 </button>
               ) : (
                 <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#999', marginBottom: '12px' }}>
-                  Ordner-Auswahl nur in der Desktop-App verfügbar.
+                  Ordner-Auswahl nur in der Desktop-App + Zencloud verfügbar.
                 </p>
               )}
               <div style={{ marginTop: '10px' }}>

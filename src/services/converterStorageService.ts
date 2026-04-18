@@ -8,6 +8,7 @@
 import { isTauri } from '@tauri-apps/api/core';
 import { writeFile, writeTextFile, mkdir } from '@tauri-apps/plugin-fs';
 import { loadZenStudioSettings, patchZenStudioSettings } from './zenStudioSettingsService';
+import { uploadCloudDocument, canUploadToZenCloud } from './cloudStorageService';
 
 // ─── IndexedDB ────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,74 @@ function openIDB(): Promise<IDBDatabase> {
 }
 
 export type ConverterFolderType = 'images' | 'archive';
+export type ConverterSaveResult =
+  | { success: true; storage: 'local' | 'opfs' }
+  | { success: true; storage: 'cloud'; cloudAsset: { id: number; url: string; fileName: string } }
+  | { success: false };
+
+async function saveToLocalConverterFolder(
+  type: ConverterFolderType,
+  filename: string,
+  content: string | Uint8Array,
+): Promise<ConverterSaveResult> {
+  const settings = loadZenStudioSettings().converter;
+
+  if (isTauri()) {
+    const folderPath = type === 'images' ? settings.imagesFolderPath : settings.archiveFolderPath;
+    if (!folderPath) return { success: false };
+    try {
+      await mkdir(folderPath, { recursive: true });
+      const filePath = `${folderPath}/${filename}`;
+      if (content instanceof Uint8Array) {
+        await writeFile(filePath, content);
+      } else {
+        await writeTextFile(filePath, content);
+      }
+      return { success: true, storage: 'local' };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  if (settings.useOpfsInWeb && canUseOpfs()) {
+    try {
+      const storage = navigator.storage as unknown as { getDirectory: () => Promise<FileSystemDirectoryHandle> };
+      const root = await storage.getDirectory();
+      const converterDir = await root.getDirectoryHandle('converter', { create: true });
+      const targetDir = await converterDir.getDirectoryHandle(type, { create: true });
+      const fileHandle = await targetDir.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(content instanceof Uint8Array ? content : content);
+      await writable.close();
+      return { success: true, storage: 'opfs' };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  const handle = await getConverterHandle(type);
+  if (!handle) return { success: false };
+  try {
+    const h = handle as FileSystemDirectoryHandle & {
+      queryPermission?: (desc: object) => Promise<string>;
+      requestPermission?: (desc: object) => Promise<string>;
+    };
+    if (h.queryPermission) {
+      const perm = await h.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted' && h.requestPermission) {
+        const req = await h.requestPermission({ mode: 'readwrite' });
+        if (req !== 'granted') return { success: false };
+      }
+    }
+    const fileHandle = await handle.getFileHandle(filename, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content instanceof Uint8Array ? content.buffer : content);
+    await writable.close();
+    return { success: true, storage: 'local' };
+  } catch {
+    return { success: false };
+  }
+}
 
 export async function storeConverterHandle(
   type: ConverterFolderType,
@@ -136,68 +205,31 @@ export async function saveToConverterFolder(
   type: ConverterFolderType,
   filename: string,
   content: string | Uint8Array,
-): Promise<boolean> {
-  if (isTauri()) {
-    const settings = loadZenStudioSettings().converter;
-    const folderPath = type === 'images' ? settings.imagesFolderPath : settings.archiveFolderPath;
-    if (!folderPath) return false;
-    try {
-      await mkdir(folderPath, { recursive: true });
-      const filePath = `${folderPath}/${filename}`;
-      if (content instanceof Uint8Array) {
-        await writeFile(filePath, content);
-      } else {
-        await writeTextFile(filePath, content);
-      }
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // Browser: OPFS (falls aktiviert)
+): Promise<ConverterSaveResult> {
   const settings = loadZenStudioSettings().converter;
-  if (settings.useOpfsInWeb && canUseOpfs()) {
-    try {
-      const storage = navigator.storage as unknown as { getDirectory: () => Promise<FileSystemDirectoryHandle> };
-      const root = await storage.getDirectory();
-      const converterDir = await root.getDirectoryHandle('converter', { create: true });
-      const targetDir = await converterDir.getDirectoryHandle(type, { create: true });
-      const fileHandle = await targetDir.getFileHandle(filename, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(content instanceof Uint8Array ? content : content);
-      await writable.close();
-      return true;
-    } catch {
-      return false;
-    }
-  }
 
-  // Browser: File System Access API (Ordner-Picker)
-  const handle = await getConverterHandle(type);
-  if (!handle) return false;
-  try {
-    // Permission prüfen / anfordern (File System Access API extension)
-    const h = handle as FileSystemDirectoryHandle & {
-      queryPermission?: (desc: object) => Promise<string>;
-      requestPermission?: (desc: object) => Promise<string>;
-    };
-    if (h.queryPermission) {
-      const perm = await h.queryPermission({ mode: 'readwrite' });
-      if (perm !== 'granted' && h.requestPermission) {
-        const req = await h.requestPermission({ mode: 'readwrite' });
-        if (req !== 'granted') return false;
-      }
+  if (type === 'images' && settings.imageStorageMode === 'cloud') {
+    if (!(content instanceof Uint8Array) || !canUploadToZenCloud()) return { success: false };
+    try {
+      const mime = filename.toLowerCase().endsWith('.png')
+        ? 'image/png'
+        : filename.toLowerCase().endsWith('.webp')
+          ? 'image/webp'
+          : filename.toLowerCase().endsWith('.svg')
+            ? 'image/svg+xml'
+            : 'image/jpeg';
+      const uploaded = await uploadCloudDocument(new File([content], filename, { type: mime }));
+      return uploaded
+        ? { success: true, storage: 'cloud', cloudAsset: { id: uploaded.id, url: uploaded.url, fileName: filename } }
+        : { success: false };
+    } catch {
+      return { success: false };
     }
-    const fileHandle = await handle.getFileHandle(filename, { create: true });
-    const writable = await fileHandle.createWritable();
-    await writable.write(content instanceof Uint8Array ? content.buffer : content);
-    await writable.close();
-    return true;
-  } catch {
-    return false;
   }
+  return saveToLocalConverterFolder(type, filename, content);
 }
+
+export { saveToLocalConverterFolder };
 
 // ─── Hilfsfunktion: base64 data URL → Uint8Array ─────────────────────────────
 

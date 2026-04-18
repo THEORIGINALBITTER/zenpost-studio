@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDownload, faArrowLeft, faArrowUpRightFromSquare } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faArrowLeft, faArrowUpRightFromSquare, faImages } from '@fortawesome/free-solid-svg-icons';
 import { SupportedFormat, getFileExtension } from '../../utils/fileConverter';
 
 interface Step4ResultProps {
@@ -52,6 +52,7 @@ interface Step4ResultProps {
   onUiExportOpenChange?: (open: boolean) => void;
   onImagePresetSelect?: (preset: 'logo' | 'illustration' | 'photo') => void;
   copyFeedback?: string | null;
+  cloudSaveFeedback?: string | null;
   onCopyImageDataUrl?: () => void;
   onCopyImageBase64?: () => void;
   onSaveDataUrlTxt?: () => void;
@@ -61,6 +62,7 @@ interface Step4ResultProps {
   onStartOver: () => void;
   onOpenInContentStudio?: () => void;
   showOpenInContentStudio?: boolean;
+  onOpenImageGallery?: () => void;
 }
 
 export const Step4Result = ({
@@ -104,6 +106,7 @@ export const Step4Result = ({
   onUiExportOpenChange,
   onImagePresetSelect,
   copyFeedback = null,
+  cloudSaveFeedback = null,
   onCopyImageDataUrl,
   onCopyImageBase64,
   onSaveDataUrlTxt,
@@ -113,6 +116,7 @@ export const Step4Result = ({
   onStartOver,
   onOpenInContentStudio,
   showOpenInContentStudio = false,
+  onOpenImageGallery,
 }: Step4ResultProps) => {
   const outputContent = outputByFormat[activeFormat] ?? '';
   const isImageFormat = activeFormat === 'png' || activeFormat === 'jpg' || activeFormat === 'jpeg' || activeFormat === 'webp' || activeFormat === 'svg';
@@ -120,12 +124,13 @@ export const Step4Result = ({
   const isCropSupported = isImageFormat;
   const isBlobUrl = outputContent.startsWith('blob:');
   const isDataImageUrl = outputContent.startsWith('data:image/');
+  const isHttpImageUrl = /^https?:\/\//i.test(outputContent);
   const svgDataUrl =
     activeFormat === 'svg' && outputContent
       ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(outputContent)}`
       : '';
-  const imagePreviewSrc = isBlobUrl ? outputContent : isDataImageUrl ? outputContent : svgDataUrl;
-  const canCopyBase64 = isBlobUrl || outputContent.startsWith('data:') || activeFormat === 'svg';
+  const imagePreviewSrc = isBlobUrl ? outputContent : isDataImageUrl ? outputContent : isHttpImageUrl ? outputContent : svgDataUrl;
+  const canCopyBase64 = isBlobUrl || isHttpImageUrl || outputContent.startsWith('data:') || activeFormat === 'svg';
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [customMaxSizeInput, setCustomMaxSizeInput] = useState('');
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
@@ -1465,6 +1470,29 @@ export const Step4Result = ({
           </button>
         )}
 
+        {/* ZenImage Gallery */}
+        {onOpenImageGallery && (
+          <button
+            onClick={onOpenImageGallery}
+            style={{
+              padding: '9px 16px',
+              borderRadius: '8px',
+              border: '0.5px solid rgba(172,142,102,0.5)',
+              background: 'transparent',
+              color: '#AC8E66',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+            }}
+          >
+            <FontAwesomeIcon icon={faImages} />
+            ZenImage
+          </button>
+        )}
+
         {isPreviewRefreshing && (
           <span
             style={{
@@ -1494,6 +1522,22 @@ export const Step4Result = ({
             }}
           >
             {copyFeedback}
+          </span>
+        )}
+
+        {cloudSaveFeedback && (
+          <span
+            style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              color: '#9fd2ad',
+              background: 'rgba(60,120,80,0.22)',
+              border: '1px solid rgba(100,170,120,0.45)',
+              borderRadius: '8px',
+              padding: '7px 10px',
+            }}
+          >
+            {cloudSaveFeedback}
           </span>
         )}
 

@@ -79,6 +79,8 @@ interface ZenNoteStudioScreenProps {
   insertTargetActive?: boolean;
   requestedNoteId?: number | null;
   onRequestedNoteHandled?: () => void;
+  onStudioBarChange?: (content: React.ReactNode) => void;
+  publishingBannerVisible?: boolean;
 }
 
 // ── Frontmatter helpers ────────────────────────────────────────────────────
@@ -107,22 +109,14 @@ type TabType = 'all' | 'quick' | 'folder' | 'tag';
 interface ActiveTab { type: TabType; value: string }
 
 const gold = '#AC8E66';
-const bgSidebar = '#141414';
+const bgSidebar = '#252525';
 const bgList = '#1a1a1a';
 const border = '#2A2A2A';
 const textPrimary = '#d0cbb8';
-const textMuted = '#888';
+const textMuted = '#e8e3d8';
 const textIcon = '#d0cbb8';
 const fontMono = 'IBM Plex Mono, monospace';
 
-function withAlpha(color: string, alphaHex: string): string {
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) return `${color}${alphaHex}`;
-  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
-    const [, r, g, b] = color;
-    return `#${r}${r}${g}${g}${b}${b}${alphaHex}`;
-  }
-  return color;
-}
 
 function encodeFileName(title: string, tag: string, folder: string): string {
   const safeTitle = (title.trim() || 'Notiz').replace(/@@/g, '-').replace(/\//g, '-');
@@ -142,7 +136,7 @@ function readStoredEditorTheme(): 'dark' | 'light' {
   }
 }
 
-export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteId = null, onRequestedNoteHandled }: ZenNoteStudioScreenProps) {
+export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteId = null, onRequestedNoteHandled, onStudioBarChange, publishingBannerVisible = false }: ZenNoteStudioScreenProps) {
   const [viewportWidth, setViewportWidth] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1600
   );
@@ -180,7 +174,11 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   const [tagColors, setTagColors] = useState<Record<string, string>>(() => loadLocalZenNoteMeta().tagColors);
   const [showInsertMenu, setShowInsertMenu] = useState(false);
   const [metaDocId, setMetaDocId] = useState<number | null>(null);
+  const [folderPanelOpen, setFolderPanelOpen] = useState(false);
+  const [tagPanelOpen, setTagPanelOpen] = useState(false);
   const insertMenuRef = useRef<HTMLDivElement>(null);
+  const folderPanelRef = useRef<HTMLDivElement>(null);
+  const tagPanelRef = useRef<HTMLDivElement>(null);
 
   // ── Close move dropdown on outside click ──────────────────────────────────
   useEffect(() => {
@@ -201,6 +199,29 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showInsertMenu]);
+
+  // ── Close folder/tag panel on outside click ───────────────────────────────
+  useEffect(() => {
+    if (!folderPanelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (folderPanelRef.current && !folderPanelRef.current.contains(e.target as Node)) {
+        setFolderPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [folderPanelOpen]);
+
+  useEffect(() => {
+    if (!tagPanelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (tagPanelRef.current && !tagPanelRef.current.contains(e.target as Node)) {
+        setTagPanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tagPanelOpen]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -592,6 +613,63 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
     setTimeout(() => setOpenAsDraftOk(false), 2500);
   };
 
+  useEffect(() => {
+    if (!onStudioBarChange) return;
+    onStudioBarChange(
+      <div style={{ display: 'flex', gap: 5, alignItems: 'flex-end' }}>
+    
+        {/* Planen */}
+        <button
+          onClick={handleAddToPlanner}
+          disabled={!activeNoteId}
+          style={{ width: 130, height: 40, borderTop: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderLeft: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderRight: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: plannerAddOk ? '#4caf50' : '#d0cbb8', cursor: !activeNoteId ? 'not-allowed' : 'pointer', opacity: !activeNoteId ? 0.2 : 1, transition: 'all 0.2s ease', marginBottom: '-2px' }}
+          onMouseEnter={(e) => { if (activeNoteId && !plannerAddOk) { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+          onMouseLeave={(e) => { if (activeNoteId && !plannerAddOk) { e.currentTarget.style.borderColor = '#2A2A2A'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+        >
+          <span style={{ display: 'inline-flex', color: '#d0cbb8' }}><FontAwesomeIcon icon={plannerAddOk ? faCheck : faCalendarPlus} /></span>
+          <span>{plannerAddOk ? 'Geplant!' : 'Planen'}</span>
+        </button>
+        {/* Einfügen */}
+        <div ref={insertMenuRef} style={{ position: 'relative' }}>
+          <button
+            onClick={() => { if (!insertOk && !openAsDraftOk) setShowInsertMenu((prev) => !prev); }}
+            disabled={!editorContent.trim()}
+            style={{ width: 130, height: 40, borderTop: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderLeft: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderRight: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: (insertOk || openAsDraftOk) ? '#4caf50' : '#d0cbb8', cursor: !editorContent.trim() ? 'not-allowed' : 'pointer', opacity: !editorContent.trim() ? 0.2 : 1, transition: 'all 0.2s ease', marginBottom: '-2px' }}
+            onMouseEnter={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
+            onMouseLeave={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) { e.currentTarget.style.borderColor = '#2A2A2A'; e.currentTarget.style.transform = 'translateY(0)'; } }}
+          >
+            <span style={{ display: 'inline-flex', color: '#d0cbb8' }}><FontAwesomeIcon icon={insertOk || openAsDraftOk ? faCheck : faArrowRightToBracket} /></span>
+            <span>{insertOk ? 'Eingefügt!' : openAsDraftOk ? 'Geöffnet!' : `Einfügen ${showInsertMenu ? '▲' : '▾'}`}</span>
+          </button>
+          {showInsertMenu && (
+            <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#d0cbb8', border: 'none', boxShadow: 'none', borderRadius: 2, overflow: 'hidden', minWidth: 200, zIndex: 200 }}>
+              {insertTargetActive && (
+                <button onClick={() => { setShowInsertMenu(false); handleInsert(); }} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', boxShadow: 'none', border: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                  <FontAwesomeIcon icon={faArrowRightToBracket} style={{ color: bgList }} />
+                  In Editor einfügen
+                </button>
+              )}
+              <button onClick={() => { setShowInsertMenu(false); handleOpenAsDraft(); }} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                <FontAwesomeIcon icon={faPenToSquare} style={{ color: bgList }} />
+                Als Entwurf öffnen
+              </button>
+            </div>
+          )}
+        </div>
+            {/* Theme switcher */}
+        <div style={{ height: 40, borderTop: '1px dotted #2A2A2A', borderLeft: '1px dotted #2A2A2A', borderRight: '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 8px', background: '#121212', display: 'flex', alignItems: 'center', gap: 4, marginBottom: '-2px' }}>
+          <button type="button" onClick={() => updateEditorTheme('dark')} title="Dark Theme" style={{ border: 'none', borderRadius: 6, background: editorTheme === 'dark' ? '#d0cbb8' : 'transparent', color: editorTheme === 'dark' ? '#AC8E66' : '#888', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <FontAwesomeIcon icon={faMoon} style={{ fontSize: 10 }} />
+          </button>
+          <button type="button" onClick={() => updateEditorTheme('light')} title="Light Theme" style={{ border: 'none', borderRadius: 6, background: editorTheme === 'light' ? '#d0cbb8' : 'transparent', color: editorTheme === 'light' ? '#AC8E66' : '#888', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+            <FontAwesomeIcon icon={faSun} style={{ fontSize: 10 }} />
+          </button>
+        </div>
+      </div>
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onStudioBarChange, activeNoteId, editorContent, editorTheme, plannerAddOk, insertOk, openAsDraftOk, showInsertMenu, insertTargetActive]);
+
   // ── New Folder ─────────────────────────────────────────────────────────────
   const commitNewFolder = () => {
     const name = newFolderValue.trim();
@@ -658,6 +736,25 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
     }
   };
 
+  const deleteFolder = async (folder: string) => {
+    const notesInFolder = notes.filter((n) => n.folder === folder);
+    setNotes((prev) => prev.map((n) => n.folder === folder ? { ...n, folder: '' } : n));
+    for (const note of notesInFolder) {
+      const content = await downloadCloudDocumentText(note.id);
+      if (content !== null) {
+        await doSave(note.id, note.title, note.tag, '', content);
+      }
+    }
+    const nextColors = { ...folderColors };
+    delete nextColors[folder];
+    setFolderColors(nextColors);
+    localStorage.setItem('zenpost_zennote_folder_colors', JSON.stringify(nextColors));
+    void syncZenNoteMetaToCloud(customTags, tagColors, nextColors);
+    if (activeTab.type === 'folder' && activeTab.value === folder) {
+      setActiveTab({ type: 'all', value: '' });
+    }
+  };
+
   // ── Notiz verschieben ──────────────────────────────────────────────────────
   const moveNote = async (noteId: number, targetFolder: string) => {
     setMovingNoteId(noteId);
@@ -705,7 +802,7 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   if (!isLoggedIn) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16, fontFamily: fontMono }}>
-        <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 32, color: textMuted }} />
+        <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 32, color: '#d0cbb8', }} />
         <p style={{ color: '#d0cbb8', fontSize: 12 }}>ZenNote Studio benötigt einen ZenPost Cloud Account.</p>
         <button
           className="zen-gold-btn"
@@ -754,155 +851,10 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 80px)', fontFamily: fontMono, background: '#1a1a1a' }}>
-
-      {/* ── Studio Bar ──────────────────────────────────────────────────────── */}
-      <div style={{ position: 'relative', background: '#1a1a1a', display: 'flex', alignItems: 'flex-end', 
-        padding: '10px 16px 0', gap: 8, justifyContent: 'space-between', flexShrink: 0 }}>
-        {/* Goldene Linie über allen Tabs */}
-        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 0.5, background: '#555', zIndex: 10, pointerEvents: 'none' }} />
-        {/* Left: Notizen Tab */}
-        <div style={{ display: 'flex', gap: 8, zIndex: 1 }}>
-         
-        </div>
-        {/* Right: Action Tabs */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', zIndex: 1 }}>
-          <div
-            style={{
-              height: 40,
-              borderTop: '0.5px dotted #d0cbb8',
-              borderLeft: '0.5px dotted #d0cbb8',
-              borderRight: '0.5px dotted #d0cbb8',
-              borderBottom: 0,
-              borderRadius: '10px 10px 0 0',
-              padding: '0 8px',
-              background: '#1a1a1a',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => updateEditorTheme('dark')}
-              title="Dark Theme"
-              style={{
-                border: 'none',
-                borderRadius: 6,
-                background: editorTheme === 'dark' ? '#101010' : 'transparent',
-                color: editorTheme === 'dark' ? '#AC8E66' : '#888',
-                width: 28,
-                height: 28,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <FontAwesomeIcon icon={faMoon} style={{ fontSize: 10 }} />
-            </button>
-            <button
-              type="button"
-              onClick={() => updateEditorTheme('light')}
-              title="Light Theme"
-              style={{
-                border: 'none',
-                borderRadius: 6,
-                background: editorTheme === 'light' ? '#d0cbb8' : 'transparent',
-                color: editorTheme === 'light' ? '#1a1a1a' : '#888',
-                width: 28,
-                height: 28,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <FontAwesomeIcon icon={faSun} style={{ fontSize: 10 }} />
-            </button>
-          </div>
-          {(
-            <>
-              {/* Planen-Tab */}
-              <button
-                onClick={handleAddToPlanner}
-                disabled={!activeNoteId}
-                style={{ width: 130, height: 40, 
-                  borderTop: plannerAddOk ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                  borderLeft: plannerAddOk ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                  borderRight: plannerAddOk ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                  borderBottom: 0, 
-                  borderRadius: '10px 10px 0 0', 
-                  padding: '0 10px', 
-                  background: '#1a1a1a', display: 'flex', alignItems: 'center', gap: 8, 
-                  fontFamily: fontMono, fontSize: 10, 
-                  color: plannerAddOk ? '#1a1a1a' : '#a1a1a1', 
-                  cursor: !activeNoteId ? 'not-allowed' : 'pointer', opacity: !activeNoteId ? 0.4 : 1, transition: 'border-color 0.2s' }}
-                onMouseEnter={(e) => { if (activeNoteId && !plannerAddOk) e.currentTarget.style.borderColor = '#1a1a1a'; }}
-                onMouseLeave={(e) => { if (activeNoteId && !plannerAddOk) e.currentTarget.style.borderColor = '#d0cbb8'; }}
-              >
-                <span style={{ color: plannerAddOk ? '#d0cbb8' : '#d0cbb8', display: 'inline-flex' }}><FontAwesomeIcon icon={plannerAddOk ? faCheck : faCalendarPlus} /></span>
-                <span>{plannerAddOk ? 'Geplant!' : 'Planen'}</span>
-              </button>
-            </>
-          )}
-          {/* Einfügen ▾ Dropdown */}
-          <div ref={insertMenuRef} style={{ position: 'relative' }}>
-            <button
-              onClick={() => { if (!insertOk && !openAsDraftOk) setShowInsertMenu((prev) => !prev); }}
-              disabled={!editorContent.trim()}
-              style={{ 
-                width: 130, height: 40, 
-                borderTop: (insertOk || openAsDraftOk) ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                borderLeft: (insertOk || openAsDraftOk) ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                borderRight: (insertOk || openAsDraftOk) ? '0.5px solid #4caf50' : '0.5px dotted #d0cbb8', 
-                borderBottom: 0, 
-                borderRadius: '10px 10px 0 0', 
-                padding: '0 10px', 
-                background: '#1a1a1a', display: 'flex', alignItems: 'center', gap: 8, 
-                fontFamily: fontMono, fontSize: 10, 
-                color: (insertOk || openAsDraftOk) ? '#1a1a1a' : '#a1a1a1', 
-                cursor: !editorContent.trim() ? 'not-allowed' : 'pointer', opacity: !editorContent.trim() ? 0.4 : 1, transition: 'border-color 0.2s' }}
-              onMouseEnter={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) e.currentTarget.style.borderColor = '#1a1a1a'; }}
-              onMouseLeave={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) e.currentTarget.style.borderColor = '#d0cbb8'; }}
-            >
-              <span style={{ color: insertOk || openAsDraftOk ? '#d0cbb8' : '#d0cbb8', display: 'inline-flex' }}><FontAwesomeIcon icon={insertOk || openAsDraftOk ? faCheck : faArrowRightToBracket} /></span>
-              <span>{insertOk ? 'Eingefügt!' : openAsDraftOk ? 'Geöffnet!' : `Einfügen ${showInsertMenu ? '▲' : '▾'}`}</span>
-            </button>
-            {showInsertMenu && (
-              <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#d0cbb8', 
-                border: 'none', boxShadow: 'none',
-              borderRadius: 2, overflow: 'hidden', minWidth: 200, zIndex: 200 }}>
-                {insertTargetActive && (
-                  <button
-                    onClick={() => { setShowInsertMenu(false); handleInsert(); }}
-                    style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', boxShadow: 'none',
-                      border: 'none', borderBottom: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <FontAwesomeIcon icon={faArrowRightToBracket} style={{ color: bgList }} />
-                    In Editor einfügen
-                  </button>
-                )}
-                <button
-                  onClick={() => { setShowInsertMenu(false); handleOpenAsDraft(); }}
-                  style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', 
-                    border: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                >
-                  <FontAwesomeIcon icon={faPenToSquare} style={{ color: bgList }} />
-                  Als Entwurf öffnen
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: publishingBannerVisible ? 'calc(100vh - 120px)' : 'calc(100vh - 80px)', fontFamily: fontMono, background: '#1a1a1a' }}>
 
       {/* ── Main Content ─────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
 
       {/* ── Panel 1: Vertical Tabs ────────────────────────────────────────── */}
       <div style={{
@@ -932,65 +884,176 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
           onClick={() => setActiveTab({ type: 'quick', value: '' })}
         />
 
-        {/* Divider + Folders */}
+        {/* Divider + Folder-Panel-Button */}
         {usedFolders.length > 0 && (
-          <div style={{ width: 24, height: 1, 
-            background: border, margin: '10px 0', flexShrink: 0 }} />
+          <div style={{ width: 24, height: 1, background: border, margin: '10px 0', flexShrink: 0 }} />
         )}
-        {usedFolders.map((f) => (
-          renamingFolder === f ? (
-            <div key={f} style={{ width: 52, padding: '6px 2px' }}>
-              <input
-                value={renameFolderValue}
-                onChange={(e) => setRenameFolderValue(e.target.value)}
-                onBlur={() => { void commitRenameFolder(); }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); void commitRenameFolder(); }
-                  if (e.key === 'Escape') { setRenamingFolder(null); setRenameFolderValue(''); }
-                }}
-                autoFocus
-                style={{ width: '100%', background: '#1e1e1e', border: `1px solid ${gold}`, borderRadius: 3, color: textPrimary, fontFamily: fontMono, fontSize: 9, 
-                  padding: '4px 4px', outline: 'none' }}
-              />
-              <div style={{ fontSize: 8, color: '#555', textAlign: 'center', marginTop: 2 }}>Enter</div>
-            </div>
-          ) : (
-            <VerticalTabWithColor
-              key={f}
-              label={f}
-              count={notes.filter((n) => n.folder === f).length}
-              active={activeTab.type === 'folder' && activeTab.value === f}
-              color={getFolderColor(f)}
-              onClick={() => setActiveTab({ type: 'folder', value: f })}
-              onColorChange={(c) => saveFolderColor(f, c)}
-              onDoubleClick={() => { setRenamingFolder(f); setRenameFolderValue(f); }}
-            />
-          )
-        ))}
+        {usedFolders.length > 0 && (
+          <button
+            onClick={() => setFolderPanelOpen((p) => !p)}
+            title="Ordner"
+            style={{
+              width: 35, minHeight: 72, background: (folderPanelOpen || activeTab.type === 'folder') ? textPrimary : 'transparent',
+              border: 'none', borderRadius: '0 3px 0 3px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 6, padding: '14px 0', flexShrink: 0, transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { if (!folderPanelOpen && activeTab.type !== 'folder') e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+            onMouseLeave={(e) => { if (!folderPanelOpen && activeTab.type !== 'folder') e.currentTarget.style.background = 'transparent'; }}
+          >
+            <FontAwesomeIcon icon={faFolder} style={{ fontSize: 11, color: (folderPanelOpen || activeTab.type === 'folder') ? '#141414' : '#666' }} />
+            <span style={{ fontSize: 11, color: (folderPanelOpen || activeTab.type === 'folder') ? '#141414' : '#aaa', fontFamily: fontMono, writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)', letterSpacing: '0.06em', lineHeight: 1 }}>
+              Ordner
+            </span>
+            <span style={{ fontSize: 9, color: (folderPanelOpen || activeTab.type === 'folder') ? '#141414' : '#666', fontFamily: fontMono, lineHeight: 1 }}>
+              {usedFolders.length}
+            </span>
+          </button>
+        )}
 
-        {/* Divider + Tags */}
+        {/* Divider + Tag-Panel-Button */}
         {usedTags.length > 0 && (
           <div style={{ width: 24, height: 1, background: border, margin: '6px 0', flexShrink: 0 }} />
         )}
-        {usedTags.map((tag) => (
-          <VerticalTabWithColor
-            key={tag}
-            label={tag}
-            count={notes.filter((n) => n.tag === tag).length}
-            active={activeTab.type === 'tag' && activeTab.value === tag}
-            color={getTagColor(tag)}
-            onClick={() => setActiveTab({ type: 'tag', value: tag })}
-            onColorChange={(c) => saveTagColor(tag, c)}
-            isCustom={customTags.includes(tag)}
-            onDelete={() => deleteCustomTag(tag)}
-          />
-        ))}
+        {usedTags.length > 0 && (
+          <button
+            onClick={() => setTagPanelOpen((p) => !p)}
+            title="Tags"
+            style={{
+              width: 35, minHeight: 72, background: (tagPanelOpen || activeTab.type === 'tag') ? textPrimary : 'transparent',
+              border: 'none', borderRadius: '0 3px 0 3px', cursor: 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              gap: 6, padding: '14px 0', flexShrink: 0, transition: 'background 0.15s',
+            }}
+            onMouseEnter={(e) => { if (!tagPanelOpen && activeTab.type !== 'tag') e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; }}
+            onMouseLeave={(e) => { if (!tagPanelOpen && activeTab.type !== 'tag') e.currentTarget.style.background = 'transparent'; }}
+          >
+            <FontAwesomeIcon icon={faTag} style={{ fontSize: 11, color: (tagPanelOpen || activeTab.type === 'tag') ? '#141414' : '#666' }} />
+            <span style={{ fontSize: 11, color: (tagPanelOpen || activeTab.type === 'tag') ? '#141414' : '#aaa', fontFamily: fontMono, writingMode: 'vertical-rl', textOrientation: 'mixed', transform: 'rotate(180deg)', letterSpacing: '0.06em', lineHeight: 1 }}>
+              Tags
+            </span>
+            <span style={{ fontSize: 9, color: (tagPanelOpen || activeTab.type === 'tag') ? '#141414' : '#666', fontFamily: fontMono, lineHeight: 1 }}>
+              {usedTags.length}
+            </span>
+          </button>
+        )}
       </div>
 
+      {/* ── Folder Popover Panel ──────────────────────────────────────────── */}
+      {folderPanelOpen && (
+        <div
+          ref={folderPanelRef}
+          style={{
+            position: 'absolute', top: 0, left: 56, zIndex: 50,
+            background: '#252525', borderRight: `1px solid ${border}`,
+            borderBottom: `1px solid ${border}`,
+            borderRadius: '0 0 8px 0',
+            minWidth: 200, maxWidth: 260,
+            boxShadow: '4px 4px 20px rgba(0,0,0,0.5)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ 
+            padding: '10px 12px 6px', 
+            fontSize: 10, 
+            color: textPrimary, 
+            fontFamily: fontMono, 
+            letterSpacing: '0.1em', 
+            textTransform: 'uppercase', 
+            borderBottom: `1px solid ${border}` }}>
+            Deine Ordner
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {usedFolders.map((f) => (
+              renamingFolder === f ? (
+                <div key={f} style={{ padding: '6px 12px' }}>
+                  <input
+                    value={renameFolderValue}
+                    onChange={(e) => setRenameFolderValue(e.target.value)}
+                    onBlur={() => { void commitRenameFolder(); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); void commitRenameFolder(); }
+                      if (e.key === 'Escape') { setRenamingFolder(null); setRenameFolderValue(''); }
+                    }}
+                    autoFocus
+                    style={{ width: '100%', background: '#141414', border: `1px solid ${gold}`, borderRadius: 3, color: textPrimary, fontFamily: fontMono, fontSize: 10, padding: '4px 6px', outline: 'none' }}
+                  />
+                </div>
+              ) : (
+                <FolderPanelRow
+                  key={f}
+                  label={f}
+                  count={notes.filter((n) => n.folder === f).length}
+                  active={activeTab.type === 'folder' && activeTab.value === f}
+                  color={getFolderColor(f)}
+                  onClick={() => { setActiveTab({ type: 'folder', value: f }); setFolderPanelOpen(false); }}
+                  onColorChange={(c) => saveFolderColor(f, c)}
+                  onRename={() => { setRenamingFolder(f); setRenameFolderValue(f); }}
+                  onDelete={() => { void deleteFolder(f); }}
+                />
+              )
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Tag Popover Panel ────────────────────────────────────────────── */}
+      {tagPanelOpen && (
+        <div
+          ref={tagPanelRef}
+          style={{
+            position: 'absolute', top: 0, left: 56, zIndex: 50,
+            background: '#252525', borderRight: `1px solid ${border}`,
+            borderBottom: `1px solid ${border}`,
+            borderRadius: '0 0 8px 0',
+            minWidth: 200, maxWidth: 260,
+            boxShadow: '4px 4px 20px rgba(0,0,0,0.5)',
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ 
+            padding: '10px 12px 6px', 
+            fontSize: 10, 
+            color: textPrimary, 
+            fontFamily: fontMono, 
+            letterSpacing: '0.1em', textTransform: 'uppercase', borderBottom: `1px solid ${border}` }}>
+            Alle Tags
+          </div>
+          <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+            {usedTags.map((tag) => (
+              <TagPanelRow
+                key={tag}
+                label={tag}
+                count={notes.filter((n) => n.tag === tag).length}
+                active={activeTab.type === 'tag' && activeTab.value === tag}
+                color={getTagColor(tag)}
+                isCustom={customTags.includes(tag)}
+                onClick={() => { setActiveTab({ type: 'tag', value: tag }); setTagPanelOpen(false); }}
+                onColorChange={(c) => saveTagColor(tag, c)}
+                onDelete={() => deleteCustomTag(tag)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Panel 2: Notizen-Liste ─────────────────────────────────────────── */}
-      <div style={{ width: 260, minWidth: 230, background: bgList, borderRight: `1px solid ${border}`, display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '12px 12px 12px', borderBottom: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: 11, color: '#ccc', letterSpacing: '0.05em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontWeight: 600 }}>
+      <div style={{ width: 260, minWidth: 230, background: bgList, borderRight: `1px solid ${border}`,
+        display: 'flex', flexDirection: 'column' }}>
+        {(() => {
+          const accentColor =
+            activeTab.type === 'folder' ? getFolderColor(activeTab.value) :
+            activeTab.type === 'tag' ? getTagColor(activeTab.value) :
+            activeTab.type === 'quick' ? '#f0c060' : null;
+          return (
+        <div style={{ padding: '12px 12px 12px',
+          borderBottom: `1px solid ${border}`,
+          display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between',
+          background: accentColor ? `${accentColor}22` : 'transparent',
+          borderLeft: accentColor ? `3px solid ${accentColor}` : '3px solid transparent',
+        }}>
+          <span style={{ fontSize: 11, color: accentColor ?? '#e8e3d8', letterSpacing: '0.05em', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, fontWeight: 600 }}>
             {activeTab.type === 'all' && 'Alle Notizen'}
             {activeTab.type === 'quick' && 'Quick Notes'}
             {activeTab.type === 'folder' && activeTab.value}
@@ -1000,11 +1063,14 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
             onClick={() => { void createNote(); }}
             disabled={saving}
             title="Neue Notiz (⌘N)"
-            style={{ background: 'transparent', border: `1px solid ${border}`, borderRadius: 6, color: gold, cursor: 'pointer', padding: '3px 8px', fontSize: 11, flexShrink: 0 }}
+            style={{ background: 'transparent', border: `1px solid ${border}`, borderRadius: 6,
+              color: '#e8e3d8', cursor: 'pointer', padding: '3px 8px', fontSize: 11, flexShrink: 0 }}
           >
             {saving && activeNoteId === null ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faPlus} />}
           </button>
         </div>
+          );
+        })()}
 
         {/* Search */}
         <div style={{ padding: '8px 10px', borderBottom: `1px solid ${border}` }}>
@@ -1091,16 +1157,18 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
                     style={{
                       width: '100%', textAlign: 'left', padding: `9px ${isHovered ? '62px' : '12px'} 9px 12px`,
                       background: isActive ? `${noteAccentColor}18` : isHovered ? 'rgba(255,255,255,0.025)' : 'transparent',
-                      borderLeft: `2px solid ${isActive ? noteAccentColor : 'transparent'}`,
+                      borderLeft: `5px solid ${isActive ? noteAccentColor : 'transparent'}`,
+                      borderRadius: '2px',
                       border: 'none', cursor: 'pointer', display: 'block',
                     }}
                   >
-                    <div style={{ fontSize: 12, color: isActive ? textPrimary : '#ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
+                    <div style={{ fontSize: 12, color: isActive ? textPrimary : '#ddd', overflow: 'hidden', 
+                      textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>
                       <FontAwesomeIcon icon={faFileLines} style={{ marginRight: 6, color: isActive ? noteAccentColor : '#777', fontSize: 10 }} />
                       {note.title}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 10, color: '#777' }}>{new Date(note.createdAt).toLocaleDateString('de-DE')}</span>
+                      <span style={{ fontSize: 10, color: textPrimary }}>{new Date(note.createdAt).toLocaleDateString('de-DE')}</span>
                       {note.folder && (
                         <span style={{ fontSize: 9, color: getFolderColor(note.folder), background: `${getFolderColor(note.folder)}20`, border: `1px solid ${getFolderColor(note.folder)}50`, borderRadius: 3, padding: '1px 5px' }}>
                           {note.folder}
@@ -1186,7 +1254,7 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
         {activeNoteId === null ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 36, color: border }} />
+            <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 36, color: textMuted }} />
             <p style={{ color: textMuted, fontSize: 12 }}>Notiz auswählen oder neue erstellen</p>
             <button onClick={() => { void createNote(); }} style={{ background: 'transparent', border: `1px solid ${gold}`, borderRadius: 8, color: gold, cursor: 'pointer', padding: '8px 18px', fontSize: 11, fontFamily: fontMono }}>
               <FontAwesomeIcon icon={faPlus} style={{ marginRight: 6 }} />Neue Notiz
@@ -1311,7 +1379,7 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
                           style={{
                             width: '100%', background: '#0e0e0e',
                             border: '1px dotted #3A3A3A', borderRadius: 4,
-                            color: '#d0cbb8', fontFamily: fontMono, fontSize: 11,
+                            color: textPrimary, fontFamily: fontMono, fontSize: 11,
                             padding: '6px 8px', outline: 'none', marginBottom: 10,
                             colorScheme: 'dark',
                           }}
@@ -1361,9 +1429,10 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
                 onTitleChange={(t) => { setEditorTitle(t); editorTitleRef.current = t; setDirty(true); }}
                 theme={editorTheme}
                 hideTopBorder={true}
-                height="calc(100vh - 160px)"
+                height="calc(100vh - 280px)"
+                width = "98%"
                 showLineNumbers={true}
-                showCharCount={false}
+                showCharCount={true}
                 showHeader={true}
                 showZenNoteButton={false}
                 placeholder={`# Titel\n\nText hier...\n\n\`\`\`js\n// Code-Snippet\nconsole.log('hello');\n\`\`\``}
@@ -1373,99 +1442,6 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
         )}
       </div>
       </div>{/* Main Content */}
-    </div>
-  );
-}
-
-// ── Vertical Tab with color picker (for tags / folders) ────────────────────
-function VerticalTabWithColor({ label, count, active, color, onClick, onColorChange, onDelete, isCustom, onDoubleClick }: {
-  label: string; count: number; active: boolean; color: string;
-  onClick: () => void; onColorChange: (color: string) => void;
-  onDelete?: () => void; isCustom?: boolean; onDoubleClick?: () => void;
-}) {
-  const colorInputRef = useRef<HTMLInputElement>(null);
-  const [hovered, setHovered] = useState(false);
-  const baseBackground = active ? color : withAlpha(color, '14');
-  const hoverBackground = active ? color : withAlpha(color, '22');
-
-  return (
-    <div
-      style={{ position: 'relative', width: 56, flexShrink: 0 }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <input
-        ref={colorInputRef}
-        type="color"
-        value={color}
-        onChange={(e) => onColorChange(e.target.value)}
-        style={{
-          position: 'absolute',
-          top: 19,
-          left: '50%',
-          transform: 'translateX(-50%)',
-          opacity: 0,
-          pointerEvents: 'none',
-          width: 14,
-          height: 14,
-        }}
-      />
-      <button
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-        title={`${label} — Doppelklick auf Punkt: Farbe ändern`}
-        style={{
-          width: 35, minHeight: 72,
-          background: baseBackground,
-          border: 'none',
-          borderRadius: '0 3px 0 3px',
-          cursor: 'pointer', display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center', gap: 6,
-          padding: '14px 0', transition: 'background 0.15s',
-        }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = hoverBackground; }}
-        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = baseBackground; }}
-      >
-        <div
-          onDoubleClick={(e) => { e.stopPropagation(); colorInputRef.current?.click(); }}
-          title="Doppelklick: Farbe ändern"
-          style={{
-            width: 10,
-            height: 10,
-            borderRadius: '50%',
-            background: color,
-            flexShrink: 0,
-            border: '1px solid rgba(255,255,255,0.45)',
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.45)',
-          }}
-        />
-        <span style={{
-          fontSize: 11, color: active ? '#141414' : '#aaa', fontFamily: fontMono,
-          writingMode: 'vertical-rl', textOrientation: 'mixed',
-          transform: 'rotate(180deg)', letterSpacing: '0.06em',
-          lineHeight: 1, maxHeight: 52, overflow: 'hidden',
-        }}>
-          {label}
-        </span>
-        <span style={{ fontSize: 9, color: active ? '#141414' : '#666', fontFamily: fontMono, lineHeight: 1 }}>
-          {count}
-        </span>
-      </button>
-      {/* Delete button for custom tags */}
-      {isCustom && onDelete && hovered && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          title="Custom Tag löschen"
-          style={{
-            position: 'absolute', top: 3, right: 3,
-            background: 'rgba(20,20,20,0.9)', border: 'none',
-            borderRadius: 3, color: '#e07070', cursor: 'pointer',
-            fontSize: 8, padding: '1px 3px', lineHeight: 1,
-          }}
-        >
-          <FontAwesomeIcon icon={faXmark} />
-        </button>
-      )}
     </div>
   );
 }
@@ -1518,5 +1494,75 @@ function VerticalTab({ label, icon, count, active, color, onClick, onDoubleClick
         {count}
       </span>
     </button>
+  );
+}
+
+// ── Folder Panel Row ───────────────────────────────────────────────────────
+function FolderPanelRow({ label, count, active, color, onClick, onColorChange, onRename, onDelete }: {
+  label: string; count: number; active: boolean; color: string;
+  onClick: () => void; onColorChange: (c: string) => void;
+  onRename: () => void; onDelete: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: active ? `${color}22` : hovered ? 'rgba(255,255,255,0.04)' : 'transparent', borderLeft: active ? `2px solid ${color}` : '2px solid transparent', transition: 'background 0.12s' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+    >
+      {/* Color dot — input overlay verhindert bubbling */}
+      <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+        <input type="color" value={color} onChange={(e) => onColorChange(e.target.value)} onClick={(e) => e.stopPropagation()} title="Farbe ändern" style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
+      </div>
+      {/* Label */}
+      <span style={{ flex: 1, fontSize: 10, color: active ? color : '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      {/* Count */}
+      <span style={{ fontSize: 9, color: '#555', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>{count}</span>
+      {/* Hover actions */}
+      {hovered && (
+        <div style={{ display: 'flex', gap: 3, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+          <button onClick={onRename} title="Umbenennen" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 9, padding: '2px 4px', borderRadius: 3 }} onMouseEnter={(e) => { e.currentTarget.style.color = '#AC8E66'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#888'; }}>
+            <FontAwesomeIcon icon={faPenToSquare} />
+          </button>
+          <button onClick={onDelete} title="Ordner löschen (Notizen bleiben)" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 9, padding: '2px 4px', borderRadius: 3 }} onMouseEnter={(e) => { e.currentTarget.style.color = '#e07070'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#888'; }}>
+            <FontAwesomeIcon icon={faXmark} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tag Panel Row ──────────────────────────────────────────────────────────
+function TagPanelRow({ label, count, active, color, isCustom, onClick, onColorChange, onDelete }: {
+  label: string; count: number; active: boolean; color: string; isCustom: boolean;
+  onClick: () => void; onColorChange: (c: string) => void; onDelete: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', background: active ? `${color}22` : hovered ? 'rgba(255,255,255,0.04)' : 'transparent', borderLeft: active ? `2px solid ${color}` : '2px solid transparent', transition: 'background 0.12s' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+    >
+      <div style={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
+        <input type="color" value={color} onChange={(e) => onColorChange(e.target.value)} onClick={(e) => e.stopPropagation()} title="Farbe ändern" style={{ position: 'absolute', inset: 0, opacity: 0, width: '100%', height: '100%', cursor: 'pointer', border: 'none', padding: 0 }} />
+      </div>
+      <span style={{ flex: 1, fontSize: 10, color: active ? color : '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {label}
+      </span>
+      <span style={{ fontSize: 9, color: '#555', fontFamily: 'IBM Plex Mono, monospace', flexShrink: 0 }}>{count}</span>
+      {hovered && isCustom && (
+        <button onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Tag löschen" style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: 9, padding: '2px 4px', borderRadius: 3, flexShrink: 0 }} onMouseEnter={(e) => { e.currentTarget.style.color = '#e07070'; }} onMouseLeave={(e) => { e.currentTarget.style.color = '#888'; }}>
+          <FontAwesomeIcon icon={faXmark} />
+        </button>
+      )}
+    </div>
   );
 }

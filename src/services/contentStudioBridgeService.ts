@@ -12,6 +12,11 @@ export type InsertSnippetRequest = {
   requestId: string;
 };
 
+export type InsertImagesRequest = {
+  images: Array<{ url: string; alt?: string }>;
+  requestId: string;
+};
+
 export type EditScheduledPostRequest = {
   post: ScheduledPost;
   requestId: string;
@@ -19,10 +24,12 @@ export type EditScheduledPostRequest = {
 
 type OpenAsDraftListener = (request: OpenAsDraftRequest) => void;
 type InsertSnippetListener = (request: InsertSnippetRequest) => void;
+type InsertImagesListener = (request: InsertImagesRequest) => void;
 type EditScheduledPostListener = (request: EditScheduledPostRequest) => void;
 
 const openAsDraftListeners = new Set<OpenAsDraftListener>();
 const insertSnippetListeners = new Set<InsertSnippetListener>();
+const insertImagesListeners = new Set<InsertImagesListener>();
 const editScheduledPostListeners = new Set<EditScheduledPostListener>();
 
 function buildRequestId(): string {
@@ -57,6 +64,22 @@ export function insertContentStudioSnippet(payload: { content?: string; title?: 
 export function subscribeToInsertContentStudioSnippet(listener: InsertSnippetListener): () => void {
   insertSnippetListeners.add(listener);
   return () => insertSnippetListeners.delete(listener);
+}
+
+export function insertContentStudioImages(payload: {
+  images?: Array<{ url: string; alt?: string }>;
+}): InsertImagesRequest {
+  const request: InsertImagesRequest = {
+    images: Array.isArray(payload.images) ? payload.images.filter((image) => !!image?.url) : [],
+    requestId: buildRequestId(),
+  };
+  insertImagesListeners.forEach((listener) => listener(request));
+  return request;
+}
+
+export function subscribeToInsertContentStudioImages(listener: InsertImagesListener): () => void {
+  insertImagesListeners.add(listener);
+  return () => insertImagesListeners.delete(listener);
 }
 
 export function editScheduledPostInContentStudio(post: ScheduledPost): EditScheduledPostRequest {

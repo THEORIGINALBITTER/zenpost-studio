@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faFolderOpen, faPenNib } from '@fortawesome/free-solid-svg-icons';
+import { faFolderOpen, faGlobe, faPenNib } from '@fortawesome/free-solid-svg-icons';
 import { ZenModal, ZenModalFooter, ZenRoughButton, createCustomPreset } from '../../kits/PatternKit/ZenModalSystem';
+import { StudioActionCard } from '../StudioActionCard';
 import { MODAL_CONTENT } from '../../kits/PatternKit/ZenModalSystem/config/ZenModalConfig';
 type ProjectPickerModalProps = {
   isOpen: boolean;
@@ -114,42 +115,45 @@ export function ProjectPickerModal({
               display: 'flex',
               gap: '14px',
               justifyContent: 'center',
-              alignItems: 'center',
+              alignItems: 'stretch',
               flexWrap: 'wrap',
             }}
           >
-            <ZenRoughButton
-              label="Finder öffnen"
-              icon={<FontAwesomeIcon icon={faFolderOpen} />}
-              onClick={openNativeFolderPicker}
-              variant="default"
-              size="small"
-              width={260}
-              height={54}
-              disabled={isWebRuntime}
-            />
-            <ZenRoughButton
-              label="Manuellen Pfad nutzen"
-              icon={<FontAwesomeIcon icon={faPenNib} />}
-              onClick={() => setShowManualPathInput(true)}
-              variant="default"
-              size="small"
-              width={260}
-              height={54}
-            />
-            {isWebRuntime && onContinueWithoutFolder && (
-              <ZenRoughButton
-                label="Ohne Ordner fortfahren"
-                icon="→"
-                onClick={() => {
-                  onContinueWithoutFolder();
-                  onClose();
-                }}
-                variant="default"
-                size="small"
-                width={260}
-                height={54}
+            <div style={{ width: '260px' }}>
+              <StudioActionCard
+                title={isWebRuntime ? 'Desktop-App nötig' : 'Finder öffnen'}
+                description={isWebRuntime ? 'Ordner-Scanning ist hier nur in der Desktop-App verfügbar.' : 'Projektordner direkt im Finder auswählen.'}
+                icon={<FontAwesomeIcon icon={faFolderOpen} />}
+                onClick={isWebRuntime ? undefined : openNativeFolderPicker}
+                surface="paper"
+                minHeight={94}
+                disabledHint={isWebRuntime ? 'Nur in der Desktop-App verfügbar' : undefined}
               />
+            </div>
+            <div style={{ width: '260px' }}>
+              <StudioActionCard
+                title="Manuellen Pfad nutzen"
+                description="Projektpfad selbst eintragen und direkt übernehmen."
+                icon={<FontAwesomeIcon icon={faPenNib} />}
+                onClick={() => setShowManualPathInput(true)}
+                surface="paper"
+                minHeight={94}
+              />
+            </div>
+            {isWebRuntime && onContinueWithoutFolder && (
+              <div style={{ width: '260px' }}>
+                <StudioActionCard
+                  title="Ohne Ordner fortfahren"
+                  description="Direkt in den Editor wechseln und später verbinden."
+                  icon={<FontAwesomeIcon icon={faGlobe} />}
+                  onClick={() => {
+                    onContinueWithoutFolder();
+                    onClose();
+                  }}
+                  surface="paper"
+                  minHeight={94}
+                />
+              </div>
             )}
           </div>
 

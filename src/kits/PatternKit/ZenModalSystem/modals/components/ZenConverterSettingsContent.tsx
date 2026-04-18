@@ -7,6 +7,7 @@ import {
   patchZenStudioSettings,
   type ConverterConfig,
 } from '../../../../../services/zenStudioSettingsService';
+import { canUploadToZenCloud } from '../../../../../services/cloudStorageService';
 import {
   canUseDirectoryPicker,
   canUseOpfs,
@@ -115,8 +116,14 @@ export const ZenConverterSettingsContent = () => {
   const opfsAvailable = isWeb && canUseOpfs();
   const opfsEnabled = isWeb && config.useOpfsInWeb;
   const canPick = isTauri() || (!opfsEnabled && canUseDirectoryPicker());
+  const cloudImageStorageAvailable = canUploadToZenCloud();
   const imagesFolderName = config.imagesFolderName;
   const archiveFolderName = config.archiveFolderName;
+
+  const handleImageStorageMode = (mode: 'local' | 'cloud') => {
+    const next = patchZenStudioSettings({ converter: { ...config, imageStorageMode: mode } });
+    setConfig(next.converter);
+  };
 
   return (
     <div style={{ padding: '28px 28px 40px', maxWidth: 560 }}>
@@ -183,15 +190,55 @@ export const ZenConverterSettingsContent = () => {
           Bilder-Ordner
         </p>
         <div style={{ ...mono, fontSize: 10, color: '#6a5a40', marginBottom: 10 }}>
-          PNG, JPG, WEBP, SVG werden hier automatisch abgelegt.
+          PNG, JPG, WEBP, SVG werden automatisch lokal oder direkt in ZenCloud abgelegt.
         </div>
-        <FolderRow
-          name={imagesFolderName}
-          isLoading={picking === 'images'}
-          canPick={canPick}
-          onPick={() => void handlePick('images')}
-          onClear={() => void handleClear('images')}
-        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => handleImageStorageMode('local')}
+            style={{
+              ...btnBase,
+              background: config.imageStorageMode === 'local' ? '#AC8E66' : 'rgba(172,142,102,0.12)',
+              border: config.imageStorageMode === 'local' ? '1px solid rgba(172,142,102,0.7)' : '1px solid rgba(172,142,102,0.3)',
+              color: config.imageStorageMode === 'local' ? '#fff' : '#7a6a50',
+            }}
+          >
+            Lokal
+          </button>
+          <button
+            type="button"
+            onClick={() => handleImageStorageMode('cloud')}
+            disabled={!cloudImageStorageAvailable}
+            style={{
+              ...btnBase,
+              background: config.imageStorageMode === 'cloud' ? '#AC8E66' : 'rgba(172,142,102,0.12)',
+              border: config.imageStorageMode === 'cloud' ? '1px solid rgba(172,142,102,0.7)' : '1px solid rgba(172,142,102,0.3)',
+              color: config.imageStorageMode === 'cloud' ? '#fff' : '#7a6a50',
+              opacity: cloudImageStorageAvailable ? 1 : 0.5,
+              cursor: cloudImageStorageAvailable ? 'pointer' : 'not-allowed',
+            }}
+          >
+            ZenCloud
+          </button>
+          <span style={{ ...mono, fontSize: 10, color: '#8a7a60' }}>
+            {cloudImageStorageAvailable
+              ? 'Mit ZenCloud werden Bilder projektbezogen hochgeladen'
+              : 'ZenCloud Login + Projekt erforderlich'}
+          </span>
+        </div>
+        {config.imageStorageMode === 'cloud' ? (
+          <div style={{ ...mono, fontSize: 10, color: '#6a5a40' }}>
+            Bilder werden direkt in das aktive ZenCloud-Projekt hochgeladen.
+          </div>
+        ) : (
+          <FolderRow
+            name={imagesFolderName}
+            isLoading={picking === 'images'}
+            canPick={canPick}
+            onPick={() => void handlePick('images')}
+            onClear={() => void handleClear('images')}
+          />
+        )}
       </div>
 
       {/* ─── Ablage-Ordner ─── */}

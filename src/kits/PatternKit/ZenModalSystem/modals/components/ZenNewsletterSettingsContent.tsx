@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faCheck,
-  faEnvelope,
+
   faArrowRight,
   faArrowLeft,
   faEye,
@@ -213,9 +213,11 @@ export const ZenNewsletterSettingsContent = () => {
           onClick={() => patch({ wizardStep: 1 })}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            background: nl.provider === 'none' ? '#ccc' : 'transparent',
+            background: nl.provider === 'none' ? 'transparent' : '#d2cabd',
             boxShadow: 'none',
-            color: '#1a1a1a', border: '0.5px solid #1a1a1a', borderRadius: 6,
+            color: nl.provider === 'none' ? '#ccc' : '#252525', 
+            border: '0.5px solid #1a1a1a', 
+            borderRadius: 6,
             padding: '9px 20px', fontFamily: mono, fontSize: 11,
             cursor: nl.provider === 'none' ? 'not-allowed' : 'pointer',
           }}
@@ -560,7 +562,7 @@ export const ZenNewsletterSettingsContent = () => {
         <FontAwesomeIcon icon={faArrowLeft} style={{ fontSize: 9, color: black }} /> Zurück
       </button>
 
-      <div style={{ fontFamily: mono, fontSize: 10, color: gold, letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
+      <div style={{ fontFamily: mono, fontSize: 10, color: '#252525', letterSpacing: 2, textTransform: 'uppercase', marginBottom: 4 }}>
         {selectedProvider?.label} konfigurieren
       </div>
       <div style={{ fontFamily: sans, fontSize: 11, color: '#666', marginBottom: 20, lineHeight: 1.5 }}>
@@ -606,9 +608,9 @@ export const ZenNewsletterSettingsContent = () => {
             disabled={testing || !nl.apiUrl}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
-              background: 'transparent', border: `1px solid ${goldDim}`,
+              background: '#d2cabd', border: `1px solid #d2cabd`,
               borderRadius: 6, padding: '7px 16px',
-              fontFamily: mono, fontSize: 10, color: gold,
+              fontFamily: mono, fontSize: 10, color: '#252525',
               cursor: testing || !nl.apiUrl ? 'not-allowed' : 'pointer',
             }}
           >
@@ -631,13 +633,15 @@ export const ZenNewsletterSettingsContent = () => {
           onClick={() => patch({ wizardStep: 2, enabled: true })}
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
-            background: !canFinish ? '#ccc' : gold,
-            color: '#fff', border: 'none', borderRadius: 6,
+            background: !canFinish ? 'transparent' : '#d2cabd',
+            color: !canFinish ? 'transparent' : '#252525', 
+            border: 'none', 
+            borderRadius: 6,
             padding: '9px 20px', fontFamily: mono, fontSize: 11,
             cursor: !canFinish ? 'not-allowed' : 'pointer',
           }}
         >
-          Fertig <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10 }} />
+          Weiter <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10 }} />
         </button>
       </div>
     </div>
@@ -649,7 +653,7 @@ export const ZenNewsletterSettingsContent = () => {
     const isPhpGen = nl.provider === 'php-generator';
     return (
     <div style={{ textAlign: 'center', padding: '32px 0' }}>
-      <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: 36, color: gold, marginBottom: 16 }} />
+      <FontAwesomeIcon icon={faCircleCheck} style={{ fontSize: 36, color: '#252525', marginBottom: 16 }} />
       <div style={{ fontFamily: mono, fontSize: 14, fontWeight: 400, color: '#1a1a1a', marginBottom: 8 }}>
         Newsletter aktiv
       </div>
@@ -689,7 +693,7 @@ export const ZenNewsletterSettingsContent = () => {
         <button
           type="button"
           onClick={() => patch({ wizardStep: 1 })}
-          style={{ background: 'transparent', border: `1px solid ${goldDim}`, borderRadius: 6, padding: '7px 16px', fontFamily: mono, fontSize: 10, color: gold, cursor: 'pointer' }}
+          style={{ background: 'transparent', border: `1px solid #252525`, borderRadius: 6, padding: '7px 16px', fontFamily: mono, fontSize: 10, color: '#252525', cursor: 'pointer' }}
         >
           Einstellungen ändern
         </button>
@@ -713,7 +717,7 @@ export const ZenNewsletterSettingsContent = () => {
         {/* Header */}
         <div style={{ borderBottom: `1px solid ${goldDim}`, padding: '16px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <FontAwesomeIcon icon={faEnvelope} style={{ color: gold, fontSize: 13 }} />
+      
             <span style={{ fontFamily: mono, fontSize: 12, color: '#1a1a1a' }}>Newsletter</span>
           </div>
           {/* Step indicator */}
@@ -723,9 +727,9 @@ export const ZenNewsletterSettingsContent = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <div style={{
                     width: 18, height: 18, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: step > i ? gold : step === i ? 'transparent' : 'transparent',
+                    background: step > i ? '#252525' : step === i ? 'transparent' : 'transparent',
                     border: `1px solid ${step >= i ? black : blackDim}`,
-                    fontFamily: mono, fontSize: 8, color: step > i ? '#1a1a1a' : step === i ? black : '#aaa',
+                    fontFamily: mono, fontSize: 8, color: step > i ? '#e8e3d8' : step === i ? black : '#aaa',
                   }}>
                     {step > i ? <FontAwesomeIcon icon={faCheck} style={{ fontSize: 7 }} /> : i + 1}
                   </div>

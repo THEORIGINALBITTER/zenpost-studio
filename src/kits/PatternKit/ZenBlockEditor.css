@@ -99,7 +99,7 @@
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  z-index: 120;
+  z-index: 4000;
   border: 1px solid rgba(208, 203, 184, 0.8);
   border-radius: 12px;
   background: rgba(18, 18, 18, 0.95);
@@ -127,7 +127,7 @@
   box-shadow:
     0 0 0 2px rgba(18, 19, 23, 0.72),
     0 2px 1px rgba(0, 0, 0, 0.35);
-  z-index: 121;
+  z-index: 4001;
   cursor: pointer;
 }
 
@@ -176,6 +176,10 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.zen-overlay-block-menu__grid--insert {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
 .zen-overlay-block-menu__grid--arrange {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -190,6 +194,17 @@
   font-size: 9px;
   font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
   cursor: pointer;
+}
+
+.zen-overlay-block-menu__grid--insert button {
+  grid-column: span 2;
+}
+
+.zen-overlay-block-menu__button--wide {
+  grid-column: span 3 !important;
+  padding: 3px 8px !important;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .zen-overlay-block-menu__grid--icons button {

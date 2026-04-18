@@ -28,7 +28,7 @@ import {
 import { loadLocalZenNoteMeta, subscribeToZenNoteMetaSync, toZenNoteMetaState } from '../services/zenNoteMetaService';
 
 const ZEN_NOTE_MIME = 'text/zennote';
-const gold = '#AC8E66';
+const gold = '#3e362c';
 const fontMono = 'IBM Plex Mono, monospace';
 
 interface QuickNote {
@@ -327,7 +327,7 @@ export function CornerRibbon() {
                           color: isOk ? '#4caf50' : '#999',
                           cursor: 'pointer', padding: '0 12px', alignSelf: 'stretch', fontSize: 11,
                         }}
-                        onMouseEnter={(e) => { if (!isOk) (e.currentTarget as HTMLButtonElement).style.color = gold; }}
+                        onMouseEnter={(e) => { if (!isOk) (e.currentTarget as HTMLButtonElement).style.color = '#e8e3d8'; }}
                         onMouseLeave={(e) => { if (!isOk) (e.currentTarget as HTMLButtonElement).style.color = '#555'; }}
                       >
                         {isIns ? <FontAwesomeIcon icon={faSpinner} spin /> : isOk ? <FontAwesomeIcon icon={faCheck} /> : <FontAwesomeIcon icon={faArrowRightToBracket} />}
@@ -352,7 +352,7 @@ export function CornerRibbon() {
                     navigateToAppScreen('zen-note');
                   }}
                   style={{ background: 'transparent', border: `1px solid #2a2a2a`, borderRadius: 4, color: '#888', cursor: 'pointer', padding: '2px 8px', fontSize: 9, fontFamily: fontMono, display: 'flex', alignItems: 'center', gap: 4 }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = gold; (e.currentTarget as HTMLButtonElement).style.borderColor = `${gold}60`; }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#e8e3d8'; (e.currentTarget as HTMLButtonElement).style.borderColor = `${gold}60`; }}
                   onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#888'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#2a2a2a'; }}
                 >
                   <FontAwesomeIcon icon={faArrowUpRightFromSquare} style={{ fontSize: 8 }} />ZenNote Studio
@@ -377,8 +377,8 @@ export function CornerRibbon() {
           transform: isHovered || open ? 'translateX(0)' : 'translateX(260px)',
           width: 270,
           padding: '9px 18px 9px 12px',
-          background: open ? '#d0cbb8' : isHovered ? '#d0cbb8' : '#AC8E66',
-          color: '#1a1a1a',
+          background: open ? '#d0cbb8' : isHovered ? '#d0cbb8' : '#252525',
+          color: open ? '#252525' : isHovered ? '#252525' : '#AC8E66',
           fontFamily: fontMono,
           fontSize: '10px',
           fontWeight: 600,

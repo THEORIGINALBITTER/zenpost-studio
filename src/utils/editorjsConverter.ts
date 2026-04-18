@@ -31,6 +31,27 @@ export function markdownToEditorJS(markdown: string): EditorJSData {
   const lines = markdown.split('\n');
   let i = 0;
 
+  const parsePlainImageUrlLine = (input: string): { alt: string; url: string } | null => {
+    const trimmed = input.trim();
+    if (!/^https?:\/\//i.test(trimmed)) return null;
+    const isLikelyImage =
+      /\/image_download\.php\?/i.test(trimmed) ||
+      /\.(png|jpe?g|webp|svg|gif|avif)(\?.*)?$/i.test(trimmed);
+    if (!isLikelyImage) return null;
+    try {
+      const parsed = new URL(trimmed);
+      const hintedName = parsed.searchParams.get('file') || parsed.searchParams.get('name') || '';
+      const lastPath = parsed.pathname.split('/').pop() ?? '';
+      const baseName = (hintedName || lastPath || 'Bild')
+        .replace(/\.[^.]+$/, '')
+        .replace(/[-_]+/g, ' ')
+        .trim();
+      return { alt: baseName || 'Bild', url: trimmed };
+    } catch {
+      return { alt: 'Bild', url: trimmed };
+    }
+  };
+
   while (i < lines.length) {
     const line = lines[i];
     const trimmedLine = line.trim();
@@ -108,6 +129,20 @@ export function markdownToEditorJS(markdown: string): EditorJSData {
         data: {
           text: linkMatch[1] ?? '',
           url: linkMatch[2] ?? '',
+        },
+      });
+      i++;
+      continue;
+    }
+
+    const plainImage = parsePlainImageUrlLine(trimmedLine);
+    if (plainImage) {
+      blocks.push({
+        id: generateBlockId(),
+        type: 'imageBlock',
+        data: {
+          alt: plainImage.alt,
+          url: plainImage.url,
         },
       });
       i++;

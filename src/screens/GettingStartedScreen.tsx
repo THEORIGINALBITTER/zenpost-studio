@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useOpenExternal } from '../hooks/useOpenExternal';
 import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
-import { listCloudDocuments } from '../services/cloudStorageService';
+import { listCloudDocuments, canUploadToZenCloud } from '../services/cloudStorageService';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
@@ -12,6 +12,8 @@ import {
   faCode,
   faFileLines,
   faFolderOpen,
+  faGear,
+  faImages,
   faMobileScreen,
   faNoteSticky,
   faPencil,
@@ -22,10 +24,15 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
 import { ZenThoughtLine } from '../components/ZenThoughtLine';
+import { StudioActionCard } from '../components/StudioActionCard';
 import { openAppSettings } from '../services/appShellBridgeService';
 import { loadZenStudioSettings } from '../services/zenStudioSettingsService';
 import { subscribeToCloudSessionSync } from '../services/cloudSessionSyncService';
+import { loadLocalZenNoteMeta } from '../services/zenNoteMetaService';
+import { resolveZenNoteFolderColor, resolveZenNoteTagColor } from '../services/zenNoteColorService';
 import * as QRCode from 'qrcode';
+
+
 
 import type { ScheduledPost } from '../types/scheduling';
 
@@ -45,12 +52,12 @@ interface GettingStartedScreenProps {
   onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site' ) => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
+  onOpenConverterSettings?: () => void;
+  onOpenImageGallery?: () => void;
   onOpenZenNote?: () => void;
   onOpenMobileInbox?: () => void;
   onOpenMobileSettings?: () => void;
   onOpenApiSettings?: () => void;
-  recentItems?: GettingStartedRecentItem[];
-  onContinueRecent?: (item: GettingStartedRecentItem) => void;
   onOpenServerArticle?: (slug: string) => void;
 }
 
@@ -67,7 +74,9 @@ interface StudioDef {
     title: string;
     description: string;
     icon: any;
-    action: () => void;
+    action?: () => void;
+    statusText?: string;
+    disabledHint?: string;
   }[];
 }
 
@@ -82,12 +91,12 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        width: '36px',
+        width: '40px',
         height: '100px',
         borderRadius: '10px 0 0 10px',
-        borderTop: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
-        borderLeft: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
-        borderBottom: isActive ? '1px solid #b8b0a0' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderTop: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderLeft: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderBottom: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
         borderRight: 'none',
         background: isActive ? '#d0cbb8' : showHover ? '#242424' : '#1a1a1a',
         cursor: 'pointer',
@@ -116,7 +125,7 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
           transform: 'rotate(180deg)',
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '9px',
-          color: isActive ? '#1a1a1a' : '#8E8E8E',
+          color: isActive ? '#1a1a1a' : '#e8e3d8',
           whiteSpace: 'nowrap',
           letterSpacing: '0.3px',
           position: 'absolute',
@@ -139,8 +148,8 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
       {studio.id === 'mobile' && (
         <span style={{
           position: 'absolute', top: '6px', right: '3px',
-          fontSize: '6px', fontFamily: 'IBM Plex Mono, monospace',
-          color: isActive ? '#7a5a30' : '#AC8E66',
+          fontSize: '8px', fontFamily: 'IBM Plex Mono, monospace',
+          color: isActive ? '#7a5a30' : '#e8e3d8',
           background: isActive ? 'rgba(172,142,102,0.25)' : 'rgba(172,142,102,0.15)',
           borderRadius: '3px', padding: '1px 4px',
           border: '0.5px solid rgba(172,142,102,0.5)',
@@ -159,15 +168,16 @@ export function GettingStartedScreen({
   onOpenDocStudioWizard,
   onOpenContentAI,
   onOpenConverter,
+  onOpenConverterSettings,
+  onOpenImageGallery,
   onOpenZenNote,
   onOpenMobileInbox,
   onOpenMobileSettings,
   onOpenApiSettings,
-  recentItems = [],
-  onContinueRecent,
   onOpenServerArticle,
 }: GettingStartedScreenProps) {
   const { openExternal } = useOpenExternal();
+  const isDesktopRuntime = isTauri();
   const [zenStudioSettings] = useState(() => loadZenStudioSettings());
   const [projectPath] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -417,25 +427,30 @@ export function GettingStartedScreen({
       id: 'doc-studio',
       label: 'Doc Studio',
       shortLabel: 'Doc Studio',
-      description: 'Technische Dokumentation, README und Code-Doku erstellen',
+      description: isDesktopRuntime
+        ? 'Technische Dokumentation, README und Code-Doku erstellen'
+        : 'Technische Dokumentation ist nur in der Desktop-App verfuegbar',
       useCases: [
-          {
+        {
           title: 'Dokumenten Dahsboard',
           description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
           icon: faFolderOpen,
-          action: () => onOpenDocStudio?.(),
+          action: isDesktopRuntime ? () => onOpenDocStudio?.() : undefined,
+          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
         },
         {
           title: 'Code dokumentieren',
           description: 'README, API-Docs, Changelog und technische Doku erstellen',
           icon: faBook,
-          action: () => onOpenDocStudio?.(),
+          action: isDesktopRuntime ? () => onOpenDocStudio?.() : undefined,
+          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
         },
         {
           title: 'Docs Wizard',
           description: 'GitHub Pages, Templates und Docs-Website aus Markdown generieren',
           icon: faCloudArrowUp,
-          action: () => onOpenDocStudioWizard?.('docs-site'),
+          action: isDesktopRuntime ? () => onOpenDocStudioWizard?.('docs-site') : undefined,
+          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
         },
       ],
     },
@@ -464,6 +479,23 @@ export function GettingStartedScreen({
           description: 'Markdown, Text und strukturierte Inhalte, Bildformate bereinigen/konvertieren',
           icon: faFileLines,
           action: () => onOpenConverter?.(),
+          statusText: loadZenStudioSettings().cloudProjectId
+            ? 'Bilder optional direkt in ZenCloud speichern'
+            : 'Mit ZenCloud Bilder projektbezogen speichern',
+        },
+     
+        ...(canUploadToZenCloud() ? [{
+          title: 'ZenImage Gallery',
+          description: 'Cloud-Bilder verwalten, hochladen und URLs kopieren',
+          icon: faImages,
+          action: () => onOpenImageGallery?.(),
+          statusText: loadZenStudioSettings().cloudProjectName ?? 'ZenCloud',
+        }] : []),
+           {
+          title: 'Converter Einstellungen',
+          description: 'Zielordner, Browser-Speicher und ZenCloud fuer Bilder konfigurieren',
+          icon: faGear,
+          action: () => onOpenConverterSettings?.(),
         },
       ],
     },
@@ -476,8 +508,11 @@ export function GettingStartedScreen({
     },
   ];
 
-  const currentStudio = studios.find((s) => s.id === activeStudio)!;
-  const sortedRecent = [...recentItems].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 6);
+  const visibleStudios = isDesktopRuntime
+    ? studios
+    : studios.filter((studio) => studio.id !== 'doc-studio');
+  const currentStudio = visibleStudios.find((s) => s.id === activeStudio) ?? visibleStudios[0];
+
 
   return (
     <div
@@ -485,12 +520,36 @@ export function GettingStartedScreen({
         display: 'flex',
         flexDirection: 'column',
         minHeight: '100%',
-        backgroundColor: 'transparent',
-        color: '#e5e5e5',
+        backgroundColor: '#e8e3d8',
+        color: '#252525',
         padding: '28px 36px 20px',
         overflowY: 'auto',
       }}
     >
+      <style>
+        {`
+          .zen-getting-started-scroll {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(172,142,102,0.58) rgba(255,255,255,0.04);
+          }
+          .zen-getting-started-scroll::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+          }
+          .zen-getting-started-scroll::-webkit-scrollbar-track {
+            background: rgba(255,255,255,0.04);
+            border-radius: 999px;
+          }
+          .zen-getting-started-scroll::-webkit-scrollbar-thumb {
+            background: linear-gradient(180deg, rgba(208,203,184,0.54), rgba(172,142,102,0.82));
+            border-radius: 999px;
+            border: 1px solid rgba(26,26,26,0.16);
+          }
+          .zen-getting-started-scroll::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(180deg, rgba(231,204,170,0.74), rgba(172,142,102,0.96));
+          }
+        `}
+      </style>
       <div style={{ maxWidth: '1120px', width: '100%', margin: '0 auto' }}>
 
         {/* Header */}
@@ -498,10 +557,10 @@ export function GettingStartedScreen({
           style={{
             fontFamily: 'IBM Plex Mono, monospace',
             fontSize: '20px',
-            fontWeight: '500',
+           
             margin: '0 0 8px 0',
             padding: '15px',
-            color: '#AC8E66',
+            color: '#3e362c',
             letterSpacing: '0.4px',
           }}
         >
@@ -511,7 +570,7 @@ export function GettingStartedScreen({
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '10px',
           
-          color: '#d0cbb8',
+          color: '#3e362c',
           letterSpacing: '0.3px',
           margin: '0 0 0 0px',
           padding: 0,
@@ -528,10 +587,18 @@ export function GettingStartedScreen({
         />
 
         {/* Studio Tab-Reiter Card */}
-        <div style={{ marginTop: '28px', display: 'flex', alignItems: 'stretch' }}>
+        <div
+          style={{
+            marginTop: '28px',
+            display: 'flex',
+            alignItems: 'stretch',
+            maxHeight: 'min(72vh, 720px)',
+          }}
+        >
 
           {/* Left: vertical studio tabs */}
           <div
+            className="zen-getting-started-scroll"
             style={{
               display: 'flex',
               flexDirection: 'column',
@@ -540,9 +607,14 @@ export function GettingStartedScreen({
               marginRight: '-1px',
               position: 'relative',
               zIndex: 5,
+              maxHeight: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              paddingRight: '4px',
+              scrollbarWidth: 'thin',
             }}
           >
-            {studios.map((studio) => {
+            {visibleStudios.map((studio) => {
               const isActive = studio.id === activeStudio;
               return (
                 <SidebarTab
@@ -557,17 +629,22 @@ export function GettingStartedScreen({
 
           {/* Active studio card (beige) */}
           <div
+            className="zen-getting-started-scroll"
             style={{
               flex: 1,
               borderRadius: '0 14px 14px 0',
-              borderTop: '1px solid #b8b0a0',
-              borderRight: '1px solid #b8b0a0',
-              borderBottom: '1px solid #b8b0a0',
-              borderLeft: 'none',
+              borderTop: '0.5px solid #3e362c',
+              borderRight: '0.5px solid #3e362c',
+              borderBottom: '0.5px solid #3e362c',
+              borderLeft: '0.5px solid #3e362c',
               background: '#d0cbb8',
               padding: '24px 28px',
               boxShadow: '4px 4px 20px rgba(0,0,0,0.25)',
-              zIndex: 15,
+              zIndex: 5,
+              maxHeight: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              scrollbarWidth: 'thin',
             }}
           >
             {/* Studio header */}
@@ -620,89 +697,28 @@ export function GettingStartedScreen({
                     gap: '12px',
                   }}
                 >
-                  <button
+                  <StudioActionCard
                     onClick={() => onOpenMobileInbox?.()}
-                    style={{
-                      borderRadius: '12px',
-                      border: '0.5px solid rgba(172,142,102,0.35)',
-                      background: 'rgba(255,255,255,0.45)',
-                      padding: '16px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                      transition: 'all 0.18s ease',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <FontAwesomeIcon icon={faMobileScreen} style={{ fontSize: '16px', color: '#AC8E66' }} />
-                      <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                        Inbox abrufen
-                      </p>
-                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                        Mobile Entwürfe öffnen und in Content AI weiterbearbeiten.
-                      </p>
-                    </div>
-                    <div style={{ marginTop: '2px', fontSize: '9px', color: '#5a5040' }}>
-                      {isTauri()
+                    surface="paper"
+                    title="Inbox abrufen"
+                    description="Mobile Entwürfe öffnen und in Content AI weiterbearbeiten."
+                    icon={<FontAwesomeIcon icon={faMobileScreen} />}
+                    statusText={
+                      isTauri()
                         ? `${mobileDrafts.length} Entwurf${mobileDrafts.length !== 1 ? 'e' : ''} gefunden`
-                        : 'Desktop-App erforderlich'}
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={handleOpenDevBlog}
-                    style={{
-                      borderRadius: '12px',
-                      border: '0.5px solid rgba(172,142,102,0.35)',
-                      background: 'rgba(255,255,255,0.45)',
-                      padding: '16px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                      transition: 'all 0.18s ease',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
+                        : 'Desktop-App oder ZenCloud erforderlich'
+                    }
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <FontAwesomeIcon icon={faCode} style={{ fontSize: '16px', color: '#AC8E66' }} />
-                      <FontAwesomeIcon icon={faQrcode} style={{ fontSize: '12px', color: '#AC8E66', opacity: 0.8 }} />
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                        App in Entwicklung
-                      </p>
-                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                        Scan &amp; folge dem Prozess auf zenpostapp.denisbitter.de
-                      </p>
-                    </div>
+                  </StudioActionCard>
+
+                  <StudioActionCard
+                    onClick={handleOpenDevBlog}
+                    surface="paper"
+                    title="App in Entwicklung"
+                    description="Scan & folge dem Prozess auf zenpostapp.denisbitter.de"
+                    icon={<FontAwesomeIcon icon={faCode} />}
+                    trailing={<FontAwesomeIcon icon={faQrcode} />}
+                  >
                     <div
                       style={{
                         alignSelf: 'center',
@@ -719,47 +735,15 @@ export function GettingStartedScreen({
                     >
                       <img src={devBlogQrSrc} alt="QR-Code Dev Blog" style={{ width: '100%', height: '100%' }} />
                     </div>
-                  </button>
+                  </StudioActionCard>
 
-                  <button
+                  <StudioActionCard
                     onClick={() => onOpenMobileSettings?.()}
-                    style={{
-                      borderRadius: '12px',
-                      border: '0.5px solid rgba(172,142,102,0.35)',
-                      background: 'rgba(255,255,255,0.45)',
-                      padding: '16px',
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                      transition: 'all 0.18s ease',
-                      fontFamily: 'IBM Plex Mono, monospace',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.7)';
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = 'none';
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <FontAwesomeIcon icon={faFolderOpen} style={{ fontSize: '16px', color: '#AC8E66' }} />
-                      <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
-                    </div>
-                    <div>
-                      <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 200, color: '#1a1a1a' }}>
-                        Mobile Inbox Ordner einstellen
-                      </p>
-                      <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                        Öffnet direkt die Systemeinstellungen im Tab Mobile.
-                      </p>
-                    </div>
-                  </button>
+                    surface="paper"
+                    title="Mobile Inbox Ordner einstellen"
+                    description="Öffnet direkt die Systemeinstellungen im Tab Mobile."
+                    icon={<FontAwesomeIcon icon={faFolderOpen} />}
+                  />
                 </div>
               </div>
             ) : (
@@ -772,97 +756,36 @@ export function GettingStartedScreen({
                   }}
                 >
                   {currentStudio.useCases.map((uc) => (
-                    <button
+                    <StudioActionCard
                       key={uc.title}
                       onClick={uc.action}
-                      style={{
-                        borderRadius: '12px',
-                        border: '0.5px solid rgba(172,142,102,0.25)',
-                        background: 'rgba(255,255,255,0.45)',
-                        padding: '16px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '10px',
-                        transition: 'all 0.18s ease',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#d0cbb8';
-                        e.currentTarget.style.transform = 'translateY(-2px)';
-                        e.currentTarget.style.border = '0.5px solid #1a1a1a'
-                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255,255,255,0.45)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                         e.currentTarget.style.border = 'none'
-                        e.currentTarget.style.boxShadow = 'none';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <FontAwesomeIcon icon={uc.icon} style={{ fontSize: '16px', color: '#AC8E66' }} />
-                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#AC8E66', opacity: 0.6 }} />
-                      </div>
-                      <div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 400, color: '#1a1a1a' }}>
-                          {uc.title}
-                        </p>
-                        <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                          {uc.description}
-                        </p>
-                      </div>
-                    </button>
+                      surface="paper"
+                      title={uc.title}
+                      description={uc.description}
+                      icon={<FontAwesomeIcon icon={uc.icon} />}
+                      statusText={uc.statusText}
+                      disabledHint={uc.disabledHint}
+                    />
                   ))}
 
-                  {/* Server Artikel card — only for content-ai */}
-                  {activeStudio === 'content-ai' && (
-                    <button
+                  {/* Server Artikel card — only for content-ai with configured REST API server */}
+                  {activeStudio === 'content-ai' && !!(zenStudioSettings.servers?.some((s) => !!s.contentServerApiUrl) || zenStudioSettings.contentServerApiUrl) && (
+                    <StudioActionCard
                       onClick={() => { void loadServerArticles(); }}
-                      style={{
-                        borderRadius: '12px',
-                        border: '0.5px solid rgba(31,138,65,0.4)',
-                        background: serverArticles !== null ? 'rgba(31,138,65,0.08)' : 'rgba(255,255,255,0.45)',
-                        padding: '16px',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '10px',
-                        transition: 'all 0.18s ease',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(31,138,65,0.15)';
-                        e.currentTarget.style.transform = 'translateY(-2px)';
-                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.12)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = serverArticles !== null ? 'rgba(31,138,65,0.08)' : 'rgba(255,255,255,0.45)';
-                        e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = 'none';
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      surface="paper"
+                      title="Server Artikel"
+                      description={serverArticles !== null
+                        ? `${serverArticles.length} Artikel gefunden`
+                        : 'Artikel vom Server per API laden'}
+                      icon={
                         <FontAwesomeIcon
                           icon={serverLoading ? faSpinner : faServer}
                           spin={serverLoading}
-                          style={{ fontSize: '16px', color: '#1F8A41' }}
                         />
-                        <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: '10px', color: '#1F8A41', opacity: 0.6 }} />
-                      </div>
-                      <div>
-                        <p style={{ margin: '0 0 4px 0', fontSize: '11px', fontWeight: 400, color: '#1a1a1a' }}>
-                          Server Artikel
-                        </p>
-                        <p style={{ margin: 0, fontSize: '9px', color: '#7a7060', lineHeight: 1.45 }}>
-                          {serverArticles !== null
-                            ? `${serverArticles.length} Artikel gefunden`
-                            : 'Artikel vom Server per API laden'}
-                        </p>
-                      </div>
-                    </button>
+                      }
+                      accentColor="#1F8A41"
+                      highlighted={serverArticles !== null}
+                    />
                   )}
                 </div>
 
@@ -882,12 +805,18 @@ export function GettingStartedScreen({
                 )}
 
                 {/* ZenNote recent list */}
-                {activeStudio === 'zen-note' && (
+                {activeStudio === 'zen-note' && (() => {
+                  const { folderColors, tagColors } = loadLocalZenNoteMeta();
+                  const gold = '#AC8E66';
+                  return (
                   <div style={{
                     border: '0.5px solid rgba(172,142,102,0.3)',
                     borderRadius: '12px',
                     overflow: 'hidden',
                     background: 'rgba(255,255,255,0.3)',
+                    maxHeight: '260px',
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}>
                     <div style={{
                       padding: '10px 16px',
@@ -900,12 +829,17 @@ export function GettingStartedScreen({
                       alignItems: 'center',
                       gap: 8,
                     }}>
-                      <FontAwesomeIcon icon={faNoteSticky} style={{ color: '#AC8E66', fontSize: 10 }} />
+                      <FontAwesomeIcon icon={faNoteSticky} style={{ color: '#3e362c', fontSize: 10 }} />
                       LETZTE NOTIZEN
-                      {zenNoteRecentLoading && <FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: 9, color: '#AC8E66' }} />}
+                      {zenNoteRecentLoading && <FontAwesomeIcon icon={faSpinner} spin style={{ fontSize: 10, color: '#3e362c' }} />}
                     </div>
+                    <div style={{ overflowY: 'auto', flex: 1 }}>
                     {zenNoteRecent.length === 0 && !zenNoteRecentLoading ? (
-                      <div style={{ padding: '12px 16px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#aaa' }}>
+                      <div style={{ 
+                        padding: '12px 16px', 
+                        fontFamily: 'IBM Plex Mono, monospace', 
+                        fontSize: '10px', 
+                        color: '#aaa' }}>
                         {loadZenStudioSettings().cloudProjectId ? 'Keine Notizen vorhanden' : (
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
                             <span>Nicht eingeloggt — ZenCloud konfigurieren</span>
@@ -919,7 +853,10 @@ export function GettingStartedScreen({
                         )}
                       </div>
                     ) : (
-                      zenNoteRecent.map((note) => (
+                      zenNoteRecent.map((note) => {
+                        const folderColor = note.folder ? resolveZenNoteFolderColor(note.folder, folderColors, gold) : null;
+                        const tagColor = note.tag ? resolveZenNoteTagColor(note.tag, tagColors) : null;
+                        return (
                         <button
                           key={note.id}
                           onClick={() => onOpenZenNote?.()}
@@ -928,7 +865,7 @@ export function GettingStartedScreen({
                             display: 'flex',
                             alignItems: 'center',
                             gap: 10,
-                            padding: '16px 16px',
+                            padding: '10px 16px',
                             background: 'transparent',
                             border: 'none',
                             borderBottom: '0.5px solid rgba(172,142,102,0.12)',
@@ -940,22 +877,31 @@ export function GettingStartedScreen({
                           onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.08)'; }}
                           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                         >
-                          <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 11, color: '#AC8E66', flexShrink: 0 }} />
+                          {note.folder && folderColor ? (
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '8px', color: '#252525', background: `${folderColor}80`, border: `1px solid ${folderColor}50`, borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>
+                              <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 9, color: '#252525' }} />
+                              {note.folder}
+                            </span>
+                          ) : (
+                            <FontAwesomeIcon icon={faNoteSticky} style={{ fontSize: 11, color: tagColor ?? '#3e362c', flexShrink: 0 }} />
+                          )}
                           <span style={{ flex: 1, fontSize: '10px', color: '#1a1a1a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {note.folder ? <span style={{ color: '#AC8E66', marginRight: 4 }}>{note.folder} /</span> : null}
                             {note.title}
                           </span>
-                          {note.tag && (
-                            <span style={{ fontSize: '8px', color: '#7a7060', background: 'rgba(172,142,102,0.15)', borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>
+                          {note.tag && tagColor &&  (
+                            <span style={{ fontSize: '8px', color: '#252525', background: `${tagColor}80`, border: `1px solid ${tagColor}50`, borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>
                               {note.tag}
                             </span>
                           )}
                           <FontAwesomeIcon icon={faArrowRight} style={{ fontSize: 9, color: '#AC8E66', opacity: 0.5, flexShrink: 0 }} />
                         </button>
-                      ))
+                        );
+                      })
                     )}
+                    </div>
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* Server article list */}
                 {serverArticles !== null && activeStudio === 'content-ai' && (
@@ -1104,33 +1050,6 @@ export function GettingStartedScreen({
           </div>
         </div>
 
-        {/* Recent items */}
-        {sortedRecent.length > 0 && (
-          <div style={{ marginTop: '28px' }}>
-            <h2
-              style={{
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '16px',
-                color: '#e5e5e5',
-                marginBottom: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '9px',
-              }}
-            >
-              <span style={{ fontSize: '11px', fontWeight: '100', color: '#d0cbb8' }}>Zuletzt bearbeitet</span>
-            </h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {sortedRecent.map((item) => (
-                <RecentItemCard
-                  key={item.id}
-                  item={item}
-                  onClick={() => onContinueRecent?.(item)}
-                />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       <ZenPlannerModal
@@ -1149,71 +1068,5 @@ export function GettingStartedScreen({
   );
 }
 
-interface RecentItemCardProps {
-  item: GettingStartedRecentItem;
-  onClick: () => void;
-}
 
-const RecentItemCard = ({ item, onClick }: RecentItemCardProps) => {
-  const sourceLabel = item.source === 'doc-studio' ? 'Doc Studio' : 'Content AI';
-  const [hovered, setHovered] = useState(false);
 
-  return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      style={{
-        border: `0.5px solid ${hovered ? '#AC8E66' : '#2A2A2A'}`,
-        borderRadius: '12px',
-        padding: '14px 18px',
-        background: hovered ? '#111' : 'transparent',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        fontFamily: 'IBM Plex Mono, monospace',
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-        color: '#e5e5e5',
-        textAlign: 'left',
-        width: '100%',
-        transform: hovered ? 'translateX(5px)' : 'translateX(0)',
-        boxShadow: hovered ? '0 10px 24px rgba(0,0,0,0.33)' : 'none',
-      }}
-    >
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-          <div style={{ fontSize: '10px', color: '#e5e5e5' }}>{item.title}</div>
-          <span style={{ border: '0.5px dotted #3A3328', color: '#c9ab82', borderRadius: '999px', fontSize: '9px', padding: '1px 7px' }}>
-            {sourceLabel}
-          </span>
-        </div>
-        <div style={{ fontSize: '11px', color: '#d0cbb8' }}>
-          Zuletzt bearbeitet: {new Date(item.updatedAt).toLocaleDateString('de-DE')}
-          {item.subtitle ? ` · ${item.subtitle}` : ''}
-        </div>
-      </div>
-      {/* Slide-up: "Fortsetzen" → "Öffnen →" */}
-      <div style={{ position: 'relative', overflow: 'hidden', height: '14px', width: '60px', flexShrink: 0 }}>
-        <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%',
-          fontSize: '10px', color: '#AC8E66', textAlign: 'right',
-          transform: hovered ? 'translateY(-100%)' : 'translateY(0)',
-          opacity: hovered ? 0 : 1,
-          transition: 'transform 0.22s ease, opacity 0.18s ease',
-        }}>
-          Fortsetzen
-        </div>
-        <div style={{
-          position: 'absolute', top: 0, left: 0, width: '100%',
-          fontSize: '10px', color: '#AC8E66', textAlign: 'right',
-          transform: hovered ? 'translateY(0)' : 'translateY(100%)',
-          opacity: hovered ? 1 : 0,
-          transition: 'transform 0.22s ease, opacity 0.18s ease',
-        }}>
-          Öffnen →
-        </div>
-      </div>
-    </button>
-  );
-};

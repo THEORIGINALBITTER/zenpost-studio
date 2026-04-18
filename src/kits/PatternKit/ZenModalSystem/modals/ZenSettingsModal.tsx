@@ -15,28 +15,30 @@ import { ZenNewsletterSettingsContent } from './components/ZenNewsletterSettings
 import { ZenConverterSettingsContent } from './components/ZenConverterSettingsContent';
 import { ZenCloudSettingsContent } from './components/ZenCloudSettingsContent';
 import { ZenPlannerSettingsContent } from './components/ZenPlannerSettingsContent';
+import { ZenDocStudioSettingsContent } from './components/ZenDocStudioSettingsContent';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope, faArrowsRotate, faCloud, faCalendarDays } from '@fortawesome/free-solid-svg-icons';
+import { faRobot, faShareNodes, faPenNib, faIdCard, faServer, faLightbulb, faMobileScreen, faPlug, faBolt, faEnvelope, faArrowsRotate, faCloud, faCalendarDays, faBook } from '@fortawesome/free-solid-svg-icons';
 
 interface ZenSettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave?: () => void;
-  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud';
+  defaultTab?: 'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud' | 'converter';
   defaultSocialTab?: 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github';
   showMissingSocialHint?: boolean;
   missingSocialLabel?: string;
   onOpenZenThoughtsEditor?: (content: string, filePath?: string) => void;
 }
 
-type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter' | 'converter' | 'cloud' | 'planner';
+type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zenstudio' | 'mobile' | 'zenengine' | 'newsletter' | 'converter' | 'cloud' | 'planner' | 'docstudio';
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
+  { id: 'cloud', label: 'ZenCloud', icon: faCloud },
   { id: 'ai', label: 'AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
+  { id: 'social', label: 'Media API', icon: faShareNodes },
   { id: 'api', label: 'Server API', icon: faPlug },
-  { id: 'cloud', label: 'ZenCLoud', icon: faCloud },
-  { id: 'social', label: 'Media Transformation', icon: faShareNodes },
+  { id: 'docstudio', label: 'Doc Studio', icon: faBook },
   { id: 'editor', label: 'Editor', icon: faPenNib },
   { id: 'mobile', label: 'Mobile APP', icon: faMobileScreen },
   { id: 'zenengine', label: 'ZenEngine', icon: faBolt },
@@ -249,6 +251,7 @@ export const ZenSettingsModal = ({
           {activeTab === 'newsletter' && <ZenNewsletterSettingsContent />}
           {activeTab === 'converter' && <ZenConverterSettingsContent />}
           {activeTab === 'planner' && <ZenPlannerSettingsContent />}
+          {activeTab === 'docstudio' && <ZenDocStudioSettingsContent />}
           {activeTab === 'license' && <ZenLicenseSettingsContent />}
         </div>
       </div>

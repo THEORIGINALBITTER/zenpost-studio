@@ -22,6 +22,7 @@ import { phpBlogManifestUpdate } from '../../services/phpBlogService';
 import { join } from '@tauri-apps/api/path';
 import { openAppSettings } from '../../services/appShellBridgeService';
 import { loadZenStudioSettings, type BlogConfig } from '../../services/zenStudioSettingsService';
+import { subscribeToCloudSessionSync } from '../../services/cloudSessionSyncService';
 
 type DashboardDocument = {
   id: string;
@@ -36,6 +37,7 @@ type ContentStudioDashboardScreenProps = {
   projectPath: string | null;
   recentProjectPaths: string[];
   documents: DashboardDocument[];
+  showServerTab?: boolean;
   onSelectProjectPath: (path: string) => void;
   onPickProject: () => void;
   onOpenDashboardDocument?: (doc: DashboardDocument) => void;
@@ -140,6 +142,7 @@ export function ContentStudioDashboardScreen({
   projectPath,
   recentProjectPaths,
   documents,
+  showServerTab = false,
   onSelectProjectPath,
   onPickProject,
   onOpenDashboardDocument,
@@ -162,6 +165,7 @@ export function ContentStudioDashboardScreen({
   onActiveContextChange,
   onDeleteDocument,
 }: ContentStudioDashboardScreenProps) {
+  const [cloudSettings, setCloudSettings] = useState(() => loadZenStudioSettings());
   const blogPaths = new Set(blogs.map((b) => b.path));
   const visibleRecentProjects = recentProjectPaths.filter((p) => !blogPaths.has(p)).slice(0, 6);
   const stableOrderRef = useRef<string[]>([]);
@@ -368,9 +372,25 @@ export function ContentStudioDashboardScreen({
     }
   }, [selectedTab, serverLocalCachePath, blogs, activeProjectPath, onActiveContextChange]);
 
+  useEffect(() => {
+    const syncFromStorage = () => setCloudSettings(loadZenStudioSettings());
+    const handler = (event: Event) => {
+      const next = (event as CustomEvent<ReturnType<typeof loadZenStudioSettings>>).detail;
+      setCloudSettings(next ?? loadZenStudioSettings());
+    };
+    window.addEventListener('zen-studio-settings-updated', handler);
+    const unsubscribe = subscribeToCloudSessionSync(() => {
+      syncFromStorage();
+    }, { intervalMs: 1000 });
+    return () => {
+      window.removeEventListener('zen-studio-settings-updated', handler);
+      unsubscribe();
+    };
+  }, []);
+
   const activeProjectName = activeProjectPath
     ? (isCloudProjectPath(activeProjectPath)
-        ? (loadZenStudioSettings().cloudProjectName ?? getCloudProjectName(activeProjectPath) ?? 'Cloud-Projekt')
+        ? (cloudSettings.cloudProjectName ?? getCloudProjectName(activeProjectPath) ?? 'Cloud-Projekt')
         : isWebProjectPath(activeProjectPath)
           ? (getWebProjectName(activeProjectPath) ?? 'Web-Projekt')
           : activeProjectPath.split(/[\\/]/).filter(Boolean).pop() ?? 'Projekt')
@@ -378,8 +398,14 @@ export function ContentStudioDashboardScreen({
   const activeProjectIsWeb = activeProjectPath ? isWebProjectPath(activeProjectPath) : false;
   const activeProjectIsCloud = activeProjectPath ? isCloudProjectPath(activeProjectPath) : false;
   const activeProjectWebType = activeProjectPath ? getWebProjectType(activeProjectPath) : null;
-  const cloudLoggedIn = !!loadZenStudioSettings().cloudAuthToken;
+  const cloudLoggedIn = !!cloudSettings.cloudAuthToken && !!cloudSettings.cloudProjectId;
   const showWebWarning = !cloudLoggedIn;
+
+  useEffect(() => {
+    if ((!cloudLoggedIn || !showServerTab) && selectedTab === 'server') {
+      setSelectedTab('');
+    }
+  }, [cloudLoggedIn, selectedTab, showServerTab]);
 
   const recent = documents
     .slice()
@@ -396,7 +422,7 @@ export function ContentStudioDashboardScreen({
           maxWidth: '1020px',
           borderRadius: '14px',
           border: '0.5px solid #2F2F2F',
-          background: '#262525',
+          background: '#e8e3d8',
           padding: 'clamp(18px, 4vw, 40px)',
           textAlign: 'left',
         }}
@@ -448,12 +474,12 @@ export function ContentStudioDashboardScreen({
 
         <p
           style={{
-            color: '#d0cbb8',
+            color: '#252525',
             marginBottom: '24px',
             maxWidth: '760px',
             fontSize: '11px',
             fontFamily: 'monospace',
-            fontWeight: '100',
+        
           }}
         >
           Schreibe einmal, veröffentliche mehrfach. Starte direkt im Editor, plane Posts oder lade vorhandene Dokumente.
@@ -531,7 +557,7 @@ export function ContentStudioDashboardScreen({
                       {isCloud && (
                         <FontAwesomeIcon
                           icon={faCloud}
-                          style={{ fontSize: '8px', color: isActive ? '#AC8E66' : '#5a5a5a' }}
+                          style={{ fontSize: '8px', color: isActive ? '#AC8E66' : '#e8e3d8' }}
                         />
                       )}
                       <span
@@ -541,7 +567,7 @@ export function ContentStudioDashboardScreen({
                           transform: 'rotate(180deg)',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '9px',
-                          color: isActive ? '#1a1a1a' : '#d0cbb8',
+                          color: isActive ? '#3e362c' : '#e8e3d8',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           maxHeight: isCloud ? '55px' : '70px',
@@ -587,7 +613,7 @@ export function ContentStudioDashboardScreen({
                   </div>
                 );
               })}
-              {onOpenServerArticle && (
+              {onOpenServerArticle && cloudLoggedIn && showServerTab && (
                 <button
                   onClick={() => setSelectedTab('server')}
                   title={serverName ? `Server Artikel · ${serverName}` : 'Server Artikel'}
@@ -666,7 +692,7 @@ export function ContentStudioDashboardScreen({
                     onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#2a2a2a'; }}
                     onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = '#1a1a1a'; }}
                   >
-                    <FontAwesomeIcon icon={faGlobe} style={{ fontSize: '9px', color: isActive ? '#1a1a1a' : '#5a5a5a' }} />
+                    <FontAwesomeIcon icon={faGlobe} style={{ fontSize: '9px', color: isActive ? '#1a1a1a' : '#e8e3d8' }} />
                     <span
                       style={{
                         writingMode: 'vertical-rl',
@@ -719,8 +745,8 @@ export function ContentStudioDashboardScreen({
                       {blogPostsLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
                     </p>
                     {activeBlog?.siteUrl && (
-                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', marginBottom: '8px', flexShrink: 0 }}>
-                       https://{activeBlog.siteUrl}
+                      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#3e362c', marginBottom: '8px', flexShrink: 0 }}>
+                      {activeBlog.siteUrl}
                       </div>
                     )}
                     <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -754,7 +780,7 @@ export function ContentStudioDashboardScreen({
                           style={{
                             borderRadius: '6px',
                             border: post.synced ? '0.5px solid rgba(102, 186, 122,1)' : '0.5px solid rgba(180,60,60,1)',
-                            background: post.synced ? 'rgba(255,255,255,0.4)' : 'rgba(255,240,240,0.5)',
+                            background: post.synced ? 'rgba(21, 21, 21, 0.08)' : 'rgba(255,240,240,0.5)',
                             flexShrink: 0,
                             display: 'flex',
                             alignItems: 'center',
@@ -1127,7 +1153,7 @@ export function ContentStudioDashboardScreen({
                   borderRight: '1px solid #b8b0a0',
                   borderBottom: '1px solid #b8b0a0',
                   borderLeft: 'none',
-                  background: '#d0cbb8',
+                  background: '#e8e3d8',
                   cursor: activeProjectPath ? 'pointer' : 'not-allowed',
                   opacity: activeProjectPath ? 1 : 0.6,
                   display: 'flex',
@@ -1142,7 +1168,7 @@ export function ContentStudioDashboardScreen({
                   <p
                     style={{
                       fontSize: '9px',
-                      color: '#7a7060',
+                      color: '#3e362c',
                       fontFamily: 'IBM Plex Mono, monospace',
                       margin: '0 0 2px 0',
                       textTransform: 'uppercase',
@@ -1154,7 +1180,7 @@ export function ContentStudioDashboardScreen({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                     <FontAwesomeIcon
                       icon={activeProjectIsCloud ? faCloud : activeProjectIsWeb ? faGlobe : faFolderOpen}
-                      style={{ color: '#AC8E66', fontSize: '16px' }}
+                      style={{ color: '#3e362c', fontSize: '16px' }}
                     />
                     <span
                       style={{
@@ -1353,7 +1379,7 @@ export function ContentStudioDashboardScreen({
                 Projekt wählen
               </div>
               <ActionTile
-                title="Direkt schreiben"
+                title="Schreiben"
                 description="Im Editor starten und Content vorbereiten"
                 actionLabel="Schreiben starten →"
                 icon={faFileLines}
@@ -1407,7 +1433,7 @@ export function ContentStudioDashboardScreen({
             paddingTop: '20px',
             margin: '0 0 10px 0', 
             fontSize: '12px', 
-            color: '#d0cbb8', 
+            color: '#3e362c', 
             fontFamily: 'IBM Plex Mono, monospace' 
             }}
             >
@@ -1419,7 +1445,7 @@ export function ContentStudioDashboardScreen({
                 borderRadius: '8px',
                 border: '0.5px solid #2F2F2F',
                 padding: '12px',
-                color: '#7E7E7E',
+                color: '#3e362c',
                
                 fontFamily: 'IBM Plex Mono, monospace',
                 fontSize: '11px',
@@ -1463,7 +1489,7 @@ export function ContentStudioDashboardScreen({
                   >
                     <div style={{ minWidth: 0 }}>
                       <div style={{ 
-                        color: '#d0cbb8', 
+                        color: '#3e362c', 
                         fontFamily: 'IBM Plex Mono, monospace', 
                         fontSize: '11px', overflow: 'hidden', 
                         textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1478,7 +1504,7 @@ export function ContentStudioDashboardScreen({
                         {doc.subtitle || 'Dokument öffnen'}
                       </div>
                     </div>
-                    <div style={{ color: '#7E7E7E', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
+                    <div style={{ color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
                       {doc.updatedAt
                         ? new Date(doc.updatedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
                         : '—'}
@@ -1506,9 +1532,9 @@ export function ContentStudioDashboardScreen({
           )}
         </div>
 
-        {onOpenServerArticle && (serverArticles === undefined || serverArticles !== null) && (
+        {onOpenServerArticle && cloudLoggedIn && showServerTab && (serverArticles === undefined || serverArticles !== null) && (
           <div style={{ marginTop: '24px' }}>
-            <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#d0cbb8', fontFamily: 'IBM Plex Mono, monospace' }}>
+            <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace' }}>
               Server Artikel{serverName ? ` · ${serverName}` : ''}
               {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '8px' }}>Lädt…</span>}
             </p>
@@ -1661,7 +1687,7 @@ export function ContentStudioDashboardScreen({
                         }}
                       >
                         <div style={{ minWidth: 0 }}>
-                          <div style={{ color: '#E7CCAA', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {title}
                           </div>
                           {title !== slug && slug && (

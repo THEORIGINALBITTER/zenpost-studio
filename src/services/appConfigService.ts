@@ -1,5 +1,7 @@
 import { appDataDir, documentDir, join } from '@tauri-apps/api/path';
 import { exists, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { isCloudProjectPath } from './cloudProjectService';
+import { isWebProjectPath } from './webProjectService';
 
 export type AppConfig = {
   version: '1.0.0';
@@ -82,9 +84,15 @@ export const ensureAppConfig = async (): Promise<AppConfigInfo> => {
   }
 
   if (nextConfig.lastProjectPath) {
-    const pathExists = await exists(nextConfig.lastProjectPath);
-    if (!pathExists) {
-      nextConfig.lastProjectPath = defaultProjectPath;
+    const isVirtualProjectPath =
+      isCloudProjectPath(nextConfig.lastProjectPath) ||
+      isWebProjectPath(nextConfig.lastProjectPath);
+
+    if (!isVirtualProjectPath) {
+      const pathExists = await exists(nextConfig.lastProjectPath);
+      if (!pathExists) {
+        nextConfig.lastProjectPath = defaultProjectPath;
+      }
     }
   } else {
     nextConfig.lastProjectPath = defaultProjectPath;

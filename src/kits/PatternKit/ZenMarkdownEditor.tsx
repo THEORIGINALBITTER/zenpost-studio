@@ -6,6 +6,7 @@ import {
   faItalic,
   faStrikethrough,
   faHeading,
+  faImage,
   faListUl,
   faListOl,
   faLink,
@@ -17,6 +18,7 @@ import {
 import { ZenMarkdownPreview } from './ZenMarkdownPreview';
 import { ZenPlusMenu, type ZenPlusMenuItem } from './ZenPlusMenu';
 import { ZenNotePanel } from './ZenNotePanel';
+import { ZenCloudImagePanel } from './ZenCloudImagePanel';
 import { faNoteSticky } from '@fortawesome/free-solid-svg-icons';
 import { PREVIEW_THEME_EDITOR_TOKENS, type PreviewThemeId } from './zenMarkdownPreviewTypes';
 import { textToMarkdown } from '../../services/aiService';
@@ -27,7 +29,10 @@ import {
   isEditorImageOversized,
 } from '../../utils/editorImageCompression';
 import { uploadCloudDocument } from '../../services/cloudStorageService';
-import { subscribeToInsertContentStudioSnippet } from '../../services/contentStudioBridgeService';
+import {
+  subscribeToInsertContentStudioImages,
+  subscribeToInsertContentStudioSnippet,
+} from '../../services/contentStudioBridgeService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 import { getEditorLineMetrics } from '../../services/editorLayoutMetricsService';
 
@@ -37,6 +42,7 @@ interface ZenMarkdownEditorProps {
   projectPath?: string | null;
   placeholder?: string;
   height?: string;
+  width?: string | null;
   showCharCount?: boolean;
   showPreview?: boolean;
   showLineNumbers?: boolean;
@@ -47,6 +53,7 @@ interface ZenMarkdownEditorProps {
   previewTheme?: PreviewThemeId;
   fontSize?: number;
   hideTopBorder?: boolean;
+  hideFooter?: boolean;
   focusLineRequest?: { line: number; token: number } | null;
   onActiveLineChange?: (line: number) => void;
 
@@ -79,8 +86,9 @@ export const ZenMarkdownEditor = ({
   value,
   onChange,
   projectPath,
-  placeholder = '# Dein Markdown Inhalt hier einfügen...',
+  placeholder = '# Dein Inhalt hier einfügen...',
   height = '400px',
+  width = '600px',
   showCharCount = true,
   showPreview = false,
   showLineNumbers = true,
@@ -91,12 +99,14 @@ export const ZenMarkdownEditor = ({
   previewTheme = 'mono-clean',
   fontSize = 12,
   hideTopBorder = false,
+  hideFooter = false,
   focusLineRequest = null,
   onActiveLineChange,
   onTitleChange,
   showZenNoteButton = false,
 }: ZenMarkdownEditorProps) => {
   const [showZenNotePanel, setShowZenNotePanel] = useState(false);
+  const [showZenCloudImagePanel, setShowZenCloudImagePanel] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lineNumbersRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -276,6 +286,41 @@ export const ZenMarkdownEditor = ({
       handler(event);
     });
   }, [value, onChange]);
+
+  useEffect(() => {
+    const insertSnippet = (snippet: string) => {
+      if (!snippet.trim()) return;
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        onChange(value + '\n\n' + snippet);
+        return;
+      }
+      const rawStart = textarea.selectionStart;
+      const start = rawStart > 0 ? rawStart : lastCursorPosRef.current;
+      const end = rawStart > 0 ? textarea.selectionEnd : lastCursorPosRef.current;
+      const savedScrollTop = lastScrollTopRef.current;
+      const newValue = value.slice(0, start) + '\n\n' + snippet + '\n\n' + value.slice(end);
+      onChange(newValue);
+      setTimeout(() => {
+        textarea.focus();
+        const pos = start + snippet.length + 4;
+        textarea.setSelectionRange(pos, pos);
+        textarea.scrollTop = savedScrollTop;
+        if (showLineNumbers && lineNumbersRef.current) {
+          lineNumbersRef.current.scrollTop = savedScrollTop;
+        }
+      }, 0);
+    };
+
+    return subscribeToInsertContentStudioImages(({ images = [] }) => {
+      if (images.length === 0) return;
+      const snippet = images
+        .filter((image) => image.url)
+        .map((image) => `![${image.alt?.trim() || 'Bild'}](${image.url})`)
+        .join('\n\n');
+      insertSnippet(snippet);
+    });
+  }, [value, onChange, showLineNumbers]);
 
   useEffect(() => {
     if (!focusLineRequest) return;
@@ -802,6 +847,13 @@ const makeStrikethrough = () => insertText('~~', '~~');
       description: 'Notiz aus ZenNote einfügen',
       action: () => setShowZenNotePanel((v) => !v),
     }] : []),
+    {
+      id: 'zencloud-image',
+      label: 'ZenCloud Bild',
+      icon: faImage,
+      description: 'Bild aus ZenCloud einfuegen',
+      action: () => setShowZenCloudImagePanel((v) => !v),
+    },
   ];
 
   // Filter commands based on user input
@@ -1246,7 +1298,7 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
   };
 
   return (
-    <div className="w-full relative">
+    <div className="relative" style={{ width: width ?? '100%' }}>
       {showHeader && (title || subtitle) && (
         <div style={{ marginBottom: '16px' }}>
           {title && (
@@ -1450,6 +1502,9 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       {showZenNotePanel && (
         <ZenNotePanel onClose={() => setShowZenNotePanel(false)} />
       )}
+      {showZenCloudImagePanel && (
+        <ZenCloudImagePanel onClose={() => setShowZenCloudImagePanel(false)} />
+      )}
   {/* Active line highlight Hintegrund wo man schreibt  */}
   <div
     style={{
@@ -1582,7 +1637,7 @@ onKeyUp={(e) => {
         )}
 
         {/* Shortcut Footer - Always visible */}
-        <div className="mt-[-5px] flex items-center justify-between"
+        {!hideFooter && <div className="mt-[-5px] flex items-center justify-between"
           style={{ 
             paddingTop: '2px', 
            position: 'relative', // oder 'absolute' / 'sticky'
@@ -1624,7 +1679,7 @@ onKeyUp={(e) => {
               </span>
             )}
           </div>
-        </div>
+        </div>}
         </div>
 
       {/* Preview Section - Responsive */}

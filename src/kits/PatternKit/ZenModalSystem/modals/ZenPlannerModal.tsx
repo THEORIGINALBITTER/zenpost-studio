@@ -191,6 +191,7 @@ export function ZenPlannerModal({
   const [übersichtStatusFilter, setÜbersichtStatusFilter] = useState<'all' | 'scheduled' | 'draft'>('all');
   const [übersichtChecklistItems, setÜbersichtChecklistItems] = useState<import('../../../../utils/checklistStorage').ChecklistItem[]>([]);
   const [übersichtLastCloudSyncAt, setÜbersichtLastCloudSyncAt] = useState<string | null>(null);
+  const cloudSettings = loadZenStudioSettings();
 
   // ==================== CHECKLIST STATE ====================
 
@@ -248,7 +249,17 @@ export function ZenPlannerModal({
     if (!isOpen || activeTab !== 'übersicht') return;
 
     return subscribeToCloudSessionSync(({ reason, current }) => {
-      if (!current.authToken || !current.projectId) return;
+      if (reason === 'logout' || !current.authToken || !current.projectId) {
+        setÜbersichtScheduledPosts([]);
+        setÜbersichtManualPosts([]);
+        setÜbersichtSchedules({});
+        setÜbersichtChecklistItems([]);
+        setÜbersichtLastCloudSyncAt(null);
+        setÜbersichtLoaded(true);
+        setÜbersichtError(null);
+        return;
+      }
+
       if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
         void reloadÜbersichtFromCloud();
       }
@@ -3729,7 +3740,9 @@ export function ZenPlannerModal({
                 <span style={{ color: '#1a1a1a' }}>
                   {projectPath
                     ? isCloudProjectPath(projectPath)
-                      ? `@cloud: ${loadZenStudioSettings().cloudProjectName ?? getCloudProjectName(projectPath) ?? projectName ?? projectPath.slice(7)}`
+                      ? cloudSettings.cloudAuthToken && cloudSettings.cloudProjectId
+                        ? `@cloud: ${cloudSettings.cloudProjectName ?? getCloudProjectName(projectPath) ?? projectName ?? projectPath.slice(7)}`
+                        : '—'
                       : projectPath.split('/').pop() ?? projectPath
                     : '—'}
                 </span>

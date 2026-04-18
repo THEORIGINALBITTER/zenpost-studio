@@ -605,7 +605,7 @@ export function StepEditDocument({
               gap: '10px',
             }}
           >
-            <div className="font-mono text-[10px] text-[#c8b08b]">
+            <div className="font-mono text-[10px] text-[#e8e3d8]">
               {hasRelevantScanData
                 ? 'Template-Modus: Scan-Daten vorhanden. Du kannst mit KI aus Datenfeldern nachschärfen.'
                 : 'Template-Modus: Wenig Scan-Daten gefunden. KI kann aus deinen Datenfeldern ein vollständiges Dokument erzeugen.'}

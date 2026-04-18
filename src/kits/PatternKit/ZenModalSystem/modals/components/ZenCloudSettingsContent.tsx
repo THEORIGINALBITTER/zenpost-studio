@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faTrash, faSpinner, faTriangleExclamation, faRightFromBracket } from '@fortawesome/free-solid-svg-icons';
+import { faTrash, faSpinner, faTriangleExclamation, faRightFromBracket, faCheck } from '@fortawesome/free-solid-svg-icons';
 import { faGoogle as faGoogleBrand, faApple } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../../../../hooks/useOpenExternal';
 import {
@@ -101,6 +101,9 @@ export const ZenCloudSettingsContent = () => {
   const [availableProjects, setAvailableProjects] = useState<Array<{ id: number; name: string }>>([]);
   const [deletingProject, setDeletingProject] = useState(false);
   const [confirmDeleteProjectId, setConfirmDeleteProjectId] = useState<number | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [showNewProjectInput, setShowNewProjectInput] = useState(false);
 
   const baseUrl = useMemo(() => {
     const raw = settings.cloudApiBaseUrl ?? DEFAULT_BASE_URL;
@@ -189,7 +192,27 @@ export const ZenCloudSettingsContent = () => {
     if (emailFromHash) setEmail(emailFromHash);
     setResult('SSO Login erfolgreich. Projekt wird gesucht…', 'success');
     history.replaceState(null, '', window.location.pathname + window.location.search);
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.postMessage({
+          type: 'zenpost-sso',
+          token,
+          email: emailFromHash,
+        }, window.location.origin);
+      } catch {
+        /* ignore cross-window postMessage errors */
+      }
+    }
     void autoSeedProject(token);
+    if (window.opener && !window.opener.closed) {
+      window.setTimeout(() => {
+        try {
+          window.close();
+        } catch {
+          /* ignore */
+        }
+      }, 900);
+    }
   }, [autoSeedProject]);
 
   useEffect(() => {
@@ -217,7 +240,7 @@ export const ZenCloudSettingsContent = () => {
       if (status < 200 || status >= 300) { setResult(`Login fehlgeschlagen (${status})`, 'error'); return; }
       const json = JSON.parse(text || '{}') as { success?: boolean; token?: string };
       if (!json.success || !json.token) { setResult('Login fehlgeschlagen: ungültige Antwort.', 'error'); return; }
-      const next = update({ cloudAuthToken: json.token, cloudUserEmail: email.trim() });
+      update({ cloudAuthToken: json.token, cloudUserEmail: email.trim() });
       setPassword('');
       setResult('Login erfolgreich. Projekt wird gesucht…', 'success');
       try {
@@ -231,7 +254,6 @@ export const ZenCloudSettingsContent = () => {
           }
         }
       } catch { /* non-fatal */ }
-      setSettings(next);
     } catch (err) {
       setResult(`Login Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
     } finally { setLoading(false); }
@@ -296,8 +318,21 @@ export const ZenCloudSettingsContent = () => {
       setResult('SSO im Browser geöffnet. Warte auf Anmeldung…', 'info');
       startSsoPolling(sessionKey);
     } else {
-      window.open(`${baseUrl}/oauth_${provider}_start.php?return_url=${encodeURIComponent(window.location.origin)}`, '_blank', 'noopener,noreferrer');
-      setResult('SSO im Browser geöffnet.', 'info');
+      const popupWidth = 560;
+      const popupHeight = 760;
+      const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - popupWidth) / 2));
+      const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - popupHeight) / 2));
+      const popup = window.open(
+        `${baseUrl}/oauth_${provider}_start.php?return_url=${encodeURIComponent(window.location.origin)}`,
+        'zenpost-cloud-sso',
+        `popup=yes,width=${popupWidth},height=${popupHeight},left=${left},top=${top}`
+      );
+      if (popup) {
+        try { popup.focus(); } catch { /* ignore */ }
+        setResult('SSO Fenster geöffnet. Nach der Anmeldung wird es automatisch geschlossen.', 'info');
+      } else {
+        setResult('Popup blockiert. Bitte Popups erlauben oder SSO erneut starten.', 'error');
+      }
     }
   };
 
@@ -332,6 +367,36 @@ export const ZenCloudSettingsContent = () => {
     } finally { setDeletingProject(false); }
   };
 
+  const handleCreateProject = async () => {
+    if (!settings.cloudAuthToken || !newProjectName.trim()) return;
+    setCreatingProject(true);
+    try {
+      const { status, text } = await zenFetch(`${baseUrl}/projects_create.php`, 'POST',
+        { 'Content-Type': 'application/json', 'X-Auth-Token': settings.cloudAuthToken },
+        JSON.stringify({ name: newProjectName.trim() })
+      );
+      if (status >= 200 && status < 300) {
+        const json = JSON.parse(text || '{}') as { success?: boolean; project?: { id?: number; name?: string } };
+        if (json.success && json.project?.id) {
+          const proj = json.project;
+          setAvailableProjects((prev) => [...prev, { id: proj.id!, name: proj.name ?? newProjectName.trim() }]);
+          patchZenStudioSettings({ cloudProjectId: proj.id!, cloudProjectName: proj.name ?? newProjectName.trim() });
+          setSettings(loadZenStudioSettings());
+          window.dispatchEvent(new CustomEvent('zenpost:cloud-login', { detail: { projectId: proj.id, projectName: proj.name } }));
+          setResult(`Projekt "${proj.name ?? newProjectName.trim()}" erstellt.`, 'success');
+          setNewProjectName('');
+          setShowNewProjectInput(false);
+        } else {
+          setResult('Erstellen fehlgeschlagen: ungültige Antwort.', 'error');
+        }
+      } else {
+        setResult(`Erstellen fehlgeschlagen (${status})`, 'error');
+      }
+    } catch (err) {
+      setResult(`Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`, 'error');
+    } finally { setCreatingProject(false); }
+  };
+
   const isLoggedIn = !!settings.cloudAuthToken;
 
   return (
@@ -343,7 +408,7 @@ export const ZenCloudSettingsContent = () => {
           <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: '0.12em', color: gold, textTransform: 'uppercase', marginBottom: 4 }}>
             ZenCloud
           </div>
-          <div style={{ fontFamily: fontMono, fontSize: 13, fontWeight: 600, color: '#1a1a1a' }}>
+          <div style={{ fontFamily: fontMono, fontSize: 13, color: '#1a1a1a' }}>
             {isLoggedIn ? `Eingeloggt als ${settings.cloudUserEmail ?? 'User'}` : 'Anmelden'}
           </div>
           <div style={{ fontFamily: fontMono, fontSize: 10, color: '#777', marginTop: 3 }}>
@@ -415,20 +480,47 @@ export const ZenCloudSettingsContent = () => {
               <div>
                 <SectionLabel>Aktives Projekt</SectionLabel>
                 {availableProjects.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <ZenDropdown
                     value={String(settings.cloudProjectId ?? '')}
                     onChange={(val: string) => {
                       if (val === '__delete__') { setConfirmDeleteProjectId(settings.cloudProjectId ?? null); return; }
+                      if (val === '__new__') { setShowNewProjectInput(true); return; }
                       handleSelectProject(Number(val));
                     }}
                     options={[
                       ...availableProjects.map((p) => ({ value: String(p.id), label: `${p.name}` })),
+                      { value: '__new__', label: '+ Neues Projekt erstellen…' },
                       { value: '__delete__', label: '— Aktives Projekt löschen' },
                     ]}
                     theme="paper"
                     variant="input"
                     placeholder="Projekt wählen…"
                   />
+                  {showNewProjectInput && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <input
+                        value={newProjectName}
+                        onChange={(e) => setNewProjectName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void handleCreateProject(); if (e.key === 'Escape') { setShowNewProjectInput(false); setNewProjectName(''); } }}
+                        placeholder="Projektname…"
+                        autoFocus
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                      <button
+                        onClick={() => void handleCreateProject()}
+                        disabled={creatingProject || !newProjectName.trim()}
+                        style={{ ...primaryBtn, display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+                      >
+                        {creatingProject ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faCheck} />}
+                        Erstellen
+                      </button>
+                      <button onClick={() => { setShowNewProjectInput(false); setNewProjectName(''); }} style={{ ...ghostBtn, flexShrink: 0 }}>
+                        Abbrechen
+                      </button>
+                    </div>
+                  )}
+                  </div>
                 ) : (
                   <div style={{ fontFamily: fontMono, fontSize: 11, color: '#555', border: '1px solid rgba(172,142,102,0.3)', borderRadius: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.35)' }}>
                     {settings.cloudProjectId ? `${settings.cloudProjectName ?? 'Projekt'} (#${settings.cloudProjectId})` : 'Kein Projekt gesetzt'}

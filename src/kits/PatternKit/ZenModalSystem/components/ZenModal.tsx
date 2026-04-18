@@ -177,7 +177,7 @@ export const ZenModal = ({
               }}
             >
               {title && (
-                <h2
+                <p
                   style={{
                     fontFamily: "IBM Plex Mono, monospace",
                     fontSize: "22px",
@@ -188,7 +188,7 @@ export const ZenModal = ({
                   }}
                 >
                   {title}
-                </h2>
+                </p>
               )}
               {subtitle && (
                 <p

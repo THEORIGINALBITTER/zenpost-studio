@@ -142,10 +142,10 @@ export function StepChooseTemplates({
   ]);
 
   const getSourceLabel = (mode: 'scan' | 'manual' | 'mixed' | 'empty') => {
-    if (mode === 'manual') return { text: 'Manuell', color: '#d4af78', border: '#AC8E66' };
-    if (mode === 'scan') return { text: 'Scan', color: '#7fb1ff', border: '#4f78b8' };
-    if (mode === 'mixed') return { text: 'Gemischt', color: '#8bdba7', border: '#3f8c5d' };
-    return { text: 'Leer', color: '#9a9a9a', border: '#4a4a4a' };
+    if (mode === 'manual') return { text: 'Manuell', color: '#252525', border: '#AC8E66' };
+    if (mode === 'scan') return { text: 'Scan', color: '#252525', border: '#4f78b8' };
+    if (mode === 'mixed') return { text: 'Gemischt', color: '#252525', border: '#3f8c5d' };
+    return { text: 'Leer', color: '#252525', border: '#4a4a4a' };
   };
 
   const sourceMode = {
@@ -281,7 +281,7 @@ export function StepChooseTemplates({
     >
       <div
         style={{
-          backgroundColor: '#1a1a1a',
+          backgroundColor: '#d2cabd',
           borderRadius: '8px',
           border: '0.5px solid #AC8E66',
           padding: isDataEmpty ? '10px 16px' : '16px',
@@ -290,7 +290,7 @@ export function StepChooseTemplates({
       >
         {isDataEmpty ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-            <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66', flexShrink: 0 }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#252525', flexShrink: 0 }}>
               Projekt-Daten
             </span>
             <div style={{ flex: '0 0 100px', height: '3px', borderRadius: '2px', background: '#2a2a2a' }}>
@@ -318,23 +318,30 @@ export function StepChooseTemplates({
           </div>
         ) : (
         <>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
-          <h3 style={{ fontWeight: 'normal', margin: 0, fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
+        <div style={{ 
+          display: 'flex', 
+        
+        alignItems: 'center', 
+          justifyContent: 'space-between', 
+          marginBottom: '12px', 
+          flexWrap: 'wrap', 
+          gap: '8px' }}>
+          <p style={{  margin: 0, fontFamily: 'monospace', fontSize: '16px', color: '#252525' }}>
             Projekt-Daten
-          </h3>
+          </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ width: '80px', height: '3px', borderRadius: '2px', background: '#2a2a2a' }}>
               <div style={{ width: `${(filledRequired / requiredFields.length) * 100}%`, height: '100%', background: '#AC8E66', borderRadius: '2px', transition: 'width 0.3s' }} />
             </div>
-            <span style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777' }}>
+            <span style={{ fontFamily: 'monospace', fontSize: '10px', color: '#252525' }}>
               {filledRequired}/{requiredFields.length} Felder
             </span>
           </div>
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.8', color: '#e5e5e5' }}>
+        <div style={{ fontFamily: 'monospace', fontSize: '11px', lineHeight: '1.8', color: '#252525' }}>
           <div style={{ display: 'flex', gap: '24px', marginBottom: '8px', flexWrap: 'wrap' }}>
             <div>
-              <span style={{ color: '#777' }}>Name:</span>{' '}
+              <span style={{ color: '#252525' }}>Name:</span>{' '}
               <span>{headerSummary.mergedName}</span>
               <span
                 style={{
@@ -343,14 +350,14 @@ export function StepChooseTemplates({
                   borderRadius: '10px',
                   border: `1px solid ${getSourceLabel(sourceMode.name).border}`,
                   color: getSourceLabel(sourceMode.name).color,
-                  fontSize: '9px',
+                  fontSize: '11px',
                 }}
               >
                 {getSourceLabel(sourceMode.name).text}
               </span>
             </div>
             <div>
-              <span style={{ color: '#777' }}>Version:</span>{' '}
+              <span style={{ color: '#252525' }}>Version:</span>{' '}
               <span>{headerSummary.mergedVersion}</span>
               <span
                 style={{
@@ -359,19 +366,19 @@ export function StepChooseTemplates({
                   borderRadius: '10px',
                   border: `1px solid ${getSourceLabel(sourceMode.version).border}`,
                   color: getSourceLabel(sourceMode.version).color,
-                  fontSize: '9px',
+                  fontSize: '11px',
                 }}
               >
                 {getSourceLabel(sourceMode.version).text}
               </span>
             </div>
             <div>
-              <span style={{ color: '#777' }}>Felder ergänzt:</span>{' '}
+              <span style={{ color: '#252525' }}>Felder ergänzt:</span>{' '}
               <span>{enrichedFieldCount}</span>
             </div>
           </div>
           <div style={{ marginBottom: '8px' }}>
-            <span style={{ color: '#777' }}>Beschreibung:</span>{' '}
+            <span style={{ color: '#252525' }}>Beschreibung:</span>{' '}
             <span>{headerSummary.mergedDescription}</span>
             <span
               style={{
@@ -380,14 +387,14 @@ export function StepChooseTemplates({
                 borderRadius: '10px',
                 border: `1px solid ${getSourceLabel(sourceMode.description).border}`,
                 color: getSourceLabel(sourceMode.description).color,
-                fontSize: '9px',
+                fontSize: '11px',
               }}
             >
               {getSourceLabel(sourceMode.description).text}
             </span>
           </div>
           <div style={{ marginBottom: '8px' }}>
-            <span style={{ color: '#777' }}>Use Case:</span>{' '}
+            <span style={{ color: '#252525' }}>Use Case:</span>{' '}
             <span>{headerSummary.mergedUseCase}</span>
             <span
               style={{
@@ -396,14 +403,14 @@ export function StepChooseTemplates({
                 borderRadius: '10px',
                 border: `1px solid ${getSourceLabel(sourceMode.useCase).border}`,
                 color: getSourceLabel(sourceMode.useCase).color,
-                fontSize: '9px',
+                fontSize: '11px',
               }}
             >
               {getSourceLabel(sourceMode.useCase).text}
             </span>
           </div>
           <div style={{ marginBottom: '8px' }}>
-            <span style={{ color: '#777' }}>Dateitypen:</span>{' '}
+            <span style={{ color: '#252525' }}>Dateitypen:</span>{' '}
             <span>{headerSummary.mergedFileTypes}</span>
             <span
               style={{
@@ -412,14 +419,14 @@ export function StepChooseTemplates({
                 borderRadius: '10px',
                 border: `1px solid ${getSourceLabel(sourceMode.fileTypes).border}`,
                 color: getSourceLabel(sourceMode.fileTypes).color,
-                fontSize: '9px',
+                fontSize: '11px',
               }}
             >
               {getSourceLabel(sourceMode.fileTypes).text}
             </span>
           </div>
           <div>
-            <span style={{ color: '#777' }}>Features:</span>{' '}
+            <span style={{ color: '#252525' }}>Features:</span>{' '}
             <span className="inline-flex items-center gap-2 text-[9px]">
               {projectInfo?.hasTests ? (
                 <>
@@ -439,7 +446,7 @@ export function StepChooseTemplates({
             
               {projectInfo?.hasApi ? (
                 <>
-                  <FontAwesomeIcon icon={faCheck} style={{ fontSize: '9px', marginTop: '-2px', color: '#AC8E66' }} />
+                  <FontAwesomeIcon icon={faCheck} style={{ fontSize: '11px', marginTop: '-2px', color: '#AC8E66' }} />
                   <span>API</span>
                 </>
               ) : (
@@ -462,7 +469,7 @@ export function StepChooseTemplates({
                 borderRadius: '10px',
                 border: `1px solid ${getSourceLabel(sourceMode.features).border}`,
                 color: getSourceLabel(sourceMode.features).color,
-                fontSize: '9px',
+                fontSize: '11px',
               }}
             >
               {getSourceLabel(sourceMode.features).text}
@@ -661,16 +668,17 @@ export function StepChooseTemplates({
             padding: '24px',
           }}
         >
-          <p style={{ marginBottom: '8px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
+          <p style={{ marginBottom: '8px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#252525' }}>
             Step01: <span className="text-[#1a1a1a]">Relevante Daten sammeln</span>
           </p>
           <p className="font-mono text-[11px] text-[#1a1a1a] text-center mb-[16px]">
-            Datenfeldern: {filledRequired}/{requiredFields.length} ausgefüllt. Diese Felder nutzt Step 4 für KI-gestützte Dokumente.
+            Du hast {filledRequired}/{requiredFields.length}  Datenfelder ausgefüllt. <br /> Diese Felder nutzt Step 4 für KI-gestützte Dokumente.
           </p>
 
           {!hasRelevantData && (
             <div
               style={{
+            
                 marginBottom: '16px',
                 borderRadius: '8px',
                 border: '1px dotted rgba(172, 142, 102, 0.9)',
@@ -688,7 +696,7 @@ export function StepChooseTemplates({
           )}
 
           <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Produkt-/Projektname *
               <input
                 value={inputFields.productName}
@@ -697,7 +705,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-3/4 rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Problem / Use Case
               <input
                 value={inputFields.problemSolved}
@@ -709,7 +717,7 @@ export function StepChooseTemplates({
           </div>
 
           <div style={{ display: 'grid', gap: '12px', marginTop: '12px' }}>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Kurzbeschreibung *
               <textarea
                 value={inputFields.productSummary}
@@ -719,7 +727,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Setup / Installation *
               <textarea
                 value={inputFields.setupSteps}
@@ -729,7 +737,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Usage Beispiele *
               <textarea
                 value={inputFields.usageExamples}
@@ -739,7 +747,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               API Endpoints / Integrationen
               <textarea
                 value={inputFields.apiEndpoints}
@@ -749,7 +757,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Testing / Qualität
               <textarea
                 value={inputFields.testingNotes}
@@ -759,7 +767,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               FAQ / Hinweise
               <textarea
                 value={inputFields.faq}
@@ -769,7 +777,7 @@ export function StepChooseTemplates({
                 className="mt-[6px] w-full rounded-[8px] border border-[#3A3A3A] bg-[transparent] px-[10px] py-[8px] text-[11px] text-[#1a1a1a] focus:outline-none focus:ring-1 focus:ring-[#AC8E66]"
               />
             </label>
-            <label className="font-mono text-[10px] text-[#AC8E66]">
+            <label className="font-mono text-[11px] text-[#252525]">
               Links (Repo, Docs, Website)
               <textarea
                 value={inputFields.links}
@@ -806,8 +814,8 @@ export function StepChooseTemplates({
             fontWeight: 'normal',
           }}
         >
-          <p style={{ marginBottom: '24px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#AC8E66' }}>
-            Step02: <span className="text-[#1a1a1a] font-mono">Dokumentationstyp wählen</span>
+          <p style={{ marginBottom: '24px', textAlign: 'center', fontFamily: 'monospace', fontSize: '16px', color: '#252525' }}>
+            Step02: <span className="text-[#1a1a1a] font-mono">Wähle eine oder mehrere Dokumentationen</span>
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', justifyContent: 'center', marginTop: '24px' }}>
             {templates.map((template) => {
@@ -837,7 +845,7 @@ export function StepChooseTemplates({
                       icon={template.icon}
                       style={{
                         fontSize: '36px',
-                        color: isSelected ? '#AC8E66' : '#777',
+                        color: isSelected ? '#AC8E66' : '#252525',
                         opacity: isSelected ? 1 : 0.7,
                       }}
                     />
@@ -845,7 +853,7 @@ export function StepChooseTemplates({
                   <h4 style={{ fontFamily: 'monospace', fontSize: '12px', marginBottom: '8px', color: isSelected ? '#AC8E66' : '#999' }}>
                     {template.title}
                   </h4>
-                  <p style={{ color: '#777', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.6' }}>
+                  <p style={{ color: '#252525', fontFamily: 'monospace', fontSize: '10px', lineHeight: '1.6' }}>
                     {template.description}
                   </p>
                   {isSelected && (
@@ -871,7 +879,7 @@ export function StepChooseTemplates({
             fontFamily: 'IBM Plex Mono, monospace',
           }}
         >
-          <p style={{ marginBottom: '16px', fontSize: '9px', color: '#7a7060', textTransform: 'uppercase', letterSpacing: '1px' }}>
+          <p style={{ marginBottom: '16px', fontSize: '11px', color: '#7a7060', textTransform: 'uppercase', letterSpacing: '1px' }}>
             Projektdokumente
           </p>
           {/* Drop Zone */}
