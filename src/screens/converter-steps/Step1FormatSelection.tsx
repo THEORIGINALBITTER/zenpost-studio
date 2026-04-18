@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDownload, faFile, faFolderOpen, faArrowRight, faNoteSticky, faXmark, faImages } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faFile, faFolderOpen, faArrowRight, faNoteSticky, faXmark } from '@fortawesome/free-solid-svg-icons';
 import type { SupportedFormat } from '../../utils/fileConverter';
 import { getCloudDocumentUrl } from '../../services/cloudStorageService';
 import  { ZenBackButton as _ZenBackButton } from '../../kits/DesignKit';
@@ -69,7 +69,6 @@ export const Step1FormatSelection = ({
   onPreviewRecentItem,
   onUploadFile,
   onConvert,
-  onOpenImageGallery,
 }: Step1FormatSelectionProps) => {
   const [isDropActive, setIsDropActive] = useState(false);
   const [previewItem, setPreviewItem] = useState<Step1FormatSelectionProps['recentConversions'][number] | null>(null);

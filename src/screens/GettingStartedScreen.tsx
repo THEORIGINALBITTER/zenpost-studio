@@ -6,9 +6,7 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faArrowRight,
-  faBook,
   faCalendarDays,
-  faCloudArrowUp,
   faCode,
   faFileLines,
   faFolderOpen,
@@ -41,15 +39,13 @@ export type GettingStartedRecentItem = {
   title: string;
   subtitle?: string;
   updatedAt: number;
-  source: 'doc-studio' | 'content-ai';
+  source: 'content-ai';
   articleId?: string;
   filePath?: string;
 };
 
 interface GettingStartedScreenProps {
   onBack: () => void;
-  onOpenDocStudio?: () => void;
-  onOpenDocStudioWizard?: (wizard: 'github' | 'docs-site' ) => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
   onOpenConverterSettings?: () => void;
@@ -61,7 +57,7 @@ interface GettingStartedScreenProps {
   onOpenServerArticle?: (slug: string) => void;
 }
 
-type StudioId = 'doc-studio' | 'content-ai' | 'converter' | 'mobile' | 'zen-note';
+type StudioId = 'content-ai' | 'converter' | 'mobile' | 'zen-note';
 const MOBILE_DEV_BLOG_URL = 'https://zenpostapp.denisbitter.de';
 const MOBILE_DEV_BLOG_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_DEV_BLOG_URL)}`;
 
@@ -164,8 +160,6 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
 
 export function GettingStartedScreen({
   onBack: _onBack,
-  onOpenDocStudio,
-  onOpenDocStudioWizard,
   onOpenContentAI,
   onOpenConverter,
   onOpenConverterSettings,
@@ -424,37 +418,6 @@ export function GettingStartedScreen({
       ],
     },
     {
-      id: 'doc-studio',
-      label: 'Doc Studio',
-      shortLabel: 'Doc Studio',
-      description: isDesktopRuntime
-        ? 'Technische Dokumentation, README und Code-Doku erstellen'
-        : 'Technische Dokumentation ist nur in der Desktop-App verfuegbar',
-      useCases: [
-        {
-          title: 'Dokumenten Dahsboard',
-          description: 'Projektdateien öffnen, fortsetzen und gezielt weiterbearbeiten',
-          icon: faFolderOpen,
-          action: isDesktopRuntime ? () => onOpenDocStudio?.() : undefined,
-          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
-        },
-        {
-          title: 'Code dokumentieren',
-          description: 'README, API-Docs, Changelog und technische Doku erstellen',
-          icon: faBook,
-          action: isDesktopRuntime ? () => onOpenDocStudio?.() : undefined,
-          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
-        },
-        {
-          title: 'Docs Wizard',
-          description: 'GitHub Pages, Templates und Docs-Website aus Markdown generieren',
-          icon: faCloudArrowUp,
-          action: isDesktopRuntime ? () => onOpenDocStudioWizard?.('docs-site') : undefined,
-          disabledHint: isDesktopRuntime ? undefined : 'Nur in der Desktop-App verfuegbar',
-        },
-      ],
-    },
-    {
       id: 'zen-note',
       label: 'ZenNote',
       shortLabel: 'ZenNote',
@@ -508,9 +471,7 @@ export function GettingStartedScreen({
     },
   ];
 
-  const visibleStudios = isDesktopRuntime
-    ? studios
-    : studios.filter((studio) => studio.id !== 'doc-studio');
+  const visibleStudios = studios;
   const currentStudio = visibleStudios.find((s) => s.id === activeStudio) ?? visibleStudios[0];
 
 

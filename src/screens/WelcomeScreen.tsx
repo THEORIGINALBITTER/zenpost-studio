@@ -10,7 +10,6 @@ import { faLayerGroup } from "@fortawesome/free-solid-svg-icons";
 interface WelcomeScreenProps {
   onSelectConverter?: () => void;
   onSelectContentTransform?: () => void;
-  onSelectDocStudio?: () => void;
   onSelectGettingStarted?: () => void;
   onSelectMobileInbox?: () => void;
 }
@@ -18,7 +17,6 @@ interface WelcomeScreenProps {
 export const WelcomeScreen = ({
   onSelectConverter: _onSelectConverter,
   onSelectContentTransform: _onSelectContentTransform,
-  onSelectDocStudio: _onSelectDocStudio,
   onSelectGettingStarted,
   onSelectMobileInbox,
 }: WelcomeScreenProps) => {

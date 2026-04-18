@@ -2,12 +2,9 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
- 
-  faCalendarDays,
   faMagicWandSparkles,
   faFolderOpen,
   faArrowRotateRight,
-  faFileLines,
   faWrench,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton } from '../kits/PatternKit/ZenModalSystem';
@@ -21,12 +18,11 @@ import { getLastProjectPath, rememberProjectPath } from '../utils/projectHistory
 
 interface PublishingDashboardScreenProps {
   onBack: () => void;
-  onOpenDocStudio?: () => void;
   onOpenContentAI?: () => void;
   onOpenConverter?: () => void;
 }
 
-export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, onOpenContentAI, onOpenConverter }: PublishingDashboardScreenProps) {
+export function PublishingDashboardScreen({ onBack: _onBack, onOpenContentAI, onOpenConverter }: PublishingDashboardScreenProps) {
   const [projectPath, setProjectPath] = useState<string | null>(() => {
     return getLastProjectPath();
   });
@@ -126,24 +122,10 @@ export function PublishingDashboardScreen({ onBack: _onBack, onOpenDocStudio, on
             highlighted
           />
           <StudioActionCard
-            icon={<FontAwesomeIcon icon={faFileLines} />}
-            title="Doc Studio"
-            description="Projekt-Dokumentation"
-            onClick={onOpenDocStudio}
-            surface="dark"
-          />
-          <StudioActionCard
             icon={<FontAwesomeIcon icon={faWrench} />}
             title="Converter"
             description="Format-Konvertierung"
             onClick={onOpenConverter}
-            surface="dark"
-          />
-          <StudioActionCard
-            icon={<FontAwesomeIcon icon={faCalendarDays} />}
-            title="Publishing Kalender"
-            description="Posts planen (via Doc Studio)"
-            onClick={onOpenDocStudio}
             surface="dark"
           />
         </div>

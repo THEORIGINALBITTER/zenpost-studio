@@ -14,12 +14,8 @@ import {
   faWandMagicSparkles,
   faSave,
   faChevronDown,
-  faRotateLeft,
   faPaperPlane,
   faCloudArrowUp,
-  faSpinner,
-  faCheck,
-  faCircleExclamation,
   faDownload,
 } from "@fortawesome/free-solid-svg-icons";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
@@ -27,7 +23,6 @@ import { ConverterScreen } from "./screens/ConverterScreen";
 import { ContentTransformScreen } from "./screens/ContentTransformScreen";
 import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStudioDashboardScreen";
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
-import { DocStudioScreen } from "./screens/DocStudioScreen";
 import { ZenNoteStudioScreen } from "./screens/ZenNoteStudio/ZenNoteStudioScreen";
 import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
 import { MobileInboxScreen } from "./screens/MobileInboxScreen";
@@ -43,9 +38,8 @@ import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlan
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
 import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgradeModal";
 import { ZenBootstrapModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBootstrapModal";
-import { createDefaultProjectMetadata, type ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
+import { type ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { ScheduledPost } from "./types/scheduling";
-import { defaultDocInputFields, type DocStudioState } from "./screens/DocStudio/types";
 import { saveScheduledPostsWithFiles } from "./services/publishingService";
 import { loadArticles, type ZenArticle } from "./services/publishingService";
 import { importDocumentToMarkdown } from "./services/documentImportService";
@@ -55,18 +49,12 @@ import {
   subscribeToPlannerCloudBridge,
 } from "./services/plannerCloudBridgeService";
 import { WalkthroughModal } from "./kits/HelpDocStudio";
-import { getSmartDocTemplate } from "./screens/DocStudio/templates";
 import { open } from "@tauri-apps/plugin-dialog";
-import { exists as fsExists, mkdir as fsMkdir, readDir, readFile, readTextFile, remove as fsRemove, stat, writeTextFile } from "@tauri-apps/plugin-fs";
+import { readDir, readFile, readTextFile, remove as fsRemove, stat, writeTextFile } from "@tauri-apps/plugin-fs";
 import { LicenseProvider, useLicense } from "./contexts/LicenseContext";
-import { FeatureGate } from "./components/FeatureGate";
 import { ZenPublishingBanner } from "./components/ZenPublishingBanner";
 import { ZenContentPreviewModal } from "./components/ZenContentPreviewModal";
 import { usePublishingEngine } from "./services/publishingEngine";
-import { pushDocsToGitHub } from "./services/githubDocsService";
-import { loadDocsServerConfig, syncDirectoryToFtp, saveDocsSyncTimestamp } from "./screens/DocStudio/components/DocsServerWizard";
-import { ftpUpload } from "./services/ftpService";
-import { loadSocialConfig } from "./services/socialMediaService";
 import { CornerRibbon } from "./components/CornerRibbon";
 import { isTauri } from "@tauri-apps/api/core";
 import { useOpenExternal } from "./hooks/useOpenExternal";
@@ -178,7 +166,7 @@ const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unk
   return lines.join('\n').trim();
 };
 
-type Screen = "welcome" | "converter" | "content-transform" | "doc-studio" | "getting-started" | "mobile-inbox" | "zen-note";
+type Screen = "welcome" | "converter" | "content-transform" | "getting-started" | "mobile-inbox" | "zen-note";
 
 // Files that make no sense to open as text documents in Content AI Studio
 const BINARY_EXTENSIONS = new Set([
@@ -197,8 +185,6 @@ function isTextDocument(fileName: string): boolean {
   const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
   return !BINARY_EXTENSIONS.has(ext);
 }
-
-// Doc Studio state interface is shared in DocStudio types
 
 // Main App wrapped with LicenseProvider
 export default function App1() {
@@ -234,20 +220,13 @@ function AppContent() {
   const [contentTransformStep, setContentTransformStep] = useState(1);
   const [contentStudioDashboardView, setContentStudioDashboardView] = useState<"dashboard" | "project-map">("dashboard");
   const [dashboardActiveContextPath, setDashboardActiveContextPath] = useState<string | null>(null);
-  const [docStudioStep, setDocStudioStep] = useState(0);
-  const [docStudioInitialWizard, setDocStudioInitialWizard] = useState<'github' | 'docs-site' | undefined>(undefined);
-
-  // Content transfer between Doc Studio and Content AI Studio
+  // Content transfer between Content AI Studio
   const [transferContent, setTransferContent] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
   const [transferPostMeta, setTransferPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string } | null>(null);
   const [contentStudioInitialRequestId, setContentStudioInitialRequestId] = useState<string | null>(null);
-  const [cameFromDocStudio, setCameFromDocStudio] = useState(false);
+  const [_cameFromDocStudio, setCameFromDocStudio] = useState(false);
   const [cameFromDashboard, setCameFromDashboard] = useState(false);
-  const [returnToDocStudioStep, setReturnToDocStudioStep] = useState<number>(0);
-
-  // Store Doc Studio state to preserve it when switching to Content AI Studio
-  const [docStudioState, setDocStudioState] = useState<DocStudioState | null>(null);
   const [contentStudioProjectPath, setContentStudioProjectPath] = useState<string | null>(null);
   const [contentStudioRecentProjectPaths, setContentStudioRecentProjectPaths] = useState<string[]>(() => getRecentProjectPaths());
   const [contentStudioRecentArticles, setContentStudioRecentArticles] = useState<ZenArticle[]>([]);
@@ -264,8 +243,6 @@ function AppContent() {
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
   const [contentStudioPreview, setContentStudioPreview] = useState<ContentPreviewState | null>(null);
   const [pendingConverterOpenFileRequest, setPendingConverterOpenFileRequest] = useState<OpenConverterWithFileRequest | null>(null);
-  const [docStudioRequestedFilePath, setDocStudioRequestedFilePath] = useState<string | null>(null);
-  const [docStudioRequestedWebDocument, setDocStudioRequestedWebDocument] = useState<{ fileName: string; content: string } | null>(null);
   const [showContentStudioModal, setShowContentStudioModal] = useState(false);
   const [contentStudioModalTab, setContentStudioModalTab] = useState<"project" | "all">("project");
   const [showWebProjectPicker, setShowWebProjectPicker] = useState(false);
@@ -398,9 +375,6 @@ function AppContent() {
   const [exportDocumentName, setExportDocumentName] = useState<string>("");
   const [exportSubtitle, setExportSubtitle] = useState<string>("");
   const [exportImageUrl, setExportImageUrl] = useState<string>("");
-  const [docStudioHeaderAction, setDocStudioHeaderAction] = useState<"save" | "preview" | "rescan" | null>(null);
-  const [docStudioPreviewMode, setDocStudioPreviewMode] = useState(false);
-  const [docStudioGeneratedContent, setDocStudioGeneratedContent] = useState<string>("");
 
   // App-Start: Studio-Settings aus Datei laden (überschreibt localStorage mit persistiertem Stand)
   useEffect(() => { void initZenStudioSettings(); }, []);
@@ -718,21 +692,8 @@ function AppContent() {
     return safeName;
   };
 
-  const handleOpenWebDocumentInDocStudio = (content: string, fileName: string) => {
-    const safeName = fileName?.trim() || "Web-Dokument.md";
-    setDocStudioRequestedWebDocument({ fileName: safeName, content });
-    setDocStudioStep(3);
-    setCurrentScreen("doc-studio");
-    setShowContentStudioModal(false);
-  };
-
   const handleLoadWebDocument = (content: string, fileName: string) => {
     const safeName = persistWebDocument(content, fileName);
-
-    if (currentScreen === "doc-studio") {
-      handleOpenWebDocumentInDocStudio(content, safeName);
-      return;
-    }
 
     setTransferContent(content);
     setTransferFileName(safeName);
@@ -1106,7 +1067,6 @@ function AppContent() {
       void saveScheduleToCloud(posts);
     }
     const projectPath =
-      docStudioState?.projectPath ||
       contentStudioProjectPath ||
       getLastProjectPath();
     if (!projectPath) return;
@@ -1120,263 +1080,10 @@ function AppContent() {
   // Publishing Engine — detects due posts and exposes publish/skip actions
   const publishingEngine = usePublishingEngine(scheduledPosts, persistScheduledPosts);
 
-  // GitHub Docs Push
-  const [docStudioGithubDocsFileCount, setDocStudioGithubDocsFileCount] = useState(0);
-
-  const scanDocsForGitHub = async (rootPath: string): Promise<Array<{ path: string; name: string }>> => {
-    const results: Array<{ path: string; name: string }> = [];
-    // All text-based file types worth syncing to GitHub docs
-    const allowedExtensions = new Set(['md', 'mdx', 'txt', 'html', 'php', 'js', 'css', 'json', 'yaml', 'yml', 'example', 'nojekyll']);
-    // Folders to never include
-    const skipDirs = new Set(['node_modules', '.git', 'dist', 'build', '.zenpost', 'src-tauri', '.vite', 'fixtures']);
-    // Specific filenames to always skip
-    const skipFiles = new Set(['.DS_Store', 'Thumbs.db', '.gitignore', 'package-lock.json', 'yarn.lock']);
-    const maxDepth = 6;
-
-    const scan = async (dirPath: string, depth: number) => {
-      if (depth > maxDepth) return;
-      let entries: Awaited<ReturnType<typeof readDir>>;
-      try {
-        entries = await readDir(dirPath);
-      } catch {
-        return;
-      }
-
-      for (const entry of entries) {
-        const name = entry.name || '';
-        if (entry.isDirectory) {
-          if (name.startsWith('.') || skipDirs.has(name)) continue;
-          await scan(`${dirPath}/${name}`, depth + 1);
-        } else if (entry.isFile) {
-          if (skipFiles.has(name) || name.startsWith('.DS_')) continue;
-          const ext = name.split('.').pop()?.toLowerCase() || '';
-          // Allow extensionless files like ".nojekyll" by checking the full name too
-          const isAllowed = allowedExtensions.has(ext) || allowedExtensions.has(name.replace(/^\./, ''));
-          if (!isAllowed) continue;
-          const fullPath = `${dirPath}/${name}`;
-          const repoName = fullPath
-            .replace(rootPath, '')
-            .replace(/^[/\\]/, '')
-            .replace(/\\/g, '/');
-          results.push({ path: fullPath, name: repoName || name });
-        }
-      }
-    };
-
-    await scan(rootPath, 0);
-    return results;
-  };
 
 
-
-  const handlePushDocsToGitHubFromDocStudio = async () => {
-    const config = loadSocialConfig();
-    if (!config.github?.docsRepo) {
-      throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → Social Media → GitHub)');
-    }
-    if (!config.github?.accessToken) throw new Error('GitHub Access Token fehlt');
-    if (!config.github?.username) throw new Error('GitHub Username fehlt');
-
-    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
-    if (!projectPath || isWebProjectPath(projectPath)) {
-      throw new Error('Kein lokaler Projektordner gewählt');
-    }
-
-    const docs = await scanDocsForGitHub(projectPath);
-    if (docs.length === 0) {
-      throw new Error('Keine Markdown-Dateien im Projekt gefunden');
-    }
-
-    const files = await Promise.all(
-      docs.map(async (file) => ({
-        name: file.name,
-        content: await readTextFile(file.path),
-      })),
-    );
-
-    return pushDocsToGitHub(files, config.github);
-  };
-
-  const handlePushTemplatesToGitHubFromDocStudio = async (templates: import('./services/githubDocsService').GeneratedTemplate[]) => {
-    const config = loadSocialConfig();
-    if (!config.github?.docsRepo) {
-      throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → Social Media → GitHub)');
-    }
-    if (!config.github?.accessToken) throw new Error('GitHub Access Token fehlt');
-    if (!config.github?.username) throw new Error('GitHub Username fehlt');
-
-    if (templates.length === 0) {
-      throw new Error('Keine generierten Templates vorhanden');
-    }
-
-    const files = templates.map((tpl) => ({ name: tpl.name, content: tpl.content }));
-    // docsPath: '' — template paths are repo-absolute (README.md, DataRoom/DATA_ROOM.md, etc.)
-    return pushDocsToGitHub(files, { ...config.github, docsPath: '' });
-  };
-
-  const handleSaveDocsSiteLocally = async (config: import('./services/docsSiteService').DocsSiteConfig) => {
-    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
-    if (!projectPath || isWebProjectPath(projectPath)) throw new Error('Kein lokaler Projektordner gewählt');
-
-    // Ensure docs/ folder exists
-    const docsDir = `${projectPath}/docs`;
-    if (!(await fsExists(docsDir).catch(() => false))) {
-      await fsMkdir(docsDir, { recursive: true });
-    }
-
-    // Create stub files for new pages (don't overwrite existing)
-    for (const newPage of config.newPages ?? []) {
-      const filePath = `${projectPath}/${newPage.relPath}`;
-      const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
-      if (!(await fsExists(parentDir).catch(() => false))) {
-        await fsMkdir(parentDir, { recursive: true });
-      }
-      if (!(await fsExists(filePath).catch(() => false))) {
-        await writeTextFile(filePath, `# ${newPage.title}\n\nInhalt hier einfügen.\n`);
-      }
-    }
-
-    // Read all page content (new stubs now exist)
-    const markdownFiles = await Promise.all(
-      config.pages.map(async (page) => {
-        try {
-          const content = await readTextFile(`${projectPath}/${page.file}`);
-          return { name: page.file, content };
-        } catch {
-          return { name: page.file, content: `# ${page.label}\n\nInhalt hier einfügen.\n` };
-        }
-      }),
-    );
-
-    const { generateDocsSite } = await import('./services/docsSiteService');
-    const files = generateDocsSite(config, markdownFiles);
-    for (const file of files) {
-      // Skip dotfiles (e.g. .nojekyll) — only needed for GitHub Pages, not local
-      const basename = file.name.split('/').pop() ?? '';
-      if (basename.startsWith('.')) continue;
-      await writeTextFile(`${projectPath}/${file.name}`, file.content);
-    }
-  };
-
-  const handlePushDocsSiteToGitHub = async (config: import('./services/docsSiteService').DocsSiteConfig) => {
-    const socialConfig = loadSocialConfig();
-    if (!socialConfig.github?.docsRepo) throw new Error('Kein Docs-Repository konfiguriert (Einstellungen → GitHub)');
-    if (!socialConfig.github?.accessToken) throw new Error('GitHub Access Token fehlt');
-    if (!socialConfig.github?.username) throw new Error('GitHub Username fehlt');
-
-    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
-    if (!projectPath || isWebProjectPath(projectPath)) throw new Error('Kein lokaler Projektordner gewählt');
-
-    // Stub content for new pages (not yet on disk)
-    const stubContent: Record<string, string> = {};
-    for (const newPage of config.newPages ?? []) {
-      stubContent[newPage.relPath] = `# ${newPage.title}\n\nInhalt hier einfügen.\n`;
-    }
-
-    const markdownFiles = await Promise.all(
-      config.pages.map(async (page) => {
-        try {
-          const content = await readTextFile(`${projectPath}/${page.file}`);
-          return { name: page.file, content };
-        } catch {
-          return { name: page.file, content: stubContent[page.file] ?? `# ${page.label}\n\nInhalt nicht verfügbar.` };
-        }
-      }),
-    );
-
-    const { generateDocsSite } = await import('./services/docsSiteService');
-    const files = generateDocsSite(config, markdownFiles);
-
-    // docsPath: '' — paths in generateDocsSite are already absolute (docs/index.html, etc.)
-    return pushDocsToGitHub(files, { ...socialConfig.github, docsPath: '' });
-  };
-
-  useEffect(() => {
-    if (currentScreen !== 'doc-studio') return;
-    const projectPath = docStudioState?.projectPath || getLastProjectPath('doc');
-    if (!projectPath || isWebProjectPath(projectPath)) {
-      setDocStudioGithubDocsFileCount(0);
-      return;
-    }
-    let cancelled = false;
-    scanDocsForGitHub(projectPath)
-      .then((files) => {
-        if (!cancelled) setDocStudioGithubDocsFileCount(files.length);
-      })
-      .catch(() => {
-        if (!cancelled) setDocStudioGithubDocsFileCount(0);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentScreen, docStudioState?.projectPath]);
-
-  const [docSyncState, setDocSyncState] = useState<'idle' | 'syncing' | 'ok' | 'error'>('idle');
-  const [docSyncMsg, setDocSyncMsg] = useState('');
-
-  const handleDocStudioFullSync = async () => {
-    const projectPath = docStudioState?.projectPath;
-    if (!projectPath || !isTauri()) return;
-    const serverConfig = loadDocsServerConfig(projectPath);
-    if (!serverConfig) return;
-    setDocSyncState('syncing');
-    setDocSyncMsg('');
-    try {
-      const { uploaded, errors } = await syncDirectoryToFtp(projectPath, {
-        host: serverConfig.host,
-        user: serverConfig.user,
-        password: serverConfig.password,
-        remotePath: serverConfig.remotePath,
-        protocol: serverConfig.protocol,
-      });
-      if (errors.length > 0) {
-        setDocSyncState('error');
-        setDocSyncMsg(`${uploaded} hochgeladen, ${errors.length} Fehler`);
-      } else {
-        setDocSyncState('ok');
-        setDocSyncMsg(`${uploaded} Dateien synchronisiert`);
-        saveDocsSyncTimestamp(projectPath);
-        setTimeout(() => setDocSyncState('idle'), 4000);
-      }
-    } catch (e) {
-      setDocSyncState('error');
-      setDocSyncMsg(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  // Auto-sync saved Doc Studio file to FTP server if configured
-  const handleDocStudioFileSaved = async (filePath: string, _content: string, fileName: string) => {
-    // Only in Tauri + only for real file paths (not web: or template:)
-    if (!isTauri() || filePath.startsWith('web:') || !filePath.includes('/')) return;
-    const projectPath = docStudioState?.projectPath;
-    if (!projectPath) return;
-    const serverConfig = loadDocsServerConfig(projectPath);
-    if (!serverConfig) return;
-    // Calculate the correct remote subdirectory based on the file's position within the project
-    const normalizedProject = projectPath.replace(/\\/g, '/').replace(/\/$/, '');
-    const normalizedFile = filePath.replace(/\\/g, '/');
-    const relativeDir = normalizedFile.startsWith(normalizedProject)
-      ? normalizedFile.slice(normalizedProject.length, normalizedFile.lastIndexOf('/'))
-      : '';
-    const baseRemote = serverConfig.remotePath.replace(/\/$/, '');
-    const remoteDir = relativeDir ? `${baseRemote}${relativeDir}` : baseRemote;
-
-    // Upload the saved file silently in the background
-    ftpUpload(filePath, fileName, {
-      host: serverConfig.host,
-      user: serverConfig.user,
-      password: serverConfig.password,
-      remotePath: remoteDir,
-      protocol: serverConfig.protocol,
-    }).then((err) => {
-      if (!err) saveDocsSyncTimestamp(projectPath);
-    }).catch(() => { /* silent */ });
-  };
-
-  // Handle file saved from Doc Studio/Content AI Studio - update scheduled post if one is being edited
+  // Handle file saved from Content AI Studio - update scheduled post if one is being edited
   const handleFileSavedWhileEditing = async (filePath: string, content: string, fileName: string) => {
-    // Trigger Doc Studio server sync if configured
-    void handleDocStudioFileSaved(filePath, content, fileName);
     if (!editingScheduledPostId) return;
 
     console.log('[App] File saved while editing scheduled post:', editingScheduledPostId, fileName, filePath);
@@ -1419,7 +1126,6 @@ function AppContent() {
 
   const reloadScheduledPosts = async () => {
     const projectPath =
-      docStudioState?.projectPath ||
       contentStudioProjectPath ||
       getLastProjectPath();
     const nextState = await loadPlannerCloudBridgeState(projectPath);
@@ -1446,97 +1152,6 @@ function AppContent() {
 
   const handleSelectZenNote = () => {
     setCurrentScreen("zen-note");
-  };
-
-const handleSelectDocStudio = () => {
-    setIsEditingZenThoughts(false);
-    // Locked Doc Studio should open upgrade modal directly (no intermediate lock screen)
-    if (!checkFeature("DOC_STUDIO")) {
-      requestUpgrade("DOC_STUDIO");
-      return;
-    }
-
-    // Check if there's a saved project path in localStorage
-    const savedProjectPath = getLastProjectPath('doc');
-    if (savedProjectPath) {
-      setDocStudioState((prev) => ({
-        projectPath: prev?.projectPath ?? savedProjectPath,
-        projectInfo: prev?.projectInfo ?? null,
-        selectedTemplate: prev?.selectedTemplate ?? null,
-        selectedTemplates: prev?.selectedTemplates ?? [],
-        generatedContent: prev?.generatedContent ?? '',
-        activeTabId: prev?.activeTabId ?? null,
-        openFileTabs: prev?.openFileTabs ?? [],
-        tabContents: prev?.tabContents ?? {},
-        dirtyTabs: prev?.dirtyTabs ?? {},
-        tone: prev?.tone ?? 'professional',
-        length: prev?.length ?? 'medium',
-        audience: prev?.audience ?? 'intermediate',
-        targetLanguage: prev?.targetLanguage ?? 'deutsch',
-        inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-        metadata: prev?.metadata ?? createDefaultProjectMetadata(),
-      }));
-    }
-
-    // Always start at Project step when entering Doc Studio
-    setDocStudioStep(0);
-    setReturnToDocStudioStep(0);
-
-    setCurrentScreen("doc-studio");
-  };
-
-  const handleOpenDocStudioForPosting = (content: string) => {
-    const storedProjectPath = getLastProjectPath('doc');
-    setDocStudioState((prev) => ({
-      projectPath: storedProjectPath ?? prev?.projectPath ?? null,
-      projectInfo: prev?.projectInfo ?? null,
-      selectedTemplate: null,
-      selectedTemplates: prev?.selectedTemplates ?? [],
-      generatedContent: content,
-      activeTabId: prev?.activeTabId ?? null,
-      openFileTabs: prev?.openFileTabs ?? [],
-      tabContents: prev?.tabContents ?? {},
-      dirtyTabs: prev?.dirtyTabs ?? {},
-      tone: prev?.tone ?? 'professional',
-      length: prev?.length ?? 'medium',
-      audience: prev?.audience ?? 'intermediate',
-      targetLanguage: prev?.targetLanguage ?? 'deutsch',
-      inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-      metadata: prev?.metadata ?? createDefaultProjectMetadata(),
-    }));
-    setReturnToDocStudioStep(3);
-    setDocStudioStep(3);
-    setCurrentScreen("doc-studio");
-  };
-
-  // Save Doc Studio state before transferring
-  const handleSaveDocStudioState = (state: DocStudioState) => {
-    setDocStudioState(state);
-  };
-
-  // Transfer content from Doc Studio to Content AI Studio
-  const handleTransferToContentStudio = (content: string, currentDocStudioStep: number, state: DocStudioState) => {
-    setTransferContent(content);
-    setTransferPostMeta(null);
-    setCameFromDocStudio(true);
-    setReturnToDocStudioStep(currentDocStudioStep); // Remember which step to return to
-    setDocStudioState(state); // Save the entire Doc Studio state
-    setContentTransformStep(1);
-    setCurrentScreen("content-transform");
-  };
-
-  // Return to Doc Studio from Content AI Studio
-  const handleBackToDocStudio = (editedContent?: string) => {
-    if (editedContent && docStudioState) {
-      // Update the saved state with edited content
-      setDocStudioState({
-        ...docStudioState,
-        generatedContent: editedContent,
-      });
-    }
-    setCameFromDocStudio(false);
-    setDocStudioStep(returnToDocStudioStep); // Restore the step when returning
-    setCurrentScreen("doc-studio");
   };
 
   const handleSelectGettingStarted = () => {
@@ -1971,43 +1586,10 @@ const handleSelectDocStudio = () => {
     patchZenStudioSettings({ thoughts: parseZenThoughtsFromEditor(content) });
   };
 
-  // Handle step-wise back navigation for DocStudioScreen
-  const handleDocStudioBack = () => {
-    if (docStudioStep > 0) {
-      // Go to previous step within DocStudio
-      setDocStudioStep(docStudioStep - 1);
-    } else {
-      // Step 0: go back to welcome screen
-      handleBackToWelcome();
-    }
-  };
-
   const [homeToast, setHomeToast] = useState(false);
   const [cloudToast, setCloudToast] = useState<string | null>(null);
   const handleHomeClick = () => {
-    const hasDirty = Object.values(docStudioState?.dirtyTabs ?? {}).some(Boolean);
-    if (hasDirty) {
-      setHomeToast(true);
-      setTimeout(() => setHomeToast(false), 3500);
-    }
-    resetDocStudioSession();
     setCurrentScreen("getting-started");
-  };
-  const resetDocStudioSession = () => {
-    setDocStudioState((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        selectedTemplate: null,
-        selectedTemplates: [],
-        generatedContent: "",
-        activeTabId: null,
-        openFileTabs: [],
-        tabContents: {},
-        dirtyTabs: {},
-      };
-    });
-    setDocStudioStep(0);
   };
 
 
@@ -2026,8 +1608,6 @@ const handleSelectDocStudio = () => {
     setShowBugReportModal(false);
   };
   const handleSendBugReportMail = () => {
-    const activeTabId = docStudioState?.activeTabId ?? "";
-    if (!activeTabId.startsWith("tpl:bug")) return;
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -2038,7 +1618,7 @@ const handleSelectDocStudio = () => {
     localStorage.setItem(counterKey, String(next));
 
     const subject = `BugReport_${year}_${month}_${String(next).padStart(3, "0")}`;
-    const rawBody = docStudioState?.tabContents?.[activeTabId] ?? "";
+    const rawBody = "";
     const body = rawBody
       // normalize newlines
       .replace(/\r\n/g, "\n")
@@ -2061,36 +1641,6 @@ const handleSelectDocStudio = () => {
     const mailto = `mailto:saghallo@denisbitter.de?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     void openExternal(mailto);
     setShowMailSuccessModal(true);
-  };
-  const handleOpenBugTemplateInDocStudio = () => {
-    const storedProjectPath = getLastProjectPath();
-    const templateId = 'bug' as const;
-    const tabId = `tpl:${templateId}`;
-    const templateContent = getSmartDocTemplate(templateId, docStudioState?.projectInfo ?? null);
-
-    setDocStudioState((prev) => ({
-      projectPath: storedProjectPath ?? prev?.projectPath ?? null,
-      projectInfo: prev?.projectInfo ?? null,
-      selectedTemplate: templateId,
-      selectedTemplates: [templateId],
-      generatedContent: templateContent,
-      activeTabId: tabId,
-      openFileTabs: [],
-      tabContents: { [tabId]: templateContent },
-      dirtyTabs: { [tabId]: false },
-      tone: prev?.tone ?? 'professional',
-      length: prev?.length ?? 'medium',
-      audience: prev?.audience ?? 'intermediate',
-      targetLanguage: prev?.targetLanguage ?? 'deutsch',
-      inputFields: prev?.inputFields ?? { ...defaultDocInputFields },
-      metadata: prev?.metadata ?? createDefaultProjectMetadata(),
-    }));
-
-    setShowBugReportModal(false);
-    setShowAboutModal(false);
-    setReturnToDocStudioStep(3);
-    setDocStudioStep(3);
-    setCurrentScreen("doc-studio");
   };
   const handleHelpClick = () => setShowWalkthroughModal(true);
   const handleCloseAboutModal = () => setShowAboutModal(false);
@@ -2197,7 +1747,7 @@ const handleSelectDocStudio = () => {
         title: file.name,
         subtitle: file.path,
         updatedAt: file.modifiedAt ?? 0,
-        source: isArticleFile ? "content-ai" : "doc-studio",
+        source: "content-ai",
         filePath: file.path,
       };
     });
@@ -2283,17 +1833,6 @@ const handleSelectDocStudio = () => {
       return;
     }
 
-    // Direct upgrade modal for locked Doc Studio also from "Weiterbearbeiten"
-    if (!checkFeature("DOC_STUDIO")) {
-      requestUpgrade("DOC_STUDIO");
-      return;
-    }
-
-    if (item.filePath) {
-      setDocStudioRequestedFilePath(item.filePath);
-    }
-    setDocStudioStep(3);
-    setCurrentScreen("doc-studio");
   };
 
   // Listen for macOS "About" menu event
@@ -2370,7 +1909,6 @@ const handleSelectDocStudio = () => {
       if (!detail) return;
       rememberProjectPath(detail);
       setContentStudioProjectPath(detail);
-      setDocStudioState(prev => (prev ? { ...prev, projectPath: detail } : prev));
       refreshContentStudioData(detail);
     };
     window.addEventListener('zenpost-project-path-updated', handleProjectPathUpdated as EventListener);
@@ -2385,14 +1923,7 @@ const handleSelectDocStudio = () => {
   }, [showContentStudioModal]);
 
   useEffect(() => {
-    if (!isTauri()) return;
-    if (!docStudioState?.projectPath) return;
-    rememberProjectPath(docStudioState.projectPath, 8, 'doc');
-    void updateLastProjectPath(docStudioState.projectPath);
-  }, [docStudioState?.projectPath]);
-
-  useEffect(() => {
-    const projectPath = docStudioState?.projectPath ?? contentStudioProjectPath;
+    const projectPath = contentStudioProjectPath;
     if (!projectPath) return;
     const loadScheduled = async () => {
       const nextState = await loadPlannerCloudBridgeState(projectPath);
@@ -2405,7 +1936,7 @@ const handleSelectDocStudio = () => {
       } catch { /* ignore */ }
     };
     void loadScheduled();
-  }, [docStudioState?.projectPath, contentStudioProjectPath]);
+  }, [contentStudioProjectPath]);
 
   useEffect(() => {
     if (!showPlannerModal) return;
@@ -2592,7 +2123,6 @@ const handleSelectDocStudio = () => {
     const studioNames: Record<Exclude<Screen, "welcome">, string> = {
       "converter": "ZenConverter Studio",
       "content-transform": "Content AI Studio",
-      "doc-studio": "Doc Studio",
       "getting-started": "Getting Started",
       "mobile-inbox": "Mobile Inbox",
       "zen-note": "ZenNote Studio",
@@ -2622,16 +2152,6 @@ const handleSelectDocStudio = () => {
                               contentTransformStep === 2 ? 'Plattform wählen' :
                               contentTransformStep === 3 ? 'Post Stil anpassen' : 'Preview';
         return <>Step {contentTransformStep === 0 ? 1 : contentTransformStep}/4 • <span style={{ color: "#AC8E66" }}>{transformText}</span></>;
-      case "doc-studio":
-        const docText = docStudioStep === 0 ? 'Projekt' :
-                       docStudioStep === 1 ? 'Analyse' :
-                       docStudioStep === 2 ? 'Templates' :
-                       docStudioStep === 3 ? 'Editor' : 'Doc Studio';
-        return (
-          <>
-            Step {docStudioStep + 1}/4 • <span style={{ color: "#AC8E66" }}>{docText}</span>
-          </>
-        );
       case "getting-started":
         return <> <span style={{ color: "#d0cbb8" }}>Getting Started</span> · <span style={{ color: "#d0cbb8",  }}>Was möchtest du tun?</span></>;
       case "mobile-inbox":
@@ -2651,151 +2171,6 @@ const handleSelectDocStudio = () => {
         </div>
       ) : null;
     }
-    // DocStudio Tab-Leiste (Step 3 - Editor)
-    if (currentScreen === "doc-studio" && docStudioStep === 3) {
-      const isBugTemplateActive = (docStudioState?.activeTabId ?? "").startsWith("tpl:bug");
-      const lockStudioBarForPreview = docStudioPreviewMode;
-      return (
-        <div className="flex items-center 
-        justify-between flex-wrap gap-2 
-        px-[4vw] py-[3px] mt-[10px]">
-          <div className="flex flex-wrap gap-2">
-            <StudioBarButton
-              label="Projektmappe"
-              icon={<FontAwesomeIcon icon={faFileLines} />}
-              onClick={() => {
-                setDocStudioStep(2);
-              }}
-              disabled={lockStudioBarForPreview}
-            />
-          </div>
-          <div className="flex flex-wrap gap-2 ml-auto">
-            <StudioBarButton
-              label="Export"
-              icon={<FontAwesomeIcon icon={faFileExport} />}
-              onClick={() => {
-                setExportContent(docStudioGeneratedContent);
-                // Extract document name from active tab
-                const activeTabId = docStudioState?.activeTabId;
-                let docName = "Export";
-                if (activeTabId?.startsWith("tpl:")) {
-                  const template = activeTabId.replace("tpl:", "");
-                  const templateLabels: Record<string, string> = {
-                    readme: "README",
-                    changelog: "Changelog",
-                    "api-docs": "API-Docs",
-                    contributing: "Contributing",
-                    "data-room": "Data-Room",
-                    draft: "Entwurf",
-                  };
-                  docName = templateLabels[template] || template;
-                } else if (activeTabId?.startsWith("file:")) {
-                  const filePath = activeTabId.replace(/^file:/, "");
-                  const rawFileName = filePath.split(/[\\/]/).pop() || filePath;
-                  docName = rawFileName
-                    .replace(/^web:/i, "")
-                    .replace(/\.[^.]+$/, "")
-                    .trim() || "Export";
-                }
-                setExportDocumentName(docName);
-                setShowExportModal(true);
-              }}
-              disabled={lockStudioBarForPreview}
-            />
-            {isBugTemplateActive && (
-              <StudioBarButton
-                label="E-Mail senden"
-                icon={<FontAwesomeIcon icon={faPaperPlane} />}
-                onClick={handleSendBugReportMail}
-                disabled={lockStudioBarForPreview}
-              />
-            )}
-            <StudioBarButton
-              label="Speichern"
-              icon={<FontAwesomeIcon icon={faSave} />}
-              onClick={() => setDocStudioHeaderAction("save")}
-              disabled={lockStudioBarForPreview}
-            />
-            {isTauri() && docStudioState?.projectPath && loadDocsServerConfig(docStudioState.projectPath) && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <StudioBarButton
-                  label={
-                    docSyncState === 'syncing' ? 'Sync…' :
-                    docSyncState === 'ok' ? 'Synced' :
-                    docSyncState === 'error' ? 'Sync-Fehler' :
-                    'Sync'
-                  }
-                  icon={
-                    <FontAwesomeIcon
-                      icon={
-                        docSyncState === 'syncing' ? faSpinner :
-                        docSyncState === 'ok' ? faCheck :
-                        docSyncState === 'error' ? faCircleExclamation :
-                        faCloudArrowUp
-                      }
-                      spin={docSyncState === 'syncing'}
-                    />
-                  }
-                  onClick={handleDocStudioFullSync}
-                  disabled={docSyncState === 'syncing' || lockStudioBarForPreview}
-                  active={docSyncState === 'ok'}
-                />
-                {(docSyncState === 'ok' || docSyncState === 'error') && docSyncMsg && (
-                  <span style={{
-                    fontFamily: 'IBM Plex Mono, monospace',
-                    fontSize: '9px',
-                    color: docSyncState === 'ok' ? '#4caf50' : '#c8503c',
-                    whiteSpace: 'nowrap',
-                  }}>
-                    {docSyncMsg}
-                  </span>
-                )}
-              </div>
-            )}
-            <StudioBarButton
-              label={docStudioPreviewMode ? "Nachbearbeiten" : "Preview"}
-              icon={<FontAwesomeIcon icon={faFileLines} />}
-              onClick={() => setDocStudioHeaderAction("preview")}
-              active={docStudioPreviewMode}
-            />
-          </div>
-        </div>
-      );
-    }
-
-    // DocStudio Tab-Leiste (Step 2 - Templates)
-    if (currentScreen === "doc-studio" && docStudioStep === 2) {
-      return (
-        <div className="flex items-center justify-between flex-wrap gap-2 px-[4vw] py-[3px] mt-[10px]">
-          <div className="flex flex-wrap gap-2">
-            <StudioBarButton
-              label="Dashboard"
-              icon={<FontAwesomeIcon icon={faTableList} />}
-              onClick={() => {
-                setCurrentScreen("doc-studio");
-                setDocStudioStep(0);
-              }}
-            />
-            <StudioBarButton
-              label="Projektmappe"
-              icon={<FontAwesomeIcon icon={faFileLines} />}
-              onClick={() => {
-                setDocStudioStep(2);
-              }}
-              active
-            />
-            <StudioBarButton
-              label="Neue Analyse"
-              icon={<FontAwesomeIcon icon={faRotateLeft} />}
-              onClick={() => {
-                setDocStudioHeaderAction("rescan");
-              }}
-            />
-          </div>
-        </div>
-      );
-    }
-
     // Content Transform Tab-Leiste
     if (currentScreen !== "content-transform") return undefined;
     if (contentTransformStep === 0) {
@@ -3013,16 +2388,6 @@ const handleSelectDocStudio = () => {
                   onClick={() => setContentTransformHeaderAction("edit")}
                 />
                 {/* Navigation */}
-                {cameFromDocStudio && (
-                  <>
-                    <div style={{ width: '1px', height: '24px', backgroundColor: '#3A3A3A', margin: '0 4px' }} />
-                    <StudioBarButton
-                      label="Zurück zu Doc Studio"
-                      icon={<FontAwesomeIcon icon={faArrowLeft} />}
-                      onClick={() => setContentTransformHeaderAction("back_doc")}
-                    />
-                  </>
-                )}
                 {cameFromDashboard && (
                   <>
                     <div style={{ width: '1px', height: '24px', backgroundColor: '#3A3A3A', margin: '0 4px' }} />
@@ -3252,14 +2617,6 @@ const handleSelectDocStudio = () => {
     const baseDescription =
       "ZenPost Studio verwandelt Inhalte in plattformspezifische Formate und hilft bei Planung, Doku und Publishing.";
 
-    if (currentScreen === "doc-studio") {
-      return {
-        title: `${appName} | Doc Studio`,
-        description: `Dokumentation erstellen, strukturieren und exportieren mit dem ${appName} Doc Studio.`,
-        keywords: "Dokumentation,Doc Studio,README,API Docs,ZenPost",
-      };
-    }
-
     if (currentScreen === "content-transform") {
       if (contentTransformStep === 0) {
         return {
@@ -3378,7 +2735,6 @@ const handleSelectDocStudio = () => {
           <WelcomeScreen
             onSelectConverter={handleSelectConverter}
             onSelectContentTransform={handleSelectContentTransform}
-            onSelectDocStudio={handleSelectDocStudio}
             onSelectGettingStarted={handleSelectGettingStarted}
             onSelectMobileInbox={handleSelectMobileInbox}
           />
@@ -3657,9 +3013,7 @@ const handleSelectDocStudio = () => {
               initialRequestId={contentStudioInitialRequestId}
               initialPostMeta={transferPostMeta}
               initialPlatform={cameFromDashboard ? 'blog-post' : undefined}
-              cameFromDocStudio={cameFromDocStudio}
               cameFromDashboard={cameFromDashboard}
-              onBackToDocStudio={handleBackToDocStudio}
               onBackToDashboard={handleBackToGettingStarted}
               onOpenConverter={() => {
                 setCameFromDocStudio(false);
@@ -3682,7 +3036,6 @@ const handleSelectDocStudio = () => {
               headerAction={contentTransformHeaderAction}
               onHeaderActionHandled={() => setContentTransformHeaderAction(null)}
               onStep1BackToPostingChange={setContentTransformShowBackToPosting}
-              onOpenDocStudioForPosting={handleOpenDocStudioForPosting}
               onContentChange={handleContentTransformChange}
               editorType={contentEditorType}
               onEditorTypeChange={setContentEditorType}
@@ -3696,84 +3049,9 @@ const handleSelectDocStudio = () => {
             />
           )
         )}
-        {currentScreen === "doc-studio" && (
-          <FeatureGate featureId="DOC_STUDIO" onClose={handleDocStudioBack}>
-            <DocStudioScreen
-              onBack={handleDocStudioBack}
-              onTransferToContentStudio={handleTransferToContentStudio}
-              onStepChange={(step) => { setDocStudioStep(step); if (step !== 0) setDocStudioInitialWizard(undefined); }}
-              initialStep={docStudioStep}
-              initialWizard={docStudioInitialWizard}
-              savedState={docStudioState}
-              onStateChange={handleSaveDocStudioState}
-              onGeneratedContentChange={setDocStudioGeneratedContent}
-              onPreviewModeChange={setDocStudioPreviewMode}
-              headerAction={docStudioHeaderAction}
-              onHeaderActionHandled={() => setDocStudioHeaderAction(null)}
-              requestedFilePath={docStudioRequestedFilePath}
-              onFileRequestHandled={() => setDocStudioRequestedFilePath(null)}
-              requestedWebDocument={docStudioRequestedWebDocument}
-              onWebDocumentRequestHandled={() => setDocStudioRequestedWebDocument(null)}
-              scheduledPosts={scheduledPosts}
-              onScheduledPostsChange={setScheduledPosts}
-              onShowScheduler={() => {
-                void openPlannerModal('planen');
-              }}
-              onShowCalendar={() => {
-                void openPlannerModal('kalender');
-              }}
-              onShowChecklist={() => {
-                void openPlannerModal('checklist');
-              }}
-              onSetSchedulerPlatformPosts={setSchedulerPlatformPosts}
-              onSetSelectedDateFromCalendar={setSelectedDateFromCalendar}
-              onOpenProjectDocuments={() => {
-                setContentStudioModalTab("all");
-                setShowContentStudioModal(true);
-              }}
-              availableProjectDocuments={contentStudioAllFiles}
-              availableWebDocuments={webDocuments}
-              onOpenEditorSettings={() => {
-                setSettingsDefaultTab('editor');
-                setShowAISettingsModal(true);
-              }}
-              onFileSaved={handleFileSavedWhileEditing}
-              onPushDocsToGitHub={
-                !isWebProjectPath(docStudioState?.projectPath ?? '')
-                  ? () => handlePushDocsToGitHubFromDocStudio()
-                  : undefined
-              }
-              githubDocsFileCount={docStudioGithubDocsFileCount}
-              onPushTemplatesToGitHub={
-                !isWebProjectPath(docStudioState?.projectPath ?? '')
-                  ? handlePushTemplatesToGitHubFromDocStudio
-                  : undefined
-              }
-              onOpenGitHubSettings={() => {
-                setSettingsDefaultTab('social');
-                setShowAISettingsModal(true);
-              }}
-              onSaveDocsSiteLocally={
-                !isWebProjectPath(docStudioState?.projectPath ?? '')
-                  ? handleSaveDocsSiteLocally
-                  : undefined
-              }
-              onPushDocsSiteToGitHub={
-                !isWebProjectPath(docStudioState?.projectPath ?? '')
-                  ? handlePushDocsSiteToGitHub
-                  : undefined
-              }
-            />
-          </FeatureGate>
-        )}
         {currentScreen === "getting-started" && (
           <GettingStartedScreen
             onBack={handleBackToWelcome}
-            onOpenDocStudio={handleSelectDocStudio}
-            onOpenDocStudioWizard={(wizard) => {
-              setDocStudioInitialWizard(wizard);
-              handleSelectDocStudio();
-            }}
             onOpenContentAI={handleOpenContentAIFromDashboard}
             onOpenConverter={handleSelectConverter}
             onOpenConverterSettings={() => {
@@ -3882,7 +3160,6 @@ const handleSelectDocStudio = () => {
       <ZenBugReportModal
         isOpen={showBugReportModal}
         onClose={handleCloseBugReport}
-        onOpenInDocStudio={handleOpenBugTemplateInDocStudio}
       />
 
       <ZenMailSuccessModal
@@ -3946,7 +3223,7 @@ const handleSelectDocStudio = () => {
       <ZenContentStudioModal
         isOpen={showContentStudioModal}
         onClose={handleCloseContentStudioModal}
-        title={currentScreen === "doc-studio" ? "Doc Studio" : "Content Studio"}
+        title="Content Studio"
         projectPath={contentStudioProjectPath}
         recentArticles={contentStudioRecentArticles}
         allFiles={contentStudioAllFiles}
@@ -3960,11 +3237,7 @@ const handleSelectDocStudio = () => {
           setShowContentStudioModal(false);
         }}
         onOpenFile={(filePath) => {
-          if (currentScreen === "doc-studio") {
-            setDocStudioRequestedFilePath(filePath);
-          } else {
-            setContentStudioRequestedFilePath(filePath);
-          }
+          setContentStudioRequestedFilePath(filePath);
           setShowContentStudioModal(false);
         }}
         onLoadWebDocument={handleLoadWebDocument}
@@ -3993,15 +3266,9 @@ const handleSelectDocStudio = () => {
           setPlannerPrefilledPlanPost(null);
         }}
         scheduledPosts={scheduledPosts}
-        projectPath={
-          currentScreen === 'doc-studio'
-            ? docStudioState?.projectPath ?? contentStudioProjectPath
-            : contentStudioProjectPath
-        }
+        projectPath={contentStudioProjectPath}
         projectName={(() => {
-          const p = currentScreen === 'doc-studio'
-            ? docStudioState?.projectPath ?? contentStudioProjectPath
-            : contentStudioProjectPath;
+          const p = contentStudioProjectPath;
           if (!p) return null;
           if (isCloudProjectPath(p)) return loadZenStudioSettings().cloudProjectName ?? null;
           return p.split('/').pop() ?? null;
@@ -4046,16 +3313,9 @@ const handleSelectDocStudio = () => {
         subtitle={exportSubtitle || undefined}
         imageUrl={exportImageUrl || undefined}
         onNavigateToTransform={handleNavigateToMultiPlatformTransform}
-        onBlogPublished={({ blogPath }) => {
-          // If this blog is a docs project (has FTP config), go to Doc Studio dashboard
+        onBlogPublished={(_info) => {
           setShowExportModal(false);
-          const isDocsProject = !!loadDocsServerConfig(blogPath);
-          if (isDocsProject) {
-            setCurrentScreen('doc-studio');
-            setDocStudioStep(0);
-          } else {
-            setCurrentScreen('content-transform');
-          }
+          setCurrentScreen('content-transform');
         }}
       />
 
