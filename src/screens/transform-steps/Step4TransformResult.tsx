@@ -27,8 +27,11 @@ import {
   faCopy,
   faExternalLinkAlt,
   faImage,
+  faImages,
+  faFolderOpen as faFolderOpenSolid,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
+import { ZenImageGalleryModal } from '../../kits/PatternKit/ZenModalSystem/modals/ZenImageGalleryModal';
 import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { useZenIdle } from '../../hooks/useZenIdle';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
@@ -321,6 +324,8 @@ export const Step4TransformResult = ({
   // LinkedIn cover image
   const [linkedInCoverImage, setLinkedInCoverImage] = useState<File | null>(null);
   const [linkedInCoverPreview, setLinkedInCoverPreview] = useState<string | null>(null);
+  const [showCoverGallery, setShowCoverGallery] = useState(false);
+  const coverFileInputRef = useRef<HTMLInputElement>(null);
 
   // Text-AI State
   const [showTextAI, setShowTextAI] = useState(false);
@@ -702,6 +707,36 @@ export const Step4TransformResult = ({
     } finally {
       setIsAIProcessing(false);
     }
+  };
+
+  const formatAiError = (raw: string): { title: string; hint?: string } => {
+    const r = raw.toLowerCase();
+    if (r.includes('does not support chat') || r.includes('does not support')) {
+      const model = raw.match(/[`"\\]([a-z0-9][a-z0-9._:-]+)[`"\\]?\s+does not support/i)?.[1] ?? 'Deine ausgewählte AI';
+      return {
+        title: `${model} unterstützt keinen Chat-Modus.`,
+        hint: 'Wähle in den Einstellungen ein anderes Ollama-Modell (z.B. llama3, mistral oder gemma).',
+      };
+    }
+    if (r.includes('connection refused') || r.includes('failed to fetch') || r.includes('networkerror')) {
+      return {
+        title: 'Ollama ist nicht erreichbar.',
+        hint: 'Starte Ollama mit: OLLAMA_ORIGINS=* ollama serve',
+      };
+    }
+    if (r.includes('model') && r.includes('not found')) {
+      return {
+        title: 'Modell nicht gefunden.',
+        hint: 'Lade das Modell zuerst herunter: ollama pull <modellname>',
+      };
+    }
+    if (r.includes('context length') || r.includes('context window')) {
+      return {
+        title: 'Text zu lang für dieses Modell.',
+        hint: 'Kürze den Text oder wähle ein Modell mit größerem Kontext.',
+      };
+    }
+    return { title: raw };
   };
 
   // Handle improvement style selection
@@ -1647,15 +1682,9 @@ const handleDownload = async () => {
                       >×</button>
                     </span>
                   ) : (
-                    <label style={{
-                      cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-                      padding: '3px 8px', borderRadius: '8px',
-                      border: '1px solid #2e2e2e',
-                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#555',
-                    }}>
-                      <FontAwesomeIcon icon={faImage} style={{ fontSize: '8px' }} />
-                      Titelbild
+                    <>
                       <input
+                        ref={coverFileInputRef}
                         type="file"
                         accept="image/jpeg,image/png,image/gif,image/webp"
                         style={{ display: 'none' }}
@@ -1667,7 +1696,52 @@ const handleDownload = async () => {
                           e.target.value = '';
                         }}
                       />
-                    </label>
+                      <ZenDropdown
+                        value=""
+                        onChange={() => {}}
+                        theme="dark"
+                        variant="compact"
+                        triggerIcon={<FontAwesomeIcon icon={faImage} style={{ fontSize: '10px' }} />}
+                        triggerLabel="Titelbild"
+                        triggerStyle={{ fontSize: '9px', padding: '3px 8px', borderRadius: '8px', border: '1px solid #2e2e2e', color: '#555' }}
+                        width={200}
+                        customMenuContent={(close) => (
+                          <div style={{ padding: '4px 0' }}>
+                            <button
+                              type="button"
+                              onClick={() => { close(); setShowCoverGallery(true); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                                padding: '9px 14px', background: 'none', border: 'none',
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8',
+                                cursor: 'pointer', textAlign: 'left',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(172,142,102,0.1)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                            >
+                              <FontAwesomeIcon icon={faImages} style={{ fontSize: '10px', color: '#AC8E66' }} />
+                              ZenImage Gallery
+                            </button>
+                            <div style={{ height: '0.5px', background: 'rgba(172,142,102,0.2)', margin: '0 10px' }} />
+                            <button
+                              type="button"
+                              onClick={() => { close(); coverFileInputRef.current?.click(); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                                padding: '9px 14px', background: 'none', border: 'none',
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8',
+                                cursor: 'pointer', textAlign: 'left',
+                              }}
+                              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(172,142,102,0.1)')}
+                              onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                            >
+                              <FontAwesomeIcon icon={faFolderOpenSolid} style={{ fontSize: '10px', color: '#AC8E66' }} />
+                              Datei Explorer
+                            </button>
+                          </div>
+                        )}
+                      />
+                    </>
                   )
                 )}
               </div>
@@ -1760,7 +1834,7 @@ const handleDownload = async () => {
                       backgroundColor: showImproveOptions ? 'transparent' : 'transparent',
                       border: showImproveOptions ? '0.5px solid #AC8E66' : '1px solid #3a3a3a',
                       borderRadius: '8px',
-                      color: '#e5e5e5',
+                      color: '#252525',
                       fontFamily: 'monospace',
                       fontSize: '10px',
                       cursor: isAIProcessing ? 'not-allowed' : 'pointer',
@@ -1809,7 +1883,7 @@ const handleDownload = async () => {
                       <p style={{
                         fontFamily: 'monospace',
                         fontSize: '10px',
-                        color: '#AC8E66',
+                        color: '#e8e3d8',
                         margin: '0 0 8px 0',
                         textAlign: 'center',
                         fontWeight: 600,
@@ -1945,7 +2019,7 @@ const handleDownload = async () => {
                     backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
-                    color: '#e5e5e5',
+                    color: '#252525',
                     fontFamily: 'monospace',
                     fontSize: '10px',
                     cursor: isAIProcessing ? 'not-allowed' : 'pointer',
@@ -1982,7 +2056,7 @@ const handleDownload = async () => {
                     backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
-                    color: '#e5e5e5',
+                    color: '#252525',
                     fontFamily: 'monospace',
                     fontSize: '10px',
                     cursor: isAIProcessing ? 'not-allowed' : 'pointer',
@@ -2019,7 +2093,7 @@ const handleDownload = async () => {
                     backgroundColor: 'transparent',
                     border: '1px solid #3a3a3a',
                     borderRadius: '8px',
-                    color: '#e5e5e5',
+                    color: '#252525',
                     fontFamily: 'monospace',
                     fontSize: '10px',
                     cursor: isAIProcessing ? 'not-allowed' : 'pointer',
@@ -2098,23 +2172,27 @@ const handleDownload = async () => {
               )}
 
               {/* AI Error */}
-              {aiError && (
-                <div
-                  style={{
-                    marginTop: '12px',
-                    padding: '12px',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    border: '1px solid #ef4444',
-                    borderRadius: '8px',
-                    color: '#ef4444',
-                    fontFamily: 'monospace',
-                    fontSize: '11px',
-                    textAlign: 'center',
-                  }}
-                >
-                  {aiError}
-                </div>
-              )}
+              {aiError && (() => {
+                const { title, hint } = formatAiError(aiError);
+                return (
+                  <div
+                    style={{
+                      marginTop: '12px',
+                      padding: '12px 14px',
+                      backgroundColor: 'rgba(239, 68, 68, 0.08)',
+                      border: '1px solid rgba(239,68,68,0.5)',
+                      borderRadius: '8px',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '11px',
+                    }}
+                  >
+                    <div style={{ color: '#ef4444', fontWeight: 600 }}>{title}</div>
+                    {hint && (
+                      <div style={{ color: '#252525', marginTop: 4, fontSize: '10px' }}>{hint}</div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <style>{`
                 @keyframes spin {
@@ -2370,12 +2448,12 @@ const handleDownload = async () => {
                       key={`err-${issue.code}-${issue.message}`}
                       style={{
                         margin: '6px 0 0 0',
-                        fontSize: '11px',
+                        fontSize: '12px',
                         fontFamily: 'monospace',
                         color: '#d0cbb8',
                       }}
                     >
-                      Fehler: {issue.message}
+                      Leider ein Fehler < br/> {issue.message}
                     </p>
                   ))}
                   {qaResult.warnings.map((issue) => (
@@ -2660,6 +2738,22 @@ const handleDownload = async () => {
         onDirectPost={handleMultiDirectPost}
         onAIOptimize={handleMultiAIOptimize}
         selectedPlatforms={selectedPostPlatforms}
+      />
+      <ZenImageGalleryModal
+        isOpen={showCoverGallery}
+        onClose={() => setShowCoverGallery(false)}
+        onInsertUrl={async (url, fileName) => {
+          setShowCoverGallery(false);
+          try {
+            const resp = await fetch(url);
+            const blob = await resp.blob();
+            const file = new File([blob], fileName, { type: blob.type });
+            setLinkedInCoverImage(file);
+            setLinkedInCoverPreview(url);
+          } catch {
+            setLinkedInCoverPreview(url);
+          }
+        }}
       />
     </div>
   );

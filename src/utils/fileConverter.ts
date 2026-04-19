@@ -902,6 +902,26 @@ export async function convertFile(
   fileName?: string,
   options: ConversionOptions = {}
 ): Promise<ConversionResult> {
+  const shouldReencodeSameRaster =
+    isRasterImageFormat(fromFormat) &&
+    fromFormat === toFormat &&
+    content instanceof ArrayBuffer &&
+    (
+      (typeof options.imageMaxOutputSize === 'number' && options.imageMaxOutputSize > 0) ||
+      typeof options.imageQuality === 'number'
+    );
+
+  if (shouldReencodeSameRaster) {
+    const { blobUrl, byteSize } = await rasterToRasterBlobUrl(
+      content,
+      fromFormat as RasterImageFormat,
+      toFormat as RasterImageFormat,
+      options.imageQuality ?? 0.92,
+      options.imageMaxOutputSize,
+    );
+    return { success: true, data: blobUrl, byteSize };
+  }
+
   // Wenn gleiche Formate, gib Original zurück
   if (fromFormat === toFormat) {
     if (typeof content === 'string') {

@@ -88,7 +88,7 @@ export const ZenMarkdownEditor = ({
   projectPath,
   placeholder = '# Dein Inhalt hier einfügen...',
   height = '400px',
-  width = '600px',
+  width = '100%',
   showCharCount = true,
   showPreview = false,
   showLineNumbers = true,

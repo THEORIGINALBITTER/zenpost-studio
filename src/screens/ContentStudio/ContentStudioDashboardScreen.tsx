@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
-  faCalendarDays,
   faClock,
   faFileLines,
   faFolderOpen,
   faGlobe,
+  faImages,
   faPlus,
   faPenNib,
   faCloud,
@@ -44,7 +44,7 @@ type ContentStudioDashboardScreenProps = {
   onStartWriting: () => void;
   onOpenDocuments: (path?: string) => void;
   onOpenPlanner: () => void;
-  onOpenCalendar: () => void;
+  onOpenZenImage: () => void;
   serverArticles?: unknown[];
   serverArticlesLoading?: boolean;
   serverError?: string | null;
@@ -149,7 +149,7 @@ export function ContentStudioDashboardScreen({
   onStartWriting,
   onOpenDocuments,
   onOpenPlanner,
-  onOpenCalendar,
+  onOpenZenImage,
   serverArticles,
   serverArticlesLoading,
   serverError,
@@ -1419,118 +1419,15 @@ export function ContentStudioDashboardScreen({
               onClick={onOpenPlanner}
             />
             <ActionTile
-              title="Kalender"
-              description="Veröffentlichungen im Kalender verwalten"
-              actionLabel="Kalender öffnen →"
-              icon={faCalendarDays}
-              onClick={onOpenCalendar}
+              title="ZenImage"
+              description="Bilder verwalten, Metadaten pflegen und URLs kopieren"
+              actionLabel="ZenImage öffnen →"
+              icon={faImages}
+              onClick={onOpenZenImage}
             />
           </div>
         </div>
 
-        <div>
-          <p style={{ 
-            paddingTop: '20px',
-            margin: '0 0 10px 0', 
-            fontSize: '12px', 
-            color: '#3e362c', 
-            fontFamily: 'IBM Plex Mono, monospace' 
-            }}
-            >
-            Letzte Dokumente
-          </p>
-          {recent.length === 0 ? (
-            <div
-              style={{
-                borderRadius: '8px',
-                border: '0.5px solid #2F2F2F',
-                padding: '12px',
-                color: '#3e362c',
-               
-                fontFamily: 'IBM Plex Mono, monospace',
-                fontSize: '11px',
-              }}
-            >
-              Noch keine letzten Dokumente.
-            </div>
-          ) : (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
-              gap: '8px', maxHeight: '240px', 
-              overflowY: 'auto',
-              
-              paddingRight: '4px' }}>
-              {recent.map((doc) => (
-                <div
-                  key={doc.id}
-                  onMouseEnter={() => setHoveredDocId(doc.id)}
-                  onMouseLeave={() => setHoveredDocId(null)}
-                  style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}
-                >
-                  <button
-                    onClick={() => { onOpenDashboardDocument?.(doc); }}
-                    style={{
-                      flex: 1,
-                      borderRadius: '5px',
-                      border: hoveredDocId === doc.id ? '1px solid #AC8E66' : '0.5px solid #3A3A3A',
-                      background: hoveredDocId === doc.id ? 'rgba(205,195,176,0.12)' : 'rgba(255,255,255,0.01)',
-                      padding: '10px 12px',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                       
-                      gap: '12px',
-                      transform: hoveredDocId === doc.id ? 'translateX(2px)' : 'translateX(0)',
-                      transition: 'transform 0.15s ease, border-color 0.15s ease, background 0.15s ease',
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ 
-                        color: '#3e362c', 
-                        fontFamily: 'IBM Plex Mono, monospace', 
-                        fontSize: '11px', overflow: 'hidden', 
-                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {doc.name}
-                      </div>
-                      <div style={{ 
-                        color: '#888', 
-                        fontFamily: 'IBM Plex Mono, monospace', 
-                        fontSize: '9px', overflow: 'hidden', 
-                        padding: '10px',
-                        textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {doc.subtitle || 'Dokument öffnen'}
-                      </div>
-                    </div>
-                    <div style={{ color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', flexShrink: 0 }}>
-                      {doc.updatedAt
-                        ? new Date(doc.updatedAt).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
-                        : '—'}
-                    </div>
-                  </button>
-                  {(hoveredDocId === doc.id || deletingDocId === doc.id) && onDeleteDocument && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        setDeletingDocId(doc.id);
-                        await onDeleteDocument(doc);
-                        setDeletingDocId(null);
-                      }}
-                      title="Dokument löschen"
-                      style={{ background: 'transparent', border: '0.5px solid #3a3a3a', borderRadius: 5, cursor: 'pointer', color: '#c06060', fontSize: 11, padding: '9px 10px', flexShrink: 0, transition: 'color 0.15s' }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#e07070'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#c06060'; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#c06060'; (e.currentTarget as HTMLButtonElement).style.borderColor = '#3a3a3a'; }}
-                    >
-                      {deletingDocId === doc.id ? <FontAwesomeIcon icon={faSpinner} spin /> : <FontAwesomeIcon icon={faTrash} />}
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
 
         {onOpenServerArticle && cloudLoggedIn && showServerTab && (serverArticles === undefined || serverArticles !== null) && (
           <div style={{ marginTop: '24px' }}>

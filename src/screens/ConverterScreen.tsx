@@ -28,6 +28,7 @@ import { loadConverterHistory, saveConverterHistory, type ConverterHistoryItem }
 import { loadZenStudioSettings, patchZenStudioSettings } from '../services/zenStudioSettingsService';
 import { saveToConverterFolder, saveToLocalConverterFolder, dataUrlToUint8Array } from '../services/converterStorageService';
 import { canUploadToZenCloud, getCloudDocumentUrl, uploadCloudDocument, uploadCloudImageDataUrl } from '../services/cloudStorageService';
+import { resolveImageMeta, saveImageMeta } from '../services/imageMetaService';
 
 interface FormatOption {
   value: SupportedFormat;
@@ -70,6 +71,13 @@ type ImageFilters = {
   saturation: number;
   blur: number;
   sharpen: number;
+};
+
+type ImageMetaFields = {
+  title: string;
+  altText: string;
+  caption: string;
+  tags: string[];
 };
 
 export const ConverterScreen = ({
@@ -165,10 +173,30 @@ export const ConverterScreen = ({
   const [recentConversions, setRecentConversions] = useState<ConverterHistoryItem[]>([]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isImageGalleryOpen, setIsImageGalleryOpen] = useState(false);
+  const [imageMeta, setImageMeta] = useState<ImageMetaFields>({ title: '', altText: '', caption: '', tags: [] });
+  const [imageMetaContext, setImageMetaContext] = useState<{
+    cloudDocId?: number | null;
+    projectId?: number | null;
+    url?: string | null;
+    fileName?: string | null;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lastConversionRef = useRef<{ outputs: Record<string, string>; sizes: Record<string, number> } | null>(null);
   const historyHydratedRef = useRef(false);
   const handledPendingRequestIdsRef = useRef<Set<string>>(new Set());
+  const latestInputBinaryContentRef = useRef<ArrayBuffer | null>(null);
+  const latestInputTextContentRef = useRef<string>('');
+  const latestFromFormatRef = useRef<SupportedFormat | null>(null);
+  const latestFileNameRef = useRef<string>('');
+
+  const parseCloudDocIdFromSource = (source?: string | null): number | null => {
+    const raw = String(source ?? '').trim();
+    if (!raw) return null;
+    const match = raw.match(/^project-map-cloud:(\d+)$/i);
+    if (!match) return null;
+    const docId = parseInt(match[1], 10);
+    return Number.isFinite(docId) && docId > 0 ? docId : null;
+  };
 
   const applyPendingPreset = async (
     preset: OpenConverterWithFileRequest['preset'],
@@ -189,7 +217,7 @@ export const ConverterScreen = ({
       const targets: SupportedFormat[] = detectedFormat === 'svg' ? ['png'] : ['webp'];
       setSelectedToFormats(targets);
       setActiveResultFormat(targets[0]);
-      const success = await runConversion();
+      const success = await runConversion({ targetFormats: targets });
       if (success) handleSetCurrentStep(2);
       return;
     }
@@ -198,8 +226,13 @@ export const ConverterScreen = ({
       const targets: SupportedFormat[] = detectedFormat === 'svg' ? ['png'] : ['png', 'webp'];
       setSelectedToFormats(targets);
       setActiveResultFormat(targets[0]);
-      const success = await runConversion();
-      if (success) handleSetCurrentStep(2);
+      const isRasterFilterSource =
+        detectedFormat === 'png' ||
+        detectedFormat === 'jpg' ||
+        detectedFormat === 'jpeg' ||
+        detectedFormat === 'webp';
+      const success = await runConversion({ targetFormats: targets });
+      if (success || isRasterFilterSource) handleSetCurrentStep(2);
     }
   };
 
@@ -251,7 +284,9 @@ export const ConverterScreen = ({
     handledPendingRequestIdsRef.current.add(pendingOpenFileRequest.requestId);
     handleSetCurrentStep(1);
     void (async () => {
-      await handleFileUpload(pendingOpenFileRequest.file);
+      await handleFileUpload(pendingOpenFileRequest.file, pendingOpenFileRequest.source);
+      // Wait one tick so uploaded file state is committed before preset auto-conversion runs.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       await applyPendingPreset(pendingOpenFileRequest.preset, pendingOpenFileRequest.file);
       onPendingOpenFileHandled?.(pendingOpenFileRequest.requestId);
     })();
@@ -613,10 +648,33 @@ export const ConverterScreen = ({
   };
 
   const runConversion = async (
-    opts: { silent?: boolean; preserveActiveFormat?: boolean; skipHistory?: boolean } = {}
+    opts: {
+      silent?: boolean;
+      preserveActiveFormat?: boolean;
+      skipHistory?: boolean;
+      targetFormats?: SupportedFormat[];
+    } = {}
   ): Promise<boolean> => {
-    const { silent = false, preserveActiveFormat = false, skipHistory = false } = opts;
-    const sourceContent: string | ArrayBuffer = inputBinaryContent ?? inputContent;
+    const { silent = false, preserveActiveFormat = false, skipHistory = false, targetFormats } = opts;
+    const effectiveTargetFormats = targetFormats && targetFormats.length > 0 ? targetFormats : selectedToFormats;
+    const shouldPersistOutputs = !(silent && skipHistory);
+    const hasStateBinary = inputBinaryContent instanceof ArrayBuffer && inputBinaryContent.byteLength > 0;
+    const hasStateText = inputContent.trim().length > 0;
+    const refBinary = latestInputBinaryContentRef.current;
+    const refText = latestInputTextContentRef.current;
+    const sourceContent: string | ArrayBuffer = hasStateBinary
+      ? inputBinaryContent
+      : hasStateText
+        ? inputContent
+        : (refBinary instanceof ArrayBuffer && refBinary.byteLength > 0 ? refBinary : refText);
+    const effectiveFromFormat: SupportedFormat = (
+      hasStateBinary || hasStateText
+        ? fromFormat
+        : (latestFromFormatRef.current ?? fromFormat)
+    );
+    const effectiveFileNameRaw = fileName.trim() || latestFileNameRef.current.trim();
+    const effectiveFileName = effectiveFileNameRaw || 'converted';
+    const outputBaseFileName = effectiveFileName.replace(/\.[^/.]+$/, '') || 'converted';
 
     if (typeof sourceContent === 'string' && !sourceContent.trim()) {
       if (!silent) setError('Bitte zuerst eine Datei hochladen.');
@@ -628,7 +686,7 @@ export const ConverterScreen = ({
       return false;
     }
 
-    if (selectedToFormats.length === 0) {
+    if (effectiveTargetFormats.length === 0) {
       if (!silent) setError('Bitte mindestens ein Ausgabeformat wählen.');
       return false;
     }
@@ -652,7 +710,8 @@ export const ConverterScreen = ({
       const zenCloudImageModeEnabled = converterSettings.imageStorageMode === 'cloud';
       const zenCloudUploadAvailable = canUploadToZenCloud();
       const preferZenCloudImageSave = zenCloudImageModeEnabled && zenCloudUploadAvailable;
-      const hasImageTargets = selectedToFormats.some((format) => isImageFormat(format));
+      const shouldAutoSave = shouldPersistOutputs && (converterSettings.autoSave || preferZenCloudImageSave);
+      const hasImageTargets = effectiveTargetFormats.some((format) => isImageFormat(format));
 
       // Alte Blob-URLs freigeben bevor neue erstellt werden
       blobUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
@@ -660,8 +719,8 @@ export const ConverterScreen = ({
 
       const nextSizes: Record<string, number> = {};
 
-      for (const targetFormat of selectedToFormats) {
-        const result = await convertFile(sourceContent, fromFormat, targetFormat, fileName, {
+      for (const targetFormat of effectiveTargetFormats) {
+        const result = await convertFile(sourceContent, effectiveFromFormat, targetFormat, effectiveFileName, {
           imageQuality: imageQuality / 100,
           imageRasterSize,
           imageSmoothEdges,
@@ -702,7 +761,7 @@ export const ConverterScreen = ({
           if (previewUrl) {
             previewImages.push({
               format: targetFormat,
-              fileName: `${(fileName ? fileName.replace(/\.[^/.]+$/, '') : 'converted')}${getFileExtension(targetFormat)}`,
+              fileName: `${outputBaseFileName}${getFileExtension(targetFormat)}`,
               url: previewUrl,
             });
           }
@@ -721,8 +780,8 @@ export const ConverterScreen = ({
       }
 
       // Auto-Save in konfigurierte Ordner
-      if (converterSettings.autoSave || preferZenCloudImageSave) {
-        const baseFileName = fileName ? fileName.replace(/\.[^/.]+$/, '') : 'converted';
+      if (shouldAutoSave) {
+        const baseFileName = outputBaseFileName;
         const autoSaveErrors: string[] = [];
 
         for (const [fmt, content] of Object.entries(nextOutputs)) {
@@ -806,29 +865,31 @@ export const ConverterScreen = ({
         }
       }
 
-      for (const [format, url] of Object.entries(cloudOutputUrls)) {
-        if (!url) continue;
-        nextOutputs[format as SupportedFormat] = url;
-      }
+      if (shouldAutoSave) {
+        for (const [format, url] of Object.entries(cloudOutputUrls)) {
+          if (!url) continue;
+          nextOutputs[format as SupportedFormat] = url;
+        }
 
-      if (preferZenCloudImageSave) {
-        for (const format of selectedToFormats) {
-          if (!isImageFormat(format)) continue;
-          if (cloudOutputUrls[format]) continue;
-          delete nextOutputs[format];
-          delete nextSizes[format];
+        if (preferZenCloudImageSave) {
+          for (const format of effectiveTargetFormats) {
+            if (!isImageFormat(format)) continue;
+            if (cloudOutputUrls[format]) continue;
+            delete nextOutputs[format];
+            delete nextSizes[format];
+          }
         }
       }
 
       setOutputByFormat({ ...nextOutputs });
       setOutputSizeByFormat(nextSizes);
       lastConversionRef.current = { outputs: { ...nextOutputs }, sizes: nextSizes };
-      const firstSuccessFormat = selectedToFormats.find((format) => Boolean(nextOutputs[format]));
+      const firstSuccessFormat = effectiveTargetFormats.find((format) => Boolean(nextOutputs[format]));
       if (firstSuccessFormat && !preserveActiveFormat) {
         setActiveResultFormat(firstSuccessFormat);
       }
 
-      const cloudHistoryBlocked = preferZenCloudImageSave && hasImageTargets && cloudImageAssets.length === 0;
+      const cloudHistoryBlocked = shouldAutoSave && preferZenCloudImageSave && hasImageTargets && cloudImageAssets.length === 0;
       if (cloudHistoryBlocked) {
         setError('ZenCloud-Speicherung fehlgeschlagen — Eintrag nicht in die Konvertierungs-Mappe übernommen.');
       }
@@ -854,8 +915,8 @@ export const ConverterScreen = ({
           setRecentConversions((prev) => [
             {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              fileName: fileName?.trim() || 'Untitled',
-              fromFormat,
+              fileName: effectiveFileName || 'Untitled',
+              fromFormat: effectiveFromFormat,
               targetFormats: Object.keys(nextOutputs) as SupportedFormat[],
               createdAt: Date.now(),
               previewImages: historyPreviewImages.length > 0 ? historyPreviewImages : undefined,
@@ -885,8 +946,24 @@ export const ConverterScreen = ({
     }
   };
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File, sourceHint?: string) => {
+    const cloudDocId = parseCloudDocIdFromSource(sourceHint);
+    const projectId = loadZenStudioSettings().cloudProjectId ?? null;
+    const cloudUrl = cloudDocId ? getCloudDocumentUrl(cloudDocId) : null;
+    const nextMetaContext = {
+      cloudDocId,
+      projectId,
+      url: cloudUrl,
+      fileName: file.name,
+    };
+    setImageMetaContext(nextMetaContext);
+    setImageMeta(resolveImageMeta(nextMetaContext));
+
     setFileName(file.name);
+    latestFileNameRef.current = file.name;
+    latestInputBinaryContentRef.current = null;
+    latestInputTextContentRef.current = '';
+    latestFromFormatRef.current = null;
     setOutputByFormat({});
     setOutputSizeByFormat({});
     setError(null);
@@ -921,12 +998,18 @@ export const ConverterScreen = ({
           setInputContent(svgText);
           setInputBinaryContent(null);
           setFromFormat('svg');
+          latestInputTextContentRef.current = svgText;
+          latestInputBinaryContentRef.current = null;
+          latestFromFormatRef.current = 'svg';
           setDetectedSourceFormat('svg');
         } else {
           const arrayBuffer = await file.arrayBuffer();
           setInputBinaryContent(arrayBuffer);
           setInputContent('');
           setFromFormat(detectedFormat);
+          latestInputBinaryContentRef.current = arrayBuffer;
+          latestInputTextContentRef.current = '';
+          latestFromFormatRef.current = detectedFormat;
           setDetectedSourceFormat(detectedFormat);
         }
         setSelectedToFormats(preferredTargets);
@@ -950,6 +1033,9 @@ export const ConverterScreen = ({
       setInputContent(result.content);
       setInputBinaryContent(null);
       setFromFormat(result.contentFormat);
+      latestInputTextContentRef.current = result.content;
+      latestInputBinaryContentRef.current = null;
+      latestFromFormatRef.current = result.contentFormat;
       setDetectedSourceFormat(result.detectedFormat);
       setActiveResultFormat(selectedToFormats[0] ?? 'md');
       setActiveImagePreset('custom');
@@ -1415,7 +1501,17 @@ export const ConverterScreen = ({
     onInsertRecentIntoContentStudio: (item: ConverterHistoryItem) => {
       if (!item.cloudImageAssets || item.cloudImageAssets.length === 0) return;
       const snippet = item.cloudImageAssets
-        .map((asset) => `![${asset.fileName}](${getCloudDocumentUrl(asset.docId) ?? asset.url})`)
+        .map((asset) => {
+          const url = getCloudDocumentUrl(asset.docId) ?? asset.url;
+          const meta = resolveImageMeta({
+            cloudDocId: asset.docId,
+            projectId: currentSettings.cloudProjectId ?? null,
+            url,
+            fileName: asset.fileName,
+          });
+          const alt = meta.altText || asset.fileName;
+          return `![${alt}](${url})`;
+        })
         .join('\n\n');
       onOpenInContentStudio?.(snippet, item.fileName || 'ZenCloud-Bilder.md');
     },
@@ -1430,7 +1526,11 @@ export const ConverterScreen = ({
           url: image.url,
         });
         if (!cloudUrl) continue;
-        noteLines.push(`![${image.fileName}](${cloudUrl})`);
+        const meta = resolveImageMeta({
+          url: cloudUrl,
+          fileName: image.fileName,
+        });
+        noteLines.push(`![${meta.altText || image.fileName}](${cloudUrl})`);
       }
       if (noteLines.length === 0) return false;
       const noteContent = noteLines.join('\n\n');
@@ -1518,6 +1618,13 @@ export const ConverterScreen = ({
             onCopyImageBase64={handleCopyImageBase64}
             onSaveDataUrlTxt={() => void handleSaveImageText('dataurl')}
             onSaveBase64Txt={() => void handleSaveImageText('base64')}
+            imageMeta={imageMeta}
+            onImageMetaChange={(next) => {
+              setImageMeta(next);
+              if (imageMetaContext) {
+                saveImageMeta(imageMetaContext, next);
+              }
+            }}
             onDownload={handleDownload}
             onDownloadAll={() => void handleDownloadAll()}
             onStartOver={() => {
@@ -1552,6 +1659,8 @@ export const ConverterScreen = ({
               setActiveImagePreset('custom');
               setError(null);
               setCloudSaveFeedback(null);
+              setImageMeta({ title: '', altText: '', caption: '', tags: [] });
+              setImageMetaContext(null);
             }}
             showOpenInContentStudio={
               !isTauri() &&

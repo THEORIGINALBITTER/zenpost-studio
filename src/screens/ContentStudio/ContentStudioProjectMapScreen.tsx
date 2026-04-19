@@ -755,7 +755,7 @@ export function ContentStudioProjectMapScreen({
             }}
           >
             <FontAwesomeIcon icon={faCloud} style={{ fontSize: '10px' }} />
-            Cloud · {cloudDocuments.filter((d) => !d.fileName.endsWith('.json') && !d.fileName.endsWith('.zennote')).length}
+            ZenCloud · {cloudDocuments.filter((d) => !d.fileName.endsWith('.json') && !d.fileName.endsWith('.zennote')).length}
           </button>
           <button
             onClick={() => {
@@ -891,7 +891,7 @@ export function ContentStudioProjectMapScreen({
               { id: 'all', label: `Alle · ${aggregateItems.length}` },
               { id: 'local', label: `Lokal · ${aggregateItems.filter((item) => item.source === 'local').length}` },
               { id: 'web', label: `Web · ${aggregateItems.filter((item) => item.source === 'web').length}` },
-              { id: 'cloud', label: `Cloud · ${aggregateItems.filter((item) => item.source === 'cloud').length}` },
+              { id: 'cloud', label: `ZenCloud · ${aggregateItems.filter((item) => item.source === 'cloud').length}` },
               { id: 'zennote', label: `ZenNote · ${aggregateItems.filter((item) => item.source === 'zennote').length}` },
               ...(showServerTab
                 ? [{ id: 'server', label: `Server · ${aggregateItems.filter((item) => item.source === 'server').length}` }]
@@ -1024,7 +1024,7 @@ export function ContentStudioProjectMapScreen({
                     minHeight: isImageItem ? '62px' : '54px',
                     background: hoveredItemId === item.id
                       ? item.source === 'zennote'
-                        ? `${zenNoteFolderColor}10`
+                        ? `${zenNoteFolderColor}90`
                         : 'rgba(205,195,176,0.08)'
                       : 'transparent',
                     textAlign: 'left',
@@ -1080,9 +1080,9 @@ export function ContentStudioProjectMapScreen({
                                   gap: '4px',
                                   padding: '2px 7px',
                                   borderRadius: '4px',
-                                  background: `${zenNoteFolderColor}14`,
+                                  background: `${zenNoteFolderColor}90`,
                                   border: `0.5px solid ${zenNoteFolderColor}44`,
-                                  color: zenNoteFolderColor,
+                                  color: '#252525',
                                   fontSize: '8px',
                                   letterSpacing: '0.04em',
                                   textTransform: 'uppercase',
@@ -1222,6 +1222,7 @@ export function ContentStudioProjectMapScreen({
                             letterSpacing: '0.04em',
                             textTransform: 'uppercase',
                             whiteSpace: 'nowrap',
+                            zIndex: 200
                           }}
                           aria-label="Bildaktionen öffnen"
                         >
@@ -1233,7 +1234,8 @@ export function ContentStudioProjectMapScreen({
                           ref={assetMenuRef}
                           style={{
                             position: 'absolute',
-                            top: 'calc(100% + 6px)',
+                            top: '-6px',
+                            transform: 'translateY(-100%)',
                             right: getTransferTargetsForItem(item).length > 0 ? '34px' : 0,
                             width: '248px',
                             borderRadius: '12px',
@@ -1247,6 +1249,7 @@ export function ContentStudioProjectMapScreen({
                             display: 'flex',
                             flexDirection: 'column',
                             gap: '4px',
+                           
                           }}
                         >
                           <div
@@ -1257,6 +1260,7 @@ export function ContentStudioProjectMapScreen({
                               textTransform: 'uppercase',
                               color: '#8a7b68',
                               fontFamily: 'IBM Plex Mono, monospace',
+                             
                             }}
                           >
                             Bildaktionen
@@ -1627,7 +1631,7 @@ export function ContentStudioProjectMapScreen({
                       onMouseLeave={() => setHoveredItemId(null)}
                       style={{
                         border: hoveredItemId === String(doc.id) ? `1px solid ${folderColor}` : '0.5px solid #3A3A3A',
-                        borderLeft: `4px solid ${folderColor}`,
+                        borderLeft: `px solid ${folderColor}`,
                         borderRadius: '10px',
                         padding: '10px 12px',
                         background: hoveredItemId === String(doc.id) ? `${folderColor}14` : 'transparent',
@@ -1656,9 +1660,9 @@ export function ContentStudioProjectMapScreen({
                                   gap: '4px',
                                   padding: '2px 6px',
                                   borderRadius: '4px',
-                                  background: `${folderColor}1f`,
-                                  border: `0.5px solid ${folderColor}55`,
-                                  color: folderColor,
+                                  background: `${folderColor}`,
+                                  border: `0.5px solid ${folderColor}`,
+                                  color: '#252525',
                                   fontSize: '8px',
                                   letterSpacing: '0.04em',
                                   textTransform: 'uppercase',
@@ -1709,8 +1713,9 @@ export function ContentStudioProjectMapScreen({
                             style={{
                               padding: '4px 7px',
                               borderRadius: '4px',
-                              border: `0.5px solid ${folderColor}66`,
-                              color: folderColor,
+                              border: `0.5px solid ${folderColor}`,
+                              background: folderColor,
+                              color: '#252525',
                               fontSize: '8px',
                               letterSpacing: '0.04em',
                               textTransform: 'uppercase',

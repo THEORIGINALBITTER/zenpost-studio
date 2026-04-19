@@ -16,10 +16,18 @@ import {
   deleteCloudDocument,
   getCloudDocumentUrl,
   listCloudDocuments,
+  updateCloudDocument,
   uploadCloudDocument,
   type CloudDocumentInfo,
 } from '../../../../services/cloudStorageService';
 import { loadZenStudioSettings } from '../../../../services/zenStudioSettingsService';
+import {
+  CONVERTER_IMAGE_ACTIONS,
+  openImageAssetInConverter,
+  type ConverterImagePreset,
+} from '../../../../services/assetActionService';
+import { ensureUniqueFileName, splitFileName } from '../../../../services/fileNameService';
+import { resolveImageMeta, saveImageMeta } from '../../../../services/imageMetaService';
 
 const mono = 'IBM Plex Mono, monospace';
 const gold = '#252525';
@@ -51,7 +59,21 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+  const [converterFeedback, setConverterFeedback] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [savingRenameId, setSavingRenameId] = useState<number | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxMeta, setLightboxMeta] = useState<{ title: string; altText: string; caption: string; tags: string[] }>({
+    title: '',
+    altText: '',
+    caption: '',
+    tags: [],
+  });
+  const [lightboxTagInput, setLightboxTagInput] = useState('');
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [converterPresetById, setConverterPresetById] = useState<Record<number, ConverterImagePreset>>({});
+  const [openingConverterId, setOpeningConverterId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragCounter = useRef(0);
 
@@ -60,6 +82,16 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
       if (lightboxIndex !== null) {
+        const target = e.target as HTMLElement | null;
+        const tagName = (target?.tagName ?? '').toLowerCase();
+        const isTypingTarget =
+          !!target &&
+          (tagName === 'input' ||
+            tagName === 'textarea' ||
+            tagName === 'select' ||
+            target.isContentEditable);
+        if (isTypingTarget) return;
+
         if (e.key === 'Escape') { setLightboxIndex(null); return; }
         if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); setLightboxIndex((i) => i !== null ? Math.min(i + 1, images.length - 1) : null); }
         if (e.key === 'ArrowLeft') { setLightboxIndex((i) => i !== null ? Math.max(i - 1, 0) : null); }
@@ -73,6 +105,15 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
   const settings = loadZenStudioSettings();
   const projectId = settings.cloudProjectId;
   const projectName = settings.cloudProjectName ?? 'ZenCloud';
+
+  const resolveMetaForImage = useCallback((img: GalleryImage) => {
+    return resolveImageMeta({
+      cloudDocId: img.id,
+      projectId: projectId ?? null,
+      url: img.previewUrl,
+      fileName: img.fileName,
+    });
+  }, [projectId]);
 
   const loadImages = useCallback(async () => {
     if (!projectId || !cloudAvailable) return;
@@ -98,19 +139,37 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
     else { setImages([]); setError(null); setUploadFeedback(null); }
   }, [isOpen, loadImages]);
 
+  useEffect(() => {
+    if (lightboxIndex === null) return;
+    const image = images[lightboxIndex];
+    if (!image) return;
+    setLightboxMeta(resolveMetaForImage(image));
+    setLightboxTagInput('');
+  }, [images, lightboxIndex, resolveMetaForImage]);
+
   const handleUploadFiles = async (files: FileList | File[]) => {
     const imageFiles = Array.from(files).filter((f) => IMAGE_MIME_TYPES.has(f.type));
     if (!imageFiles.length) return;
     setUploading(true);
     setUploadFeedback(null);
     let uploaded = 0;
-    for (const file of imageFiles) {
+    const takenNames = new Set(images.map((img) => img.fileName));
+    let renamedCount = 0;
+    for (const originalFile of imageFiles) {
+      const uniqueName = ensureUniqueFileName(originalFile.name, takenNames);
+      takenNames.add(uniqueName);
+      if (uniqueName !== originalFile.name) renamedCount += 1;
+      const file =
+        uniqueName === originalFile.name
+          ? originalFile
+          : new File([originalFile], uniqueName, { type: originalFile.type || 'application/octet-stream' });
       const result = await uploadCloudDocument(file);
       if (result) uploaded++;
     }
     setUploading(false);
     if (uploaded > 0) {
-      setUploadFeedback(`${uploaded} Bild${uploaded !== 1 ? 'er' : ''} hochgeladen`);
+      const renameHint = renamedCount > 0 ? ` · ${renamedCount}x Name angepasst` : '';
+      setUploadFeedback(`${uploaded} Bild${uploaded !== 1 ? 'er' : ''} hochgeladen${renameHint}`);
       window.setTimeout(() => setUploadFeedback(null), 3000);
       await loadImages();
     } else {
@@ -158,7 +217,128 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
     else setError(`Löschen fehlgeschlagen: ${img.fileName}`);
   };
 
-  
+  const handleOpenInConverter = async (img: GalleryImage) => {
+    const preset = converterPresetById[img.id] ?? 'image-filters';
+    setOpeningConverterId(img.id);
+    const result = await openImageAssetInConverter(
+      {
+        source: 'cloud',
+        fileName: img.fileName,
+        docId: img.id,
+      },
+      preset
+    );
+    setOpeningConverterId(null);
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    setConverterFeedback('Im Converter geöffnet');
+    window.setTimeout(() => setConverterFeedback(null), 1500);
+    onClose();
+  };
+
+  const handleSaveLightboxMeta = () => {
+    if (lightboxIndex === null) return;
+    const image = images[lightboxIndex];
+    if (!image) return;
+    setIsSavingMeta(true);
+    setConverterFeedback('Meta aktualisiere…');
+    saveImageMeta(
+      {
+        cloudDocId: image.id,
+        projectId: projectId ?? null,
+        url: image.previewUrl,
+        fileName: image.fileName,
+      },
+      lightboxMeta
+    );
+    window.setTimeout(() => {
+      setConverterFeedback('Meta aktualisiert');
+      setIsSavingMeta(false);
+      window.setTimeout(() => setConverterFeedback(null), 1500);
+    }, 250);
+  };
+
+  const addLightboxTag = (rawTag: string) => {
+    const normalized = rawTag.trim().toLowerCase();
+    if (!normalized) return;
+    setLightboxMeta((prev) => {
+      if (prev.tags.includes(normalized)) return prev;
+      return { ...prev, tags: [...prev.tags, normalized] };
+    });
+  };
+
+  const removeLightboxTag = (tag: string) => {
+    setLightboxMeta((prev) => ({ ...prev, tags: prev.tags.filter((entry) => entry !== tag) }));
+  };
+
+  const handleStartRename = (img: GalleryImage) => {
+    const { base } = splitFileName(img.fileName);
+    setRenamingId(img.id);
+    setRenameDraft(base);
+  };
+
+  const handleCancelRename = () => {
+    if (savingRenameId !== null) return;
+    setRenamingId(null);
+    setRenameDraft('');
+  };
+
+  const handleSubmitRename = async (img: GalleryImage) => {
+    if (savingRenameId !== null) return;
+    const { base: currentBase, ext } = splitFileName(img.fileName);
+    const nextBase = renameDraft.trim();
+    if (!nextBase) {
+      setError('Dateiname darf nicht leer sein.');
+      return;
+    }
+    if (/[\\/:*?"<>|]/.test(nextBase)) {
+      setError('Dateiname enthält ungültige Zeichen.');
+      return;
+    }
+    if (nextBase === currentBase) {
+      setRenamingId(null);
+      setRenameDraft('');
+      return;
+    }
+    const desiredFileName = `${nextBase}${ext}`;
+    const takenNames = images
+      .filter((entry) => entry.id !== img.id)
+      .map((entry) => entry.fileName);
+    const nextFileName = ensureUniqueFileName(desiredFileName, takenNames);
+    try {
+      setSavingRenameId(img.id);
+      const response = await fetch(img.previewUrl);
+      const blob = await response.blob();
+      const file = new File([blob], nextFileName, { type: blob.type || img.mimeType || 'application/octet-stream' });
+      const ok = await updateCloudDocument(img.id, file);
+      if (!ok) {
+        setError('Umbenennen fehlgeschlagen.');
+        return;
+      }
+      setImages((prev) =>
+        prev.map((entry) =>
+          entry.id === img.id
+            ? { ...entry, fileName: nextFileName }
+            : entry
+        )
+      );
+      setRenamingId(null);
+      setRenameDraft('');
+      setConverterFeedback(
+        nextFileName === desiredFileName
+          ? 'Dateiname aktualisiert'
+          : `Dateiname aktualisiert (${nextFileName})`
+      );
+      window.setTimeout(() => setConverterFeedback(null), 1500);
+    } catch {
+      setError('Umbenennen fehlgeschlagen.');
+    } finally {
+      setSavingRenameId(null);
+    }
+  };
+
 
   const formatBytes = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -233,6 +413,12 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
             <span style={{ fontSize: 10, color: '#9fd2ad', background: 'rgba(60,120,80,0.22)', border: '1px solid rgba(100,170,120,0.35)', borderRadius: 6, padding: '3px 8px' }}>
               <FontAwesomeIcon icon={faCheck} style={{ marginRight: 5 }} />
               {uploadFeedback}
+            </span>
+          )}
+          {converterFeedback && (
+            <span style={{ fontSize: 10, color: '#9fd2ad', background: 'rgba(60,120,80,0.22)', border: '1px solid rgba(100,170,120,0.35)', borderRadius: 6, padding: '3px 8px' }}>
+              <FontAwesomeIcon icon={faCheck} style={{ marginRight: 5 }} />
+              {converterFeedback}
             </span>
           )}
 
@@ -341,19 +527,35 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
               alignContent: 'start',
             }}
           >
-            {images.map((img) => (
-              <ImageCard
-                key={img.id}
-                img={img}
-                isCopied={copiedId === img.id}
-                isDeleting={deletingId === img.id}
-                onCopy={() => void handleCopyUrl(img)}
-                onDelete={() => void handleDelete(img)}
-                onInsert={onInsertUrl ? () => onInsertUrl(img.previewUrl, img.fileName) : undefined}
-                onLightbox={() => setLightboxIndex(images.indexOf(img))}
-                formatBytes={formatBytes}
-              />
-            ))}
+            {images.map((img) => {
+              const meta = resolveMetaForImage(img);
+              const displayName = meta.title.trim() || img.fileName;
+              return (
+                <ImageCard
+                  key={img.id}
+                  img={img}
+                  displayName={displayName}
+                  isCopied={copiedId === img.id}
+                  isDeleting={deletingId === img.id}
+                  onCopy={() => void handleCopyUrl(img)}
+                  onDelete={() => void handleDelete(img)}
+                  onInsert={onInsertUrl ? () => onInsertUrl(img.previewUrl, img.fileName) : undefined}
+                  isRenaming={renamingId === img.id}
+                  renameValue={renamingId === img.id ? renameDraft : ''}
+                  onRenameValueChange={setRenameDraft}
+                  onStartRename={() => handleStartRename(img)}
+                  onCancelRename={handleCancelRename}
+                  onSubmitRename={() => void handleSubmitRename(img)}
+                  isSavingRename={savingRenameId === img.id}
+                  converterPreset={converterPresetById[img.id] ?? 'image-filters'}
+                  onConverterPresetChange={(preset) => setConverterPresetById((current) => ({ ...current, [img.id]: preset }))}
+                  onOpenInConverter={() => void handleOpenInConverter(img)}
+                  isOpeningConverter={openingConverterId === img.id}
+                  onLightbox={() => setLightboxIndex(images.indexOf(img))}
+                  formatBytes={formatBytes}
+                />
+              );
+            })}
             {/* Upload Drop Target at end of grid */}
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -418,25 +620,138 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
               >‹</button>
             )}
 
-            <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: '80%', maxHeight: '80%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-              <img
-                src={images[lightboxIndex].previewUrl}
-                alt={images[lightboxIndex].fileName}
-                style={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain', borderRadius: 8,  }}
-              />
-              <div style={{ fontFamily: mono, fontSize: 11, color: '#252525', textAlign: 'center' }}>
-                {images[lightboxIndex].fileName} · {formatBytes(images[lightboxIndex].sizeBytes)}
-                <span style={{ marginLeft: 8, opacity: 1, fontSize: 11, color: '#252525' }}>· Index: {lightboxIndex + 1} / {images.length}</span>
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: 'min(1120px, 92vw)',
+                maxHeight: '82vh',
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0, 1fr) 320px',
+                gap: 12,
+                alignItems: 'stretch',
+              }}
+            >
+              <div
+                style={{
+                  minWidth: 0,
+                  borderRadius: 10,
+                  border: '1px solid rgba(0,0,0,0.16)',
+                  background: 'rgba(255,255,255,0.28)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 12,
+                  gap: 10,
+                }}
+              >
+                <img
+                  src={images[lightboxIndex].previewUrl}
+                  alt={lightboxMeta.altText || images[lightboxIndex].fileName}
+                  style={{ maxWidth: '100%', maxHeight: '64vh', objectFit: 'contain', borderRadius: 8 }}
+                />
+                <div style={{ fontFamily: mono, fontSize: 11, color: '#252525', textAlign: 'center' }}>
+                  {(lightboxMeta.title.trim() || images[lightboxIndex].fileName)} · {formatBytes(images[lightboxIndex].sizeBytes)}
+                  <span style={{ marginLeft: 8, opacity: 1, fontSize: 11, color: '#252525' }}>· Index: {lightboxIndex + 1} / {images.length}</span>
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={() => void handleCopyUrl(images[lightboxIndex!])}
-                  style={{ background: 'rgba(172,142,102,0.2)', border: `1px solid ${gold}`, borderRadius: 6, color: copiedId === images[lightboxIndex].id ? '#9fd2ad' : gold, padding: '6px 14px', cursor: 'pointer', fontFamily: mono, fontSize: 10 }}
-                >
-                  <FontAwesomeIcon icon={copiedId === images[lightboxIndex].id ? faCheck : faCopy} style={{ marginRight: 6 }} />
-                  {copiedId === images[lightboxIndex].id ? 'Kopiert' : 'URL kopieren'}
-                </button>
+
+              <div
+                style={{
+                  borderRadius: 10,
+                  border: '1px solid rgba(0,0,0,0.18)',
+                  background: 'rgba(255,255,255,0.62)',
+                  padding: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  overflowY: 'auto',
+                }}
+              >
+                <div style={{ fontFamily: mono, fontSize: 10, color: '#252525', textTransform: 'uppercase', letterSpacing: 1 }}>
+                  Bild-Metadaten
+                </div>
+                <input
+                  value={lightboxMeta.title}
+                  onChange={(event) => setLightboxMeta((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="Bildtitel"
+                  style={{ fontFamily: mono, fontSize: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.18)', padding: '6px 8px', background: 'rgba(255,255,255,0.75)', color: '#252525' }}
+                />
+                <input
+                  value={lightboxMeta.altText}
+                  onChange={(event) => setLightboxMeta((prev) => ({ ...prev, altText: event.target.value }))}
+                  placeholder="ALT Text"
+                  style={{ fontFamily: mono, fontSize: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.18)', padding: '6px 8px', background: 'rgba(255,255,255,0.75)', color: '#252525' }}
+                />
+                <textarea
+                  value={lightboxMeta.caption}
+                  onChange={(event) => setLightboxMeta((prev) => ({ ...prev, caption: event.target.value }))}
+                  rows={3}
+                  placeholder="Caption"
+                  style={{ fontFamily: mono, fontSize: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.18)', padding: '6px 8px', background: 'rgba(255,255,255,0.75)', color: '#252525', resize: 'vertical' }}
+                />
+
+                <div style={{ fontFamily: mono, fontSize: 10, color: '#252525', marginTop: 2 }}>Tags</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {lightboxMeta.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '2px 6px',
+                        borderRadius: 6,
+                        background: 'rgba(37,37,37,0.10)',
+                        border: '1px solid rgba(37,37,37,0.18)',
+                        color: '#252525',
+                        fontFamily: mono,
+                        fontSize: 9,
+                      }}
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeLightboxTag(tag)}
+                        style={{ background: 'transparent', border: 'none', color: '#8f2a2a', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <input
+                  value={lightboxTagInput}
+                  onChange={(event) => setLightboxTagInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ',') {
+                      event.preventDefault();
+                      addLightboxTag(lightboxTagInput);
+                      setLightboxTagInput('');
+                    }
+                  }}
+                  placeholder="Tag hinzufügen (Enter/Komma)"
+                  style={{ fontFamily: mono, fontSize: 10, borderRadius: 6, border: '1px solid rgba(0,0,0,0.18)', padding: '6px 8px', background: 'rgba(255,255,255,0.75)', color: '#252525' }}
+                />
+
+                <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyUrl(images[lightboxIndex!])}
+                    style={{ flex: 1, background: 'rgba(172,142,102,0.2)', border: `1px solid ${gold}`, borderRadius: 6, color: copiedId === images[lightboxIndex].id ? '#9fd2ad' : gold, padding: '6px 10px', cursor: 'pointer', fontFamily: mono, fontSize: 10 }}
+                  >
+                    <FontAwesomeIcon icon={copiedId === images[lightboxIndex].id ? faCheck : faCopy} style={{ marginRight: 6 }} />
+                    {copiedId === images[lightboxIndex].id ? 'Kopiert' : 'URL'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveLightboxMeta}
+                    disabled={isSavingMeta}
+                    style={{ flex: 1, background: 'rgba(37,37,37,0.95)', border: '1px solid rgba(37,37,37,0.95)', borderRadius: 6, color: '#e8e3d8', padding: '6px 10px', cursor: isSavingMeta ? 'not-allowed' : 'pointer', fontFamily: mono, fontSize: 10, opacity: isSavingMeta ? 0.8 : 1 }}
+                  >
+                    {isSavingMeta ? 'Aktualisiere…' : 'Meta speichern'}
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -476,19 +791,70 @@ right: 16,
 
 interface ImageCardProps {
   img: GalleryImage;
+  displayName: string;
   isCopied: boolean;
   isDeleting: boolean;
   onCopy: () => void;
   onDelete: () => void;
   onInsert?: () => void;
+  isRenaming: boolean;
+  renameValue: string;
+  onRenameValueChange: (value: string) => void;
+  onStartRename: () => void;
+  onCancelRename: () => void;
+  onSubmitRename: () => void;
+  isSavingRename: boolean;
+  converterPreset: ConverterImagePreset;
+  onConverterPresetChange: (preset: ConverterImagePreset) => void;
+  onOpenInConverter: () => void;
+  isOpeningConverter: boolean;
   onLightbox: () => void;
   formatBytes: (b: number) => string;
 }
 
-function ImageCard({ img, isCopied, isDeleting, onCopy, onDelete, onInsert, onLightbox, formatBytes }: ImageCardProps) {
+function getPresetLabel(preset: ConverterImagePreset): string {
+  const match = CONVERTER_IMAGE_ACTIONS.find((action) => action.preset === preset);
+  return match?.label ?? 'Aktion';
+}
+
+function ImageCard({
+  img,
+  displayName,
+  isCopied,
+  isDeleting,
+  onCopy,
+  onDelete,
+  onInsert,
+  isRenaming,
+  renameValue,
+  onRenameValueChange,
+  onStartRename,
+  onCancelRename,
+  onSubmitRename,
+  isSavingRename,
+  converterPreset,
+  onConverterPresetChange,
+  onOpenInConverter,
+  isOpeningConverter,
+  onLightbox,
+  formatBytes,
+}: ImageCardProps) {
   const [hovered, setHovered] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
+  const [isPresetMenuOpen, setIsPresetMenuOpen] = useState(false);
+  const presetMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isPresetMenuOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!presetMenuRef.current) return;
+      if (presetMenuRef.current.contains(event.target as Node)) return;
+      setIsPresetMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onPointerDown);
+    return () => window.removeEventListener('mousedown', onPointerDown);
+  }, [isPresetMenuOpen]);
 
   return (
     <div
@@ -498,11 +864,13 @@ function ImageCard({ img, isCopied, isDeleting, onCopy, onDelete, onInsert, onLi
         borderRadius: 8,
         border: `1px solid ${hovered ? 'rgba(172,142,102,0.5)' : 'rgba(255,255,255,0.1)'}`,
         background: hovered ? '#2a2a2a' : '#222',
-        overflow: 'hidden',
+        overflow: 'visible',
         transition: 'border-color 0.15s, background 0.15s',
         display: 'flex',
         flexDirection: 'column',
         cursor: 'pointer',
+        position: 'relative',
+        zIndex: isPresetMenuOpen ? 30 : 1,
       }}
     >
       {/* Thumbnail */}
@@ -545,9 +913,47 @@ function ImageCard({ img, isCopied, isDeleting, onCopy, onDelete, onInsert, onLi
 
       {/* Meta */}
       <div style={{ padding: '6px 8px', flex: 1 }}>
-        <div style={{ fontSize: 9, color: '#e8e3d8', fontFamily: mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={img.fileName}>
-          {img.fileName}
-        </div>
+        {isRenaming ? (
+          <input
+            autoFocus
+            value={renameValue}
+            onChange={(event) => onRenameValueChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                onSubmitRename();
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                onCancelRename();
+              }
+            }}
+            onBlur={() => onSubmitRename()}
+            disabled={isSavingRename}
+            style={{
+              width: '100%',
+              fontSize: 9,
+              color: '#e8e3d8',
+              fontFamily: mono,
+              borderRadius: 6,
+              border: '1px solid rgba(172,142,102,0.45)',
+              background: 'rgba(255,255,255,0.06)',
+              padding: '4px 6px',
+              outline: 'none',
+            }}
+          />
+        ) : (
+          <div
+            onDoubleClick={(event) => {
+              event.stopPropagation();
+              onStartRename();
+            }}
+            style={{ fontSize: 9, color: '#e8e3d8', fontFamily: mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={`${img.fileName} (Doppelklick zum Umbenennen)`}
+          >
+            {displayName}
+          </div>
+        )}
         <div style={{ fontSize: 8, color: '#e8e3d8', fontFamily: mono, marginTop: 2 }}>
          Größe {formatBytes(img.sizeBytes)}
         </div>
@@ -578,6 +984,103 @@ function ImageCard({ img, isCopied, isDeleting, onCopy, onDelete, onInsert, onLi
           <FontAwesomeIcon icon={isCopied ? faCheck : faCopy} />
           {isCopied ? 'Kopiert' : 'URL'}
         </button>
+
+        <div
+          ref={presetMenuRef}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 6px', borderRight: '1px solid rgba(255,255,255,0.05)', position: 'relative' }}
+        >
+          <button
+            type="button"
+            onClick={() => setIsPresetMenuOpen((prev) => !prev)}
+            title="Converter Aktion wählen"
+            style={{
+              fontFamily: mono,
+              fontSize: 9,
+              color: '#ddd',
+              background: '#2a2a2a',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 6,
+              padding: '4px 8px',
+              minWidth: 96,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              cursor: 'pointer',
+            }}
+          >
+            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {getPresetLabel(converterPreset)}
+            </span>
+            <span style={{ opacity: 0.8 }}>▾</span>
+          </button>
+          {isPresetMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                right: 42,
+                bottom: 'calc(100% + 6px)',
+                width: 176,
+                borderRadius: 8,
+                border: '1px solid rgba(172,142,102,0.35)',
+                background: 'rgba(28,28,28,0.96)',
+                boxShadow: '0 12px 26px rgba(0,0,0,0.38)',
+                padding: 4,
+                zIndex: 80,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 4,
+              }}
+            >
+              {CONVERTER_IMAGE_ACTIONS.map((action) => {
+                const active = converterPreset === action.preset;
+                return (
+                  <button
+                    key={action.key}
+                    type="button"
+                    onClick={() => {
+                      onConverterPresetChange(action.preset);
+                      setIsPresetMenuOpen(false);
+                    }}
+                    style={{
+                      textAlign: 'left',
+                      border: active ? '1px solid rgba(172,142,102,0.55)' : '1px solid rgba(255,255,255,0.10)',
+                      borderRadius: 6,
+                      background: active ? 'rgba(172,142,102,0.20)' : 'rgba(255,255,255,0.02)',
+                      color: active ? '#f3e7d3' : '#d6d1c8',
+                      fontFamily: mono,
+                      fontSize: 9,
+                      padding: '6px 8px',
+                      cursor: 'pointer',
+                      lineHeight: 1.25,
+                    }}
+                  >
+                    {action.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onOpenInConverter}
+            title="Im Converter öffnen"
+            disabled={isOpeningConverter}
+            style={{
+              background: 'transparent',
+              border: '1px solid rgba(172,142,102,0.45)',
+              color: '#AC8E66',
+              borderRadius: 6,
+              fontSize: 9,
+              padding: '4px 7px',
+              cursor: isOpeningConverter ? 'not-allowed' : 'pointer',
+              fontFamily: mono,
+              minWidth: 34,
+            }}
+          >
+            {isOpeningConverter ? '…' : 'Go'}
+          </button>
+        </div>
 
         {onInsert && (
           <button

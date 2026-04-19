@@ -152,7 +152,16 @@ interface ContentTransformScreenProps {
   initialContent?: string | null;
   initialFileName?: string | null;
   initialRequestId?: string | null;
-  initialPostMeta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string } | null;
+  initialPostMeta?: {
+    title?: string;
+    subtitle?: string;
+    imageUrl?: string;
+    date?: string;
+    tags?: string[];
+    imageAlt?: string;
+    imageTitle?: string;
+    imageCaption?: string;
+  } | null;
   initialPlatform?: ContentPlatform;
   cameFromDocStudio?: boolean;
   cameFromDashboard?: boolean;
@@ -218,8 +227,26 @@ type ContentTransformSessionCache = {
   step1ComparisonSelectionByTab: Record<string, string>;
   sourceContent: string;
   fileName: string;
-  postMeta: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] };
-  postMetaByTab: Record<string, { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] }>;
+  postMeta: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+  };
+  postMetaByTab: Record<string, {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+  }>;
 };
 
 let contentTransformSessionCache: ContentTransformSessionCache | null = null;
@@ -236,7 +263,16 @@ const parseDerivedTabId = (tabId: string): { sourceKey: string; platform: string
   return { sourceKey: match[1], platform: match[2] };
 };
 
-const EMPTY_POST_META = { title: '', subtitle: '', imageUrl: '', date: '', tags: [] as string[] };
+const EMPTY_POST_META = {
+  title: '',
+  subtitle: '',
+  imageUrl: '',
+  date: '',
+  tags: [] as string[],
+  imageAlt: '',
+  imageTitle: '',
+  imageCaption: '',
+};
 type PostMeta = typeof EMPTY_POST_META;
 
 const normalizeDateForInput = (rawDate?: string): string => {
@@ -285,6 +321,9 @@ const buildContentWithMeta = (content: string, meta: PostMeta): string => {
   if (meta.title) lines.push(`title: "${meta.title.replace(/"/g, '\\"')}"`);
   if (meta.subtitle) lines.push(`subtitle: "${meta.subtitle.replace(/"/g, '\\"')}"`);
   if (meta.imageUrl) lines.push(`coverImage: "${meta.imageUrl.replace(/"/g, '\\"')}"`);
+  if (meta.imageAlt) lines.push(`coverImageAlt: "${meta.imageAlt.replace(/"/g, '\\"')}"`);
+  if (meta.imageTitle) lines.push(`coverImageTitle: "${meta.imageTitle.replace(/"/g, '\\"')}"`);
+  if (meta.imageCaption) lines.push(`coverImageCaption: "${meta.imageCaption.replace(/"/g, '\\"')}"`);
   if (meta.date) lines.push(`date: ${meta.date}`);
   if (meta.tags.length > 0) {
     lines.push(`tags: [${meta.tags.join(', ')}]`);
@@ -315,12 +354,18 @@ const extractPostMetaFromContent = (
   const fmTitle = getFm('title');
   const fmSubtitle = getFm('subtitle');
   const fmDate = getFm('date') || getFm('publishDate');
+  const fmImageAlt = getFm('coverImageAlt') || getFm('imageAlt');
+  const fmImageTitle = getFm('coverImageTitle') || getFm('imageTitle');
+  const fmImageCaption = getFm('coverImageCaption') || getFm('imageCaption');
   return {
     title: fmTitle || h1Title || fallbackClean,
     subtitle: fmSubtitle,
     imageUrl: coverImage,
     date: normalizeDateForInput(fmDate),
     tags,
+    imageAlt: fmImageAlt,
+    imageTitle: fmImageTitle,
+    imageCaption: fmImageCaption,
   };
 };
 
@@ -352,6 +397,9 @@ const loadMetaFromManifest = async (filePath: string): Promise<Partial<PostMeta>
       title: typeof entry.title === 'string' && entry.title.trim() ? entry.title.trim() : undefined,
       subtitle: typeof entry.subtitle === 'string' && entry.subtitle.trim() ? entry.subtitle.trim() : undefined,
       imageUrl: typeof entry.coverImage === 'string' && entry.coverImage.trim() ? entry.coverImage.trim() : undefined,
+      imageAlt: typeof entry.coverImageAlt === 'string' && entry.coverImageAlt.trim() ? entry.coverImageAlt.trim() : undefined,
+      imageTitle: typeof entry.coverImageTitle === 'string' && entry.coverImageTitle.trim() ? entry.coverImageTitle.trim() : undefined,
+      imageCaption: typeof entry.coverImageCaption === 'string' && entry.coverImageCaption.trim() ? entry.coverImageCaption.trim() : undefined,
       date: typeof entry.date === 'string' ? normalizeDateForInput(entry.date) : undefined,
       tags: Array.isArray(entry.tags) ? (entry.tags as string[]) : undefined,
     };
@@ -362,6 +410,9 @@ const postMetaEquals = (a: PostMeta, b: PostMeta): boolean =>
   a.title === b.title &&
   a.subtitle === b.subtitle &&
   a.imageUrl === b.imageUrl &&
+  a.imageAlt === b.imageAlt &&
+  a.imageTitle === b.imageTitle &&
+  a.imageCaption === b.imageCaption &&
   a.date === b.date &&
   JSON.stringify(a.tags) === JSON.stringify(b.tags);
 
@@ -978,13 +1029,34 @@ const replaceInlineImagesByUploadedUrls = async (
 };
 
 const normalizeIncomingPostMeta = (
-  meta?: { title?: string; subtitle?: string; imageUrl?: string; date?: string; tags?: string[] } | null
-): { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] } => ({
+  meta?: {
+    title?: string;
+    subtitle?: string;
+    imageUrl?: string;
+    date?: string;
+    tags?: string[];
+    imageAlt?: string;
+    imageTitle?: string;
+    imageCaption?: string;
+  } | null
+): {
+  title: string;
+  subtitle: string;
+  imageUrl: string;
+  date: string;
+  tags: string[];
+  imageAlt: string;
+  imageTitle: string;
+  imageCaption: string;
+} => ({
   title: (meta?.title ?? '').trim(),
   subtitle: (meta?.subtitle ?? '').trim(),
   imageUrl: (meta?.imageUrl ?? '').trim(),
   date: normalizeDateForInput(meta?.date),
   tags: Array.isArray(meta?.tags) ? meta.tags : [],
+  imageAlt: (meta?.imageAlt ?? '').trim(),
+  imageTitle: (meta?.imageTitle ?? '').trim(),
+  imageCaption: (meta?.imageCaption ?? '').trim(),
 });
 
 const toUserFacingError = (rawError: string, context: 'transform' | 'post'): string => {
@@ -1701,6 +1773,9 @@ export const ContentTransformScreen = ({
           postMeta.tags.length > 0 ? `tags: [${postMeta.tags.join(', ')}]` : null,
           `readingTime: ${readingTime}`,
           coverImageValue ? `coverImage: "${coverImageValue}"` : null,
+          postMeta.imageAlt.trim() ? `coverImageAlt: "${postMeta.imageAlt.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.imageTitle.trim() ? `coverImageTitle: "${postMeta.imageTitle.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.imageCaption.trim() ? `coverImageCaption: "${postMeta.imageCaption.trim().replace(/"/g, '\\"')}"` : null,
           '---', '', '',
         ].filter((l): l is string => l !== null).join('\n');
         const filePath = await join(postsDir, localFilename);
@@ -1729,6 +1804,9 @@ export const ContentTransformScreen = ({
         if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
         if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
         if (coverImageValue) entry.coverImage = coverImageValue;
+        if (postMeta.imageAlt.trim()) entry.coverImageAlt = postMeta.imageAlt.trim();
+        if (postMeta.imageTitle.trim()) entry.coverImageTitle = postMeta.imageTitle.trim();
+        if (postMeta.imageCaption.trim()) entry.coverImageCaption = postMeta.imageCaption.trim();
         const idx = manifest.posts.findIndex((p) => p.slug === slug);
         if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
         await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -1854,6 +1932,9 @@ export const ContentTransformScreen = ({
       let contentToWrite = mergeFrontmatterFields(contentToSave, {
         subtitle: postMeta.subtitle.trim() || null,
         coverImage: postMeta.imageUrl.trim() || null,
+        coverImageAlt: postMeta.imageAlt.trim() || null,
+        coverImageTitle: postMeta.imageTitle.trim() || null,
+        coverImageCaption: postMeta.imageCaption.trim() || null,
         title: postMeta.title.trim() || null,
         date: postMeta.date.trim() || null,
       });
@@ -2423,6 +2504,9 @@ export const ContentTransformScreen = ({
         imageUrl: incomingMeta.imageUrl || extractedMeta.imageUrl,
         date: incomingMeta.date || extractedMeta.date,
         tags: incomingMeta.tags.length > 0 ? incomingMeta.tags : extractedMeta.tags,
+        imageAlt: incomingMeta.imageAlt || extractedMeta.imageAlt,
+        imageTitle: incomingMeta.imageTitle || extractedMeta.imageTitle,
+        imageCaption: incomingMeta.imageCaption || extractedMeta.imageCaption,
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
@@ -2604,6 +2688,9 @@ export const ContentTransformScreen = ({
         imageUrl: (article.coverImageUrl ?? '').trim() || inferredMeta.imageUrl,
         date: normalizeDateForInput(article.publishDate) || inferredMeta.date,
         tags: inferredMeta.tags,
+        imageAlt: inferredMeta.imageAlt,
+        imageTitle: inferredMeta.imageTitle,
+        imageCaption: inferredMeta.imageCaption,
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [tabId]: nextMeta }));
@@ -2648,6 +2735,9 @@ export const ContentTransformScreen = ({
           imageUrl: manifestMeta2?.imageUrl || extractedMeta2.imageUrl,
           date: manifestMeta2?.date || extractedMeta2.date,
           tags: (manifestMeta2?.tags && manifestMeta2.tags.length > 0) ? manifestMeta2.tags : extractedMeta2.tags,
+          imageAlt: manifestMeta2?.imageAlt || extractedMeta2.imageAlt,
+          imageTitle: manifestMeta2?.imageTitle || extractedMeta2.imageTitle,
+          imageCaption: manifestMeta2?.imageCaption || extractedMeta2.imageCaption,
         };
         setPostMeta(nextMeta);
         setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
@@ -2683,6 +2773,9 @@ export const ContentTransformScreen = ({
           imageUrl: manifestMeta?.imageUrl || extractedMeta.imageUrl,
           date: manifestMeta?.date || extractedMeta.date,
           tags: (manifestMeta?.tags && manifestMeta.tags.length > 0) ? manifestMeta.tags : extractedMeta.tags,
+          imageAlt: manifestMeta?.imageAlt || extractedMeta.imageAlt,
+          imageTitle: manifestMeta?.imageTitle || extractedMeta.imageTitle,
+          imageCaption: manifestMeta?.imageCaption || extractedMeta.imageCaption,
         };
         // postMetaByTab VOR docTabContents setzen — so findet der useEffect sofort den richtigen Wert
         setPostMetaByTab((prev) => ({ ...prev, [resolvedTabId]: nextMeta }));
@@ -4240,8 +4333,8 @@ export const ContentTransformScreen = ({
 
   return (
     <div
-      className="flex flex-col h-screen text-[#e5e5e5] overflow-hidden"
-      style={{ backgroundColor: effectiveStep === 2 || effectiveStep === 3 ? '#d0cbb8' : 'transparent' }}
+      className="flex flex-col h-screen text-[#e8e3d8] overflow-hidden"
+      style={{ backgroundColor: effectiveStep === 2 || effectiveStep === 3 ? '#e8e3d8' : 'transparent' }}
     >
       {/* Main Content */}
       <div

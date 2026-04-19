@@ -217,7 +217,7 @@ export function CornerRibbon() {
                     background: '#1a1a1a', 
                     border: `1px solid #2a2a2a`,
                     borderRadius: 6, 
-                    color: '#d4cfbf', fontFamily: fontMono, fontSize: 11,
+                    color: '#e8e3d8', fontFamily: fontMono, fontSize: 11,
                     lineHeight: 1.7, 
                     padding: '8px 10px', outline: 'none', resize: 'none',
                     boxSizing: 'border-box',
@@ -258,9 +258,18 @@ export function CornerRibbon() {
               </div>
 
               {/* Recent notes */}
-              <div style={{ maxHeight: 180, overflowY: 'auto', borderTop: '1px solid #1a1a1a' }}>
+              <div style={{ 
+                maxHeight: '100vh', 
+                overflowY: 'auto', 
+                borderTop: '1px solid #1a1a1a',
+                background: '#252525'
+                }}>
                 {loadingNotes && (
-                  <div style={{ padding: '12px', textAlign: 'center', color: '#555', fontSize: 10 }}>
+                  <div style={{ 
+                    padding: '12px', 
+                    textAlign: 'center', 
+                    color: '#e8e3d8', 
+                    fontSize: 10 }}>
                     <FontAwesomeIcon icon={faSpinner} spin />
                   </div>
                 )}

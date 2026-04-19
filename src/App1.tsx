@@ -2965,8 +2965,8 @@ function AppContent() {
                 onOpenPlanner={() => {
                   void openPlannerModal('planen', { clearSchedulerPosts: true });
                 }}
-                onOpenCalendar={() => {
-                  void openPlannerModal('kalender');
+                onOpenZenImage={() => {
+                  setShowImageGalleryModal(true);
                 }}
                 serverArticles={contentStudioServerArticles}
                 serverArticlesLoading={contentStudioServerArticlesLoading}

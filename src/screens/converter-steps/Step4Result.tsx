@@ -2,6 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDownload, faArrowLeft, faArrowUpRightFromSquare, faImages } from '@fortawesome/free-solid-svg-icons';
 import { SupportedFormat, getFileExtension } from '../../utils/fileConverter';
+import {
+  aspectForMode,
+  buildCenteredRectForAspect,
+  clampRect,
+  inferModeFromAspect,
+  moveRectByImagePixels,
+  normalizedAspectForResize,
+  pixelsToNormalizedRect,
+  rectToPixels,
+  scaleRectAroundCenter,
+  type CropMode,
+} from '../../services/converterCropService';
 
 interface Step4ResultProps {
   activeFormat: SupportedFormat;
@@ -53,10 +65,17 @@ interface Step4ResultProps {
   onImagePresetSelect?: (preset: 'logo' | 'illustration' | 'photo') => void;
   copyFeedback?: string | null;
   cloudSaveFeedback?: string | null;
+  imageMeta?: {
+    title: string;
+    altText: string;
+    caption: string;
+    tags: string[];
+  };
   onCopyImageDataUrl?: () => void;
   onCopyImageBase64?: () => void;
   onSaveDataUrlTxt?: () => void;
   onSaveBase64Txt?: () => void;
+  onImageMetaChange?: (meta: { title: string; altText: string; caption: string; tags: string[] }) => void;
   onDownload: (format: SupportedFormat) => void;
   onDownloadAll?: () => void;
   onStartOver: () => void;
@@ -107,10 +126,12 @@ export const Step4Result = ({
   onImagePresetSelect,
   copyFeedback = null,
   cloudSaveFeedback = null,
+  imageMeta = { title: '', altText: '', caption: '', tags: [] },
   onCopyImageDataUrl,
   onCopyImageBase64,
   onSaveDataUrlTxt,
   onSaveBase64Txt,
+  onImageMetaChange,
   onDownload,
   onDownloadAll,
   onStartOver,
@@ -132,25 +153,28 @@ export const Step4Result = ({
   const imagePreviewSrc = isBlobUrl ? outputContent : isDataImageUrl ? outputContent : isHttpImageUrl ? outputContent : svgDataUrl;
   const canCopyBase64 = isBlobUrl || isHttpImageUrl || outputContent.startsWith('data:') || activeFormat === 'svg';
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [cropBaseDimensions, setCropBaseDimensions] = useState<{ width: number; height: number } | null>(null);
   const [customMaxSizeInput, setCustomMaxSizeInput] = useState('');
   const previewWrapRef = useRef<HTMLDivElement | null>(null);
   const previewImgRef = useRef<HTMLImageElement | null>(null);
   const [previewSize, setPreviewSize] = useState<{ width: number; height: number } | null>(null);
   const [localCropRect, setLocalCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(cropRect);
-  const [localAspect, setLocalAspect] = useState<number | null>(cropAspect);
+  const [cropMode, setCropMode] = useState<CropMode>(() => inferModeFromAspect(cropAspect));
   const [svgSizeInput, setSvgSizeInput] = useState<{ width: string; height: string }>({
     width: svgOutputSize ? String(svgOutputSize.width) : '',
     height: svgOutputSize ? String(svgOutputSize.height) : '',
   });
   const [openMaxSize, setOpenMaxSize] = useState(uiMaxSizeOpen);
   const [openFilters, setOpenFilters] = useState(uiFiltersOpen);
+  const [openMeta, setOpenMeta] = useState(true);
   const [openExport, setOpenExport] = useState(uiExportOpen);
   const [rightHasTopShadow, setRightHasTopShadow] = useState(false);
   const [rightHasBottomShadow, setRightHasBottomShadow] = useState(false);
   const rightPanelRef = useRef<HTMLDivElement | null>(null);
-  const [freeCrop, setFreeCrop] = useState(false);
   const [cropLock, setCropLock] = useState(false);
   const [cropSizeInput, setCropSizeInput] = useState<{ w: string; h: string }>({ w: '', h: '' });
+  const [cropNudgeStep, setCropNudgeStep] = useState<string>('10');
+  const effectiveCropDimensions = cropBaseDimensions ?? imageDimensions;
 
   const filterString = `grayscale(${imageFilters.grayscale}%) sepia(${imageFilters.sepia}%) contrast(${imageFilters.contrast}%) brightness(${imageFilters.brightness}%) saturate(${imageFilters.saturation}%) blur(${imageFilters.blur}px)`;
   const imageBytes = useMemo(() => {
@@ -239,7 +263,9 @@ export const Step4Result = ({
   }, [cropRect]);
 
   useEffect(() => {
-    setLocalAspect(cropAspect);
+    if (cropAspect !== null) {
+      setCropMode(inferModeFromAspect(cropAspect));
+    }
   }, [cropAspect]);
 
   useEffect(() => {
@@ -294,20 +320,10 @@ export const Step4Result = ({
   }, [imagePreviewSrc]);
 
   const ensureCropRect = () => {
-    if (!imageDimensions || !previewSize) return;
+    if (!effectiveCropDimensions || !previewSize) return;
     if (!localCropRect) {
-      const aspect = localAspect ?? (imageDimensions.width / imageDimensions.height);
-      const imgRatio = imageDimensions.width / imageDimensions.height;
-      let w = 1;
-      let h = 1;
-      if (imgRatio > aspect) {
-        h = 1;
-        w = (aspect * imageDimensions.height) / imageDimensions.width;
-      } else {
-        w = 1;
-        h = (imageDimensions.width / aspect) / imageDimensions.height;
-      }
-      const next = { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+      const targetAspect = cropMode === 'original' || cropMode === 'free' ? null : aspectForMode(cropMode);
+      const next = buildCenteredRectForAspect(effectiveCropDimensions, targetAspect);
       setLocalCropRect(next);
       onCropRectChange?.(next);
     }
@@ -316,40 +332,24 @@ export const Step4Result = ({
   useEffect(() => {
     if (!isImageFormat || !isRasterOutput) return;
     ensureCropRect();
-  }, [isImageFormat, isRasterOutput, imageDimensions, previewSize]);
+  }, [isImageFormat, isRasterOutput, effectiveCropDimensions, previewSize, localCropRect, cropMode]);
 
-  const setAspect = (aspect: number | null) => {
-    setFreeCrop(false);
-    const nextAspect = aspect;
-    setLocalAspect(nextAspect);
-    onCropAspectChange?.(nextAspect);
-    if (!imageDimensions) return;
-    const imgRatio = imageDimensions.width / imageDimensions.height;
-    const target = nextAspect ?? imgRatio;
-    let w = 1;
-    let h = 1;
-    if (imgRatio > target) {
-      h = 1;
-      w = (target * imageDimensions.height) / imageDimensions.width;
-    } else {
-      w = 1;
-      h = (imageDimensions.width / target) / imageDimensions.height;
-    }
-    const next = { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
-    setLocalCropRect(next);
-    onCropRectChange?.(next);
+  const applyCropMode = (nextMode: CropMode) => {
+    setCropMode(nextMode);
+    const targetAspect = nextMode === 'original' || nextMode === 'free' ? null : aspectForMode(nextMode);
+    onCropAspectChange?.(targetAspect);
+    if (!effectiveCropDimensions) return;
+    const nextRect = buildCenteredRectForAspect(effectiveCropDimensions, targetAspect);
+    setLocalCropRect(nextRect);
+    onCropRectChange?.(nextRect);
   };
 
-  const clampRect = (rect: { x: number; y: number; w: number; h: number }) => {
-    const minPx = 40;
-    if (!previewSize) return rect;
-    const minW = minPx / previewSize.width;
-    const minH = minPx / previewSize.height;
-    let w = Math.max(rect.w, minW);
-    let h = Math.max(rect.h, minH);
-    let x = Math.min(Math.max(rect.x, 0), 1 - w);
-    let y = Math.min(Math.max(rect.y, 0), 1 - h);
-    return { x, y, w, h };
+  const optionToMode = (value: number | null | 'free'): CropMode => {
+    if (value === 'free') return 'free';
+    if (value === null) return 'original';
+    if (Math.abs(value - 1) < 0.01) return 'ratio-1-1';
+    if (Math.abs(value - 16 / 9) < 0.01) return 'ratio-16-9';
+    return 'ratio-9-16';
   };
 
   const dragState = useRef<{
@@ -365,15 +365,22 @@ export const Step4Result = ({
     const dy = clientY - dragState.current.startY;
     const dxN = dx / previewSize.width;
     const dyN = dy / previewSize.height;
-    const aspect = localAspect ?? (imageDimensions ? imageDimensions.width / imageDimensions.height : 1);
+    const imageAspect = effectiveCropDimensions
+      ? effectiveCropDimensions.width / effectiveCropDimensions.height
+      : 1;
     const start = dragState.current.startRect;
     let next = { ...start };
     if (dragState.current.mode === 'move') {
       next = { ...start, x: start.x + dxN, y: start.y + dyN };
     } else {
-      const enforcedAspect = cropLock
-        ? (start.w / start.h)
-        : (freeCrop ? null : (previewSize.width / previewSize.height) / aspect);
+      const previewAspect = previewSize.width / previewSize.height;
+      const enforcedAspect = normalizedAspectForResize(
+        imageAspect,
+        previewAspect,
+        cropMode,
+        cropLock,
+        start
+      );
       if (dragState.current.mode === 'se') {
         const w = start.w + dxN;
         const h = enforcedAspect ? w / enforcedAspect : start.h + dyN;
@@ -392,7 +399,7 @@ export const Step4Result = ({
         next = { x: start.x + dxN, y: start.y + (start.h - h), w, h };
       }
     }
-    next = clampRect(next);
+    next = clampRect(next, previewSize);
     setLocalCropRect(next);
     onCropRectChange?.(next);
   };
@@ -430,16 +437,20 @@ export const Step4Result = ({
   useEffect(() => {
     if (!isImageFormat || !imagePreviewSrc) {
       setImageDimensions(null);
+      setCropBaseDimensions(null);
       return;
     }
     let disposed = false;
     const image = new Image();
     image.onload = () => {
       if (disposed) return;
-      setImageDimensions({
+      const nextDimensions = {
         width: image.naturalWidth || image.width,
         height: image.naturalHeight || image.height,
-      });
+      };
+      setImageDimensions(nextDimensions);
+      // Keep crop math aligned with the currently displayed preview image.
+      setCropBaseDimensions(nextDimensions);
     };
     image.onerror = () => {
       if (!disposed) setImageDimensions(null);
@@ -451,12 +462,53 @@ export const Step4Result = ({
   }, [isImageFormat, imagePreviewSrc]);
 
   useEffect(() => {
-    if (!imageDimensions || !localCropRect) return;
-    setCropSizeInput({
-      w: String(Math.round(localCropRect.w * imageDimensions.width)),
-      h: String(Math.round(localCropRect.h * imageDimensions.height)),
-    });
-  }, [imageDimensions, localCropRect]);
+    if (!effectiveCropDimensions || !localCropRect) return;
+    const px = rectToPixels(localCropRect, effectiveCropDimensions);
+    setCropSizeInput({ w: String(px.w), h: String(px.h) });
+  }, [effectiveCropDimensions, localCropRect]);
+
+  const handleCropKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!previewSize || !effectiveCropDimensions || !localCropRect) return;
+    const key = event.key;
+    const baseStep = Math.max(1, parseInt(cropNudgeStep, 10) || 10);
+    const step = event.shiftKey ? baseStep * 5 : baseStep;
+
+    if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
+      event.preventDefault();
+      const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+      const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
+      const next = moveRectByImagePixels(localCropRect, dx, dy, effectiveCropDimensions);
+      setLocalCropRect(next);
+      onCropRectChange?.(next);
+      return;
+    }
+
+    if (key === '+' || key === '=') {
+      event.preventDefault();
+      const next = scaleRectAroundCenter(localCropRect, 1.06, previewSize);
+      setLocalCropRect(next);
+      onCropRectChange?.(next);
+      return;
+    }
+
+    if (key === '-' || key === '_') {
+      event.preventDefault();
+      const next = scaleRectAroundCenter(localCropRect, 0.94, previewSize);
+      setLocalCropRect(next);
+      onCropRectChange?.(next);
+      return;
+    }
+
+    if (key === '0') {
+      event.preventDefault();
+      const next = buildCenteredRectForAspect(
+        effectiveCropDimensions,
+        cropMode === 'free' || cropMode === 'original' ? null : aspectForMode(cropMode)
+      );
+      setLocalCropRect(next);
+      onCropRectChange?.(next);
+    }
+  };
 
   return (
     <div
@@ -496,27 +548,7 @@ export const Step4Result = ({
         
       </div>
 
-       {/* Start over */}
-        <button
-          onClick={onStartOver}
-          style={{
-            padding: '9px 16px',
-            marginBottom: '10px',
-            borderRadius: '8px',
-            border: '0.5px solid #3A3A3A',
-            background: 'transparent',
-            color: '#d0cbb8',
-            fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: '11px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'left',
-            gap: '7px',
-          }}
-        >
-          <FontAwesomeIcon icon={faArrowLeft} />
-          Neue Konvertierung
-        </button>
+  
 
       {/* Output card — full width, beige */}
       <div
@@ -616,11 +648,15 @@ export const Step4Result = ({
                     ref={previewWrapRef}
                     onPointerMove={onPointerMove}
                     onPointerUp={onPointerUp}
+                    onKeyDown={handleCropKeyboard}
+                    tabIndex={0}
+                    title="Tastatursteuerung: Pfeile bewegen, +/- zoomen, 0 zentriert"
                     style={{
                       position: 'relative',
                       display: 'inline-block',
                       maxWidth: '100%',
                       maxHeight: '440px',
+                      outline: 'none',
                     }}
                   >
                     <img
@@ -633,7 +669,7 @@ export const Step4Result = ({
                         objectFit: 'contain',
                         borderRadius: '6px',
                         border: '1px solid rgba(172,142,102,0.25)',
-                        background: '#fff',
+                        background: '#e8e3d8',
                         display: 'block',
                         filter: isImageFormat ? filterString : 'none',
                       }}
@@ -712,7 +748,7 @@ export const Step4Result = ({
                     width: '300px',
                     borderRadius: '8px',
                     border: '1px solid rgba(172,142,102,0.35)',
-                    background: 'rgba(255,255,255,0.45)',
+                    background: '#e8e3d8',
                     padding: '12px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -761,7 +797,7 @@ export const Step4Result = ({
                     >
                       Live Preview
                     </p>
-                      <span style={{ fontSize: '10px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>
+                      <span style={{ fontSize: '10px', color: '#252525', fontFamily: 'IBM Plex Mono, monospace' }}>
                     {isPreviewRefreshing ? 'Aktualisiere Vorschau…' : 'Vorschau ist live aktiv'}
                   </span>
                     {isPreviewRefreshing && (
@@ -945,20 +981,13 @@ export const Step4Result = ({
                           { label: '9:16', value: 9 / 16 },
                           { label: 'Frei', value: 'free' as const },
                         ].map((opt) => {
-                          const isActive = opt.value === 'free'
-                            ? freeCrop
-                            : (localAspect ?? null) === opt.value;
+                          const mode = optionToMode(opt.value);
+                          const isActive = cropMode === mode;
                           return (
                             <button
                               key={opt.label}
                               type="button"
-                              onClick={() => {
-                                if (opt.value === 'free') {
-                                  setFreeCrop(true);
-                                } else {
-                                  setAspect(opt.value);
-                                }
-                              }}
+                              onClick={() => applyCropMode(mode)}
                               style={{
                                 borderRadius: '6px',
                                 border: isActive ? '1px solid rgba(172,142,102,0.8)' : '1px solid rgba(90,80,60,0.3)',
@@ -981,6 +1010,24 @@ export const Step4Result = ({
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
                         <button
                           type="button"
+                          onClick={() => {
+                            applyCropMode(cropMode === 'free' ? 'original' : 'free');
+                          }}
+                          style={{
+                            borderRadius: '6px',
+                            border: '1px solid rgba(90,80,60,0.35)',
+                            background: cropMode === 'free' ? 'rgba(255,255,255,0.45)' : '#AC8E66',
+                            color: cropMode === 'free' ? '#5a5040' : '#fff',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: '9px',
+                            padding: '5px 8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {cropMode === 'free' ? 'Proportional aus' : 'Proportional an'}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setCropLock((v) => !v)}
                           style={{
                             borderRadius: '6px',
@@ -996,10 +1043,134 @@ export const Step4Result = ({
                           {cropLock ? 'Lock aktiv' : 'Lock aus'}
                         </button>
                       </div>
-                      {imageDimensions && localCropRect && (
+                      {effectiveCropDimensions && localCropRect && previewSize && (
+                        <div style={{ marginTop: '6px', borderTop: '1px dashed rgba(90,80,60,0.25)', paddingTop: '6px' }}>
+                          <div style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', marginBottom: '6px', marginLeft: '6px' }}>
+                            Bild einpassen
+                          </div>
+                          <div style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', marginBottom: '6px' }}>
+                            Tasten: Pfeile bewegen · +/- zoom · 0 zentriert · Shift = großer Schritt
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                            <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>Schritt</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={300}
+                              value={cropNudgeStep}
+                              onChange={(e) => setCropNudgeStep(e.target.value)}
+                              style={{
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                fontSize: '9px',
+                                width: '70px',
+                                padding: '4px 6px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(90,80,60,0.35)',
+                                background: 'rgba(255,255,255,0.6)',
+                                color: '#3a2a10',
+                                outline: 'none',
+                              }}
+                            />
+                            <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>px</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 30px)', gap: '6px', marginBottom: '6px' }}>
+                            <div />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const step = Math.max(1, parseInt(cropNudgeStep, 10) || 10);
+                                const next = moveRectByImagePixels(localCropRect, 0, -step, effectiveCropDimensions);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              ↑
+                            </button>
+                            <div />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const step = Math.max(1, parseInt(cropNudgeStep, 10) || 10);
+                                const next = moveRectByImagePixels(localCropRect, -step, 0, effectiveCropDimensions);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              ←
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = buildCenteredRectForAspect(
+                                  effectiveCropDimensions,
+                                  cropMode === 'free' || cropMode === 'original' ? null : aspectForMode(cropMode)
+                                );
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', cursor: 'pointer' }}
+                            >
+                              •
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const step = Math.max(1, parseInt(cropNudgeStep, 10) || 10);
+                                const next = moveRectByImagePixels(localCropRect, step, 0, effectiveCropDimensions);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              →
+                            </button>
+                            <div />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const step = Math.max(1, parseInt(cropNudgeStep, 10) || 10);
+                                const next = moveRectByImagePixels(localCropRect, 0, step, effectiveCropDimensions);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              ↓
+                            </button>
+                            <div />
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = scaleRectAroundCenter(localCropRect, 1.06, previewSize);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', padding: '4px 8px', cursor: 'pointer' }}
+                            >
+                              Zoom +
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = scaleRectAroundCenter(localCropRect, 0.94, previewSize);
+                                setLocalCropRect(next);
+                                onCropRectChange?.(next);
+                              }}
+                              style={{ borderRadius: '6px', border: '1px solid rgba(90,80,60,0.35)', background: 'rgba(255,255,255,0.45)', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', padding: '4px 8px', cursor: 'pointer' }}
+                            >
+                              Zoom -
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {effectiveCropDimensions && localCropRect && (
                         <div style={{ marginTop: '6px' }}>
                           <div style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace' }}>
-                            Größe: {Math.round(localCropRect.w * imageDimensions.width)}×{Math.round(localCropRect.h * imageDimensions.height)} px
+                            Größe: {Math.round(localCropRect.w * effectiveCropDimensions.width)}×{Math.round(localCropRect.h * effectiveCropDimensions.height)} px
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px' }}>
                             <input
@@ -1041,16 +1212,28 @@ export const Step4Result = ({
                             <button
                               type="button"
                               onClick={() => {
+                                if (!previewSize) return;
                                 const wPx = Math.max(1, parseInt(cropSizeInput.w, 10) || 1);
                                 const hPx = Math.max(1, parseInt(cropSizeInput.h, 10) || 1);
-                                const wN = Math.min(1, wPx / imageDimensions.width);
-                                const hN = Math.min(1, hPx / imageDimensions.height);
-                                const cx = localCropRect.x + localCropRect.w / 2;
-                                const cy = localCropRect.y + localCropRect.h / 2;
-                                const next = clampRect({ x: cx - wN / 2, y: cy - hN / 2, w: wN, h: hN });
+                                const imageAspect = effectiveCropDimensions.width / effectiveCropDimensions.height;
+                                const targetAspect =
+                                  cropMode === 'free'
+                                    ? null
+                                    : (aspectForMode(cropMode) ?? imageAspect);
+                                const finalW = wPx;
+                                const finalH = targetAspect
+                                  ? Math.max(1, Math.round(finalW / targetAspect))
+                                  : hPx;
+                                const next = pixelsToNormalizedRect(
+                                  finalW,
+                                  finalH,
+                                  effectiveCropDimensions,
+                                  localCropRect,
+                                  previewSize
+                                );
                                 setLocalCropRect(next);
                                 onCropRectChange?.(next);
-                                setFreeCrop(true);
+                                setCropSizeInput({ w: String(finalW), h: String(finalH) });
                               }}
                               style={{
                                 borderRadius: '6px',
@@ -1074,7 +1257,8 @@ export const Step4Result = ({
                             onClick={() => {
                               setLocalCropRect(null);
                               onCropRectChange?.(null);
-                              setFreeCrop(false);
+                              setCropMode('original');
+                              onCropAspectChange?.(null);
                               setCropLock(false);
                             }}
                           style={{
@@ -1297,6 +1481,114 @@ export const Step4Result = ({
                       </div>
                     </Accordion>
                   )}
+                  {isImageFormat && (
+                    <Accordion
+                      title="Meta/SEO"
+                      open={openMeta}
+                      onToggle={() => setOpenMeta((prev) => !prev)}
+                    >
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace' }}>
+                            Titel
+                          </span>
+                          <input
+                            type="text"
+                            value={imageMeta.title}
+                            onChange={(event) =>
+                              onImageMetaChange?.({ ...imageMeta, title: event.target.value })
+                            }
+                            placeholder="Bildtitel"
+                            style={{
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px',
+                              padding: '5px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(90,80,60,0.35)',
+                              background: 'rgba(255,255,255,0.6)',
+                              color: '#3a2a10',
+                              outline: 'none',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace' }}>
+                            ALT Text
+                          </span>
+                          <input
+                            type="text"
+                            value={imageMeta.altText}
+                            onChange={(event) =>
+                              onImageMetaChange?.({ ...imageMeta, altText: event.target.value })
+                            }
+                            placeholder="Beschreibung für SEO/Screenreader"
+                            style={{
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px',
+                              padding: '5px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(90,80,60,0.35)',
+                              background: 'rgba(255,255,255,0.6)',
+                              color: '#3a2a10',
+                              outline: 'none',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace' }}>
+                            Caption
+                          </span>
+                          <textarea
+                            value={imageMeta.caption}
+                            onChange={(event) =>
+                              onImageMetaChange?.({ ...imageMeta, caption: event.target.value })
+                            }
+                            rows={2}
+                            placeholder="Kurzbeschreibung / Kontext"
+                            style={{
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px',
+                              padding: '5px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(90,80,60,0.35)',
+                              background: 'rgba(255,255,255,0.6)',
+                              color: '#3a2a10',
+                              outline: 'none',
+                              resize: 'vertical',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          <span style={{ fontSize: '9px', color: '#5a5040', fontFamily: 'IBM Plex Mono, monospace' }}>
+                            Tags
+                          </span>
+                          <input
+                            type="text"
+                            value={imageMeta.tags.join(', ')}
+                            onChange={(event) => {
+                              const tags = event.target.value
+                                .split(',')
+                                .map((entry) => entry.trim().toLowerCase())
+                                .filter(Boolean)
+                                .filter((entry, index, arr) => arr.indexOf(entry) === index);
+                              onImageMetaChange?.({ ...imageMeta, tags });
+                            }}
+                            placeholder="seo, bild, produkt..."
+                            style={{
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px',
+                              padding: '5px 8px',
+                              borderRadius: '6px',
+                              border: '1px solid rgba(90,80,60,0.35)',
+                              background: 'rgba(255,255,255,0.6)',
+                              color: '#3a2a10',
+                              outline: 'none',
+                            }}
+                          />
+                        </label>
+                      </div>
+                    </Accordion>
+                  )}
                 
                   <Accordion
                     title="Export/Info"
@@ -1318,72 +1610,9 @@ export const Step4Result = ({
                       )}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '6px', marginTop: '8px' }}>
-                      <button
-                        type="button"
-                        onClick={onCopyImageDataUrl}
-                        style={{
-                          borderRadius: '6px',
-                          border: '1px solid rgba(90,80,60,0.35)',
-                          background: 'rgba(255,255,255,0.45)',
-                          color: '#5a5040',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          padding: '6px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Data URL kopieren
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onCopyImageBase64}
-                        disabled={!canCopyBase64}
-                        style={{
-                          borderRadius: '6px',
-                          border: '1px solid rgba(90,80,60,0.35)',
-                          background: canCopyBase64 ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.2)',
-                          color: canCopyBase64 ? '#5a5040' : '#8f887b',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          padding: '6px',
-                          cursor: canCopyBase64 ? 'pointer' : 'not-allowed',
-                        }}
-                      >
-                        Base64 kopieren
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onSaveDataUrlTxt}
-                        style={{
-                          borderRadius: '6px',
-                          border: '1px solid rgba(90,80,60,0.35)',
-                          background: 'rgba(255,255,255,0.45)',
-                          color: '#5a5040',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          padding: '6px',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Data URL als TXT
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onSaveBase64Txt}
-                        disabled={!canCopyBase64}
-                        style={{
-                          borderRadius: '6px',
-                          border: '1px solid rgba(90,80,60,0.35)',
-                          background: canCopyBase64 ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0.2)',
-                          color: canCopyBase64 ? '#5a5040' : '#8f887b',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: '10px',
-                          padding: '6px',
-                          cursor: canCopyBase64 ? 'pointer' : 'not-allowed',
-                        }}
-                      >
-                        Base64 als TXT
-                      </button>
+           
+               
+                    
                     </div>
                   </Accordion>
                 </div>
@@ -1423,23 +1652,45 @@ export const Step4Result = ({
           alignItems: 'center',
         }}
       >
+             {/* Start over */}
+        <button
+          onClick={onStartOver}
+          style={{
+            padding: '9px 16px',
+            marginBottom: '10px',
+            borderRadius: '8px',
+            border: '0.5px solid #3A3A3A',
+            background: 'transparent',
+            color: '#d0cbb8',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'left',
+            gap: '7px',
+          }}
+        >
+          <FontAwesomeIcon icon={faArrowLeft} />
+          Neue Konvertierung
+        </button>
+        
         {/* Download active format */}
         {activeFormat !== 'pdf' && (
           <button
             onClick={() => onDownload(activeFormat)}
             style={{
-              padding: '9px 16px',
-              borderRadius: '8px',
-              border: '1px solid rgba(172,142,102,0.6)',
-              background: '#AC8E66',
-              color: '#fff',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
-              fontWeight: 500,
+                    padding: '9px 16px',
+            marginBottom: '10px',
+            borderRadius: '8px',
+            border: '0.5px solid #3A3A3A',
+            background: 'transparent',
+            color: '#d0cbb8',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'left',
+            gap: '7px'
             }}
           >
             <FontAwesomeIcon icon={faDownload} />
@@ -1452,17 +1703,18 @@ export const Step4Result = ({
           <button
             onClick={onDownloadAll}
             style={{
-              padding: '9px 16px',
-              borderRadius: '8px',
-              border: '0.5px solid #3A3A3A',
-              background: 'transparent',
-              color: '#e5e5e5',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
+                     padding: '9px 16px',
+            marginBottom: '10px',
+            borderRadius: '8px',
+            border: '0.5px solid #3A3A3A',
+            background: 'transparent',
+            color: '#d0cbb8',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'left',
+            gap: '7px'
             }}
           >
             <FontAwesomeIcon icon={faDownload} />
@@ -1475,17 +1727,18 @@ export const Step4Result = ({
           <button
             onClick={onOpenImageGallery}
             style={{
-              padding: '9px 16px',
-              borderRadius: '8px',
-              border: '0.5px solid rgba(172,142,102,0.5)',
-              background: 'transparent',
-              color: '#AC8E66',
-              fontFamily: 'IBM Plex Mono, monospace',
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '7px',
+                   padding: '9px 16px',
+            marginBottom: '10px',
+            borderRadius: '8px',
+            border: '0.5px solid #3A3A3A',
+            background: 'transparent',
+            color: '#d0cbb8',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '11px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'left',
+            gap: '7px'
             }}
           >
             <FontAwesomeIcon icon={faImages} />
@@ -1498,8 +1751,8 @@ export const Step4Result = ({
             style={{
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '11px',
-              color: '#d6c7a8',
-              background: 'rgba(172,142,102,0.18)',
+             background: 'transparent',
+            color: '#d0cbb8',
               border: '1px solid rgba(172,142,102,0.35)',
               borderRadius: '8px',
               padding: '7px 10px',

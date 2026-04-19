@@ -360,7 +360,7 @@ export const Step1FormatSelection = ({
             style={{
               margin: 0,
               fontSize: '9px',
-              color: '#b0ac9b',
+              color: '#e8e3d8',
               fontFamily: 'IBM Plex Mono, monospace',
               textTransform: 'uppercase',
               letterSpacing: '1px',
@@ -376,7 +376,7 @@ export const Step1FormatSelection = ({
               borderRadius: '6px',
               border: '1px solid rgba(90,80,60,0.35)',
               background: recentConversions.length > 0 ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)',
-              color: recentConversions.length > 0 ? '#bfa985' : '#7d7568',
+              color: recentConversions.length > 0 ? '#bfa985' : '#e8e3d8',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '9px',
               padding: '4px 8px',
@@ -428,10 +428,10 @@ export const Step1FormatSelection = ({
                   >
                     {item.fileName}
                   </div>
-                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#8E8E8E' }}>
+                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#e8e3d8' }}>
                     {item.fromFormat.toUpperCase()} → {item.targetFormats.map((f) => f.toUpperCase()).join(', ')}
                   </div>
-                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#555', marginTop: '2px' }}>
+                  <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e8e3d8', marginTop: '2px' }}>
                     {formatDate(item.createdAt)}
                   </div>
                 </div>
@@ -548,9 +548,7 @@ export const Step1FormatSelection = ({
                 <div style={{ color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', marginTop: '4px' }}>
                   Bild-Vorschau aus der Konvertierungs-Mappe
                 </div>
-                  <div style={{ color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px' }}>
-                  {previewItem.fileName}
-                </div>
+                
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {previewActionFeedback ? (

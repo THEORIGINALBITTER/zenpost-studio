@@ -393,8 +393,8 @@ export function GettingStartedScreen({
   const studios: StudioDef[] = [
     {
       id: 'content-ai',
-      label: 'Content AI',
-      shortLabel: 'Content AI',
+      label: 'ZenContent',
+      shortLabel: 'ZenContent',
       description: '1mal schreiben. 9mal transformieren für Social Media, Artikel und Blog',
       useCases: [
         {
@@ -433,12 +433,12 @@ export function GettingStartedScreen({
     },
     {
       id: 'converter',
-      label: 'Converter',
-      shortLabel: 'Converter',
-      description: 'Dateiformate bereinigen, konvertieren und transformieren',
+      label: 'ZenConverter',
+      shortLabel: 'ZenConverter',
+      description: 'Datei- Bildformate bereinigen, konvertieren und transformieren',
       useCases: [
         {
-          title: 'Dateiformate konvertieren',
+          title: 'ZenConverter Datei + Bild',
           description: 'Markdown, Text und strukturierte Inhalte, Bildformate bereinigen/konvertieren',
           icon: faFileLines,
           action: () => onOpenConverter?.(),
@@ -456,7 +456,7 @@ export function GettingStartedScreen({
         }] : []),
            {
           title: 'Converter Einstellungen',
-          description: 'Zielordner, Browser-Speicher und ZenCloud fuer Bilder konfigurieren',
+          description: 'Zielordner, Bildergröße, Browser-Speicher und ZenCloud fuer Bilder konfigurieren',
           icon: faGear,
           action: () => onOpenConverterSettings?.(),
         },
@@ -464,8 +464,8 @@ export function GettingStartedScreen({
     },
     {
       id: 'mobile',
-      label: 'Mobile Inbox Beta Version',
-      shortLabel: 'Mobile',
+      label: 'ZenPost Mobile Beta',
+      shortLabel: 'ZenMobile',
       description: 'iPhone-Entwürfe via iCloud — Ideen unterwegs festhalten, hier weiterbearbeiten',
       useCases: [],
     },

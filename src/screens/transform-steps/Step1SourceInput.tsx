@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
 import { isTauri } from '@tauri-apps/api/core';
@@ -15,7 +15,7 @@ import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
 import { type PreviewThemeId } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { Step1StyleThemeQuickMenu } from './components/Step1StyleThemeQuickMenu';
 import { importDocumentToMarkdown } from '../../services/documentImportService';
-import { defaultEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
+import { defaultEditorSettings, saveEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
 import {
@@ -25,6 +25,7 @@ import {
 } from '../../utils/editorImageCompression';
 import { canUploadToZenCloud, uploadCloudDocument, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
+import { resolveImageMeta, saveImageMeta } from '../../services/imageMetaService';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
@@ -92,8 +93,26 @@ interface Step1SourceInputProps {
   onAutosaveHistoryCompare?: (record: import('../../services/editorSettingsService').DraftAutosaveRecord) => void;
   zenThoughts?: string[];
   showZenThoughtInHeader?: boolean;
-  postMeta?: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] };
-  onMetaChange?: (meta: { title: string; subtitle: string; imageUrl: string; date: string; tags: string[] }) => void;
+  postMeta?: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+  };
+  onMetaChange?: (meta: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+  }) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
   previewTheme?: PreviewThemeId;
@@ -413,10 +432,7 @@ export const Step1SourceInput = ({
   const [showOutline, setShowOutline] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
   const [showStyleThemes, setShowStyleThemes] = useState(false);
-  const [showAutosaveHistory, setShowAutosaveHistory] = useState(false);
-  const [autosaveHovered, setAutosaveHovered] = useState(false);
   const [editorToggleHovered, setEditorToggleHovered] = useState(false);
-  const autosaveHistoryRef = useRef<HTMLDivElement>(null);
   const [outlineFocusRequest, setOutlineFocusRequest] = useState<{ line: number; token: number } | null>(null);
   const [outlineBlockFocusRequest, setOutlineBlockFocusRequest] = useState<{ headingIndex: number; token: number } | null>(null);
   const [blockHeadingRequest, setBlockHeadingRequest] = useState<{ level: number; token: number } | null>(null);
@@ -487,18 +503,6 @@ export const Step1SourceInput = ({
     });
   };
 
-  // Autosave History Panel außen schließen
-  useEffect(() => {
-    if (!showAutosaveHistory) return;
-    const handler = (e: MouseEvent) => {
-      if (autosaveHistoryRef.current && !autosaveHistoryRef.current.contains(e.target as Node)) {
-        setShowAutosaveHistory(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [showAutosaveHistory]);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -553,17 +557,26 @@ export const Step1SourceInput = ({
 
   
 
-  const updateEditorTheme = (nextTheme: 'dark' | 'light') => {
+  const updateQuickEditorSettings = useCallback((patch: Partial<EditorSettings>) => {
     if (typeof window === 'undefined') return;
     const nextSettings = {
       ...defaultEditorSettings,
       ...editorSettings,
-      theme: nextTheme,
+      ...patch,
     };
     localStorage.setItem('zenpost_editor_settings', JSON.stringify(nextSettings));
     window.dispatchEvent(
       new CustomEvent('zen-editor-settings-updated', { detail: nextSettings })
     );
+    if (projectPath && isTauri()) {
+      void saveEditorSettings(projectPath, nextSettings).catch((error) => {
+        console.warn('[Step1SourceInput] Quick settings save failed:', error);
+      });
+    }
+  }, [editorSettings, projectPath]);
+
+  const updateEditorTheme = (nextTheme: 'dark' | 'light') => {
+    updateQuickEditorSettings({ theme: nextTheme });
   };
 
   const handleFileUpload = async (file: File) => {
@@ -824,14 +837,47 @@ export const Step1SourceInput = ({
     return candidates.map(normalizeDroppedPath).filter(isImagePath);
   };
 
-  const EMPTY_META = { title: '', subtitle: '', imageUrl: '', date: '', tags: [] as string[] };
+  const EMPTY_META = {
+    title: '',
+    subtitle: '',
+    imageUrl: '',
+    date: '',
+    tags: [] as string[],
+    imageAlt: '',
+    imageTitle: '',
+    imageCaption: '',
+  };
 
-  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date', value: string) => {
+  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date' | 'imageAlt' | 'imageTitle' | 'imageCaption', value: string) => {
     onMetaChange?.({ ...(postMeta ?? EMPTY_META), [field]: value });
   }, [onMetaChange, postMeta]);
 
   const updatePostMetaTags = useCallback((tags: string[]) => {
     onMetaChange?.({ ...(postMeta ?? EMPTY_META), tags });
+  }, [onMetaChange, postMeta]);
+
+  const applyImageMetaForUrl = useCallback((imageUrl: string, fileNameHint?: string) => {
+    const trimmedUrl = imageUrl.trim();
+    if (!trimmedUrl) return;
+    const resolved = resolveImageMeta({ url: trimmedUrl, fileName: fileNameHint });
+    const current = postMeta ?? EMPTY_META;
+    const nextMeta = {
+      ...current,
+      imageUrl: trimmedUrl,
+      imageTitle: current.imageTitle?.trim() ? current.imageTitle : resolved.title,
+      imageAlt: current.imageAlt?.trim() ? current.imageAlt : resolved.altText,
+      imageCaption: current.imageCaption?.trim() ? current.imageCaption : resolved.caption,
+    };
+    onMetaChange?.(nextMeta);
+    saveImageMeta(
+      { url: trimmedUrl, fileName: fileNameHint },
+      {
+        title: nextMeta.imageTitle ?? '',
+        altText: nextMeta.imageAlt ?? '',
+        caption: nextMeta.imageCaption ?? '',
+        tags: nextMeta.tags ?? [],
+      }
+    );
   }, [onMetaChange, postMeta]);
 
   const commitMetaImageUrl = useCallback(async (rawValue: string) => {
@@ -842,12 +888,12 @@ export const Step1SourceInput = ({
     }
 
     if (!cloudImageUploadEnabled) {
-      updatePostMetaField('imageUrl', trimmed);
+      applyImageMetaForUrl(trimmed);
       return;
     }
 
     if (/^https?:\/\//i.test(trimmed)) {
-      updatePostMetaField('imageUrl', trimmed);
+      applyImageMetaForUrl(trimmed);
       return;
     }
 
@@ -855,7 +901,7 @@ export const Step1SourceInput = ({
       if (/^data:image\//i.test(trimmed)) {
         const uploaded = await uploadCloudImageDataUrl(trimmed, 'meta-cover.jpg');
         if (uploaded?.url) {
-          updatePostMetaField('imageUrl', uploaded.url);
+          applyImageMetaForUrl(uploaded.url, 'meta-cover.jpg');
           onError?.('');
           return;
         }
@@ -866,7 +912,7 @@ export const Step1SourceInput = ({
         const blob = await response.blob();
         const uploaded = await uploadCloudDocument(new File([blob], 'meta-cover.jpg', { type: blob.type || 'image/jpeg' }));
         if (uploaded?.url) {
-          updatePostMetaField('imageUrl', uploaded.url);
+          applyImageMetaForUrl(uploaded.url, 'meta-cover.jpg');
           onError?.('');
           return;
         }
@@ -889,19 +935,19 @@ export const Step1SourceInput = ({
                 : 'image/jpeg';
         const uploaded = await uploadCloudDocument(new File([bytes], sourceName, { type: mime }));
         if (uploaded?.url) {
-          updatePostMetaField('imageUrl', uploaded.url);
+          applyImageMetaForUrl(uploaded.url, sourceName);
           onError?.('');
           return;
         }
       }
 
-      updatePostMetaField('imageUrl', trimmed);
+      applyImageMetaForUrl(trimmed);
     } catch (error) {
       console.error('Meta image input commit failed:', error);
-      updatePostMetaField('imageUrl', trimmed);
+      applyImageMetaForUrl(trimmed);
       onError?.('Bild konnte nicht in ZenCloud hochgeladen werden. Eingabe wurde unverändert übernommen.');
     }
-  }, [cloudImageUploadEnabled, onError, updatePostMetaField]);
+  }, [applyImageMetaForUrl, cloudImageUploadEnabled, onError, updatePostMetaField]);
 
   const extractDroppedImageUrl = (event: DragEvent<HTMLElement>): string => {
     const dataTransfer = event.dataTransfer;
@@ -963,7 +1009,7 @@ export const Step1SourceInput = ({
         } else {
           imageUrl = await saveImageToOpfs(firstImage);
         }
-        updatePostMetaField('imageUrl', imageUrl);
+        applyImageMetaForUrl(imageUrl, firstImage.name);
         onError?.('');
         return;
       } catch (error) {
@@ -992,7 +1038,7 @@ export const Step1SourceInput = ({
                   : 'image/jpeg';
           const uploaded = await uploadCloudDocument(new File([bytes], sourceName, { type: mime }));
           if (uploaded?.url) {
-            updatePostMetaField('imageUrl', uploaded.url);
+            applyImageMetaForUrl(uploaded.url, sourceName);
             onError?.('');
             return;
           }
@@ -1000,13 +1046,32 @@ export const Step1SourceInput = ({
           console.error('Meta image cloud path upload failed:', error);
         }
       }
-      updatePostMetaField('imageUrl', droppedUrl);
+      applyImageMetaForUrl(droppedUrl);
       onError?.('');
       return;
     }
 
     onError?.('Nur Bilddateien oder Bild-URLs sind für Bild-URL erlaubt.');
-  }, [cloudImageUploadEnabled, onError, projectPath, updatePostMetaField]);
+  }, [applyImageMetaForUrl, cloudImageUploadEnabled, onError, projectPath, updatePostMetaField]);
+
+  useEffect(() => {
+    const imageUrl = (postMeta?.imageUrl ?? '').trim();
+    if (!imageUrl) return;
+    const fileNameHint = (() => {
+      const noQuery = imageUrl.split('?')[0];
+      const segment = noQuery.split('/').pop() ?? '';
+      return segment || undefined;
+    })();
+    saveImageMeta(
+      { url: imageUrl, fileName: fileNameHint },
+      {
+        title: postMeta?.imageTitle ?? '',
+        altText: postMeta?.imageAlt ?? '',
+        caption: postMeta?.imageCaption ?? '',
+        tags: postMeta?.tags ?? [],
+      }
+    );
+  }, [postMeta?.imageAlt, postMeta?.imageCaption, postMeta?.imageTitle, postMeta?.imageUrl]);
 
   // Get active doc tab info
   const activeDocTab = docTabs.find((tab) => tab.id === activeDocTabId);
@@ -1208,15 +1273,15 @@ export const Step1SourceInput = ({
                   
                 }}
                 textStyle={{
-    color: '#e8e3d8',
+                color: '#e8e3d8',
   }}
                 
               />
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '4px' }}>
-                <p className="font-mono fontWeight-[200] text-[11px] text-[#e8e3d8]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                <p className="font-mono fontWeight-[200] text-[11px] text-[#d0cbb8]" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
                    <FontAwesomeIcon
                      icon={faFolderOpen}
-                     style={{ color: '#e8e3d8', fontSize: '10px', flexShrink: 0, cursor: revealPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
+                     style={{ color: '#d0cbb8', fontSize: '10px', flexShrink: 0, cursor: revealPath ? 'pointer' : 'default', transition: 'all 0.2s' }}
                      onClick={() => revealPath && revealItemInDir(revealPath)}
                      onMouseEnter={(e) => { if (revealPath) e.currentTarget.style.transform = 'scale(1.5)'; }}
                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
@@ -1224,134 +1289,31 @@ export const Step1SourceInput = ({
                    {displayPath}
                 </p>
                 {autosaveStatusText ? (
-                  <div ref={autosaveHistoryRef} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginRight: '20px', position: 'relative' }}>
-                    <button
-                      onClick={onOpenEditorSettings}
-                      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.2)'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      marginRight: 20,
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: 11,
+                      color: '#d0cbb8',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={autosaveStatusText}
+                  >
+                    <span
                       style={{
-                        border: '1px solid #3A3A3A',
-                        borderRadius: '999px',
-                        background: 'transparent',
-                        color: '#AC8E66',
-                        width: '18px',
-                        height: '18px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        padding: 0,
-                        transition: 'transform 0.2s ease',
+                        width: 8,
+                        height: 8,
+                        borderRadius: 999,
+                        background: '#AC8E66',
+                        boxShadow: '0 0 10px rgba(172,142,102,0.35)',
+                        display: 'inline-block',
+                        flexShrink: 0,
                       }}
-                      title="Editor-Einstellungen öffnen"
-                    >
-                      <FontAwesomeIcon icon={faGear} style={{ fontSize: '11px' }} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => autosaveHistory.length > 0 && setShowAutosaveHistory((p) => !p)}
-                      onMouseEnter={() => autosaveHistory.length > 0 && setAutosaveHovered(true)}
-                      onMouseLeave={() => setAutosaveHovered(false)}
-                      title={autosaveHistory.length > 0 ? `${autosaveHistory.length} Autosave-Versionen` : autosaveStatusText ?? ''}
-                      style={{
-                        background: 'transparent', border: 'none', padding: 0,
-                        cursor: autosaveHistory.length > 0 ? 'pointer' : 'default',
-                        minWidth: '160px',
-                      }}
-                    >
-                      <div style={{
-                        position: 'relative', overflow: 'hidden', height: '14px',
-                        fontFamily: 'IBM Plex Mono, monospace', fontSize: 10,
-                        whiteSpace: 'nowrap',
-                      }}>
-                        {/* Default text — slides up on hover */}
-                        <span style={{
-                          display: 'block', color: '#d0cbb8',
-                          transform: autosaveHovered ? 'translateY(-100%)' : 'translateY(0)',
-                          opacity: autosaveHovered ? 0 : 1,
-                          transition: 'transform 0.22s ease, opacity 0.18s ease',
-                        }}>
-                          {autosaveStatusText}
-                        </span>
-                        {/* Hover text — slides in from below */}
-                        <span style={{
-                          display: 'block', color: '#AC8E66',
-                          position: 'absolute', top: 0, left: 0, whiteSpace: 'nowrap',
-                          transform: autosaveHovered ? 'translateY(0)' : 'translateY(100%)',
-                          opacity: autosaveHovered ? 1 : 0,
-                          transition: 'transform 0.22s ease, opacity 0.18s ease',
-                        }}>
-                          {autosaveHistory.length > 0 ? 'Verlauf ansehen →' : ''}
-                        </span>
-                      </div>
-                    </button>
-
-                    {/* History Dropdown */}
-                    {showAutosaveHistory && autosaveHistory.length > 0 && (
-                      <div style={{
-                        position: 'absolute', top: 'calc(100% + 4px)', right: 0,
-                        width: 290,
-                        background: '#1a1a1a', 
-                        border: '1px solid #1a1a1a',
-                        borderRadius: 8, padding: '6px 0',
-                        zIndex: 300, boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
-                        fontFamily: 'IBM Plex Mono, monospace',
-                      }}>
-                        <div style={{ 
-                          padding: '10px 12px 7px', 
-                          fontSize: 9, 
-                          color: '#d0cbb8', 
-                        
-                          borderBottom: '1px solid #222', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                          Autosave-Verlauf
-                        </div>
-                        {autosaveHistory.map((record, idx) => (
-                          <div key={record.meta.updatedAt} style={{
-                            display: 'flex', alignItems: 'center', gap: 8,
-                            padding: '6px 12px',
-                            background: '#d0cbb8',
-                            borderBottom: idx < autosaveHistory.length - 1 ? '1px solid #1C1C1C' : 'none',
-                          }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 10, color: '#446344' }}>
-                                {new Date(record.meta.updatedAt).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                              </div>
-                              <div style={{ fontSize: 10, color: '#555', marginTop: 1 }}>
-                                {record.meta.contentLength.toLocaleString('de-DE')} Zeichen
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                              <button
-                                type="button"
-                                onClick={() => { onAutosaveHistoryRestore?.(record); setShowAutosaveHistory(false); }}
-                                style={{
-                                  background: 'transparent', border: '1px solid #AC8E66',
-                                  borderRadius: 4, color: '#AC8E66', fontSize: 10,
-                                  padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = '#AC8E66'; (e.currentTarget as HTMLButtonElement).style.color = '#1a1a1a'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = '#AC8E66'; }}
-                              >
-                                Laden
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => { onAutosaveHistoryCompare?.(record); setShowComparison(true); setShowAutosaveHistory(false); }}
-                                style={{
-                                  background: 'transparent', border: '1px solid #444',
-                                  borderRadius: 4, color: '#888', fontSize: 9,
-                                  padding: '2px 8px', cursor: 'pointer', fontFamily: 'inherit',
-                                }}
-                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#1a1a1a'; (e.currentTarget as HTMLButtonElement).style.color = '#1a1a1a'; }}
-                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.borderColor = '#444'; (e.currentTarget as HTMLButtonElement).style.color = '#888'; }}
-                              >
-                                Diff
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    />
+                    <span>{autosaveStatusText}</span>
                   </div>
                 ) : null}
               </div>
@@ -1388,7 +1350,7 @@ export const Step1SourceInput = ({
                       }}
                       onClick={() => onDocTabChange?.(tab.id)}
                       style={{
-                        marginBottom: '12px',
+                        marginBottom: '5px',
                         flex: '0 0 auto',
                         padding: '10px 16px',
                         backgroundColor: isActive ? '#d0cbb8' : '#1a1a1a',
@@ -1448,10 +1410,10 @@ export const Step1SourceInput = ({
                     onClick={onNewDraft}
                     title="Neuen Entwurf öffnen"
                     style={{
-                      marginBottom: '12px',
+                      marginBottom: '5px',
                       flex: '0 0 auto',
                       padding: '10px 12px',
-                      backgroundColor: '#151515',
+                      backgroundColor: '#1a1a1a',
                       borderTop: '1px dotted #555',
                       borderLeft: '1px dotted #555',
                       borderRight: '1px dotted #555',
@@ -1460,7 +1422,7 @@ export const Step1SourceInput = ({
                       cursor: 'pointer',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '14px',
-                      color: '#666',
+                      color: '#777',
                       transition: 'all 0.2s',
                       transform: 'translateY(8px)',
                       display: 'flex',
@@ -1470,8 +1432,8 @@ export const Step1SourceInput = ({
                       zIndex: 0,
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.color = '#AC8E66';
-                      e.currentTarget.style.borderColor = '#AC8E66';
+                      e.currentTarget.style.color = '#e8e3d8';
+                      e.currentTarget.style.borderColor = '#e8e3d8';
                       e.currentTarget.style.transform = 'translateY(0)';
                       e.currentTarget.style.zIndex = '0'
                     }}
@@ -1515,13 +1477,13 @@ export const Step1SourceInput = ({
               }}
               onClick={() => document.getElementById('file-upload')?.click()}
               style={{
-                borderRadius: '10px',
+                borderRadius: '0px 0px 10px 10px',
                 border: isDragActive
                   ? '1.5px dashed #AC8E66'
                   : '1px dashed #1a1a1a',
                 background: isDragActive
                   ? 'rgba(172,142,102,0.1)'
-                  : '#d2cabd',
+                  : '#d0cbb8',
                 padding: '36px 20px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -1550,7 +1512,8 @@ export const Step1SourceInput = ({
           )}
 
           {/* Editor - Block oder Markdown */}
-          <div className="w-full mb-4" style={{ paddingTop: docTabs.length > 0 ? 0 : 10, marginTop: docTabs.length > 0 ? 0 : 20 }}>
+          <div className="w-full mb-4" style={{ 
+            paddingTop: docTabs.length > 0 ? 0 : 10, marginTop: docTabs.length > 0 ? 0 : 20 }}>
           {showComparison && comparisonBaseContent !== undefined && (
             <div
               style={{
@@ -1800,6 +1763,14 @@ export const Step1SourceInput = ({
               onToggle={() => setShowStyleThemes((v) => !v)}
               previewTheme={previewTheme}
               onPreviewThemeChange={onPreviewThemeChange}
+              editorSettings={editorSettings}
+              onEditorSettingsChange={updateQuickEditorSettings}
+              autosaveStatusText={autosaveStatusText}
+              autosaveHistory={autosaveHistory}
+              onOpenEditorSettings={onOpenEditorSettings}
+              onAutosaveHistoryRestore={onAutosaveHistoryRestore}
+              onAutosaveHistoryCompare={onAutosaveHistoryCompare}
+              onOpenComparison={() => setShowComparison(true)}
             />
 
             {/* Meta Panel */}
@@ -1812,8 +1783,8 @@ export const Step1SourceInput = ({
                   left: -260,
                   padding: '12px',
                   borderRadius: 10,
-                  background: '#151515',
-                  border: '1px solid rgba(172, 142, 102, 0.25)',
+                  background: '#d0cbb8',
+                  border: '1px solid rgba(21, 21, 21, 0.35)',
                   boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
                   
                   display: 'flex',
@@ -1826,12 +1797,14 @@ export const Step1SourceInput = ({
 
                 }}
               >
-                <div className="font-mono text-[10px] text-[#AC8E66] tracking-wide">Post Metadaten · ESC Closed</div>
+                <div className="
+                font-mono text-[10px] 
+                text-[#1a1a1a] tracking-wide">Post Metadaten · ESC Closed</div>
              
                 {/* Tags section */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div className="font-mono text-[10px] text-[#AC8E66]">Tags/Keywords</div>
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">Tags/Keywords</div>
                     {analysisKeywords.length > 0 && (
                       <button
                         type="button"
@@ -1841,9 +1814,10 @@ export const Step1SourceInput = ({
                           updatePostMetaTags(merged);
                         }}
                         style={{
-                           background: 'rgba(208, 203, 184, 0.88)',
+                           background: 'rgba(208, 255, 184, 0.4)',
                             boxShadow: 'none',
                           borderRadius: 4,
+                          
                           color: '#1a1a1a',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: 8,
@@ -1864,13 +1838,13 @@ export const Step1SourceInput = ({
                         key={tag}
                         style={{
                           display: 'inline-flex', alignItems: 'center', gap: 3,
-                          background: 'rgba(208, 203, 184, 0.88)',
+                          background: '#252525',
                           border: '1px solid #777',
                           borderRadius: 4,
                           padding: '2px 7px',
                           fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: 8,
-                          color: '#1a1a1a',
+                          fontSize: 9,
+                          color: '#e4e3cb ',
                         }}
                       >
                         {tag}
@@ -1890,8 +1864,8 @@ export const Step1SourceInput = ({
                       </span>
                     ))}
                     {(postMeta?.tags ?? []).length === 0 && (
-                      <div className="font-mono text-[9px] text-[#e37154] "
-                      style={{ textAlign: 'right', width: '100%' }}
+                      <div className="font-mono text-[9px] text-[#d12a00] "
+                      style={{ textAlign: 'left', width: '100%' }}
                       >
                         Noch keine Tags
                         </div>
@@ -1916,9 +1890,9 @@ export const Step1SourceInput = ({
                       placeholder="Tag hinzufügen…"
                       style={{
                         flex: 1,
-                        background: '#0f0f0f', border: '1px solid #3A3A3A', borderRadius: 6,
+                        background: '#e4e3cb', border: '0.5px solid #3A3A3A', borderRadius: 4,
                         padding: '4px 7px', fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: 10, color: '#D9D4C5', outline: 'none',
+                        fontSize: 10, color: '#252525', outline: 'none',
                       }}
                     />
                     <button
@@ -1931,41 +1905,59 @@ export const Step1SourceInput = ({
                         setNewTagInput('');
                       }}
                       style={{
-                        background: 'transparent', border: '1px solid #3A3A3A', borderRadius: 6,
-                        color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
+                        background: 'transparent', border: '0.5px solid #3A3A3A', borderRadius: 4,
+                        color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', fontSize: 9,
                         padding: '4px 8px', cursor: 'pointer',
                       }}
                     >+</button>
                   </div>
-                  <div className="font-mono text-[9px] text-[#d0cbb8]" style={{ lineHeight: '11px' }}>
+                  <div className="font-mono text-[9px] text-[#1a1a1a]" style={{ lineHeight: '11px' }}>
                     Enter oder Komma zum Hinzufügen · Wird als YAML tags + keywords gespeichert
                   </div>
                 </div>
 
-                {(['title', 'subtitle', 'imageUrl', 'date'] as const).map((field) => (
+                {(['title', 'subtitle', 'imageUrl', 'imageTitle', 'imageAlt', 'imageCaption', 'date'] as const).map((field) => (
                   <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div className="font-mono text-[10px] text-[#AC8E66]">
-                      {field === 'imageUrl' ? 'Bild-URL' : field === 'title' ? 'Titel' : field === 'subtitle' ? 'Untertitel' : 'Datum'}
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">
+                      {field === 'imageUrl'
+                        ? 'Bild-URL'
+                        : field === 'title'
+                        ? 'Titel'
+                        : field === 'subtitle'
+                        ? 'Untertitel'
+                        : field === 'imageTitle'
+                        ? 'Bild-Titel'
+                        : field === 'imageAlt'
+                        ? 'Bild ALT Text'
+                        : field === 'imageCaption'
+                        ? 'Bild-Caption'
+                        : 'Datum'}
                     </div>
-                    {field === 'title' || field === 'subtitle' ? (
+                    {field === 'title' || field === 'subtitle' || field === 'imageCaption' ? (
                       <textarea
                         value={postMeta?.[field] ?? ''}
                         onChange={(e) => updatePostMetaField(field, e.target.value)}
-                        rows={field === 'title' ? 2 : 3}
-                        placeholder={field === 'title' ? 'Titel eingeben...' : 'Untertitel eingeben...'}
+                        rows={field === 'title' ? 2 : field === 'subtitle' ? 3 : 2}
+                        placeholder={
+                          field === 'title'
+                            ? 'Titel eingeben...'
+                            : field === 'subtitle'
+                            ? 'Untertitel eingeben...'
+                            : 'Bild-Caption eingeben...'
+                        }
                         style={{
-                          background: '#0f0f0f',
-                          border: '1px solid #3A3A3A',
-                          borderRadius: 6,
+                          background: '#e4e3cb',
+                          border: '0.5px solid #3A3A3A',
+                          borderRadius: 4,
                           padding: '6px 8px',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '10px',
-                          color: '#D9D4C5',
+                          color: '#1a1a1a',
                           width: '100%',
                           outline: 'none',
                           boxSizing: 'border-box',
                           resize: 'vertical',
-                          minHeight: field === 'title' ? 42 : 54,
+                          minHeight: field === 'title' ? 42 : field === 'subtitle' ? 54 : 42,
                           lineHeight: '14px',
                         }}
                       />
@@ -2001,15 +1993,25 @@ export const Step1SourceInput = ({
                         onDrop={field === 'imageUrl' ? (event) => {
                           void handleMetaImageDrop(event);
                         } : undefined}
-                        placeholder={field === 'imageUrl' ? 'https://...' : field === 'date' ? new Date().toISOString().slice(0, 10) : ''}
+                        placeholder={
+                          field === 'imageUrl'
+                            ? 'https://...'
+                            : field === 'date'
+                            ? new Date().toISOString().slice(0, 10)
+                            : field === 'imageTitle'
+                            ? 'Titel für OG/Twitter'
+                            : field === 'imageAlt'
+                            ? 'Beschreibung für Screenreader'
+                            : ''
+                        }
                         style={{
-                          background: field === 'imageUrl' && isMetaImageDragActive ? 'rgba(172, 142, 102, 0.08)' : '#0f0f0f',
-                          border: field === 'imageUrl' && isMetaImageDragActive ? '1px solid #AC8E66' : '1px solid #3A3A3A',
-                          borderRadius: 6,
+                          background: field === 'imageUrl' && isMetaImageDragActive ? 'rgba(172, 142, 102, 0.08)' : '#e4e3cb',
+                          border: field === 'imageUrl' && isMetaImageDragActive ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
+                          borderRadius: 4,
                           padding: '6px 8px',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '10px',
-                          color: '#D9D4C5',
+                          color: '#1a1a1a',
                           width: '100%',
                           outline: 'none',
                           boxSizing: 'border-box',
@@ -2020,13 +2022,13 @@ export const Step1SourceInput = ({
                       <>
                         <div
                           className="font-mono text-[9px]"
-                          style={{ color: (postMeta?.imageUrl ?? '').trim() ? '#AC8E66' : '#777' }}
+                          style={{ color: (postMeta?.imageUrl ?? '').trim() ? '#1a1a1a' : '#1a1a1a' }}
                         >
                           {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
                         </div>
                         <div
                           className="font-mono text-[9px]"
-                          style={{ color: cloudImageUploadEnabled ? '#AC8E66' : '#8b8b8b', lineHeight: '12px' }}
+                          style={{ color: cloudImageUploadEnabled ? '#1a1a1a' : '#8b8b8b', lineHeight: '12px' }}
                         >
                           {cloudImageUploadEnabled
                             ? 'Drag & Drop lädt Titelbild direkt in ZenCloud und speichert die Asset-URL.'
@@ -2049,7 +2051,7 @@ export const Step1SourceInput = ({
                             }}
                           >
                             Hinweis: data/blob Bild-URLs werden beim Server-Export hochgeladen,
-                            wenn im API-Tab ein Upload-Endpunkt gesetzt ist.
+                            wenn in ZenSettings ein Upload-Endpunkt gesetzt ist.
                           </div>
                         )}
                         {(postMeta?.imageUrl ?? '').trim() &&
@@ -2059,10 +2061,12 @@ export const Step1SourceInput = ({
                               alt="Meta Bild Vorschau"
                               style={{
                                 width: '100%',
-                                maxHeight: 70,
-                                objectFit: 'cover',
-                                borderRadius: 6,
-                                border: '1px solid #3A3A3A',
+                                maxHeight: '50%',
+                                objectFit: 'fill',
+                                borderRadius: 4,
+                                fontSize: '12px',
+                                
+                                border: 'none',
                                 background: '#0f0f0f',
                               }}
                             />
@@ -2086,7 +2090,7 @@ export const Step1SourceInput = ({
                   left: -260,
                   padding: '12px',
                   borderRadius: 10,
-                  background: '#151515',
+                  background: '#1a1a1a',
                   border: '1px solid rgba(172, 142, 102, 0.25)',
                   boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
                   display: 'flex',

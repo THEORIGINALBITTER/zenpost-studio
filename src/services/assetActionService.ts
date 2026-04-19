@@ -69,7 +69,7 @@ export async function openImageAssetInConverter(
       });
       openConverterWithFile({
         file,
-        source: 'project-map-local',
+        source: `project-map-local:${encodeURIComponent(asset.path)}`,
         preset,
       });
       return { success: true };
@@ -87,7 +87,7 @@ export async function openImageAssetInConverter(
     });
     openConverterWithFile({
       file,
-      source: 'project-map-cloud',
+      source: `project-map-cloud:${asset.docId}`,
       preset,
     });
     return { success: true };
