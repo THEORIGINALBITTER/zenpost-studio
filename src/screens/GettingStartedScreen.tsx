@@ -21,6 +21,8 @@ import {
   faWandMagicSparkles,
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenPlannerModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenPlannerModal';
+import { ZenAboutModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenAboutModal';
+import { ZenShortcutsModal } from '../kits/PatternKit/ZenModalSystem/modals/ZenShortcutsModal';
 import { ZenThoughtLine } from '../components/ZenThoughtLine';
 import { StudioActionCard } from '../components/StudioActionCard';
 import { openAppSettings } from '../services/appShellBridgeService';
@@ -60,6 +62,7 @@ interface GettingStartedScreenProps {
 type StudioId = 'content-ai' | 'converter' | 'mobile' | 'zen-note';
 const MOBILE_DEV_BLOG_URL = 'https://zenpostapp.denisbitter.de';
 const MOBILE_DEV_BLOG_QR_FALLBACK_SRC = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&format=png&bgcolor=transparent&data=${encodeURIComponent(MOBILE_DEV_BLOG_URL)}`;
+const GETTING_STARTED_HELP_URL = 'https://zenpostdocs.denisbitter.de';
 
 interface StudioDef {
   id: StudioId;
@@ -103,6 +106,7 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
         padding: 0,
         transition: 'background 0.2s, border-color 0.2s',
         position: 'relative',
+          transform: 'translateX(4px)',
         zIndex: isActive ? 20 : 10,
         overflow: 'hidden',
       }}
@@ -158,6 +162,88 @@ const SidebarTab = ({ studio, isActive, onClick }: { studio: StudioDef; isActive
   );
 };
 
+const SidebarRightTab = ({
+  label,
+  isActive,
+  onClick,
+}: {
+  label: string;
+  isActive?: boolean;
+  onClick: () => void;
+}) => {
+  const [hovered, setHovered] = useState(false);
+  const showHover = hovered && !isActive;
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: '40px',
+        height: '100px',
+        borderRadius: '0 10px 10px 0',
+        borderTop: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderRight: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderBottom: isActive ? '1px solid #3e362c' : `0.5px solid ${showHover ? '#AC8E66' : '#3A3A3A'}`,
+        borderLeft: 'none',
+        background: isActive ? '#d0cbb8' : showHover ? '#242424' : '#1a1a1a',
+        cursor: 'pointer',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        transition: 'background 0.2s, border-color 0.2s',
+        position: 'relative',
+         transform: 'translateX(-4px)',
+        
+        zIndex: isActive ? 10 : 20,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '80px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <span
+          style={{
+            writingMode: 'vertical-rl',
+            textOrientation: 'mixed',
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '9px',
+            color: isActive ? '#1a1a1a' : '#e8e3d8',
+            whiteSpace: 'nowrap',
+            letterSpacing: '0.3px',
+            position: 'absolute',
+            opacity: showHover ? 0 : 1,
+            transition: 'opacity 0.18s ease',
+          }}
+        >
+          {label}
+        </span>
+        <span
+          style={{
+            fontFamily: 'IBM Plex Mono, monospace',
+            fontSize: '13px',
+            color: '#d0cbb8',
+            position: 'absolute',
+            opacity: showHover ? 1 : 0,
+            transition: 'opacity 0.18s ease',
+          }}
+        >
+          →
+        </span>
+      </div>
+    </button>
+  );
+};
+
 export function GettingStartedScreen({
   onBack: _onBack,
   onOpenContentAI,
@@ -171,7 +257,6 @@ export function GettingStartedScreen({
   onOpenServerArticle,
 }: GettingStartedScreenProps) {
   const { openExternal } = useOpenExternal();
-  const isDesktopRuntime = isTauri();
   const [zenStudioSettings] = useState(() => loadZenStudioSettings());
   const [projectPath] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -190,6 +275,8 @@ export function GettingStartedScreen({
   const [devBlogQrSrc, setDevBlogQrSrc] = useState(MOBILE_DEV_BLOG_QR_FALLBACK_SRC);
   const [zenNoteRecent, setZenNoteRecent] = useState<Array<{ id: number; title: string; tag: string; folder: string }>>([]);
   const [zenNoteRecentLoading, setZenNoteRecentLoading] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
   const getFriendlyServerError = (rawError: string | null): string => {
     if (!rawError) return '';
@@ -593,11 +680,11 @@ export function GettingStartedScreen({
             className="zen-getting-started-scroll"
             style={{
               flex: 1,
-              borderRadius: '0 14px 14px 0',
-              borderTop: '0.5px solid #3e362c',
-              borderRight: '0.5px solid #3e362c',
-              borderBottom: '0.5px solid #3e362c',
-              borderLeft: '0.5px solid #3e362c',
+              borderRadius: '14px 14px 0px 0',
+              borderTop: '0.5px solid #e1d8c6 ',
+              borderRight: '0.5px solid #e1d8c6',
+              borderBottom: '0.5px solid #e1d8c6',
+              borderLeft: '0.5px solid #e1d8c6',
               background: '#d0cbb8',
               padding: '24px 28px',
               boxShadow: '4px 4px 20px rgba(0,0,0,0.25)',
@@ -1009,9 +1096,60 @@ export function GettingStartedScreen({
               </div>
             )}
           </div>
+
+          {/* Right: utility tabs (same style as left) */}
+          <div
+            className="zen-getting-started-scroll"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              paddingTop: '12px',
+              marginLeft: '-1px',
+              position: 'relative',
+              zIndex: 50,
+              maxHeight: '100%',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              paddingLeft: '4px',
+              scrollbarWidth: 'thin',
+            }}
+          >
+            <SidebarRightTab
+              label="ZenSettings"
+              onClick={() => openAppSettings('editor')}
+            />
+            <SidebarRightTab
+              label="Guide"
+              onClick={() => {
+                void openExternal(GETTING_STARTED_HELP_URL);
+              }}
+            />
+            <SidebarRightTab
+              label="ZenAbout"
+              onClick={() => setShowAboutModal(true)}
+            />
+            <SidebarRightTab
+              label="Shortcuts"
+              onClick={() => setShowShortcutsModal(true)}
+            />
+          </div>
         </div>
 
       </div>
+
+      <ZenAboutModal
+        isOpen={showAboutModal}
+        onClose={() => setShowAboutModal(false)}
+        onOpenBugReport={() => {
+          void openExternal('mailto:saghallo@denisbitter.de?subject=ZenPost%20Bug%20Report');
+        }}
+      />
+
+      <ZenShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
 
       <ZenPlannerModal
         isOpen={showPlannerModal}
@@ -1028,6 +1166,3 @@ export function GettingStartedScreen({
     </div>
   );
 }
-
-
-

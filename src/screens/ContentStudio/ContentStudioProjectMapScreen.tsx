@@ -335,7 +335,16 @@ export function ContentStudioProjectMapScreen({
       return 'Web-Dokumente';
     }
 
-    return projectPath ? `Aktueller Projekt Ordner: ${projectPath}` : 'Kein Projekt ausgewählt';
+    if (!projectPath) return 'Kein Projekt ausgewählt';
+    if (isCloudProjectPath(projectPath)) {
+      const cloudName = getCloudProjectName(projectPath);
+      return `Aktueller Projekt Ordner: @ZenCloud // ${cloudName ?? projectPath}`;
+    }
+    if (isWebProjectPath(projectPath)) {
+      const webName = getWebProjectName(projectPath);
+      return `Aktueller Projekt Ordner: ${webName ? `@Web // ${webName}` : projectPath}`;
+    }
+    return `Aktueller Projekt Ordner: ${projectPath}`;
   }, [activeTab, projectPath, serverLocalCachePath, serverName]);
 
   const handleDroppedFile = async (file: File) => {
@@ -708,7 +717,7 @@ export function ContentStudioProjectMapScreen({
               padding: '8px 12px',
               borderRadius: '6px',
               border: `1px solid ${activeTab === 'project' ? '#3e362c' : '#3A3A3A'}`,
-              background: activeTab === 'project' ? ' #3e362c' : 'transparent',
+              background: activeTab === 'project' ? ' #252525' : 'transparent',
               color: activeTab === 'project' ? '#e8e3d8' : '#777',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
@@ -744,7 +753,7 @@ export function ContentStudioProjectMapScreen({
               padding: '8px 12px',
               borderRadius: '6px',
               border: `1px solid ${activeTab === 'cloud' ? '#3e362c' : '#3A3A3A'}`,
-              background: activeTab === 'cloud' ? ' #3e362c' : 'transparent',
+              background: activeTab === 'cloud' ? '#252525' : 'transparent',
               color: activeTab === 'cloud' ? '#e8e3d8' : '#777',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
@@ -766,7 +775,7 @@ export function ContentStudioProjectMapScreen({
               padding: '8px 12px',
               borderRadius: '6px',
               border: `1px solid ${activeTab === 'zennote' ? '#3e362c' : '#3A3A3A'}`,
-              background: activeTab === 'zennote' ? ' #3e362c' : 'transparent',
+              background: activeTab === 'zennote' ? ' #252525' : 'transparent',
               color: activeTab === 'zennote' ? '#e8e3d8' : '#777',
               fontFamily: 'IBM Plex Mono, monospace',
               fontSize: '10px',
@@ -818,7 +827,7 @@ export function ContentStudioProjectMapScreen({
             {activeTab === 'project'
               ? 'Projektinhalt'
               : activeTab === 'cloud'
-                ? 'Cloud-Dokumente'
+                ? 'ZenCloud-Dokumente'
                 : activeTab === 'zennote'
                   ? 'ZenNote Notizen'
                   : activeTab === 'server'
@@ -907,7 +916,7 @@ export function ContentStudioProjectMapScreen({
                     padding: '6px 10px',
                     borderRadius: '4px',
                     border: `1px solid ${isActive ? '#3e362c' : '#8f8473'}`,
-                    background: isActive ? '#3e362c' : 'transparent',
+                    background: isActive ? '#252525' : 'transparent',
                     color: isActive ? '#e8e3d8' : '#3e362c',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '9px',
@@ -947,7 +956,7 @@ export function ContentStudioProjectMapScreen({
                     padding: '5px 10px',
                     borderRadius: '4px',
                     border: `1px solid ${isActive ? '#AC8E66' : 'rgba(143,132,115,0.9)'}`,
-                    background: isActive ? '#3e362c' : 'transparent',
+                    background: isActive ? '#252525' : 'transparent',
                     color: isActive ? '#e8e3d8' : '#3e362c',
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '9px',
@@ -1018,13 +1027,13 @@ export function ContentStudioProjectMapScreen({
                     border: hoveredItemId === item.id
                       ? `1px solid ${item.source === 'zennote' ? zenNoteFolderColor : '#4caf50'}`
                       : '0.5px solid #3A3A3A',
-                    borderLeft: item.source === 'zennote' ? `4px solid ${zenNoteFolderColor}` : undefined,
+                    borderLeft: item.source === 'zennote' ? `4px solid ${zenNoteFolderColor}/20` : undefined,
                     borderRadius: '10px',
                     padding: '8px 10px',
                     minHeight: isImageItem ? '62px' : '54px',
                     background: hoveredItemId === item.id
                       ? item.source === 'zennote'
-                        ? `${zenNoteFolderColor}90`
+                        ? `${zenNoteFolderColor}20`
                         : 'rgba(205,195,176,0.08)'
                       : 'transparent',
                     textAlign: 'left',

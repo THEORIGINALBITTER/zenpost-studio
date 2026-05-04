@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDownload, faFileLines, faFolderOpen, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faFileLines, faFolderOpen,  } from '@fortawesome/free-solid-svg-icons';
 import type { IconDefinition } from '@fortawesome/fontawesome-svg-core';
 import type { ContentPreviewState } from '../services/contentPreviewService';
 import { downloadPreviewAsset } from '../services/contentPreviewService';
@@ -10,8 +11,15 @@ type ZenContentPreviewModalProps = {
     label: string;
     onClick: () => void | Promise<void>;
     icon?: IconDefinition;
-    variant?: 'default' | 'accent' | 'success';
+    variant?: 'default' | 'accent' | 'success' | 'danger';
     disabled?: boolean;
+    menuItems?: Array<{
+      label: string;
+      onClick: () => void | Promise<void>;
+      icon?: IconDefinition;
+      variant?: 'default' | 'accent' | 'success' | 'danger';
+      disabled?: boolean;
+    }>;
   }>;
   hideInlineDownload?: boolean;
   onClose: () => void;
@@ -25,6 +33,19 @@ export function ZenContentPreviewModal({
   hideInlineDownload = false,
   onClose,
 }: ZenContentPreviewModalProps) {
+  const [openMenuLabel, setOpenMenuLabel] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!openMenuLabel) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-zen-preview-action-menu="true"]')) return;
+      setOpenMenuLabel(null);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [openMenuLabel]);
+
   return (
     <div
       onClick={onClose}
@@ -97,23 +118,118 @@ export function ZenContentPreviewModal({
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
             {actions.map((action) => {
               const variant = action.variant ?? 'default';
               const borderColor =
                 variant === 'success'
-                  ? 'rgba(94,163,111,0.36)'
+                  ? ' rgba(30, 24, 16, 0.10)'
+                  : variant === 'danger'
+                    ? 'rgba(179,38,30,0.36)'
                   : variant === 'accent'
                     ? 'rgba(172,142,102,0.36)'
                     : 'rgba(208,203,184,0.32)';
               const background =
                 variant === 'success'
-                  ? 'rgba(94,163,111,0.10)'
+                  ? 'transparent'
+                  : variant === 'danger'
+                    ? 'rgba(179,38,30,0.10)'
                   : variant === 'accent'
                     ? 'rgba(172,142,102,0.08)'
                     : 'rgba(255,255,255,0.02)';
+              const color = variant === 'danger' ? '#8f1d16' : '#3e362c';
 
               const resolvedIcon = action.icon ?? (action.label === 'Öffnen' ? faFolderOpen : undefined);
+              if (action.menuItems && action.menuItems.length > 0) {
+                const menuOpen = openMenuLabel === action.label;
+                return (
+                  <div
+                    key={action.label}
+                    data-zen-preview-action-menu="true"
+                    style={{ position: 'relative', flexShrink: 0 }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (action.disabled) return;
+                        setOpenMenuLabel((prev) => (prev === action.label ? null : action.label));
+                      }}
+                      disabled={action.disabled}
+                      style={{
+                        borderRadius: '8px',
+                        border: `1px solid ${borderColor}`,
+                        background,
+                        color,
+                        minHeight: '40px',
+                        padding: '0 14px',
+                        cursor: action.disabled ? 'not-allowed' : 'pointer',
+                        fontFamily: fontMono,
+                        fontSize: '10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        opacity: action.disabled ? 0.55 : 1,
+                      }}
+                    >
+            
+                      <span>{action.label}</span>
+                    </button>
+                    {menuOpen ? (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 'calc(100% + 6px)',
+                          right: 0,
+                          minWidth: '300px',
+                          borderRadius: '10px',
+                          border: '1px solid rgba(208,203,184,0.32)',
+                          background: '#1a1a1a',
+                          boxShadow: '0 14px 26px rgba(0,0,0,0.35)',
+                          padding: '6px',
+                          zIndex: 15,
+                        }}
+                      >
+                        {action.menuItems.map((item) => {
+                          const itemVariant = item.variant ?? 'default';
+                          const itemColor = itemVariant === 'danger' ? '#e39b94' : itemVariant === 'success' ? '#99d0a5' : '#d0cbb8';
+                          return (
+                            <button
+                              key={item.label}
+                              type="button"
+                              onClick={() => {
+                                setOpenMenuLabel(null);
+                                void item.onClick();
+                              }}
+                              disabled={item.disabled}
+                              style={{
+                                width: '100%',
+                                borderRadius: '7px',
+                                border: '1px solid transparent',
+                                background: 'transparent',
+                                color: itemColor,
+                                minHeight: '34px',
+                                padding: '0 10px',
+                                cursor: item.disabled ? 'not-allowed' : 'pointer',
+                                fontFamily: fontMono,
+                                fontSize: '10px',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'flex-start',
+                                gap: '8px',
+                                opacity: item.disabled ? 0.55 : 1,
+                              }}
+                            >
+                              {item.icon ? <FontAwesomeIcon icon={item.icon} /> : null}
+                              <span>{item.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              }
               return (
                 <button
                   key={action.label}
@@ -124,7 +240,7 @@ export function ZenContentPreviewModal({
                     borderRadius: '8px',
                     border: `1px solid ${borderColor}`,
                     background,
-                    color: '#3e362c',
+                    color,
                     minHeight: '40px',
                     padding: '0 14px',
                     cursor: action.disabled ? 'not-allowed' : 'pointer',
@@ -135,6 +251,7 @@ export function ZenContentPreviewModal({
                     justifyContent: 'center',
                     gap: '8px',
                     opacity: action.disabled ? 0.55 : 1,
+                    flexShrink: 0,
                   }}
                 >
                   {resolvedIcon ? <FontAwesomeIcon icon={resolvedIcon} /> : null}
@@ -147,7 +264,7 @@ export function ZenContentPreviewModal({
               onClick={onClose}
               style={{
                 borderRadius: '8px',
-                border: '1px solid rgba(30, 24, 16, 0.22)',
+                border: '1px solid rgba(30, 24, 16, 0.10)',
                 background: 'rgba(255,255,255,0.02)',
                 color: '#3e362c',
                 minHeight: '40px',
@@ -160,9 +277,10 @@ export function ZenContentPreviewModal({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
+                flexShrink: 0,
               }}
             >
-              <FontAwesomeIcon icon={faXmark} />
+             
               <span>Schließen</span>
             </button>
           </div>

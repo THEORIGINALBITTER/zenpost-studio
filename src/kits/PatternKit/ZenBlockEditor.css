@@ -1030,13 +1030,19 @@
 .zen-block-editor.zen-editor-line-numbers {
   position: relative;
   counter-reset: zenline;
-  background-image: linear-gradient(
-    to right,
-    #232323 var(--zen-line-gutter, 56px),
-    rgba(172,142,102,0.5) var(--zen-line-gutter, 56px),
-    rgba(172,142,102,0.5) calc(var(--zen-line-gutter, 56px) + 1px),
-    transparent calc(var(--zen-line-gutter, 56px) + 1px)
-  ) !important;
+}
+
+.zen-block-editor.zen-editor-line-numbers::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--zen-line-gutter, 56px);
+  background: #232323;
+  border-right: 1px solid rgba(172,142,102,0.5);
+  pointer-events: none;
+  z-index: 0;
 }
 
 .zen-block-editor.zen-editor-line-numbers .codex-editor,
@@ -1166,13 +1172,20 @@
 }
 
 .zen-editor-theme-light.zen-editor-line-numbers {
-  background-image: linear-gradient(
-    to right,
-    #C5C0B3 var(--zen-line-gutter, 56px),
-    #AC8E66 var(--zen-line-gutter, 56px),
-    #AC8E66 calc(var(--zen-line-gutter, 56px) + 1px),
-    transparent calc(var(--zen-line-gutter, 56px) + 1px)
-  ) !important;
+  position: relative;
+}
+
+.zen-editor-theme-light.zen-editor-line-numbers::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--zen-line-gutter, 56px);
+  background: #C5C0B3;
+  border-right: 1px solid #AC8E66;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .zen-editor-theme-light.zen-editor-line-numbers .ce-block::before {

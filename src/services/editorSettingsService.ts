@@ -3,6 +3,8 @@ import { isTauri } from '@tauri-apps/api/core';
 import { getProjectDataDir } from './appConfigService';
 
 export type EditorTheme = 'dark' | 'light';
+export type EditorPaperStyle = 'classic' | 'dot';
+export type EditorPaperIntensity = 'soft' | 'medium' | 'strong';
 
 export interface EditorSettings {
   fontSize: number;
@@ -14,6 +16,8 @@ export interface EditorSettings {
   wrapLines: boolean;
   showLineNumbers: boolean;
   theme: EditorTheme;
+  paperStyle: EditorPaperStyle;
+  paperIntensity: EditorPaperIntensity;
   marginTop: number;
   marginBottom: number;
   marginLeft: number;
@@ -37,6 +41,8 @@ export const defaultEditorSettings: EditorSettings = {
   wrapLines: true,
   showLineNumbers: true,
   theme: 'light',
+  paperStyle: 'classic',
+  paperIntensity: 'medium',
   marginTop: 48,
   marginBottom: 48,
   marginLeft: 64,
@@ -133,24 +139,38 @@ const loadSettingsFromLocalStorage = (): Partial<EditorSettings> | null => {
   try { return JSON.parse(raw) as Partial<EditorSettings>; } catch { return null; }
 };
 
+const VALID_PAPER_STYLES: EditorPaperStyle[] = ['classic', 'dot'];
+const VALID_PAPER_INTENSITIES: EditorPaperIntensity[] = ['soft', 'medium', 'strong'];
+
+const normalizeEditorSettings = (settings: Partial<EditorSettings> | null | undefined): EditorSettings => {
+  const next = { ...defaultEditorSettings, ...(settings ?? {}) };
+  if (!VALID_PAPER_STYLES.includes(next.paperStyle as EditorPaperStyle)) {
+    next.paperStyle = defaultEditorSettings.paperStyle;
+  }
+  if (!VALID_PAPER_INTENSITIES.includes(next.paperIntensity as EditorPaperIntensity)) {
+    next.paperIntensity = defaultEditorSettings.paperIntensity;
+  }
+  return next;
+};
+
 export const loadEditorSettings = async (projectPath: string): Promise<EditorSettings> => {
   if (!isTauri()) {
     const fromStorage = loadSettingsFromLocalStorage();
-    return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
+    return normalizeEditorSettings(fromStorage);
   }
   try {
     const settingsPath = await getEditorSettingsPath(projectPath);
     if (!(await exists(settingsPath))) {
       const fromStorage = loadSettingsFromLocalStorage();
-      return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
+      return normalizeEditorSettings(fromStorage);
     }
     const raw = await readTextFile(settingsPath);
     const parsed = JSON.parse(raw) as Partial<EditorSettings>;
-    return { ...defaultEditorSettings, ...parsed };
+    return normalizeEditorSettings(parsed);
   } catch (error) {
     console.error('[EditorSettings] Failed to load settings:', error);
     const fromStorage = loadSettingsFromLocalStorage();
-    return { ...defaultEditorSettings, ...(fromStorage ?? {}) };
+    return normalizeEditorSettings(fromStorage);
   }
 };
 

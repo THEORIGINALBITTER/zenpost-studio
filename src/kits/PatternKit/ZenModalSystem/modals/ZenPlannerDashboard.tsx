@@ -25,6 +25,7 @@ type ZenPlannerDashboardProps = {
   onStatusFilterChange: (value: PlannerOverviewStatusFilter) => void;
   onOpenCloudSettings: () => void;
   onOpenPlannerPost: (postId: string) => void;
+  onOpenCalendarDate: (dateKey: string) => void;
   onOpenTodoScope: (postId?: string) => void;
 };
 
@@ -39,6 +40,7 @@ export function ZenPlannerDashboard({
   onStatusFilterChange,
   onOpenCloudSettings,
   onOpenPlannerPost,
+  onOpenCalendarDate,
   onOpenTodoScope,
 }: ZenPlannerDashboardProps) {
   const gold = '#AC8E66';
@@ -289,31 +291,56 @@ export function ZenPlannerDashboard({
                   day.posts.slice(0, 3).map((post) => {
                     const info = getPlatformInfo(post.platform);
                     return (
-                      <button
-                        key={post.id}
-                        onClick={() => onOpenPlannerPost(post.id)}
-                        style={{
-                          width: '100%',
-                          borderRadius: 6,
-                          background: `${info.color}12`,
-                          border: `1px solid ${info.color}33`,
-                          padding: '6px 6px 5px',
-                          cursor: 'pointer',
-                          fontFamily: fontMono,
-                          textAlign: 'left',
-                        }}
-                        title="Post direkt öffnen"
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
-                          <FontAwesomeIcon icon={info.icon} style={{ fontSize: 8, color: info.color }} />
-                          <span style={{ fontSize: 8, color: textMain, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                            {post.title || '(kein Titel)'}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: 8, color: textLight }}>
-                          {post.schedule?.time || 'ohne Zeit'}
-                        </div>
-                      </button>
+                      <div key={post.id} style={{
+                        width: '100%',
+                        borderRadius: 6,
+                        background: `${info.color}12`,
+                        border: `1px solid ${info.color}33`,
+                        padding: '6px 6px 5px',
+                        fontFamily: fontMono,
+                      }}>
+                        <button
+                          onClick={() => onOpenPlannerPost(post.id)}
+                          style={{
+                            width: '100%',
+                            border: 'none',
+                            background: 'transparent',
+                            padding: 0,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            fontFamily: fontMono,
+                          }}
+                          title="Post direkt öffnen"
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
+                            <FontAwesomeIcon icon={info.icon} style={{ fontSize: 8, color: info.color }} />
+                            <span style={{ fontSize: 8, color: textMain, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                              {post.title || '(kein Titel)'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 8, color: textLight, marginBottom: 6 }}>
+                            {post.schedule?.time || 'ohne Zeit'}
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onOpenCalendarDate(day.dateKey)}
+                          style={{
+                            width: '100%',
+                            borderRadius: 5,
+                            border: `1px solid ${borderColor}`,
+                            background: 'rgba(255,255,255,0.28)',
+                            color: textMain,
+                            fontFamily: fontMono,
+                            fontSize: 8,
+                            padding: '4px 6px',
+                            cursor: 'pointer',
+                          }}
+                          title="Zum Kalendertag springen"
+                        >
+                          Im Kalender öffnen
+                        </button>
+                      </div>
                     );
                   })
                 )}

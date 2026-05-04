@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ZenModal } from '../components/ZenModal';
 import { ZenRoughButton } from '../components/ZenRoughButton';
 
@@ -12,6 +12,10 @@ const mono = 'IBM Plex Mono, monospace';
 
 export function ZenGeneratingModal({ isOpen, templateName, onClose }: ZenGeneratingModalProps) {
   const [showAbortConfirm, setShowAbortConfirm] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) setShowAbortConfirm(false);
+  }, [isOpen]);
 
   const handleRequestClose = () => {
     if (!onClose) return;

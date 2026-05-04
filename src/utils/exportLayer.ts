@@ -278,6 +278,22 @@ const wrapText = (text: string, maxWidth: number, font: any, fontSize: number) =
   return lines.length > 0 ? lines : [''];
 };
 
+const toWinAnsiSafe = (input: string): string =>
+  input
+    .replace(/禅/g, 'Zen')
+    .replace(/→/g, '->')
+    .replace(/←/g, '<-')
+    .replace(/↔/g, '<->')
+    .replace(/⇒/g, '=>')
+    .replace(/⇐/g, '<=')
+    .replace(/•/g, '*')
+    .replace(/…/g, '...')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[–—]/g, '-')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
+
 export const exportPayloadToPdf = async (payload: ExportPayload): Promise<Uint8Array> => {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
@@ -299,8 +315,9 @@ export const exportPayloadToPdf = async (payload: ExportPayload): Promise<Uint8A
   };
 
   const drawLine = (text: string, bold = false) => {
+    const safeText = toWinAnsiSafe(text);
     ensureSpace(1);
-    page.drawText(text, {
+    page.drawText(safeText, {
       x: pageMargin,
       y: cursorY,
       size: fontSize,

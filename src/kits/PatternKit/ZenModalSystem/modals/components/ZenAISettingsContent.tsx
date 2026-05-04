@@ -23,6 +23,20 @@ interface ZenAISettingsContentProps {
 export const ZenAISettingsContent = ({ onSwitchTab }: ZenAISettingsContentProps) => {
   const [aiConfig, setAiConfig] = useState<AIConfig>(loadAIConfig());
   const [ollamaStatus, setOllamaStatus] = useState<"idle" | "checking" | "ok" | "error">("idle");
+  const [ollamaModelStatus, setOllamaModelStatus] = useState<"idle" | "checking" | "ok" | "missing">("idle");
+  const [availableOllamaModels, setAvailableOllamaModels] = useState<string[]>([]);
+  const configuredModel = aiConfig.model || "llama3.1:latest";
+  const normalizeModel = (value: string) => value.trim().toLowerCase();
+  const variantsFor = (value: string): string[] => {
+    const raw = normalizeModel(value);
+    if (!raw) return [];
+    if (raw.endsWith(":latest")) return [raw, raw.replace(/:latest$/, "")];
+    return [raw, `${raw}:latest`];
+  };
+  const uniqueInstalledOllamaModels = Array.from(new Set(availableOllamaModels));
+  const selectedVariants = new Set(variantsFor(configuredModel));
+  const installedVariants = new Set(uniqueInstalledOllamaModels.flatMap((m) => variantsFor(m)));
+  const configuredModelInstalled = [...selectedVariants].some((v) => installedVariants.has(v));
 
   // Auto-save on changes
   useEffect(() => {
@@ -33,11 +47,15 @@ export const ZenAISettingsContent = ({ onSwitchTab }: ZenAISettingsContentProps)
   useEffect(() => {
     if (aiConfig.provider !== "ollama") {
       setOllamaStatus("idle");
+      setOllamaModelStatus("idle");
+      setAvailableOllamaModels([]);
       return;
     }
     // Im Web-Modus: kein Verbindungstest, nur Info anzeigen
     if (!isDesktop) {
       setOllamaStatus("idle");
+      setOllamaModelStatus("idle");
+      setAvailableOllamaModels([]);
       return;
     }
     const baseUrl = (aiConfig.baseUrl || "http://127.0.0.1:11434").replace(/\/$/, "");
@@ -46,25 +64,63 @@ export const ZenAISettingsContent = ({ onSwitchTab }: ZenAISettingsContentProps)
 
     const check = async () => {
       setOllamaStatus("checking");
+      setOllamaModelStatus("checking");
       try {
         const result = await invoke<{ status: number; body: string }>("http_fetch", {
           request: { url, method: "GET", headers: { "Content-Type": "application/json" }, body: null },
         });
-        if (!cancelled) setOllamaStatus(result.status >= 200 && result.status < 300 ? "ok" : "error");
+        if (cancelled) return;
+        if (!(result.status >= 200 && result.status < 300)) {
+          setOllamaStatus("error");
+          setOllamaModelStatus("idle");
+          setAvailableOllamaModels([]);
+          return;
+        }
+
+        setOllamaStatus("ok");
+        try {
+          const parsed = JSON.parse(result.body || "{}") as {
+            models?: Array<{ name?: string; model?: string }>;
+          };
+          const discovered = (parsed.models ?? [])
+            .flatMap((m) => [m.name, m.model])
+            .filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+          setAvailableOllamaModels(discovered);
+
+          const selected = aiConfig.model || "llama3.1:latest";
+          const selectedVariants = new Set(variantsFor(selected));
+          const installedVariants = new Set(
+            discovered.flatMap((m) => variantsFor(m))
+          );
+          const hasSelected = [...selectedVariants].some((v) => installedVariants.has(v));
+          setOllamaModelStatus(hasSelected ? "ok" : "missing");
+        } catch {
+          // If tags parsing fails although server responded, keep transport OK but model state unknown/missing.
+          setAvailableOllamaModels([]);
+          setOllamaModelStatus("missing");
+        }
       } catch {
-        if (!cancelled) setOllamaStatus("error");
+        if (!cancelled) {
+          setOllamaStatus("error");
+          setOllamaModelStatus("idle");
+          setAvailableOllamaModels([]);
+        }
       }
     };
 
     check();
     return () => { cancelled = true; };
-  }, [aiConfig.provider, aiConfig.baseUrl]);
+  }, [aiConfig.provider, aiConfig.baseUrl, aiConfig.model]);
 
   // Im Web-Modus: Ollama aus der Provider-Liste entfernen
   const availableProviders = getAvailableProviders().filter(
     (p) => isDesktop || p.value !== "ollama"
   );
-  const availableModels = getModelsForProvider(aiConfig.provider);
+  const fallbackModels = getModelsForProvider(aiConfig.provider);
+  const availableModels =
+    aiConfig.provider === "ollama" && isDesktop && uniqueInstalledOllamaModels.length > 0
+      ? uniqueInstalledOllamaModels
+      : fallbackModels;
 
 return (
   <div className="w-full flex justify-center" style={{ padding: "32px 32px" }}>
@@ -105,15 +161,37 @@ return (
             />
 
             {availableModels.length > 0 && (
-              <ZenDropdown
-                label="Modell:"
-                labelSize="11px"
-                value={aiConfig.model || ""}
-                onChange={(value) => setAiConfig({ ...aiConfig, model: value })}
-                options={availableModels.map((m) => ({ value: m, label: m }))}
-                fullWidth
-                variant="compact"
-              />
+              <>
+                <ZenDropdown
+                  label="Modell:"
+                  labelSize="11px"
+                  value={aiConfig.model || ""}
+                  onChange={(value) => setAiConfig({ ...aiConfig, model: value })}
+                  options={availableModels.map((m) => ({ value: m, label: m }))}
+                  fullWidth
+                  variant="compact"
+                />
+
+                {aiConfig.provider === "ollama" && isDesktop && ollamaStatus === "ok" && !configuredModelInstalled && (
+                  <div
+                    className="font-mono text-[10px] text-center"
+                    style={{ marginTop: -10, color: "#8f1d16", lineHeight: 1.5 }}
+                  >
+                    Modell nicht installiert: <strong>{configuredModel}</strong>
+                    <br />
+                    Anweisung: <code style={{ color: "#3a3a3a" }}>ollama pull {configuredModel}</code>
+                  </div>
+                )}
+
+                {aiConfig.provider === "ollama" && isDesktop && ollamaStatus === "ok" && uniqueInstalledOllamaModels.length > 0 && (
+                  <div
+                    className="font-mono text-[9px] text-center"
+                    style={{ marginTop: -12, color: "#7a6a52" }}
+                  >
+                    Im Dropdown sind nur lokal installierte Modelle auswählbar.
+                  </div>
+                )}
+              </>
             )}
 
             {/* API Key */}
@@ -260,6 +338,58 @@ return (
                 style={{ width: 7, height: 7, flexShrink: 0, background: "#4c8c4a" }}
               />
               Ollama ist erreichbar und einsatzbereit
+            </div>
+          )}
+
+          {/* Desktop: Model missing hint */}
+          {aiConfig.provider === "ollama" && isDesktop && ollamaStatus === "ok" && ollamaModelStatus === "missing" && (
+            <div
+              className="flex flex-col items-center font-mono text-[10px]"
+              style={{
+                gap: 14,
+                padding: "14px 18px",
+                borderRadius: 10,
+                background: "rgba(180,120,60,0.08)",
+                border: "1px solid rgba(180,120,60,0.25)",
+                color: "#7a5a2f",
+              }}
+            >
+              <div className="text-center leading-relaxed">
+                Ollama läuft, aber das ausgewählte Modell ist lokal nicht installiert:
+                <br />
+                <strong style={{ color: "#AC8E66" }}>{aiConfig.model || "llama3.1:latest"}</strong>
+              </div>
+              <div className="text-center leading-relaxed" style={{ color: "#6b5a3e" }}>
+                Öffne ein Terminal und lade das Modell:
+                <br />
+                <code style={{ fontSize: 11, color: "#3a3a3a" }}>
+                  ollama pull {aiConfig.model || "llama3.1:latest"}
+                </code>
+              </div>
+              {onSwitchTab && (
+                <ZenRoughButton
+                  label="Lokale KI öffnen"
+                  size="small"
+                  onClick={() => onSwitchTab("localai")}
+                  width={220}
+                  height={40}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Optional helper list of installed Ollama models */}
+          {aiConfig.provider === "ollama" && isDesktop && ollamaStatus === "ok" && availableOllamaModels.length > 0 && (
+            <div
+              className="font-mono text-[9px] text-center"
+              style={{
+                color: "#7a6a52",
+                paddingTop: 2,
+                lineHeight: 1.5,
+              }}
+            >
+              Installierte Modelle: {availableOllamaModels.slice(0, 6).join(", ")}
+              {availableOllamaModels.length > 6 ? " …" : ""}
             </div>
           )}
 

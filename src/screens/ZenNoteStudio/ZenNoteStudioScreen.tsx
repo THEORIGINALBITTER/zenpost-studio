@@ -622,7 +622,15 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
         <button
           onClick={handleAddToPlanner}
           disabled={!activeNoteId}
-          style={{ width: 130, height: 40, borderTop: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderLeft: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderRight: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: plannerAddOk ? '#4caf50' : '#d0cbb8', cursor: !activeNoteId ? 'not-allowed' : 'pointer', opacity: !activeNoteId ? 0.2 : 1, transition: 'all 0.2s ease', marginBottom: '-2px' }}
+          style={{ 
+            width: 130, 
+            height: 40, 
+            borderTop: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+            borderLeft: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+            borderRight: plannerAddOk ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+            borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', 
+            background: '#252525', 
+            display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: plannerAddOk ? '#4caf50' : '#d0cbb8', cursor: !activeNoteId ? 'not-allowed' : 'pointer', opacity: !activeNoteId ? 0.2 : 1, transition: 'all 0.2s ease', marginBottom: '-2px' }}
           onMouseEnter={(e) => { if (activeNoteId && !plannerAddOk) { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
           onMouseLeave={(e) => { if (activeNoteId && !plannerAddOk) { e.currentTarget.style.borderColor = '#2A2A2A'; e.currentTarget.style.transform = 'translateY(0)'; } }}
         >
@@ -634,30 +642,78 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
           <button
             onClick={() => { if (!insertOk && !openAsDraftOk) setShowInsertMenu((prev) => !prev); }}
             disabled={!editorContent.trim()}
-            style={{ width: 130, height: 40, borderTop: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderLeft: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderRight: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', background: '#121212', display: 'flex', alignItems: 'center', gap: 8, fontFamily: fontMono, fontSize: 10, color: (insertOk || openAsDraftOk) ? '#4caf50' : '#d0cbb8', cursor: !editorContent.trim() ? 'not-allowed' : 'pointer', opacity: !editorContent.trim() ? 0.2 : 1, transition: 'all 0.2s ease', marginBottom: '-2px' }}
+            style={{ 
+              width: 130, 
+              height: 40, 
+              borderTop: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+              borderLeft: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+              borderRight: (insertOk || openAsDraftOk) ? '1px solid #4caf50' : '1px dotted #2A2A2A', 
+              borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 10px', 
+              background: '#252525', 
+              display: 'flex', alignItems: 'center', gap: 8, 
+              fontFamily: fontMono, fontSize: 10, 
+              color: (insertOk || openAsDraftOk) ? '#4caf50' : '#d0cbb8', 
+              cursor: !editorContent.trim() ? 'not-allowed' : 'pointer', 
+              opacity: !editorContent.trim() ? 0.2 : 1, 
+              transition: 'all 0.2s ease', marginBottom: '-2px' }}
             onMouseEnter={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
             onMouseLeave={(e) => { if (editorContent.trim() && !insertOk && !openAsDraftOk) { e.currentTarget.style.borderColor = '#2A2A2A'; e.currentTarget.style.transform = 'translateY(0)'; } }}
           >
-            <span style={{ display: 'inline-flex', color: '#d0cbb8' }}><FontAwesomeIcon icon={insertOk || openAsDraftOk ? faCheck : faArrowRightToBracket} /></span>
+            <span style={{ display: 'inline-flex', color: '#d0cbb8' }}>
+              <FontAwesomeIcon icon={insertOk || openAsDraftOk ? faCheck : faArrowRightToBracket} /></span>
             <span>{insertOk ? 'Eingefügt!' : openAsDraftOk ? 'Geöffnet!' : `Einfügen ${showInsertMenu ? '▲' : '▾'}`}</span>
           </button>
           {showInsertMenu && (
-            <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#d0cbb8', border: 'none', boxShadow: 'none', borderRadius: 2, overflow: 'hidden', minWidth: 200, zIndex: 200 }}>
+            <div style={{ 
+              position: 'absolute', 
+              top: 'calc(100% + 6px)', 
+              right: 10, 
+              background: '#252525', 
+              border: '1px solid rgba(21, 21, 21, 0.35', 
+
+              boxShadow: 'none', 
+              borderRadius: 4, 
+              overflow: 'hidden', minWidth: 300, zIndex: 200, transform: 'translateX(30px)' }}>
               {insertTargetActive && (
-                <button onClick={() => { setShowInsertMenu(false); handleInsert(); }} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', boxShadow: 'none', border: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-                  <FontAwesomeIcon icon={faArrowRightToBracket} style={{ color: bgList }} />
+                <button onClick={() => { setShowInsertMenu(false); handleInsert(); }} 
+                style={{ 
+                  width: '100%', 
+                  textAlign: 'left', 
+                  padding: '10px 14px', 
+                  background: 'transparent', 
+                  boxShadow: 'none', 
+                  border: 'none', 
+                  color: '#d0cbb8', fontFamily: fontMono, 
+                  fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                  <FontAwesomeIcon icon={faArrowRightToBracket} style={{ color: '#d0cbb8' }} />
                   In Editor einfügen
                 </button>
               )}
-              <button onClick={() => { setShowInsertMenu(false); handleOpenAsDraft(); }} style={{ width: '100%', textAlign: 'left', padding: '10px 14px', background: 'transparent', border: 'none', color: '#1a1a1a', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
-                <FontAwesomeIcon icon={faPenToSquare} style={{ color: bgList }} />
+              <button onClick={() => { setShowInsertMenu(false); handleOpenAsDraft(); }} 
+              style={{ 
+                width: '100%', 
+                textAlign: 'left', 
+                padding: '10px 14px', 
+                background: 'transparent', 
+                border: 'none', 
+                color: '#d0cbb8', fontFamily: fontMono, fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }} onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(172,142,102,0.12)'; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                <FontAwesomeIcon icon={faPenToSquare} style={{ color: '#d0cbb8'}} />
                 Als Entwurf öffnen
               </button>
             </div>
           )}
         </div>
             {/* Theme switcher */}
-        <div style={{ height: 40, borderTop: '1px dotted #2A2A2A', borderLeft: '1px dotted #2A2A2A', borderRight: '1px dotted #2A2A2A', borderBottom: 0, borderRadius: '10px 10px 0 0', padding: '0 8px', background: '#121212', display: 'flex', alignItems: 'center', gap: 4, marginBottom: '-2px' }}>
+        <div style={{ 
+          height: 40, 
+          borderTop: '1px dotted #2A2A2A', 
+          borderLeft: '1px dotted #2A2A2A', 
+          borderRight: '1px dotted #2A2A2A', 
+          borderBottom: 0, 
+          borderRadius: '10px 10px 0 0', 
+          padding: '0 8px', 
+          background: '#252525', 
+          display: 'flex', alignItems: 'center', gap: 4, marginBottom: '-2px' }}>
           <button type="button" onClick={() => updateEditorTheme('dark')} title="Dark Theme" style={{ border: 'none', borderRadius: 6, background: editorTheme === 'dark' ? '#d0cbb8' : 'transparent', color: editorTheme === 'dark' ? '#AC8E66' : '#888', width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
             <FontAwesomeIcon icon={faMoon} style={{ fontSize: 10 }} />
           </button>

@@ -15,9 +15,13 @@ import { ZenMarkdownEditor } from '../../kits/PatternKit/ZenMarkdownEditor';
 import { type PreviewThemeId } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { Step1StyleThemeQuickMenu } from './components/Step1StyleThemeQuickMenu';
 import { importDocumentToMarkdown } from '../../services/documentImportService';
+import { buildLineDiffRows, type LineDiffRow } from '../../services/documentComparisonService';
+import { buildComparisonUiLabels } from '../../services/documentComparisonUiService';
 import { defaultEditorSettings, saveEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
+import { ZenSideTab } from '../../components/ZenSideTab';
+import { DocumentComparisonPanel } from '../../components/DocumentComparisonPanel';
 import {
   saveImageToOpfs,
   EDITOR_IMAGE_MAX_FILE_SIZE_MB,
@@ -102,6 +106,13 @@ interface Step1SourceInputProps {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
   };
   onMetaChange?: (meta: {
     title: string;
@@ -112,20 +123,19 @@ interface Step1SourceInputProps {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
   }) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
   previewTheme?: PreviewThemeId;
   onPreviewThemeChange?: (theme: PreviewThemeId) => void;
 }
-
-type LineDiffRow = {
-  left: string;
-  right: string;
-  status: 'same' | 'added' | 'removed' | 'modified';
-};
-
-
 
 const EXTERNAL_DOCS_URL =
   "https://zenpostdocs.denisbitter.de/workflows/pages-export.html";
@@ -248,75 +258,6 @@ const ZenStepItem = ({
   );
 };
 
-const RotatedTab = ({
-  onClick,
-  disabled,
-  style,
-  label,
-  hoverLabel,
-  color,
-  title,
-}: {
-  onClick: () => void;
-  disabled?: boolean;
-  style: React.CSSProperties;
-  label: string;
-  hoverLabel: string;
-  color: string;
-  title?: string;
-}) => {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      disabled={disabled}
-      title={title}
-      onMouseEnter={() => !disabled && setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      className="lg:flex"
-      style={{
-        position: 'absolute',
-        transformOrigin: 'left top',
-        padding: '10px 10px',
-        borderRadius: '8px 8px 0px 0px',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        fontFamily: 'IBM Plex Mono, monospace',
-        fontSize: '10px',
-        color,
-        letterSpacing: '0.03em',
-        whiteSpace: 'nowrap',
-        zIndex: 1,
-        overflow: 'hidden',
-        minWidth: '80px',
-        transition: 'background 0.2s ease',
-        ...style,
-      }}
-    >
-      {/* Fade-swap: label ↔ hoverLabel */}
-      <span style={{
-        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        opacity: hovered ? 0 : 1,
-        transition: 'opacity 0.18s ease',
-        padding: '0 10px',
-      }}>
-        {label}
-      </span>
-      <span style={{
-        position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        opacity: hovered ? 1 : 0,
-        color: disabled ? color : '#d0cbb8',
-      
-        transition: 'opacity 0.18s ease',
-        padding: '0 10px',
-      }}>
-        {hoverLabel}
-      </span>
-      {/* Invisible spacer to maintain button size */}
-      <span style={{ visibility: 'hidden' }}>{label.length > hoverLabel.length ? label : hoverLabel}</span>
-    </button>
-  );
-};
-
 export const Step1SourceInput = ({
   sourceContent,
   fileName: _fileName,
@@ -361,7 +302,7 @@ export const Step1SourceInput = ({
   onComparisonBaseChange,
   onAdoptCurrentAsComparisonBase,
   autosaveStatusText,
-  onOpenEditorSettings,
+  onOpenEditorSettings: _onOpenEditorSettings,
   autosaveRestoreBanner = null,
   onAutosaveBannerRestore,
   onAutosaveBannerDismiss,
@@ -846,9 +787,16 @@ export const Step1SourceInput = ({
     imageAlt: '',
     imageTitle: '',
     imageCaption: '',
+    project: '',
+    day: '',
+    status: '',
+    focus: '',
+    today: '',
+    blockers: '',
+    next: '',
   };
 
-  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date' | 'imageAlt' | 'imageTitle' | 'imageCaption', value: string) => {
+  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date' | 'imageAlt' | 'imageTitle' | 'imageCaption' | 'project' | 'day' | 'status' | 'focus' | 'today' | 'blockers' | 'next', value: string) => {
     onMetaChange?.({ ...(postMeta ?? EMPTY_META), [field]: value });
   }, [onMetaChange, postMeta]);
 
@@ -1105,82 +1053,13 @@ export const Step1SourceInput = ({
   })();
   const revealPath = activeDocTab?.filePath || (projectPath && !projectPath.startsWith('@') ? projectPath : null);
   const showTitleHeader = docTabs.length > 0 || (sourceContent && sourceContent.trim().length > 0);
+  const comparisonUiLabels = buildComparisonUiLabels({
+    leftDocumentContext: comparisonBaseLabel,
+    rightDocumentContext: displayFileName,
+  });
   const comparisonRows = useMemo<LineDiffRow[]>(() => {
     if (comparisonBaseContent === undefined) return [];
-    const leftLines = comparisonBaseContent.split('\n');
-    const rightLines = sourceContent.split('\n');
-    const n = leftLines.length;
-    const m = rightLines.length;
-    const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-
-    for (let i = n - 1; i >= 0; i -= 1) {
-      for (let j = m - 1; j >= 0; j -= 1) {
-        dp[i][j] = leftLines[i] === rightLines[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-
-    const rows: LineDiffRow[] = [];
-    let i = 0;
-    let j = 0;
-    while (i < n && j < m) {
-      if (leftLines[i] === rightLines[j]) {
-        rows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
-        i += 1;
-        j += 1;
-      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-        rows.push({ left: leftLines[i], right: '', status: 'removed' });
-        i += 1;
-      } else {
-        rows.push({ left: '', right: rightLines[j], status: 'added' });
-        j += 1;
-      }
-    }
-    while (i < n) {
-      rows.push({ left: leftLines[i], right: '', status: 'removed' });
-      i += 1;
-    }
-    while (j < m) {
-      rows.push({ left: '', right: rightLines[j], status: 'added' });
-      j += 1;
-    }
-    // GitHub-style: pair consecutive removed/added blocks side-by-side
-    const mergedRows: LineDiffRow[] = [];
-    let idx = 0;
-    while (idx < rows.length) {
-      const current = rows[idx];
-      if (current.status === 'same') {
-        mergedRows.push(current);
-        idx += 1;
-        continue;
-      }
-      // Collect the full block of consecutive removed + added lines
-      const removed: string[] = [];
-      const added: string[] = [];
-      let k = idx;
-      while (k < rows.length && (rows[k].status === 'removed' || rows[k].status === 'added')) {
-        if (rows[k].status === 'removed') removed.push(rows[k].left);
-        else added.push(rows[k].right);
-        k += 1;
-      }
-      // Pair them side-by-side
-      const pairCount = Math.max(removed.length, added.length);
-      for (let p = 0; p < pairCount; p += 1) {
-        const l = removed[p] ?? '';
-        const r = added[p] ?? '';
-        if (l && r) {
-          mergedRows.push({ left: l, right: r, status: 'modified' });
-        } else if (l) {
-          mergedRows.push({ left: l, right: '', status: 'removed' });
-        } else {
-          mergedRows.push({ left: '', right: r, status: 'added' });
-        }
-      }
-      idx = k;
-    }
-
-    return mergedRows;
+    return buildLineDiffRows(comparisonBaseContent, sourceContent);
   }, [comparisonBaseContent, sourceContent]);
 
   useEffect(() => {
@@ -1328,7 +1207,7 @@ export const Step1SourceInput = ({
                 style={{
                   display: 'flex',
                   gap: '8px',
-                  marginBottom: '3px',
+                  marginBottom: '10px',
                   padding: '1px',
                   backgroundColor: 'transparent',
                   borderRadius: '12px 12px 0 0',
@@ -1365,7 +1244,7 @@ export const Step1SourceInput = ({
                 
                         color: isActive ? '#1a1a1a' : '#777',
                         transition: 'all 0.1s',
-                        transform: isActive ? 'translateY(0)' : 'translateY(8px)',
+                        transform: isActive ? 'translateY(0)' : 'translateY(5px)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
@@ -1523,7 +1402,7 @@ export const Step1SourceInput = ({
                 borderRadius: '0 0 0 0 ',
                 backgroundColor: '#1a1a1a',
                 position: 'relative',
-                zIndex: 1,
+                zIndex: 10,
               }}
             >
               <div style={{ 
@@ -1532,7 +1411,7 @@ export const Step1SourceInput = ({
                 gap: '10px', 
                 marginBottom: '8px', flexWrap: 'wrap' }}>
                 <div className="font-mono text-[10px] text-[#d0cbb8] py-[10px]">
-                  Vorher: {comparisonBaseLabel}
+                  Vorher: {comparisonUiLabels.leftContext}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   {comparisonBaseOptions.length > 1 ? (
@@ -1542,16 +1421,23 @@ export const Step1SourceInput = ({
                         onChange={(value) => onComparisonBaseChange?.(value)}
                         options={comparisonBaseOptions.map((option) => ({ value: option.id, label: option.label }))}
                         variant="compact"
+                        theme="paper-light"
                       />
                     </div>
                   ) : null}
                   <div className="font-mono text-[10px] text-[#d0cbb8]">
-                    Zeichen Δ {sourceContent.length - comparisonBaseContent.length}
+                    Zeichen Δ <span
+                    style={{
+                      color: '#42b850'
+                    }}
+                    
+                    
+                    >{ sourceContent.length - comparisonBaseContent.length}</span> 
                   </div>
                   {onAdoptCurrentAsComparisonBase ? (
                     <button
                       onClick={onAdoptCurrentAsComparisonBase}
-                      className="font-mono text-[9px] px-[10px] py-[10px] rounded-[4px] border-[0.5px] border-[#d0cbb8] text-[#d0cbb8]
+                      className="font-mono text-[10px] px-[10px] py-[10px] rounded-[4px] border-[0.5px] border-[#d0cbb8] text-[#d0cbb8]
                       hover:bg-[#d0cbb8] transition-colors
                       hover:text-[#1a1a1a]
                       hover:border-[#AC8E66] focus:outline-none focus:ring-2 focus:ring-[#AC8E66]/50"
@@ -1567,7 +1453,7 @@ export const Step1SourceInput = ({
                       background: 'transparent',
                       border: '1px solid #d0cbb8',
                       borderRadius: '4px',
-                      color: '#f35120',
+                      color: '#d0cbb8',
                       width: '30px',
                       height: '30px',
                       display: 'inline-flex',
@@ -1579,81 +1465,19 @@ export const Step1SourceInput = ({
                       lineHeight: 1,
                       transition: 'border-color 0.15s, color 0.15s',
                     }}
-                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#AC8E66'; e.currentTarget.style.color = '#f35120'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3A3A3A'; e.currentTarget.style.color = '#f35120'; }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#d0cbb8'; e.currentTarget.style.color = '#d0cbb8'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#3A3A3A'; e.currentTarget.style.color = '#d0cbb8'; }}
                   >
                     ×
                   </button>
                 </div>
               </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '8px',
-                  maxHeight: '240px',
-                  overflow: 'auto',
-                }}
-              >
-                <div style={{ border: '0.5px solid #3a3a3a', borderRadius: '8px', overflow: 'hidden' }}>
-                  {comparisonRows.map((row, index) => (
-                    <div
-                      key={`left-${index}`}
-                      style={{
-                        padding: '3px 8px',
-                        minHeight: '18px',
-                        borderBottom: '0.5px solid #202020',
-                        backgroundColor:
-                          row.status === 'removed'
-                            ? 'rgba(239,68,68,1)'
-                            : row.status === 'modified'
-                              ? 'rgba(245, 158, 11,1 )'
-                              : '#171717',
-                        color:
-                          row.status === 'removed'
-                            ? '#1a1a1a'
-                            : row.status === 'modified'
-                              ? '#1a1a1a'
-                              : '#1a1a1a',
-                        fontFamily: 'monospace',
-                        fontSize: '10px',
-                        whiteSpace: 'pre-wrap',
-                      }}
-                    >
-                      {row.left || ' '}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ border: '0.5px solid #AC8E66', borderRadius: '8px', overflow: 'hidden' }}>
-                  {comparisonRows.map((row, index) => (
-                    <div
-                      key={`right-${index}`}
-                      style={{
-                        padding: '3px 8px',
-                        minHeight: '18px',
-                        borderBottom: '0.5px solid #202020',
-                        backgroundColor:
-                          row.status === 'added'
-                            ? 'rgba(34,197,94,1)'
-                            : row.status === 'modified'
-                              ? 'rgba(245, 158, 11, 1)'
-                              : '#d0cbb8',
-                        color:
-                          row.status === 'added'
-                            ? '#1a1a1a'
-                            : row.status === 'modified'
-                              ? '#1a1a1a'
-                              : '#1a1a1a',
-                        fontFamily: 'monospace',
-                        fontSize: '10px',
-                        whiteSpace: 'pre-wrap',
-                      }}
-                    >
-                      {row.right || ' '}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <DocumentComparisonPanel
+                rows={comparisonRows}
+                labels={comparisonUiLabels}
+                maxHeight="240px"
+                variant="dark"
+              />
             </div>
           )}
           {editTabs.length > 1 && !hasDerivedDocTabs && (
@@ -1712,8 +1536,9 @@ export const Step1SourceInput = ({
               left: -5,
             }}
 >
-            <RotatedTab
+            <ZenSideTab
               onClick={toggleOutlinePanel}
+              className="lg:flex"
               style={{
                 left: showOutline ? -258 : -28,
                 top: showOutline ? 60 : 190,
@@ -1723,12 +1548,13 @@ export const Step1SourceInput = ({
               }}
               label={showOutline ? 'Gliederung ausblenden' : 'Gliederung'}
               hoverLabel={showOutline ? 'Schließen ×' : 'Öffnen →'}
-              color="#aaaaaa"
+              textColor="#aaaaaa"
             />
 
-            <RotatedTab
+            <ZenSideTab
               onClick={toggleComparisonPanel}
               disabled={!canUseComparison}
+              className="lg:flex"
               style={{
                 left: -28,
                 top: showComparison ? 295 : 300,
@@ -1739,13 +1565,14 @@ export const Step1SourceInput = ({
               }}
               label={`Vergleich ${showComparison ? 'an' : 'aus'}`}
               hoverLabel={!canUseComparison ? 'Nicht verfügbar' : showComparison ? 'Ausblenden ×' : 'Einblenden →'}
-              color={!canUseComparison ? '#1a1a1a' : showComparison ? '#1a1a1a' : '#aaaaaa'}
+              textColor={!canUseComparison ? '#1a1a1a' : showComparison ? '#1a1a1a' : '#aaaaaa'}
               title={!canUseComparison ? 'Keine Vergleichsbasis verfügbar.' : `Vergleich ${showComparison ? 'ausblenden' : 'anzeigen'}`}
             />
 
             {/* Meta Tab Button */}
-            <RotatedTab
+            <ZenSideTab
               onClick={() => setShowMeta((v) => !v)}
+              className="lg:flex"
               style={{
                 left: -28,
                 top: 420,
@@ -1755,7 +1582,7 @@ export const Step1SourceInput = ({
               }}
               label="Post Metadaten"
               hoverLabel={showMeta ? 'Schließen ×' : 'Öffnen →'}
-              color={showMeta ? '#1a1a1a' : '#aaaaaa'}
+              textColor={showMeta ? '#1a1a1a' : '#aaaaaa'}
             />
 
             <Step1StyleThemeQuickMenu
@@ -1767,7 +1594,6 @@ export const Step1SourceInput = ({
               onEditorSettingsChange={updateQuickEditorSettings}
               autosaveStatusText={autosaveStatusText}
               autosaveHistory={autosaveHistory}
-              onOpenEditorSettings={onOpenEditorSettings}
               onAutosaveHistoryRestore={onAutosaveHistoryRestore}
               onAutosaveHistoryCompare={onAutosaveHistoryCompare}
               onOpenComparison={() => setShowComparison(true)}
@@ -2075,6 +1901,62 @@ export const Step1SourceInput = ({
                     )}
                   </div>
                 ))}
+
+                {(['project', 'day', 'status', 'focus', 'today', 'blockers', 'next'] as const).map((field) => (
+                  <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">
+                      {field === 'project'
+                        ? 'Projekt'
+                        : field === 'day'
+                        ? 'Tag'
+                        : field === 'status'
+                        ? 'Status'
+                        : field === 'focus'
+                        ? 'Fokus'
+                        : field === 'today'
+                        ? 'Heute'
+                        : field === 'blockers'
+                        ? 'Blocker'
+                        : 'Nächste Schritte'}
+                    </div>
+                    <textarea
+                      value={postMeta?.[field] ?? ''}
+                      onChange={(e) => updatePostMetaField(field, e.target.value)}
+                      rows={field === 'focus' ? 3 : 2}
+                      placeholder={
+                        field === 'project'
+                          ? 'z.B. ZenDev'
+                          : field === 'day'
+                          ? 'z.B. Tag 01'
+                          : field === 'status'
+                          ? 'z.B. In Arbeit'
+                          : field === 'focus'
+                          ? 'Fokus des Posts'
+                          : 'Eintrag pro Zeile oder mit Komma trennen'
+                      }
+                      style={{
+                        background: '#e4e3cb',
+                        border: '0.5px solid #3A3A3A',
+                        borderRadius: 4,
+                        padding: '6px 8px',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        color: '#1a1a1a',
+                        width: '100%',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        resize: 'vertical',
+                        minHeight: 40,
+                        lineHeight: '14px',
+                      }}
+                    />
+                    {(field === 'today' || field === 'blockers' || field === 'next') && (
+                      <div className="font-mono text-[9px] text-[#1a1a1a]" style={{ lineHeight: '11px' }}>
+                        Wird als YAML-Liste gespeichert und in `manifest.json` als Array abgelegt.
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
 
@@ -2090,7 +1972,7 @@ export const Step1SourceInput = ({
                   left: -260,
                   padding: '12px',
                   borderRadius: 10,
-                  background: '#1a1a1a',
+                  background: '#d0cbb8',
                   border: '1px solid rgba(172, 142, 102, 0.25)',
                   boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
                   display: 'flex',
@@ -2101,21 +1983,21 @@ export const Step1SourceInput = ({
                   zIndex: 6,
                 }}
               >
-                <div className="font-mono text-[10px] text-[#AC8E66] tracking-wide">Struktur ESC Closed</div>
+                <div className="font-mono text-[10px] text-[#252525] tracking-wide">Struktur ESC Closed</div>
                 {editorType === 'block' && (
                   <div className="
                   font-mono 
                   
                   text-[10px]
                   leading-[12px]
-                  text-[#d0cbb8]">
+                  text-[#252525]">
                     Kapitelklick bleibt im Block-Editor und springt zur passenden Ueberschrift.
                   </div>
                 )}
 
                 <div className="flex flex-col gap-6">
                   <div className="flex flex-col gap-6">
-                    <div className="font-mono text-[9px] pb-[2px] text-[#999]">Schnell einfuegen</div>
+                    <div className="font-mono text-[9px] pb-[2px] text-[#252525]">Schnell einfuegen</div>
                     <div className="flex flex-wrap gap-6">
                       <button
                         onClick={() => insertHeading(1)}
@@ -2124,7 +2006,7 @@ export const Step1SourceInput = ({
                           background: 'transparent',
                           border: '1px solid #3A3A3A',
                           borderRadius: 6,
-                          color: '#e5e5e5',
+                          color: '#252525',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '10px',
                           cursor: 'pointer',
@@ -2139,7 +2021,7 @@ export const Step1SourceInput = ({
                           background: 'transparent',
                           border: '1px solid #3A3A3A',
                           borderRadius: 6,
-                          color: '#e5e5e5',
+                          color: '#252525',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '10px',
                           cursor: 'pointer',
@@ -2154,7 +2036,7 @@ export const Step1SourceInput = ({
                           background: 'transparent',
                           border: '1px solid #3A3A3A',
                           borderRadius: 6,
-                          color: '#e5e5e5',
+                          color: '#252525',
                           fontFamily: 'IBM Plex Mono, monospace',
                           fontSize: '10px',
                           cursor: 'pointer',
@@ -2170,12 +2052,12 @@ export const Step1SourceInput = ({
                     font-mono 
                     text-[9px] 
                     border-t-[1 pt-[5px] 
-                    text-[#e3d4bf]">Erkannte Struktur</div>
+                    text-[#252525]">Erkannte Struktur</div>
                     {outlineItems.length === 0 ? (
                       <div className="
                       font-mono 
                       text-[11px] 
-                      text-[#999]">
+                      text-[#252525]">
                         Keine Ueberschriften erkannt.
                       </div>
                     ) : (
@@ -2195,7 +2077,7 @@ export const Step1SourceInput = ({
                             style={{
                               marginLeft: (item.level - 1) * 8,
                               opacity: item.level === 1 ? 1 : 0.95,
-                              background: item.line === activeOutlineLine ? 'rgba(172, 142, 102, 1)' : 'transparent',
+                              background: item.line === activeOutlineLine ? '#252525' : 'transparent',
                               border: item.line === activeOutlineLine ? '1px solid rgba(172, 142, 102, 0.45)' : '1px solid transparent',
                               cursor: 'pointer',
                               textAlign: item.line === activeOutlineLine ? 'right' : 'left',
@@ -2203,7 +2085,7 @@ export const Step1SourceInput = ({
                               padding: '3px 6px',
                               lineHeight: '13px',
                               borderRadius: 2,
-                              color: item.line === activeOutlineLine ? '#151515' : '#c8c8c8',
+                              color: item.line === activeOutlineLine ? '#d0cbb8' : '#252525',
                             }}
                             onClick={() => handleOutlineItemClick(item.line, idx)}
                           >
@@ -2337,6 +2219,8 @@ export const Step1SourceInput = ({
                   wrapLines={editorSettings?.wrapLines}
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  paperStyle={editorSettings?.paperStyle ?? 'classic'}
+                  paperIntensity={editorSettings?.paperIntensity ?? 'medium'}
                   previewTheme={previewTheme}
                   onKeywordsChange={onAnalysisKeywordsChange}
                 />
@@ -2353,6 +2237,8 @@ export const Step1SourceInput = ({
                   fontSize={editorSettings?.fontSize}
                   showLineNumbers={editorSettings?.showLineNumbers}
                   theme={editorSettings?.theme ?? 'dark'}
+                  paperStyle={editorSettings?.paperStyle ?? 'classic'}
+                  paperIntensity={editorSettings?.paperIntensity ?? 'medium'}
                   previewTheme={previewTheme}
                   showZenNoteButton={true}
                 />

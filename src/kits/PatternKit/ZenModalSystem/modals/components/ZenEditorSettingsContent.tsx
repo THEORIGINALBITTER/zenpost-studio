@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react';
 import { exists } from '@tauri-apps/plugin-fs';
-import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck } from '@fortawesome/free-solid-svg-icons';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
 
 import { ZenSlider } from '../../components/ZenSlider';
+import { ZenCheckboxOption } from '../../components/ZenCheckbox';
 import {
   EDITOR_MARGIN_PRESETS,
   detectEditorMarginPreset,
@@ -59,41 +58,7 @@ const CheckboxOption = ({
   onChange: (val: boolean) => void;
   label: string;
 }) => (
-  <label
-    style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      padding: '9px 12px',
-      backgroundColor: 'transparent',
-      border: '1px solid rgba(172,142,102,0.35)',
-      borderRadius: 6,
-      cursor: 'pointer',
-      fontFamily: 'IBM Plex Mono, monospace',
-      fontSize: 11,
-      color: '#555',
-      userSelect: 'none',
-    }}
-  >
-    <div
-      style={{
-        width: 16,
-        height: 16,
-        borderRadius: 4,
-        border: checked ? '1.5px solid #AC8E66' : '1.5px solid #4A4A4A',
-        backgroundColor: checked ? 'rgba(172,142,102,0.18)' : 'transparent',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        transition: 'border-color 0.15s, background-color 0.15s',
-      }}
-      onClick={() => onChange(!checked)}
-    >
-      {checked && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 8, color: '#AC8E66' }} />}
-    </div>
-    {label}
-  </label>
+  <ZenCheckboxOption checked={checked} onChange={onChange} label={label} />
 );
 
 export const ZenEditorSettingsContent = () => {

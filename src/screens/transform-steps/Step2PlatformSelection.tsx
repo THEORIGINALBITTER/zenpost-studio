@@ -61,7 +61,7 @@ export const Step2PlatformSelection = ({
   return (
     <div className="flex-1 flex 
     flex-col items-center justify-center 
-    px-6 bg-[#d0cbb8]">
+    px-6 ">
       <div style={{ position: 'absolute', top: '120px', left: '150px' }}>
         <ZenBackButton onClick={onBack} />
       </div>
@@ -69,7 +69,7 @@ export const Step2PlatformSelection = ({
         <div className="flex flex-col items-center space-y-1">
           {/* Title */}
           <h1 className="font-mono font-bold text-[#1a1a1a] text-center" style={{ fontSize: '22px', letterSpacing: '-0.5px', marginBottom: '4px' }}>
-            1× schreiben. {multiSelectMode ? `${selectedPlatforms.length > 0 ? selectedPlatforms.length : '9'}×` : '9×'} transformieren.
+            1mal schreiben. {multiSelectMode ? `${selectedPlatforms.length > 0 ? selectedPlatforms.length : '9'}mal` : '9x'} transformieren.
           </h1>
 
           {/* Subtitle */}
@@ -121,8 +121,8 @@ export const Step2PlatformSelection = ({
                 className={`
                   relative p-6 rounded-lg border-dotted transition-all bg-transparent
                   ${selected
-                    ? 'border-[#AC8E66] bg-[#ebe8df]'
-                    : 'border-[#4a4a4a]  hover:border-[#AC8E66]/50 hover:border-solid'
+                    ? 'border-[#AC8E66] bg-[#3e362c]'
+                    : 'border-[#4a4a4a]  hover:border-[rgba(21, 21, 21, 0.35)] hover:border-solid hover:bg-[#2525251a]'
                   }
                 `}
                 style={{
@@ -139,13 +139,13 @@ export const Step2PlatformSelection = ({
                         aspect-square box-border rounded-full 
                         border-2 flex items-center justify-center transition-all
                         ${selected
-                          ? 'border-[#AC8E66] bg-[#AC8E66]'
-                          : 'border-[#1a1a1a] bg-transparent'
+                          ? 'border-[#1a1a1a] bg-transparent'
+                          : 'border-[#1a1a1a] border-[1px] p-[2px] bg-transparent'
                         }
                       `}
                     >
                       {selected && (
-                        <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
+                        <FontAwesomeIcon icon={faCheck} className="text-[#1a1a1a] text-[12px]" />
                       )}
                     </div>
                   </div>
@@ -155,14 +155,14 @@ export const Step2PlatformSelection = ({
                 <div className="mb-4 flex justify-center">
                   <FontAwesomeIcon
                     icon={option.icon}
-                    className={`text-4xl ${selected ? 'text-[#AC8E66]' : 'text-[#777]'}`}
+                    className={`text-[15px] ${selected ? 'text-[#1a1a1a]' : 'text-[#777]'}`}
                   />
                 </div>
 
                 {/* Label */}
-                <h3 className={`font-mono text-[12px] mb-2 ${selected ? 'text-[#AC8E66]' : 'text-[#777]'}`}>
+                <p className={`font-mono text-[12px] mb-2 ${selected ? 'text-[#1a1a1a]' : 'text-[#777]'}`}>
                   {option.label}
-                </h3>
+                </p>
 
                 {/* Description */}
                 <p className="text-[#1a1a1a] font-mono text-[10px] leading-relaxed">

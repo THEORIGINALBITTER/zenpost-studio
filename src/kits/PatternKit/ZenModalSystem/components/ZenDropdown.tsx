@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 type Option = { value: string; label: string };
 type ZenTheme = "dark" | "paper" | "paper-light";
 type ZenDropdownVariant = "default" | "input" | "button" | "compact";
+type ZenTriggerLayout = "row" | "column";
 
 interface ZenDropdownProps {
   value: string;
@@ -31,6 +32,10 @@ interface ZenDropdownProps {
   triggerStyle?: React.CSSProperties;
   /** Icon node rendered before the trigger text */
   triggerIcon?: React.ReactNode;
+  /** Trigger content layout (icon + label) */
+  triggerLayout?: ZenTriggerLayout;
+  /** Show/hide caret icon in trigger */
+  showCaret?: boolean;
   /** Width in px — overrides the default Tailwind width class */
   width?: number;
   /** Custom menu content — render function receives a closeMenu callback.
@@ -60,6 +65,8 @@ export const ZenDropdown = ({
   triggerLabel,
   triggerStyle,
   triggerIcon,
+  triggerLayout = "row",
+  showCaret = true,
   width,
   customMenuContent,
 }: ZenDropdownProps) => {
@@ -115,8 +122,9 @@ export const ZenDropdown = ({
         itemActiveBg: "rgba(172,142,102,0.14)",
         itemActiveText: "#1a1a1a",
         itemSelectedBar: "#AC8E66",
-        hintText: "#6b6255",
-        hintBorder: "rgba(172,142,102,0.28)",
+        hintText: "#e8e3d8",
+        hintBG: "#1a1a1a",
+        hintBorder: "rgba(172,142,102,0.85)",
       } as const;
     }
 
@@ -318,12 +326,16 @@ export const ZenDropdown = ({
           !disabled && setActiveIndex(Math.max(0, options.findIndex((o) => o.value === value)))
         }
       >
-        <span className="inline-flex items-center justify-center gap-2 w-full px-2">
+        <span
+          className={`inline-flex justify-center w-full px-2 ${triggerLayout === "column" ? "flex-col items-center gap-1" : "items-center gap-2"}`}
+        >
           {triggerIcon && <span className="inline-flex shrink-0">{triggerIcon}</span>}
-          <span className="truncate max-w-[85%]">{buttonText}</span>
-          <span style={{ color: tokens.caret }} className="text-[10px] relative top-[1px] shrink-0">
-            ▾
-          </span>
+          <span className={triggerLayout === "column" ? "" : "truncate max-w-[85%]"}>{buttonText}</span>
+          {showCaret && (
+            <span style={{ color: tokens.caret }} className="text-[10px] relative top-[1px] shrink-0">
+              ▾
+            </span>
+          )}
         </span>
       </button>
 
@@ -367,7 +379,7 @@ export const ZenDropdown = ({
                           style={{
                             background: isActive ? tokens.itemActiveBg : "transparent",
                             color: isActive ? tokens.itemActiveText : tokens.itemText,
-                            borderLeft: `3px solid ${isSelected ? tokens.itemSelectedBar : "transparent"}`,
+                            borderLeft: `8px solid ${isSelected ? tokens.itemSelectedBar : "transparent"}`,
                             paddingLeft: isSelected ? '18px' : '16px',
                             paddingTop: '2px',
                             paddingBottom: '2px',
@@ -384,6 +396,7 @@ export const ZenDropdown = ({
                     style={{
                       color: tokens.hintText,
                       borderTop: `1px solid ${tokens.hintBorder}`,
+                      background: tokens.hintBG,
                     }}
                   >
                     ↑ ↓ wählen · Enter übernehmen · Esc schließen

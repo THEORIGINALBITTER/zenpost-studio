@@ -18,6 +18,25 @@ interface ZenRoughButtonProps {
   title?: string;
 }
 
+const BUTTON_TOKENS = {
+  gold: "#AC8E66",
+  goldHover: "#C9AF88",
+  textLight: "#d0cbb8",
+  textStrong: "#1a1a1a",
+  darkBgTop: "#2A2A2C",
+  darkBgBottom: "#1F1F21",
+  darkBgTopHover: "#313134",
+  darkBgBottomHover: "#252527",
+  darkBorder: "rgba(208, 203, 184, 0.35)",
+  darkBorderHover: "#AC8E66",
+  activeBgTop: "#E6DDCB",
+  activeBgBottom: "#D7C9AF",
+  activeBgTopHover: "#ECE3D2",
+  activeBgBottomHover: "#DDCFB5",
+  activeBorder: "#AC8E66",
+  activeBorderHover: "#C9AF88",
+} as const;
+
 export const ZenRoughButton = ({
   label,
   icon,
@@ -53,28 +72,55 @@ export const ZenRoughButton = ({
     compact:
       "relative rounded-full font-mono text-[10px] flex items-center justify-center",
     small:
-      "relative rounded-lg font-mono text-[9px] flex items-center justify-center gap-2",
+      "relative rounded-[10px] font-mono text-[10px] flex items-center justify-center gap-2",
     default:
-      "relative px-6 py-3 rounded-lg font-mono text-[10px] flex items-center justify-center gap-2 min-w-[280px]",
+      "relative px-6 py-3 rounded-[10px] font-mono text-[11px] flex items-center justify-center gap-2 min-w-[280px]",
   };
 
   const base =
-    "group transition-colors duration-200 border-0 outline-none focus:outline-none focus:ring-0 active:bg-transparent focus:bg-transparent no-underline";
-  const hover = disabled ? "" : "cursor-pointer hover:text-[#d0cbb8]";
+    "group border-0 outline-none focus:outline-none focus:ring-0 active:bg-transparent focus:bg-transparent no-underline transition-all duration-150";
+  const hover = disabled ? "" : "cursor-pointer";
   const state = disabled ? "opacity-50 cursor-not-allowed" : "";
   const variantClasses: Record<Variant, string> = {
-    default: "bg-transparent text-[#e8e3d8]",
-    active: "bg-[#AC8E66]/10 text-[#AC8E66]",
+    default: "text-[#e8e3d8]",
+    active: "text-[#1f1a14]",
   };
+
+  const palette = useMemo(() => {
+    if (variant === "active") {
+      return {
+        background: hovered
+          ? `linear-gradient(180deg, ${BUTTON_TOKENS.activeBgTopHover} 0%, ${BUTTON_TOKENS.activeBgBottomHover} 100%)`
+          : `linear-gradient(180deg, ${BUTTON_TOKENS.activeBgTop} 0%, ${BUTTON_TOKENS.activeBgBottom} 100%)`,
+        border: hovered ? BUTTON_TOKENS.activeBorderHover : BUTTON_TOKENS.activeBorder,
+        text: BUTTON_TOKENS.textStrong,
+        shadow:
+          "inset 0 1px 0 rgba(255,255,255,0.44), inset 0 -1px 0 rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.15)",
+      };
+    }
+
+    return {
+      background: hovered
+        ? `linear-gradient(180deg, ${BUTTON_TOKENS.darkBgTopHover} 0%, ${BUTTON_TOKENS.darkBgBottomHover} 100%)`
+        : `linear-gradient(180deg, ${BUTTON_TOKENS.darkBgTop} 0%, ${BUTTON_TOKENS.darkBgBottom} 100%)`,
+      border: hovered ? BUTTON_TOKENS.darkBorderHover : BUTTON_TOKENS.darkBorder,
+      text: BUTTON_TOKENS.textLight,
+      shadow:
+        "inset 0 1px 0 rgba(255,255,255,0.09), inset 0 -1px 0 rgba(0,0,0,0.42), 0 1px 2px rgba(0,0,0,0.18)",
+    };
+  }, [hovered, variant]);
 
   const commonStyle: React.CSSProperties = {
     width: dims.w,
     height: dims.h,
     outline: "none",
-    border: "none",
-    background: "#252525",
-    boxShadow: "none",
+    border: `1px solid ${palette.border}`,
+    background: palette.background,
+    boxShadow: palette.shadow,
+    color: palette.text,
     WebkitTapHighlightColor: "transparent",
+    borderRadius: size === "compact" ? 999 : 10,
+    transform: hovered && !disabled ? "translateY(-0.5px)" : "translateY(0)",
   };
 
   const commonHandlers = disabled
@@ -88,42 +134,27 @@ export const ZenRoughButton = ({
 
   const content = (
     <>
-      <svg
-        aria-hidden="true"
-        viewBox={`0 0 ${dims.w} ${dims.h}`}
-        className="absolute inset-0 w-full h-full pointer-events-none"
-      >
-        {size === "compact" ? (
-          <circle
-            cx={dims.w / 2}
-            cy={dims.h / 2}
-            r={Math.max(0, dims.w / 2 - 4)}
-            fill="none"
-            stroke={strokeColor}
-            strokeWidth="0.5"
-          />
-        ) : (
-          <rect
-            x="4"
-            y="4"
-            width={Math.max(0, dims.w - 8)}
-            height={Math.max(0, dims.h - 8)}
-            rx="8"
-            ry="8"
-            fill="none"
-            stroke={strokeColor}
-            strokeWidth="1.4"
-          />
-        )}
-      </svg>
+      {size !== "compact" && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            inset: 4,
+            borderRadius: 8,
+            border: `0.5px solid ${strokeColor}`,
+            opacity: 0.8,
+            pointerEvents: "none",
+          }}
+        />
+      )}
 
       <span className="relative z-[1] inline-flex items-center justify-center gap-3">
         {size === "compact" ? (
-          icon ? <span className="text-[14px] text-[#e8e3d8]">{icon}</span> : null
+          icon ? <span className="text-[14px]">{icon}</span> : null
         ) : (
           <>
             {icon ? (
-              <span className="text-[10px] text-[#e8e3d8] relative top-[1px] mr-[4px]">
+              <span className="text-[10px] relative top-[1px] mr-[4px]">
                 {icon}
               </span>
             ) : null}

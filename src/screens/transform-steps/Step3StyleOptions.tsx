@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import {  faCheck } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faWandMagicSparkles, faArrowRight, faCompress, faCode, faBriefcase, faWrench, faBolt, faPenNib, faEdit } from '@fortawesome/free-solid-svg-icons';
 import { ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenSubtitleDark } from '../../kits/PatternKit/ZenSubtitleDark';
 import { ZenBackButton } from '../../kits/DesignKit/ZenBackButton';
 
-import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage } from '../../services/aiService';
+import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage, type ImprovementStyle } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
   selectedPlatform: ContentPlatform;
@@ -34,6 +34,10 @@ interface Step3StyleOptionsProps {
   onBackToEditor: () => void;
   onTransform: () => void;
   onPostDirectly: () => void;
+  onQuickAction?: (action: 'improve' | 'continue' | 'summarize' | 'markdown', improveStyle?: ImprovementStyle, customInstruction?: string) => void;
+  isQuickActionRunning?: boolean;
+  allowEmoji?: boolean;
+  onAllowEmojiChange?: (allow: boolean) => void;
 
   isTransforming: boolean;
   isPosting: boolean;
@@ -100,14 +104,21 @@ export const Step3StyleOptions = ({
 
   onBack: _onBack,
   onBackToEditor,
-  onTransform: _onTransform,
+  onTransform,
   onPostDirectly: _onPostDirectly,
+  onQuickAction,
+  isQuickActionRunning = false,
+  allowEmoji = true,
+  onAllowEmojiChange,
 
-  isTransforming: _isTransforming,
+  isTransforming,
   isPosting: _isPosting,
   error,
 }: Step3StyleOptionsProps) => {
   const [changedOptions, setChangedOptions] = useState<Set<string>>(new Set());
+  const [showCustomImproveInput, setShowCustomImproveInput] = useState(false);
+  const [customImproveInstruction, setCustomImproveInstruction] = useState('');
+  const [showCustomizerMenu, setShowCustomizerMenu] = useState(false);
   const cardWidth = 220;
   const cardGap = 32;
   const cardsRowWidth = cardWidth * 4 + cardGap * 3;
@@ -174,12 +185,12 @@ export const Step3StyleOptions = ({
             className={join(
               'w-4 h-4 aspect-square box-border rounded-full border-2 flex items-center justify-center transition-all',
               changed
-                ? 'border-[#AC8E66] bg-[#AC8E66]'
+                ? 'border-[#1a1a1a] border-[1px] p-[2px] bg-transparent'
                 : 'border-[#1a1a1a] bg-transparent'
             )}
           >
             {changed && (
-              <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-xs" />
+              <FontAwesomeIcon icon={faCheck} className="text-[#1A1A1A] text-[12px]" />
             )}
           </div>
         </div>
@@ -193,8 +204,16 @@ export const Step3StyleOptions = ({
     );
   };
 
+  const improveOptions: Array<{ style: ImprovementStyle; label: string; desc: string; icon: any }> = [
+    { style: 'charming', label: 'Mehr Charme', desc: 'Persönlicher & einladender', icon: faWandMagicSparkles },
+    { style: 'professional', label: 'Professioneller', desc: 'Formell & business-gerecht', icon: faBriefcase },
+    { style: 'technical', label: 'Technischer', desc: 'Präzise & detailliert', icon: faWrench },
+    { style: 'concise', label: 'Kürzer & knapper', desc: 'Auf den Punkt gebracht', icon: faBolt },
+    { style: 'general', label: 'Allgemein', desc: 'Grammatik & Lesbarkeit', icon: faPenNib },
+  ];
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-[20px] bg-[#d0cbb8]">
+    <div className="flex-1 flex flex-col items-center justify-center px-[20px] ">
       <div style={{ position: 'absolute', top: '120px', left: '150px' }}>
         <ZenBackButton onClick={onBackToEditor} />
       </div>
@@ -211,7 +230,7 @@ export const Step3StyleOptions = ({
 
           <div className="max-w-4xl 
           p-[20px] 
-          border-[0.5px] border-[#AC8E66] rounded-[12px]
+          border-[0.5px] border-[#2525258a] rounded-[12px]
           
           "
           style={{ width: sharedSectionWidth }}
@@ -279,20 +298,21 @@ export const Step3StyleOptions = ({
 
       
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(4, ${cardWidth}px)`,
-            columnGap: `${cardGap}px`,
-            rowGap: '28px',
-            width: `${cardsRowWidth}px`,
-            maxWidth: '100%',
-            marginTop: showModeSwitch ? '10px' : '20px',
-            marginBottom: '40px',
-            marginLeft: 'auto',
-            marginRight: 'auto',
-          }}
-        >
+        {showCustomizerMenu && (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(4, ${cardWidth}px)`,
+              columnGap: `${cardGap}px`,
+              rowGap: '28px',
+              width: `${cardsRowWidth}px`,
+              maxWidth: '100%',
+              marginTop: showModeSwitch ? '10px' : '20px',
+              marginBottom: '40px',
+              marginLeft: 'auto',
+              marginRight: 'auto',
+            }}
+          >
           <Card optionKey="tone" title="Tonalität">
             <ZenDropdown
               label="" /* Titel kommt aus Card */
@@ -349,6 +369,295 @@ export const Step3StyleOptions = ({
               theme="paper"
             />
           </Card>
+          </div>
+        )}
+
+        <div
+          style={{
+            width: sharedSectionWidth,
+            border: '0.5px dotted #4a4a4a',
+            borderRadius: '12px',
+            padding: '12px',
+            marginBottom: '20px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="font-mono text-[11px] text-[#3a3a3a]">Text-AI</span>
+            </div>
+            <label className="font-mono text-[10px] text-[#3a3a3a]" style={{ display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={!allowEmoji}
+                onChange={(e) => onAllowEmojiChange?.(!e.target.checked)}
+              />
+              Keine Emojis
+            </label>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
+              gap: '10px',
+            }}
+          >
+            <ZenDropdown
+              value=""
+              onChange={() => { /* handled via custom menu */ }}
+              options={[]}
+              disabled={!onQuickAction || isQuickActionRunning}
+              fullWidth
+              variant="button"
+              theme="dark"
+              triggerLabel="Text verbessern"
+              triggerIcon={<FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66', fontSize: 18 }} />}
+              triggerLayout="column"
+              showCaret={false}
+              triggerStyle={{
+                minHeight: 72,
+                borderRadius: 12,
+                border: '1px solid #4a4a4a',
+                background: 'transparent',
+                color: '#2f2f2f',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 12,
+              }}
+              customMenuContent={(closeMenu) => (
+                <div
+                  style={{
+                    backgroundColor: '#d0cbb8',
+                    border: '1px solid rgba(172,142,102,0.35)',
+                    borderRadius: '12px',
+                    padding: '10px',
+                    width: '520px',
+                    maxWidth: '92vw',
+                    boxShadow: '0 10px 24px rgba(0,0,0,0.32)',
+                  }}
+                >
+                  <p style={{ fontFamily: 'monospace', fontSize: '11px', color: '#1a1a1a', margin: '0 0 10px 0', textAlign: 'center' }}>
+                    Wie soll verbessert werden?
+                  </p>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '8px' }}>
+                    {improveOptions.map((option) => (
+                      <button
+                        key={option.style}
+                        type="button"
+                        onClick={() => {
+                          closeMenu();
+                          onQuickAction?.('improve', option.style);
+                        }}
+                        disabled={!onQuickAction || isQuickActionRunning}
+                        style={{
+                          width: '100%',
+                          minHeight: 72,
+                          padding: '10px 12px',
+                          backgroundColor: 'rgba(255,255,255,0.02)',
+                          border: '1px solid rgba(172,142,102,0.16)',
+                          borderRadius: '10px',
+                          textAlign: 'left',
+                          ...(option.style === 'general' ? { gridColumn: '1 / -1' } : {}),
+                        }}
+                      >
+                        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#252525', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <FontAwesomeIcon icon={option.icon} style={{ color: '#AC8E66', fontSize: '12px' }} />
+                          <span>{option.label}</span>
+                        </div>
+                        <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#353535', marginTop: '3px' }}>{option.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomImproveInput((prev) => !prev)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      marginTop: '8px',
+                      backgroundColor: showCustomImproveInput ? 'rgba(172,142,102,0.14)' : 'rgba(255,255,255,0.02)',
+                      border: showCustomImproveInput ? '1px solid rgba(172,142,102,0.55)' : '1px solid rgba(172,142,102,0.18)',
+                      borderRadius: '8px',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#252525' }}>
+                      <FontAwesomeIcon icon={faEdit} style={{ fontSize: '10px', color: '#AC8E66', marginRight: '8px' }} />
+                      Eigene Anweisung
+                    </div>
+                  </button>
+
+                  {showCustomImproveInput && (
+                    <div style={{ marginTop: '8px' }}>
+                      <textarea
+                        value={customImproveInstruction}
+                        onChange={(e) => setCustomImproveInstruction(e.target.value)}
+                        placeholder="Wie soll der Text verbessert werden?"
+                        style={{
+                          width: '100%',
+                          minHeight: '72px',
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(172,142,102,0.4)',
+                          background: '#d8d3c2',
+                          color: '#1a1a1a',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '11px',
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!customImproveInstruction.trim()) return;
+                          closeMenu();
+                          onQuickAction?.('improve', 'custom', customImproveInstruction.trim());
+                          setCustomImproveInstruction('');
+                          setShowCustomImproveInput(false);
+                        }}
+                        disabled={!customImproveInstruction.trim() || isQuickActionRunning}
+                        style={{
+                          marginTop: '8px',
+                          width: '100%',
+                          padding: '8px',
+                          borderRadius: '8px',
+                          border: '1px solid #AC8E66',
+                          backgroundColor: customImproveInstruction.trim() ? '#AC8E66' : 'transparent',
+                          color: customImproveInstruction.trim() ? '#1A1A1A' : '#777',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '11px',
+                        }}
+                      >
+                        Anwenden
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            />
+            <button
+              type="button"
+              onClick={() => onQuickAction?.('continue')}
+              disabled={!onQuickAction || isQuickActionRunning}
+              style={{
+                minHeight: 72,
+                borderRadius: 12,
+                border: '1px solid #4a4a4a',
+                background: 'transparent',
+                color: '#2f2f2f',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 8,
+                opacity: !onQuickAction || isQuickActionRunning ? 0.6 : 1,
+                cursor: !onQuickAction || isQuickActionRunning ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <FontAwesomeIcon icon={faArrowRight} style={{ color: '#AC8E66', fontSize: 18 }} />
+              <span>Text fortsetzen</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onQuickAction?.('summarize')}
+              disabled={!onQuickAction || isQuickActionRunning}
+              style={{
+                minHeight: 72,
+                borderRadius: 12,
+                border: '1px solid #4a4a4a',
+                background: 'transparent',
+                color: '#2f2f2f',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 8,
+                opacity: !onQuickAction || isQuickActionRunning ? 0.6 : 1,
+                cursor: !onQuickAction || isQuickActionRunning ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <FontAwesomeIcon icon={faCompress} style={{ color: '#AC8E66', fontSize: 18 }} />
+              <span>Zusammenfassen</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onQuickAction?.('markdown')}
+              disabled={!onQuickAction || isQuickActionRunning}
+              style={{
+                minHeight: 72,
+                borderRadius: 12,
+                border: '1px solid #4a4a4a',
+                background: 'transparent',
+                color: '#2f2f2f',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 8,
+                opacity: !onQuickAction || isQuickActionRunning ? 0.6 : 1,
+                cursor: !onQuickAction || isQuickActionRunning ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <FontAwesomeIcon icon={faCode} style={{ color: '#AC8E66', fontSize: 18 }} />
+              <span>Markdown-Format</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCustomizerMenu((prev) => !prev)}
+              style={{
+                minHeight: 72,
+                borderRadius: 12,
+                border: showCustomizerMenu ? '1px solid #AC8E66' : '1px solid #4a4a4a',
+                background: showCustomizerMenu ? '#efe7da' : 'transparent',
+                color: '#2f2f2f',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 12,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+              }}
+            >
+              <FontAwesomeIcon icon={faWrench} style={{ color: '#AC8E66', fontSize: 18 }} />
+              <span>Customizer-Menü</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          style={{
+            width: sharedSectionWidth,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '24px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={onBackToEditor}
+            disabled={isTransforming}
+            className="rounded-lg border border-[#4a4a4a] bg-transparent px-4 py-2 text-[11px] font-mono text-[#3a3a3a] transition hover:border-[#AC8E66]/70"
+            style={{ opacity: isTransforming ? 0.6 : 1, cursor: isTransforming ? 'not-allowed' : 'pointer' }}
+          >
+            Zurück zum Editor
+          </button>
+          <button
+            type="button"
+            onClick={onTransform}
+            disabled={isTransforming}
+            className="rounded-lg border border-[#AC8E66] bg-[#efe7da] px-4 py-2 text-[11px] font-mono text-[#2f2a22] transition hover:bg-[#e6ddcf]"
+            style={{ opacity: isTransforming ? 0.6 : 1, cursor: isTransforming ? 'not-allowed' : 'pointer', fontWeight: 600 }}
+          >
+            {isTransforming ? 'Transformiere...' : 'Neu transformieren'}
+          </button>
         </div>
 
         {error && (

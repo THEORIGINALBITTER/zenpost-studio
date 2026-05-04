@@ -6,6 +6,7 @@ import {
   detectEditorMarginPreset,
   type EditorMarginPresetId,
 } from '../../services/editorSettingsService';
+import { ZenSideTab } from '../../components/ZenSideTab';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -14,8 +15,11 @@ import 'highlight.js/styles/atom-one-dark.css';
 import './ZenMarkdownPreview.css';
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faBarsProgress, faSpinner, faPrint } from '@fortawesome/free-solid-svg-icons';
+import { faPlus, faMinus, faLanguage, faWandMagicSparkles, faSpinner, faPrint, faFilePdf } from '@fortawesome/free-solid-svg-icons';
 import { convertFileSrc, invoke, isTauri } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile } from '@tauri-apps/plugin-fs';
+import { PDFDocument, StandardFonts, type PDFFont } from 'pdf-lib';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
 
@@ -66,6 +70,55 @@ const getChildrenText = (children: ReactNode): string =>
     })
     .join('')
     .trim();
+
+const toWinAnsiSafe = (input: string): string =>
+  input
+    .replace(/禅/g, 'Zen')
+    .replace(/→/g, '->')
+    .replace(/←/g, '<-')
+    .replace(/↔/g, '<->')
+    .replace(/⇒/g, '=>')
+    .replace(/⇐/g, '<=')
+    .replace(/•/g, '*')
+    .replace(/…/g, '...')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[–—]/g, '-')
+    .replace(/\u00A0/g, ' ')
+    .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
+
+const wrapPdfLine = (line: string, maxWidth: number, font: PDFFont, fontSize: number): string[] => {
+  const words = line.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [''];
+  const lines: string[] = [];
+  let current = '';
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(next, fontSize) <= maxWidth) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  });
+  if (current) lines.push(current);
+  return lines;
+};
+
+const buildPdfFileName = (markdown: string): string => {
+  const heading = markdown.match(/^#\s+(.+)$/m)?.[1] ?? 'Preview-Export';
+  const base = heading
+    .trim()
+    .replace(/\.[^.]+$/, '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const time = now.toTimeString().slice(0, 5).replace(':', '');
+  return `${base || 'Preview-Export'}_${date}_${time}.pdf`;
+};
 // Lädt lokale Bilder (absolute Pfade / asset:// / opfs://) als Blob URL
 // Tauri: readFile → Blob URL  |  Web: OPFS → Blob URL
 function LocalImagePreview({ src, alt, style, ...rest }: React.ImgHTMLAttributes<HTMLImageElement>) {
@@ -178,14 +231,13 @@ export const ZenMarkdownPreview = ({
   const [previewTheme, setPreviewTheme] = useState<PreviewThemeId>(externalPreviewTheme ?? 'mono-clean');
   const previewStyle: 'color' | 'mono' = previewTheme.startsWith('mono') ? 'mono' : 'color';
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-  const [showThemeMenu, setShowThemeMenu] = useState(false);
-  const [showMarginMenu, setShowMarginMenu] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [isReadingCursorHidden, setIsReadingCursorHidden] = useState(false);
-  const [areControlsExpanded, setAreControlsExpanded] = useState(!collapseControlsByDefault);
+  const [showControlsPanel, setShowControlsPanel] = useState(!collapseControlsByDefault);
   const readingCursorTimerRef = useRef<number | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const printContentRef = useRef<HTMLDivElement>(null);
   const scrollTopRef = useRef(0);
   const prevContentRef = useRef(content);
   // Prevents onScroll from overwriting scrollTopRef during WKWebView-initiated scroll resets
@@ -253,15 +305,13 @@ export const ZenMarkdownPreview = ({
   }, [externalPreviewTheme]);
 
   useEffect(() => {
-    setAreControlsExpanded(!collapseControlsByDefault);
+    setShowControlsPanel(!collapseControlsByDefault);
   }, [collapseControlsByDefault]);
 
   useEffect(() => {
-    if (areControlsExpanded) return;
+    if (showControlsPanel) return;
     setShowLanguageMenu(false);
-    setShowThemeMenu(false);
-    setShowMarginMenu(false);
-  }, [areControlsExpanded]);
+  }, [showControlsPanel]);
 
   useEffect(() => {
     if (!autoHideReadingCursor) {
@@ -443,7 +493,6 @@ export const ZenMarkdownPreview = ({
     onPreviewThemeChange?.(themeId);
     const baseStyle = themeId.startsWith('mono') ? 'mono' : 'color';
     onPreviewStyleChange?.(baseStyle);
-    setShowThemeMenu(false);
   };
 
   const activeMarginPreset = detectEditorMarginPreset({
@@ -453,29 +502,146 @@ export const ZenMarkdownPreview = ({
     marginRight,
   });
 
-  const activeMarginLabel =
-    EDITOR_MARGIN_PRESETS.find((preset) => preset.id === activeMarginPreset)?.label ?? 'Custom';
-
   const handleSelectMarginPreset = (presetId: Exclude<EditorMarginPresetId, 'custom'>) => {
     onMarginPresetChange?.(presetId);
-    setShowMarginMenu(false);
   };
 
   const handlePrint = async () => {
     setShowLanguageMenu(false);
-    setShowThemeMenu(false);
-    try {
-      await invoke('print_current_window');
+    if (typeof document === 'undefined') return;
+
+    const sourceNode = printContentRef.current;
+    if (!sourceNode) {
+      try {
+        await invoke('print_current_window');
+      } catch {
+        window.print();
+      }
       return;
-    } catch (error) {
-      console.warn('Tauri print command failed, fallback to window.print():', error);
     }
 
+    const docEl = document.documentElement;
+    const mount = document.createElement('div');
+    mount.className = 'zen-print-mount';
+
+    const paper = document.createElement('div');
+    paper.className = 'zen-print-paper';
+
+    const clone = sourceNode.cloneNode(true) as HTMLDivElement;
+    paper.appendChild(clone);
+    mount.appendChild(paper);
+    document.body.appendChild(mount);
+
+    docEl.classList.add('zen-printing');
+
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      docEl.classList.remove('zen-printing');
+      if (mount.parentNode) mount.parentNode.removeChild(mount);
+    };
+
+    const onAfterPrint = () => {
+      cleanup();
+      window.removeEventListener('afterprint', onAfterPrint);
+    };
+    window.addEventListener('afterprint', onAfterPrint);
+
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
     try {
-      window.print();
+      if (isTauri()) {
+        await invoke('print_current_window');
+      } else {
+        window.print();
+      }
     } catch (error) {
-      console.error('Browser print fallback failed:', error);
-      alert('Drucken ist auf dieser Plattform aktuell nicht verfügbar.');
+      console.warn('Tauri print command failed, fallback to window.print():', error);
+      try {
+        window.print();
+      } catch (fallbackError) {
+        console.error('Browser print fallback failed:', fallbackError);
+        alert('Drucken ist auf dieser Plattform aktuell nicht verfügbar.');
+      }
+    } finally {
+      window.setTimeout(cleanup, 2000);
+    }
+  };
+
+  const handleExportPdf = async () => {
+    setShowLanguageMenu(false);
+    try {
+      const normalized = content
+        .replace(/&nbsp;/g, ' ')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      const plainText = await ZenEngine.markdownToPlain(normalized).catch(() => normalized);
+      const safeText = toWinAnsiSafe(plainText);
+
+      const pdfDoc = await PDFDocument.create();
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const pageMargin = 40;
+      const fontSize = 10;
+      const lineHeight = 14;
+      let page = pdfDoc.addPage();
+      let { width, height } = page.getSize();
+      let y = height - pageMargin;
+
+      const ensureSpace = (lines = 1) => {
+        if (y - lines * lineHeight < pageMargin) {
+          page = pdfDoc.addPage();
+          ({ width, height } = page.getSize());
+          y = height - pageMargin;
+        }
+      };
+
+      const rawLines = safeText.replace(/\r\n/g, '\n').split('\n');
+      rawLines.forEach((rawLine) => {
+        const wrapped = wrapPdfLine(rawLine, width - pageMargin * 2, font, fontSize);
+        wrapped.forEach((line) => {
+          ensureSpace(1);
+          page.drawText(line, {
+            x: pageMargin,
+            y,
+            size: fontSize,
+            font,
+          });
+          y -= lineHeight;
+        });
+        y -= 2;
+      });
+
+      const pdfBytes = new Uint8Array(await pdfDoc.save());
+      const fileName = buildPdfFileName(content);
+
+      if (isTauri()) {
+        const filePath = await save({
+          defaultPath: fileName,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }],
+        });
+        if (!filePath) return;
+        const normalizedPath = filePath.toLowerCase().endsWith('.pdf') ? filePath : `${filePath}.pdf`;
+        await writeFile(normalizedPath, pdfBytes);
+      } else if (typeof window !== 'undefined') {
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      alert('PDF-Export fehlgeschlagen.');
     }
   };
 
@@ -776,126 +942,125 @@ export const ZenMarkdownPreview = ({
   }), [palette, previewStyle, resolvePreviewImageSrc, openExternal]);
 
   const handlePreviewScrollInteraction = useCallback(() => {
-    if (areControlsExpanded) {
-      setAreControlsExpanded(false);
-    }
     setShowLanguageMenu(false);
-    setShowThemeMenu(false);
-  }, [areControlsExpanded]);
+  }, []);
 
   const controlsPanel = (
     <div
-      className="
-        pointer-events-auto
-        flex items-center gap-1
-        px-[3px] py-[3px]
-        rounded-[6px]
-        bg-[#121212]/50 backdrop-blur
-        border border-[#121212]
-        shadow-[0_10px_30px_rgba(0,0,0,0.35)]
-      "
+      style={{
+        width: 300,
+        padding: '12px',
+        borderRadius: 10,
+        background: '#d0cbb8',
+        border: '1px solid rgba(21, 21, 21, 0.35)',
+        boxShadow: '0 6px 16px rgba(0,0,0,0.25)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        maxHeight: 'calc(100vh - 320px)',
+        overflowY: 'auto',
+      }}
     >
-      <button
-        onClick={() => setAreControlsExpanded((prev) => !prev)}
-        className={`
-           px-3 py-2 text-[10px] 
-           h-[26.5px]
-            font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]
-            active:translate-x-[-5px]
-            disabled:opacity-50 disabled:cursor-not-allowed
-          transition
-          ${areControlsExpanded
-            ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#2e2e2e]'
-            : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#d0cbb8] hover:bg-[#1D1D1D]'
-          }
-        `}
-        title={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
-        aria-label={areControlsExpanded ? 'Leiste einklappen' : 'Leiste einblenden'}
-      >
-        <FontAwesomeIcon icon={faBarsProgress} className="text-[10px]" />
-      </button>
+      <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#1a1a1a', letterSpacing: '0.03em' }}>
+        Quick Menu · Preview
+      </div>
 
-      {areControlsExpanded && (
-        <>
+      <div style={{ border: '1px solid rgba(21, 21, 21, 0.35)', borderRadius: 8, padding: '8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="font-mono text-[9px] text-[#252525]">Werkzeuge</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
           {onToggleTextAI && (
             <button
               onClick={onToggleTextAI}
               disabled={isTextAIDisabled}
-              className={`
-                h-10 px-3
-                inline-flex items-center justify-center gap-1.5
-                rounded-lg
-                border
-                font-mono text-[10px]
-                transition
-                active:translate-y-[1px]
-                disabled:opacity-50 disabled:cursor-not-allowed
-                ${showTextAI
-                  ? 'bg-[#1D1D1D] text-[#AC8E66] border-[#AC8E66]'
-                  : 'bg-[#171717] text-[#d0cbb8] border-[#2E2E2E] hover:text-[#d0cbb8] hover:border-[#d0cbb8] hover:bg-[#1D1D1D]'
-                }
-              `}
-              title="Text-AI"
+              style={{
+                border: showTextAI ? '1px solid #1a1a1a' : '1px solid #3A3A3A',
+                borderRadius: 5,
+                background: showTextAI ? '#252525' : 'transparent',
+                color: showTextAI ? '#d2cabd' : '#252525',
+                fontSize: 9,
+                padding: '3px 7px',
+                cursor: isTextAIDisabled ? 'not-allowed' : 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                opacity: isTextAIDisabled ? 0.5 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+              }}
             >
-              <FontAwesomeIcon icon={faWandMagicSparkles} className="text-[10px]" />
+              <FontAwesomeIcon icon={faWandMagicSparkles} style={{ fontSize: 10 }} />
               <span>Text-AI</span>
             </button>
           )}
 
           {onContentChange && (
-            <div className="relative">
+            <div style={{ position: 'relative' }}>
               <button
-                onClick={() => setShowLanguageMenu(!showLanguageMenu)}
+                onClick={() => setShowLanguageMenu((prev) => !prev)}
                 disabled={isTranslating}
-                className="
-                  h-10 w-10
-                  inline-flex items-center justify-center
-                  rounded-lg
-                  bg-[#171717]
-                  border border-[#2E2E2E]
-                  text-[#d0cbb8]
-                  text-[10px]
-                  hover:text-[#AC8E66]
-                  hover:border-[#d0cbb8]
-                  hover:bg-[#1D1D1D]
-                  active:translate-y-[1px]
-                  transition
-                  disabled:opacity-50 disabled:cursor-not-allowed
-                "
-                title="Übersetzen"
+                style={{
+                  border: '1px solid #3A3A3A',
+                  borderRadius: 5,
+                  background: 'transparent',
+                  color: '#252525',
+                  fontSize: 9,
+                  padding: '3px 7px',
+                  cursor: isTranslating ? 'not-allowed' : 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  opacity: isTranslating ? 0.5 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
               >
-                <FontAwesomeIcon icon={faLanguage} className="text-[11px]" />
+                <FontAwesomeIcon icon={faLanguage} style={{ fontSize: 10 }} />
+                <span>Sprache</span>
               </button>
 
               {showLanguageMenu && (
                 <div
-                  className="
-                    absolute top-11 right-0
-                    min-w-[200px]
-                    overflow-hidden
-                    rounded-xl
-                    bg-[#121212]
-                    border border-[#2E2E2E]
-                    shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-                    z-[9999]
-                  "
+                  style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 6px)',
+                    left: 0,
+                    width: 220,
+                    maxHeight: 260,
+                    overflowY: 'auto',
+                    background: '#d0cbb8',
+                    border: '1px solid #3A3A3A',
+                    borderRadius: 8,
+                    zIndex: 50,
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25)',
+                  }}
                 >
-                  <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#d0cbb8] border-b border-[#1F1F1F]">
+                  <div
+                    style={{
+                      padding: '8px 10px',
+                      fontSize: 9,
+                      color: '#1a1a1a',
+                      borderBottom: '1px solid rgba(28,28,28,0.2)',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                    }}
+                  >
                     Sprache wählen
                   </div>
-
                   {languages.map((lang) => (
                     <button
                       key={lang.value}
                       onClick={() => handleTranslate(lang.value)}
-                      className="
-                        w-full px-4 py-2.5 text-left
-                        text-[#d0cbb8]
-                        hover:bg-[#1A1A1A]
-                        hover:text-[#AC8E66]
-                        transition-colors
-                        text-[10px] font-mono
-                      "
+                      style={{
+                        width: '100%',
+                        textAlign: 'left',
+                        padding: '8px 10px',
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: '1px solid rgba(28,28,28,0.12)',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: 10,
+                        color: '#252525',
+                        cursor: 'pointer',
+                      }}
                     >
                       {lang.label}
                     </button>
@@ -905,233 +1070,190 @@ export const ZenMarkdownPreview = ({
             </div>
           )}
 
-          <div className="w-px h-7 bg-[#232323] mx-1" />
-
           <button
-            onClick={handleZoomOut}
-            className="
-              h-9 w-9
-              inline-flex items-center justify-center
-              rounded-lg
-              bg-[#171717]
-              border border-[#2E2E2E]
-              text-[#d0cbb8]
-              text-[10px]
-              hover:text-[#AC8E66]
-              hover:border-[#3A3328]
-              hover:bg-[#1D1D1D]
-              active:translate-y-[1px]
-              transition
-            "
-            title="Verkleinern"
+            onClick={handleExportPdf}
+            style={{
+              border: '1px solid #3A3A3A',
+              borderRadius: 5,
+              background: 'transparent',
+              color: '#252525',
+              fontSize: 9,
+              padding: '3px 7px',
+              cursor: 'pointer',
+              fontFamily: 'IBM Plex Mono, monospace',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
           >
-            <FontAwesomeIcon icon={faMinus} className="text-[8px]" />
+            <FontAwesomeIcon icon={faFilePdf} style={{ fontSize: 10 }} />
+            <span>PDF</span>
           </button>
 
           <button
+            onClick={handlePrint}
+            style={{
+              border: '1px solid #3A3A3A',
+              borderRadius: 5,
+              background: 'transparent',
+              color: '#252525',
+              fontSize: 9,
+              padding: '3px 7px',
+              cursor: 'pointer',
+              fontFamily: 'IBM Plex Mono, monospace',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+          >
+            <FontAwesomeIcon icon={faPrint} style={{ fontSize: 10 }} />
+            <span>Drucken</span>
+          </button>
+        </div>
+      </div>
+
+      <div style={{ border: '1px solid rgba(21, 21, 21, 0.35)', borderRadius: 8, padding: '8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="font-mono text-[9px] text-[#252525]">Zoom</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            onClick={handleZoomOut}
+            style={{
+              border: '1px solid #3A3A3A',
+              borderRadius: 5,
+              background: 'transparent',
+              color: '#252525',
+              fontSize: 9,
+              padding: '3px 7px',
+              cursor: 'pointer',
+              fontFamily: 'IBM Plex Mono, monospace',
+            }}
+            title="Verkleinern"
+          >
+            <FontAwesomeIcon icon={faMinus} style={{ fontSize: 8 }} />
+          </button>
+          <button
             onClick={handleZoomReset}
-            className="
-              h-9 px-4
-              inline-flex items-center justify-center
-              rounded-lg
-              bg-[#141414]
-              border border-[#2E2E2E]
-              text-[#d0cbb8]
-              font-mono text-[10px]
-              hover:text-[#AC8E66]
-              hover:border-[#3A3328]
-              hover:bg-[#1A1A1A]
-              active:translate-y-[1px]
-              transition
-              min-w-[96px]
-            "
+            style={{
+              border: '1px solid #3A3A3A',
+              borderRadius: 5,
+              background: '#252525',
+              color: '#d2cabd',
+              fontSize: 9,
+              padding: '3px 12px',
+              cursor: 'pointer',
+              fontFamily: 'IBM Plex Mono, monospace',
+              minWidth: 58,
+            }}
             title="Zurücksetzen"
           >
             {zoom}%
           </button>
-
-
           <button
             onClick={handleZoomIn}
-            className="
-              h-9 w-9
-              inline-flex items-center justify-center
-              rounded-lg
-              bg-[#171717]
-              border border-[#2E2E2E]
-              text-[#d0cbb8]
-              text-[10px]
-              hover:text-[#AC8E66]
-              hover:border-[#3A3328]
-              hover:bg-[#1D1D1D]
-              active:translate-y-[1px]
-              transition
-            "
+            style={{
+              border: '1px solid #3A3A3A',
+              borderRadius: 5,
+              background: 'transparent',
+              color: '#252525',
+              fontSize: 9,
+              padding: '3px 7px',
+              cursor: 'pointer',
+              fontFamily: 'IBM Plex Mono, monospace',
+            }}
             title="Vergrößern"
           >
-            <FontAwesomeIcon icon={faPlus} className="text-[9px]" />
+            <FontAwesomeIcon icon={faPlus} style={{ fontSize: 9 }} />
           </button>
+        </div>
+      </div>
 
-          <div className="w-px h-7 bg-[#232323] mx-1" />
-
-          <div className="relative">
-            <button
-              onClick={() => setShowMarginMenu((prev) => !prev)}
-              className={`
-                h-9 px-3
-                inline-flex items-center justify-center gap-1
-                rounded-lg
-                border
-                font-mono text-[10px]
-                active:translate-y-[1px]
-                transition
-                ${activeMarginPreset !== 'custom'
-                  ? 'bg-[#1D1D1D] text-[#d0cbb8] border-[#232323]'
-                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66]  hover:bg-[#1D1D1D]'
-                }
-              `}
-              title="Seitenränder"
-              aria-label="Seitenränder"
-            >
-              <span>Rand</span>
-              <span className="text-[9px] ">{activeMarginLabel}</span>
-            </button>
-
-            {showMarginMenu && (
-              <div
-                className="
-                  absolute top-11 right-0
-                  min-w-[188px]
-                  overflow-hidden
-                  rounded-xl
-                  bg-[#121212]
-                  border border-[#2E2E2E]
-                  shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-                  z-[9999]
-                "
+      <div style={{ border: '1px solid rgba(21, 21, 21, 0.35)', borderRadius: 8, padding: '8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="font-mono text-[9px] text-[#252525]">Seitenabstand</div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {EDITOR_MARGIN_PRESETS.map((preset) => {
+            const active = activeMarginPreset === preset.id;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => handleSelectMarginPreset(preset.id)}
+                style={{
+                  border: active ? '1px solid #1a1a1a' : '1px solid #3A3A3A',
+                  borderRadius: 5,
+                  background: active ? '#252525' : 'transparent',
+                  color: active ? '#d2cabd' : '#252525',
+                  fontSize: 9,
+                  padding: '3px 7px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                }}
               >
-                <div className="px-3 py-2 text-[10px] font-mono tracking-wide text-[#666] border-b border-[#1F1F1F]">
-                  Seitenränder
-                </div>
-                {EDITOR_MARGIN_PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => handleSelectMarginPreset(preset.id)}
-                    className={`
-                      w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors flex items-center justify-between gap-3
-                      ${activeMarginPreset === preset.id
-                        ? 'bg-[#1A1A1A] text-[#AC8E66]'
-                        : 'text-[#dbd9d5] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
-                      }
-                    `}
-                  >
-                    <span>{preset.label}</span>
-                    <span className="text-[9px] opacity-70">
-                      {preset.margins.marginLeft}/{preset.margins.marginTop}
-                    </span>
-                  </button>
-                ))}
-                {activeMarginPreset === 'custom' && (
-                  <div className="px-4 py-2 text-[9px] font-mono text-[#777] border-t border-[#1F1F1F]">
-                    Aktuell: Custom
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-          <button
-            onClick={handlePrint}
-            className="
-              w-[14px]
-              inline-flex items-center justify-center
-              rounded-lg
-              bg-[#171717]
-              border border-[#2E2E2E]
-              text-[#d0cbb8]
-              text-[12px]
-              hover:text-[#AC8E66]
-              hover:border-[#d0cbb8]
-              hover:bg-[#1D1D1D]
-              active:translate-y-[1px]
-              transition
-            "
-            title="Drucken"
-            aria-label="Drucken"
-          >
-            <FontAwesomeIcon icon={faPrint} className="text-[10px]" />
-          </button>
-
-          <div className="relative">
-            <button
-              onClick={() => setShowThemeMenu((prev) => !prev)}
-              className={`
-                h-9 min-w-[52px] px-10
-                inline-flex items-center justify-center gap-1
-                rounded-lg
-                border
-                font-mono text-[10px]
-                active:translate-y-[1px]
-                transition
-                ${previewStyle === 'mono'
-                  ? 'bg-[#1D1D1D] text-[#d0cbb8] border-[#2E2E2E]'
-                  : 'bg-[#171717] text-[#A0A0A0] border-[#2E2E2E] hover:text-[#AC8E66] hover:border-[#3A3328] hover:bg-[#1D1D1D]'
-                }
-              `}
-              title={`Preview-Theme: ${previewTheme}`}
-            >
-              <span>{previewStyle === 'color' ? 'C' : 'M'}</span>
-            </button>
-
-            {showThemeMenu && (
-              <div
-                className="
-                  absolute top-11 right-0
-                  min-w-[170px]
-                  overflow-hidden
-                  rounded-xl
-                  bg-[#121212]
-                  border border-[#2E2E2E]
-                  shadow-[0_16px_40px_rgba(0,0,0,0.55)]
-                  z-[9999]
-                "
+      <div style={{ border: '1px solid rgba(21, 21, 21, 0.35)', borderRadius: 8, padding: '8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="font-mono text-[9px] text-[#252525]">Preview Theme</div>
+        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+          {previewThemeOptions.map((theme) => {
+            const active = previewTheme === theme.id;
+            return (
+              <button
+                key={theme.id}
+                type="button"
+                onClick={() => handleSelectTheme(theme.id)}
+                style={{
+                  border: active ? '1px solid #1a1a1a' : '1px solid #3A3A3A',
+                  borderRadius: 5,
+                  background: active ? '#252525' : 'transparent',
+                  color: active ? '#d2cabd' : '#252525',
+                  fontSize: 9,
+                  padding: '3px 7px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                }}
               >
-                <div className="px-3 py-2 text-[10px] font-mono 
-                tracking-wide text-[#d0cbb8] border-b border-[#1F1F1F]">
-                  Theme wählen
-                </div>
-                {previewThemeOptions.map((theme) => (
-                  <button
-                    key={theme.id}
-                    onClick={() => handleSelectTheme(theme.id)}
-                    className={`
-                      w-full px-4 py-2.5 text-left text-[10px] font-mono transition-colors
-                      ${previewTheme === theme.id
-                        ? 'bg-[#1A1A1A] text-[#d0cbb8]'
-                        : 'text-[#d0cbb8] hover:bg-[#1A1A1A] hover:text-[#AC8E66]'
-                      }
-                    `}
-                  >
-                    {theme.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </>
-      )}
+                {theme.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 
   return (
     <div className="w-full relative zen-preview-root">
       {previewToolbarMode === 'overlay' && (
-        <div
-          className="absolute z-[45] flex items-center zen-preview-print-hidden"
-          style={{ top: 50, right: 14, transformOrigin: 'top right' }}
-        >
-          {controlsPanel}
-        </div>
+        <>
+          <ZenSideTab
+            onClick={() => setShowControlsPanel((prev) => !prev)}
+            label="Preview Tools"
+            hoverLabel={showControlsPanel ? 'Schließen ×' : 'Öffnen →'}
+            className="zen-preview-print-hidden"
+            style={{
+              right: -162,
+              top: 16,
+              transform: 'rotate(90deg)',
+              backgroundColor: showControlsPanel ? '#d0cbb8' : '#121212',
+              border: '0.5px solid rgba(208, 203, 184, 0.45)',
+            }}
+            textColor={showControlsPanel ? '#1a1a1a' : '#aaaaaa'}
+            hoverTextColor={showControlsPanel ? '#1a1a1a' : '#aaaaaa'}
+            title={showControlsPanel ? 'Preview-Tools schließen' : 'Preview-Tools öffnen'}
+          />
+          {showControlsPanel && (
+            <div
+              className="absolute z-[45] flex items-center zen-preview-print-hidden"
+              style={{ top: 50, right: 1, transformOrigin: 'top right' }}
+            >
+              {controlsPanel}
+            </div>
+          )}
+        </>
       )}
 
 
@@ -1239,6 +1361,7 @@ export const ZenMarkdownPreview = ({
         <div style={{ position: 'relative', padding: `${marginTop}px ${marginRight}px ${marginBottom}px ${marginLeft}px` }}>
           {/* Dotted margin guides — oben, unten, links, rechts */}
           <div
+            className="zen-preview-margin-guide"
             aria-hidden="true"
             style={{
               position: 'absolute',
@@ -1252,6 +1375,7 @@ export const ZenMarkdownPreview = ({
             }}
           />
         <div
+          ref={printContentRef}
           className="zen-markdown-preview"
           style={{
             transform: `scale(${zoom / 100})`,

@@ -91,12 +91,30 @@ export interface TransformConfig {
   length?: ContentLength;
   audience?: ContentAudience;
   targetLanguage?: TargetLanguage;
+  allowEmoji?: boolean;
 }
 
 export interface TransformResult {
   success: boolean;
   data?: string;
   error?: string;
+}
+
+const AI_REQUEST_TIMEOUT_MS = 90000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = AI_REQUEST_TIMEOUT_MS): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`AI request timed out after ${Math.floor(timeoutMs / 1000)} seconds`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
 }
 
 /**
@@ -107,7 +125,7 @@ const defaultConfig: AIConfig = {
   provider: isTauri() ? 'ollama' : 'auto',
   model: isTauri() ? 'llama3.1:latest' : '',
   baseUrl: 'http://127.0.0.1:11434',
-  temperature: 0.3,
+  temperature: 1.3,
 };
 
 /**
@@ -380,15 +398,26 @@ async function callOllama(
   prompt: string
 ): Promise<CodeAnalysisResult> {
   const baseUrl = config.baseUrl || 'http://127.0.0.1:11434';
+  const model = config.model || 'llama3.1:latest';
+  const temperature = config.temperature || 0.3;
+  const supportsGenerateFallback = (status: number, errorText: string): boolean => {
+    if (status < 400 || status >= 500) return false;
+    const lower = errorText.toLowerCase();
+    return (
+      lower.includes('does not support chat') ||
+      lower.includes('does not support messages') ||
+      (lower.includes('support') && lower.includes('chat'))
+    );
+  };
 
   try {
     console.log('[Ollama] Making request to:', `${baseUrl}/api/chat`);
-    console.log('[Ollama] Model:', config.model || 'llama3.1:latest');
+    console.log('[Ollama] Model:', model);
 
     let response;
     try {
       const requestBody = JSON.stringify({
-        model: config.model || 'llama3.1:latest',
+        model,
         messages: [
           {
             role: 'user',
@@ -397,7 +426,7 @@ async function callOllama(
         ],
         stream: false,
         options: {
-          temperature: config.temperature || 0.3,
+          temperature,
         },
       });
 
@@ -446,6 +475,58 @@ async function callOllama(
           success: false,
           error: `Tauri HTTP Scope blockiert! Status 403. URL: ${baseUrl}/api/chat - Prüfe capabilities/default.json`,
         };
+      }
+
+      // Some Ollama models do not support /api/chat but work with /api/generate.
+      if (supportsGenerateFallback(response.status, errorText || '')) {
+        console.warn('[Ollama] Model has no chat support. Falling back to /api/generate');
+        try {
+          const generateBody = JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            options: {
+              temperature,
+            },
+          });
+
+          const generateResponse = await universalFetch(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: generateBody,
+          });
+
+          if (!generateResponse.ok) {
+            const generateErrorText = await generateResponse.text().catch(() => generateResponse.statusText);
+            return {
+              success: false,
+              error: `Ollama Fehler: ${generateResponse.status} - ${generateErrorText || 'Keine Details'} (Fallback /api/generate nach Chat-Fehler: ${errorText || 'Keine Details'})`,
+            };
+          }
+
+          const generateData = await generateResponse.json().catch(() => null) as { response?: string } | null;
+          const generatedText = generateData?.response;
+
+          if (!generatedText || !generatedText.trim()) {
+            return {
+              success: false,
+              error: 'Keine Antwort von Ollama erhalten (Fallback /api/generate).',
+            };
+          }
+
+          console.log('[Ollama] /api/generate fallback successful');
+          return {
+            success: true,
+            readme: generatedText.trim(),
+          };
+        } catch (generateError) {
+          return {
+            success: false,
+            error: `Ollama Fallback-Fehler (/api/generate): ${generateError instanceof Error ? generateError.message : 'Unbekannter Fehler'}`,
+          };
+        }
       }
 
       return {
@@ -956,6 +1037,7 @@ Important:
 - Maintain technical accuracy
 - Adapt formatting for the platform
 - Keep the core message and value
+- ${buildEmojiRule(config.allowEmoji)}
 - Output ONLY the transformed content, no meta-commentary
 
 Generate the transformed content in ${targetLang} now:`;
@@ -970,24 +1052,31 @@ async function callAIForTransform(
 ): Promise<TransformResult> {
   let result: CodeAnalysisResult;
 
-  switch (config.provider) {
-    case 'openai':
-      result = await callOpenAI(config, prompt);
-      break;
-    case 'anthropic':
-      result = await callAnthropic(config, prompt);
-      break;
-    case 'ollama':
-      result = await callOllama(config, prompt);
-      break;
-    case 'custom':
-      result = await callCustomAPI(config, prompt);
-      break;
-    default:
-      return {
-        success: false,
-        error: `Unbekannter AI-Provider: ${config.provider}`,
-      };
+  try {
+    switch (config.provider) {
+      case 'openai':
+        result = await withTimeout(callOpenAI(config, prompt));
+        break;
+      case 'anthropic':
+        result = await withTimeout(callAnthropic(config, prompt));
+        break;
+      case 'ollama':
+        result = await withTimeout(callOllama(config, prompt));
+        break;
+      case 'custom':
+        result = await withTimeout(callCustomAPI(config, prompt));
+        break;
+      default:
+        return {
+          success: false,
+          error: `Unbekannter AI-Provider: ${config.provider}`,
+        };
+    }
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'AI Anfrage fehlgeschlagen',
+    };
   }
 
   // Convert CodeAnalysisResult to TransformResult
@@ -1122,7 +1211,8 @@ export async function generateFromPrompt(
  */
 export async function textToMarkdown(
   plainText: string,
-  customAIConfig?: Partial<AIConfig>
+  customAIConfig?: Partial<AIConfig>,
+  options?: { allowEmoji?: boolean }
 ): Promise<TransformResult> {
   // Validation
   if (!plainText || plainText.trim().length < 10) {
@@ -1151,6 +1241,7 @@ Regeln:
 - Füge sinnvolle Absätze und Zeilenumbrüche hinzu
 - Behalte die ursprüngliche Bedeutung und Reihenfolge bei
 - Verbessere die Lesbarkeit durch Struktur
+- ${buildEmojiRule(options?.allowEmoji)}
 
 Code-Erkennung (wichtig):
 - Code mit function, class, const, let, var, def, fn, pub, impl → Code-Block
@@ -1249,6 +1340,13 @@ export type ImprovementStyle =
 export interface ImproveTextOptions {
   style?: ImprovementStyle;
   customInstruction?: string;  // For 'custom' style
+  allowEmoji?: boolean;
+}
+
+function buildEmojiRule(allowEmoji?: boolean): string {
+  return allowEmoji === false
+    ? 'Verwende keine Emojis.'
+    : 'Emojis sind erlaubt, aber nur sparsam und passend.';
 }
 
 /**
@@ -1355,6 +1453,7 @@ Wichtige Regeln:
 - Behalte alle Markdown-Formatierungen bei
 - Behalte die Kernaussage und Bedeutung bei
 - Behalte die Sprache des Originals bei
+- ${buildEmojiRule(options?.allowEmoji)}
 
 Wichtig:
 - Gib NUR den verbesserten Text aus, keine Erklärungen
@@ -1373,7 +1472,8 @@ Verbesserter Text:`;
  */
 export async function continueText(
   content: string,
-  customAIConfig?: Partial<AIConfig>
+  customAIConfig?: Partial<AIConfig>,
+  options?: { allowEmoji?: boolean }
 ): Promise<TransformResult> {
   if (!content || content.trim().length < 10) {
     return {
@@ -1393,6 +1493,7 @@ Regeln:
 - Behalte das Thema und den Kontext bei
 - Nutze die gleiche Markdown-Formatierung
 - Der Übergang soll nahtlos sein
+- ${buildEmojiRule(options?.allowEmoji)}
 
 Wichtig:
 - Gib den VOLLSTÄNDIGEN Text aus (Original + Fortsetzung)
@@ -1412,7 +1513,8 @@ Vollständiger Text mit Fortsetzung:`;
  */
 export async function summarizeText(
   content: string,
-  customAIConfig?: Partial<AIConfig>
+  customAIConfig?: Partial<AIConfig>,
+  options?: { allowEmoji?: boolean }
 ): Promise<TransformResult> {
   if (!content || content.trim().length < 50) {
     return {
@@ -1432,6 +1534,7 @@ Regeln:
 - Maximal 5-7 Hauptpunkte
 - Beginne mit einer kurzen Einleitung (1-2 Sätze)
 - Nutze Markdown-Formatierung
+- ${buildEmojiRule(options?.allowEmoji)}
 
 Format:
 ## Zusammenfassung

@@ -14,7 +14,7 @@ public:
   void Wait();
 
 private:
-  std::size_t threads_ = 0;
+  [[maybe_unused]] std::size_t threads_ = 0;
 };
 
 class TaskScheduler {

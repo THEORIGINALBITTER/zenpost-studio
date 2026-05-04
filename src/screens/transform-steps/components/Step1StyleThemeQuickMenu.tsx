@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faGear, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faXmark } from '@fortawesome/free-solid-svg-icons';
 import {
   PREVIEW_THEME_OPTIONS,
   type PreviewThemeId,
@@ -12,6 +12,10 @@ import {
   type DraftAutosaveRecord,
   type EditorSettings,
 } from '../../../services/editorSettingsService';
+import {
+  EDITOR_PAPER_INTENSITY_OPTIONS,
+  EDITOR_PAPER_STYLE_OPTIONS,
+} from '../../../services/editorPaperStyleService';
 
 interface Step1StyleThemeQuickMenuProps {
   isOpen: boolean;
@@ -22,7 +26,6 @@ interface Step1StyleThemeQuickMenuProps {
   onEditorSettingsChange?: (patch: Partial<EditorSettings>) => void;
   autosaveStatusText?: string | null;
   autosaveHistory?: DraftAutosaveRecord[];
-  onOpenEditorSettings?: () => void;
   onAutosaveHistoryRestore?: (record: DraftAutosaveRecord) => void;
   onAutosaveHistoryCompare?: (record: DraftAutosaveRecord) => void;
   onOpenComparison?: () => void;
@@ -39,7 +42,6 @@ export function Step1StyleThemeQuickMenu({
   onEditorSettingsChange,
   autosaveStatusText = null,
   autosaveHistory = [],
-  onOpenEditorSettings,
   onAutosaveHistoryRestore,
   onAutosaveHistoryCompare,
   onOpenComparison,
@@ -97,15 +99,17 @@ export function Step1StyleThemeQuickMenu({
         onMouseLeave={() => setHovered(false)}
         style={{
           position: 'absolute',
-          left: -28,
-          top: 603,
+          left: -27,
+          top: 509,
           transform: 'rotate(-90deg)',
           transformOrigin: 'left top',
-          padding: '10px 10px',
+          height: '32px',
+          padding: '10px 16px',
           borderRadius: '8px 8px 0px 0px',
           cursor: 'pointer',
           fontFamily: 'IBM Plex Mono, monospace',
           fontSize: '10px',
+          lineHeight: 1,
           color: isOpen ? '#1a1a1a' : '#aaaaaa',
           letterSpacing: '0.03em',
           whiteSpace: 'nowrap',
@@ -146,7 +150,7 @@ export function Step1StyleThemeQuickMenu({
         >
           {isOpen ? 'Schließen ×' : 'Öffnen →'}
         </span>
-        <span style={{ visibility: 'hidden' }}>Style Themen Schnellmenü</span>
+        <span style={{ display: 'none' }}>Quick Menu</span>
       </button>
 
       {isOpen && (
@@ -346,8 +350,104 @@ export function Step1StyleThemeQuickMenu({
                   );
                 })}
               </div>
+              {(() => {
+                const paperWidth = 136;
+                const paperHeight = 96;
+                const marginTop = editorSettings?.marginTop ?? 0;
+                const marginBottom = editorSettings?.marginBottom ?? 0;
+                const marginLeft = editorSettings?.marginLeft ?? 0;
+                const marginRight = editorSettings?.marginRight ?? 0;
+                const top = Math.round((marginTop / 120) * 20);
+                const bottom = Math.round((marginBottom / 120) * 20);
+                const left = Math.round((marginLeft / 140) * 26);
+                const right = Math.round((marginRight / 140) * 26);
+
+                return (
+                  <div
+                    style={{
+                      width: paperWidth,
+                      height: paperHeight,
+                      border: '1px solid rgba(58,58,58,0.7)',
+                      borderRadius: 6,
+                      background: '#d8d2c1',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.25)',
+                    }}
+                    aria-label="Vorschau Seitenabstand"
+                  >
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top,
+                        left,
+                        right,
+                        bottom,
+                        borderRadius: 4,
+                        background: 'rgba(172,142,102,0.18)',
+                      }}
+                    />
+                    <div style={{ position: 'absolute', top, left: 0, right: 0, borderTop: '1px dashed rgba(172,142,102,0.7)' }} />
+                    <div style={{ position: 'absolute', bottom, left: 0, right: 0, borderTop: '1px dashed rgba(172,142,102,0.7)' }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left, borderLeft: '1px dashed rgba(172,142,102,0.7)' }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, right, borderLeft: '1px dashed rgba(172,142,102,0.7)' }} />
+                  </div>
+                );
+              })()}
               <div className="font-mono text-[9px] text-[#1a1a1a]">
                 Oben {editorSettings?.marginTop ?? 0}px · Unten {editorSettings?.marginBottom ?? 0}px · Links {editorSettings?.marginLeft ?? 0}px · Rechts {editorSettings?.marginRight ?? 0}px
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div className="font-mono text-[9px] text-[#252525]">Papier</div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {EDITOR_PAPER_STYLE_OPTIONS.map((paper) => {
+                  const active = (editorSettings?.paperStyle ?? 'classic') === paper.id;
+                  return (
+                    <button
+                      key={paper.id}
+                      type="button"
+                      onClick={() => onEditorSettingsChange?.({ paperStyle: paper.id })}
+                      style={{
+                        border: active ? '1px solid #1a1a1a' : '1px solid #3A3A3A',
+                        borderRadius: 5,
+                        background: active ? '#252525' : 'transparent',
+                        color: active ? '#d2cabd' : '#252525',
+                        fontSize: 9,
+                        padding: '3px 7px',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                      }}
+                    >
+                      {paper.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                {EDITOR_PAPER_INTENSITY_OPTIONS.map((intensity) => {
+                  const active = (editorSettings?.paperIntensity ?? 'medium') === intensity.id;
+                  return (
+                    <button
+                      key={intensity.id}
+                      type="button"
+                      onClick={() => onEditorSettingsChange?.({ paperIntensity: intensity.id })}
+                      style={{
+                        border: active ? '1px solid #1a1a1a' : '1px solid #3A3A3A',
+                        borderRadius: 5,
+                        background: active ? '#252525' : 'transparent',
+                        color: active ? '#d2cabd' : '#252525',
+                        fontSize: 9,
+                        padding: '3px 7px',
+                        cursor: 'pointer',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                      }}
+                    >
+                      {intensity.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -359,7 +459,7 @@ export function Step1StyleThemeQuickMenu({
                   border: '1px solid #3A3A3A',
                   borderRadius: 5,
                   background: editorSettings?.wrapLines ? '#252525' : 'transparent',
-                  color: editorSettings?.wrapLines ? '#d2cabd' : '#d0cbb8',
+                  color: editorSettings?.wrapLines ? '#d2cabd' : '#252525',
                   fontSize: 9,
                   padding: '3px 7px',
                   cursor: 'pointer',
@@ -375,7 +475,7 @@ export function Step1StyleThemeQuickMenu({
                   border: '1px solid #3A3A3A',
                   borderRadius: 5,
                   background: editorSettings?.showLineNumbers ? '#252525' : 'transparent',
-                  color: editorSettings?.showLineNumbers ? '#d2cabd' : '#d0cbb8',
+                  color: editorSettings?.showLineNumbers ? '#d2cabd' : '#252525',
                   fontSize: 9,
                   padding: '3px 7px',
                   cursor: 'pointer',

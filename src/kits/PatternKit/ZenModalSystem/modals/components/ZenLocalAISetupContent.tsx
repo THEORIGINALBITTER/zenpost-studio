@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck } from "@fortawesome/free-solid-svg-icons";
 import { ZenDropdown } from "../../components/ZenDropdown";
 import { ZenTerminal } from "../../components/ZenTerminal";
+import { ZenCheckbox, ZenCheckboxOption } from "../../components/ZenCheckbox";
 import { loadAIConfig } from "../../../../../services/aiService";
+import { useOpenExternal } from "../../../../../hooks/useOpenExternal";
 
 type OSType = "macos" | "windows" | "linux";
 
@@ -15,8 +15,8 @@ const OS_OPTIONS = [
 ];
 
 const TERMINAL_HINTS: Record<OSType, string> = {
-  macos: `Spotlight öffnen (Cmd + Leertaste) → "Terminal" eingeben → Enter drücken`,
-  windows: `Windows-Taste drücken → "PowerShell" eingeben → Enter drücken`,
+  macos: `Spotlight öffnen (Cmd + Leertaste) → "Terminal" eingeben → Enter`,
+  windows: `Windows-Taste drücken → "PowerShell" eingeben → Enter`,
   linux: `Strg + Alt + T drücken oder im Anwendungsmenü nach "Terminal" suchen`,
 };
 
@@ -37,6 +37,8 @@ const SETUP_STEPS = [
     action: "link" as const,
     url: "https://ollama.com/download",
     actionLabel: "Ollama herunterladen",
+    imageSrc: "/download_ollama.png",
+    imageAlt: "Ollama Download-Seite",
   },
   {
     id: "install-node",
@@ -46,6 +48,8 @@ const SETUP_STEPS = [
     action: "link" as const,
     url: "https://nodejs.org/en/download",
     actionLabel: "Node.js herunterladen",
+    imageSrc: "/download_npm.png",
+    imageAlt: "Node.js Download-Seite",
   },
   {
     id: "pull-model",
@@ -159,6 +163,7 @@ const ServerCheckButton = ({ onClick, serverStatus }: { onClick: () => void; ser
 
 export const ZenLocalAISetupContent = () => {
   const isDesktop = isTauri();
+  const { openExternal } = useOpenExternal();
 
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(loadCompletedSteps);
   const [expandedStep, setExpandedStep] = useState<number | null>(() => {
@@ -267,28 +272,25 @@ export const ZenLocalAISetupContent = () => {
     );
   }
 
-  const openExternal = (url: string) => {
-    if (typeof window !== "undefined") {
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
-  };
-
   const handleOSChange = (value: string) => {
     const os = value as OSType;
     setSelectedOS(os);
     localStorage.setItem(OS_STORAGE_KEY, os);
   };
 
-  const toggleStep = (index: number) => {
+  const toggleStep = (index: number, opts?: { keepExpanded?: boolean }) => {
+    const keepExpanded = opts?.keepExpanded ?? false;
     setCompletedSteps((prev) => {
       const next = new Set(prev);
       if (next.has(index)) {
         next.delete(index);
       } else {
         next.add(index);
-        const nextIncomplete = SETUP_STEPS.findIndex((_, i) => i > index && !next.has(i));
-        if (nextIncomplete >= 0) setExpandedStep(nextIncomplete);
-        else setExpandedStep(null);
+        if (!keepExpanded) {
+          const nextIncomplete = SETUP_STEPS.findIndex((_, i) => i > index && !next.has(i));
+          if (nextIncomplete >= 0) setExpandedStep(nextIncomplete);
+          else setExpandedStep(null);
+        }
       }
       saveCompletedSteps(next);
       return next;
@@ -468,31 +470,17 @@ export const ZenLocalAISetupContent = () => {
                           : `1px solid rgba(172,142,102,${isLast ? "0" : "0.15"})`,
                       }}
                     >
-                      {/* Step Number */}
-                      <span
-                        className="flex items-center justify-center font-mono text-[10px] transition-all duration-200"
-                        style={{
-                          width: 20,
-                          height: 20,
-                          flexShrink: 0,
-                          borderRadius: 6,
-                          background: isDone ? "#AC8E66" : "#F4F1EA",
-                          border: `1px solid ${isDone ? "#AC8E66" : "#8A8A8A"}`,
-                          color: isDone ? "#1a1a1a" : "transparent",
-                          boxShadow: "none",
-                        }}
-                      >
-                        {isDone ? (
-                          <FontAwesomeIcon icon={faCheck} style={{ fontSize: 10, color: "#151515" }} />
-                        ) : (
-                          <span style={{ fontSize: 0 }}>{index + 1}</span>
-                        )}
-                      </span>
+                      {/* Step Checkbox */}
+                      <ZenCheckbox
+                        checked={isDone}
+                        onChange={() => {}}
+                        style={{ pointerEvents: "none" }}
+                      />
 
                       {/* Title */}
                       <span
                         className="flex-1 font-mono text-[11px] tracking-wide text-left transition-colors"
-                        style={{ color: isDone ? "#AC8E66" : "#3a3a3a" }}
+                        style={{ color: isDone ? "#252525" : "#3a3a3a" }}
                       >
                         {step.title}
                       </span>
@@ -538,8 +526,22 @@ export const ZenLocalAISetupContent = () => {
 
                         {/* Link Action (Steps 1 & 2) */}
                         {step.action === "link" && (
-                          <div className="flex justify-center">
-                            <HoverButton onClick={() => openExternal(step.url!)} width={280}>
+                          <div className="flex flex-col items-center" style={{ gap: 10 }}>
+                            {step.imageSrc && (
+                              <img
+                                src={step.imageSrc}
+                                alt={step.imageAlt ?? "Setup Download"}
+                                style={{
+                                  width: 280,
+                                  maxWidth: "100%",
+                                  height: "auto",
+                                  borderRadius: 8,
+                                  border: "1px solid rgba(172,142,102,0.35)",
+                                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                                }}
+                              />
+                            )}
+                            <HoverButton onClick={() => { void openExternal(step.url!); }} width={280}>
                               {step.actionLabel!}
                             </HoverButton>
                           </div>
@@ -591,16 +593,12 @@ export const ZenLocalAISetupContent = () => {
 
                         {/* Done Toggle */}
                         <div className="flex justify-center">
-                          <HoverButton onClick={() => toggleStep(index)} width={280} active={isDone}>
-                            {isDone ? (
-                              <>
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ marginRight: 6 }}>
-                                  <path d="M2 6L5 9L10 3" stroke="#AC8E66" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                                Erledigt
-                              </>
-                            ) : "Als erledigt markieren"}
-                          </HoverButton>
+                          <ZenCheckboxOption
+                            checked={isDone}
+                            onChange={() => toggleStep(index, { keepExpanded: true })}
+                            label={isDone ? "Erledigt" : "Als erledigt markieren"}
+                            style={{ width: 280, justifyContent: "center" }}
+                          />
                         </div>
                       </div>
                     )}

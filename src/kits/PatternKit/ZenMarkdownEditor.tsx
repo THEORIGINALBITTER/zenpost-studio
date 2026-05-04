@@ -35,6 +35,8 @@ import {
 } from '../../services/contentStudioBridgeService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 import { getEditorLineMetrics } from '../../services/editorLayoutMetricsService';
+import { resolveEditorPaperStyle, type EditorPaperStyle } from '../../services/editorPaperStyleService';
+import type { EditorPaperIntensity } from '../../services/editorSettingsService';
 
 interface ZenMarkdownEditorProps {
   value: string;
@@ -50,6 +52,8 @@ interface ZenMarkdownEditorProps {
   subtitle?: string;
   showHeader?: boolean;
   theme?: 'dark' | 'light';
+  paperStyle?: EditorPaperStyle;
+  paperIntensity?: EditorPaperIntensity;
   previewTheme?: PreviewThemeId;
   fontSize?: number;
   hideTopBorder?: boolean;
@@ -96,6 +100,8 @@ export const ZenMarkdownEditor = ({
   subtitle,
   showHeader = true,
   theme = 'light',
+  paperStyle = 'classic',
+  paperIntensity = 'medium',
   previewTheme = 'mono-clean',
   fontSize = 12,
   hideTopBorder = false,
@@ -1131,6 +1137,13 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
   };
 
   const colors = themeStyles[theme];
+  const paperStyleTokens = resolveEditorPaperStyle({
+    theme,
+    paperStyle,
+    paperIntensity,
+    baseBackground: colors.background,
+  });
+  const paperBackgroundPositionY = `${(paperStyleTokens.scrollOffsetY ?? 0) - editorScrollTop}px`;
 
   const isImageFile = (file: File) =>
     file.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(file.name);
@@ -1491,7 +1504,11 @@ const handleInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       borderTop: hideTopBorder ? 'none' : `0.5px solid ${colors.border}`,
       borderRight: '1px solid rgba(172, 142, 102, 0.5)',
       borderRadius: '10px',
-      backgroundColor: colors.background,
+      backgroundColor: paperStyleTokens.backgroundColor,
+      backgroundImage: paperStyleTokens.backgroundImage,
+      backgroundSize: paperStyleTokens.backgroundSize,
+      backgroundPosition: paperStyleTokens.backgroundPosition,
+      backgroundPositionY: paperBackgroundPositionY,
       boxShadow:
         '1px 2px 8px -4px rgba(0,0,0,0.35), 1px 1px 8px -6px rgba(0,0,0,0.25)',
       overflow: 'hidden',

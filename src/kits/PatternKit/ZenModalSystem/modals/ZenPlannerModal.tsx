@@ -1030,6 +1030,16 @@ export function ZenPlannerModal({
     upsertPostSchedule(postId, dateStr, timeStr);
   };
 
+  const openInCalendarFromDate = (dateStr?: string) => {
+    const fallback = getTodayDate();
+    const key = (dateStr && dateStr.trim()) ? dateStr : fallback;
+    const targetDate = fromDateKey(key);
+    setActiveTab('kalender');
+    setCurrentDate(targetDate);
+    setCalendarDetailDate(targetDate);
+    setCalendarStatusList(null);
+  };
+
   const handleSaveSchedule = async (options?: { closeAfter?: boolean }) => {
     const storageProjectPath = projectPath ?? plannerProjectPath;
     if (!onScheduleSave && !onScheduledPostsChange && !(isTauri() && storageProjectPath)) return;
@@ -2222,7 +2232,7 @@ export function ZenPlannerModal({
                     </div>
                   </div>
 
-                  <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                  <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'center' }}>
                     <button
                       className="zen-planner-btn"
                       type="button"
@@ -2239,13 +2249,31 @@ export function ZenPlannerModal({
                         backgroundColor: 'transparent',
                         border: '1px solid #777',
                         borderRadius: '8px',
-                        color: '#555',
+                        color: '#1a1a1a',
                         fontFamily: 'IBM Plex Mono, monospace',
-                        fontSize: '10px',
+                        fontSize: '9px',
                         cursor: 'pointer',
                       }}
                     >
                       Weiterbearbeiten
+                    </button>
+                    <button
+                      className="zen-planner-btn"
+                      type="button"
+                      onClick={() => openInCalendarFromDate(schedule.date)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        backgroundColor: 'transparent',
+                        border: '1px solid #777',
+                        borderRadius: '8px',
+                        color: '#1a1a1a',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '9px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Im Kalender öffnen
                     </button>
                   </div>
                 </div>
@@ -2426,7 +2454,7 @@ export function ZenPlannerModal({
                         />
                       </div>
                     </div>
-                    <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'center' }}>
+                    <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'center' }}>
                       <button
                         className="zen-planner-btn"
                         type="button"
@@ -2444,6 +2472,24 @@ export function ZenPlannerModal({
                         }}
                       >
                         Weiterbearbeiten
+                      </button>
+                      <button
+                        className="zen-planner-btn"
+                        type="button"
+                        onClick={() => openInCalendarFromDate(dateValue)}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #AC8E66',
+                          borderRadius: '8px',
+                          color: '#AC8E66',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Im Kalender öffnen
                       </button>
                     </div>
                   </div>
@@ -2565,7 +2611,7 @@ export function ZenPlannerModal({
                         />
                       </div>
                     </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', justifyContent: 'center', marginTop: '8px' }}>
                       <button
                         className="zen-planner-btn"
                         type="button"
@@ -2583,6 +2629,24 @@ export function ZenPlannerModal({
                         }}
                       >
                         Weiterbearbeiten
+                      </button>
+                      <button
+                        className="zen-planner-btn"
+                        type="button"
+                        onClick={() => openInCalendarFromDate(dateValue)}
+                        style={{
+                          width: '100%',
+                          padding: '9px 12px',
+                          backgroundColor: 'transparent',
+                          border: '1px solid #AC8E66',
+                          borderRadius: '8px',
+                          color: '#AC8E66',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Im Kalender öffnen
                       </button>
                     </div>
                   </div>
@@ -3096,7 +3160,7 @@ export function ZenPlannerModal({
           gap: '8px',
         }}
       >
-        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#777' }}>
+        <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a' }}>
           {manualMovePost
             ? `Verschieben aktiv: ${manualMovePost.title || getPlatformInfo(manualMovePost.platform).name}. Im Kalender anderen Tag auswählen.`
             : 'zum Verschieben drag & drop oder verschieben klicken'}
@@ -3181,7 +3245,7 @@ export function ZenPlannerModal({
               const isTodayDate = isToday(date);
               const hasPosts = postsOnDate.length > 0;
               const dateKey = toLocalDateKey(date);
-              const isDragOver = dragOverDate === dateKey && isCurrent;
+              const isDragOver = dragOverDate === dateKey;
               const isSelected = calendarDetailDate?.toDateString() === date.toDateString();
               const isWeekend = dayIndex >= 5; // Sa=5, So=6
 
@@ -3204,7 +3268,7 @@ export function ZenPlannerModal({
                     });
                   }}
                   onDragOver={(e) => {
-                    if (!isCurrent || !draggedPostIdRef.current) return;
+                    if (!draggedPostIdRef.current) return;
                     e.preventDefault();
                     setDragOverDateSafe(dateKey);
                   }}
@@ -3212,7 +3276,7 @@ export function ZenPlannerModal({
                   onDrop={(e) => {
                     e.preventDefault();
                     const draggedId = resolveDraggedPostId(e);
-                    if (!isCurrent || !draggedId) return;
+                    if (!draggedId) return;
                     applyCalendarDate(draggedId, date);
                     setDraggedPost(null);
                     setDragOverDateSafe(null);
@@ -3260,7 +3324,7 @@ export function ZenPlannerModal({
                     <div
                       style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
                       onDragOver={(e) => {
-                        if (!isCurrent || !draggedPostIdRef.current) return;
+                        if (!draggedPostIdRef.current) return;
                         e.preventDefault();
                         e.stopPropagation();
                         setDragOverDateSafe(dateKey);
@@ -3269,7 +3333,7 @@ export function ZenPlannerModal({
                         e.preventDefault();
                         e.stopPropagation();
                         const draggedId = resolveDraggedPostId(e);
-                        if (!isCurrent || !draggedId) return;
+                        if (!draggedId) return;
                         applyCalendarDate(draggedId, date);
                         setDraggedPost(null);
                         setDragOverDateSafe(null);
@@ -3364,7 +3428,7 @@ export function ZenPlannerModal({
                                 e.preventDefault();
                                 e.stopPropagation();
                                 const draggedId = resolveDraggedPostId(e);
-                                if (!isCurrent || !draggedId || isDragging) return;
+                                if (!draggedId || isDragging) return;
                                 applyCalendarDate(draggedId, date);
                                 setDraggedPost(null);
                                 setDragOverDateSafe(null);
@@ -3679,6 +3743,13 @@ export function ZenPlannerModal({
         onStatusFilterChange={setÜbersichtStatusFilter}
         onOpenCloudSettings={() => openAppSettings('cloud')}
         onOpenPlannerPost={openPlannerPostById}
+        onOpenCalendarDate={(dateKey) => {
+          const targetDate = fromDateKey(dateKey);
+          setActiveTab('kalender');
+          setCurrentDate(targetDate);
+          setCalendarDetailDate(targetDate);
+          setCalendarStatusList(null);
+        }}
         onOpenTodoScope={openChecklistScopeForPost}
       />
     );

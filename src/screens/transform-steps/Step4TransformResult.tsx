@@ -32,6 +32,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons';
 import { ZenRoughButton, ZenPlannerModal, ZenPostenModal, ZenPostMethodModal, ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenImageGalleryModal } from '../../kits/PatternKit/ZenModalSystem/modals/ZenImageGalleryModal';
+import { ZenGeneratingModal } from '../../kits/PatternKit/ZenModalSystem/modals/ZenGeneratingModal';
 import { PREVIEW_THEME_LABELS, type PreviewThemeId, ZenMarkdownPreview } from '../../kits/PatternKit/ZenMarkdownPreview';
 import { useZenIdle } from '../../hooks/useZenIdle';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
@@ -63,6 +64,9 @@ import { EDITOR_SETTINGS_STORAGE_KEY } from '../../constants/settingsKeys';
 import { applySteuerFormatConfig, autoFixSteuerFormatContent, validateSteuerFormatContent } from '../../config/formatConfigTrans';
 import { preparePostContent } from '../../config/platformPostRules';
 import { optimizeImagesInMarkdown } from '../../utils/exportLayer';
+import { buildLineDiffRows, type LineDiffRow } from '../../services/documentComparisonService';
+import { buildComparisonUiLabels } from '../../services/documentComparisonUiService';
+import { DocumentComparisonPanel } from '../../components/DocumentComparisonPanel';
 
 interface Step4TransformResultProps {
   transformedContent: string;
@@ -82,6 +86,8 @@ interface Step4TransformResultProps {
   onBackToDashboard?: (generatedContent?: string) => void;
   onOpenPlatformSelection?: () => void;
   onGoToTransform?: (platform: ContentPlatform) => void; // Navigate to Step 2/3 for AI transformation
+  allowEmoji?: boolean;
+  onAllowEmojiChange?: (allow: boolean) => void;
   // Multi-platform mode props
   multiPlatformMode?: boolean;
   transformedContents?: Partial<Record<ContentPlatform, string>>;
@@ -100,6 +106,40 @@ interface Step4TransformResultProps {
   onNewDraft?: () => void;
   previewTheme?: PreviewThemeId;
   onPreviewThemeChange?: (theme: PreviewThemeId) => void;
+  postMeta?: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
+  };
+  onMetaChange?: (meta: {
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+    date: string;
+    tags: string[];
+    imageAlt: string;
+    imageTitle: string;
+    imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
+  }) => void;
 }
 
 type ImproveOption = {
@@ -107,12 +147,6 @@ type ImproveOption = {
   icon: IconDefinition;
   label: string;
   desc: string;
-};
-
-type LineDiffRow = {
-  left: string;
-  right: string;
-  status: 'same' | 'added' | 'removed' | 'modified';
 };
 
 const PLATFORM_CHAR_LIMITS: Partial<Record<ContentPlatform, number>> = {
@@ -126,19 +160,19 @@ const PLATFORM_CHAR_LIMITS: Partial<Record<ContentPlatform, number>> = {
 
 const improveBaseStyle: React.CSSProperties = {
   width: '100%',
+  minHeight: '72px',
   padding: '10px 12px',
-  backgroundColor: '#2A2A2A',
-  border: '0.5px solid #3a3a3a',
-  borderRadius: '8px',
+  backgroundColor: 'rgba(255,255,255,0.02)',
+  border: '1px solid rgba(172,142,102,0.16)',
+  borderRadius: '10px',
   cursor: 'pointer',
   transition: 'all 0.2s ease',
   textAlign: 'left',
 };
 
 const improveHoverStyle: React.CSSProperties = {
-  backgroundColor: '#3a3a3a',
-  borderColor: '#AC8E66',
-
+  backgroundColor: 'rgba(172,142,102,0.12)',
+  borderColor: 'rgba(172,142,102,0.45)',
 };
 
 const improveDisabledStyle: React.CSSProperties = {
@@ -208,6 +242,8 @@ export const Step4TransformResult = ({
   onBackToDashboard,
   onOpenPlatformSelection,
   onGoToTransform,
+  allowEmoji = true,
+  onAllowEmojiChange,
   multiPlatformMode = false,
   transformedContents = {},
   activeResultTab,
@@ -225,6 +261,8 @@ export const Step4TransformResult = ({
   onNewDraft: _onNewDraft,
   previewTheme: externalPreviewTheme,
   onPreviewThemeChange,
+  postMeta,
+  onMetaChange,
 }: Step4TransformResultProps) => {
   const isIdle = useZenIdle(2000);
   const [editorSettings, setEditorSettings] = useState<EditorSettings>(() => {
@@ -327,13 +365,23 @@ export const Step4TransformResult = ({
   const [showCoverGallery, setShowCoverGallery] = useState(false);
   const coverFileInputRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    const sharedImageUrl = (postMeta?.imageUrl ?? '').trim();
+    if (sharedImageUrl) {
+      setLinkedInCoverPreview(sharedImageUrl);
+      return;
+    }
+    if (!linkedInCoverImage) {
+      setLinkedInCoverPreview(null);
+    }
+  }, [linkedInCoverImage, postMeta?.imageUrl]);
+
   // Text-AI State
   const [showTextAI, setShowTextAI] = useState(false);
   const [isAIProcessing, setIsAIProcessing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
 
   // Improvement Style Selection State
-  const [showImproveOptions, setShowImproveOptions] = useState(false);
   const [customInstruction, setCustomInstruction] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
 
@@ -403,6 +451,19 @@ export const Step4TransformResult = ({
   // Success feedback
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [lastAction, setLastAction] = useState<string>('');
+  const [limitToast, setLimitToast] = useState<{ kind: 'info' | 'success' | 'warning' | 'error'; message: string } | null>(null);
+  const [showReducingModal, setShowReducingModal] = useState(false);
+  useEffect(() => {
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (showTextAI || showCustomInput) {
+        setShowTextAI(false);
+        setShowCustomInput(false);
+      }
+    };
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [showTextAI, showCustomInput]);
   const [activePanel, setActivePanel] = useState<'vergleich' | 'engine' | 'thumbnail' | 'qa' | null>(null);
   const togglePanel = (panel: 'vergleich' | 'engine' | 'thumbnail' | 'qa') =>
     setActivePanel(prev => prev === panel ? null : panel);
@@ -569,78 +630,24 @@ export const Step4TransformResult = ({
   const selectedComparisonTab = selectedComparisonTabId
     ? docTabs.find((tab) => tab.id === selectedComparisonTabId) ?? null
     : null;
+  const activeResultDocTab = activeDocTabId
+    ? docTabs.find((tab) => tab.id === activeDocTabId) ?? null
+    : null;
   const activeComparisonContent = selectedComparisonTabId
     ? docTabContents[selectedComparisonTabId] ?? ''
     : originalContent;
   const activeComparisonLabel = selectedComparisonTab
     ? `Tab: ${selectedComparisonTab.title}`
     : originalLabel;
+  const comparisonUiLabels = buildComparisonUiLabels({
+    leftDocumentContext: activeComparisonLabel,
+    rightDocumentContext: activeResultDocTab?.title ?? 'Aktuelles Dokument',
+  });
 
   const hasComparison = !!activeComparisonContent && activeComparisonContent !== currentContent;
   const comparisonRows = useMemo<LineDiffRow[]>(() => {
     if (!hasComparison) return [];
-    const leftLines = activeComparisonContent.split('\n');
-    const rightLines = currentContent.split('\n');
-    const n = leftLines.length;
-    const m = rightLines.length;
-    const dp: number[][] = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
-
-    for (let i = n - 1; i >= 0; i -= 1) {
-      for (let j = m - 1; j >= 0; j -= 1) {
-        dp[i][j] = leftLines[i] === rightLines[j]
-          ? dp[i + 1][j + 1] + 1
-          : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-
-    const rawRows: LineDiffRow[] = [];
-    let i = 0;
-    let j = 0;
-    while (i < n && j < m) {
-      if (leftLines[i] === rightLines[j]) {
-        rawRows.push({ left: leftLines[i], right: rightLines[j], status: 'same' });
-        i += 1;
-        j += 1;
-      } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-        rawRows.push({ left: leftLines[i], right: '', status: 'removed' });
-        i += 1;
-      } else {
-        rawRows.push({ left: '', right: rightLines[j], status: 'added' });
-        j += 1;
-      }
-    }
-    while (i < n) { rawRows.push({ left: leftLines[i], right: '', status: 'removed' }); i += 1; }
-    while (j < m) { rawRows.push({ left: '', right: rightLines[j], status: 'added' }); j += 1; }
-
-    // Block-pairing: pair consecutive removed+added lines side-by-side (GitHub-style)
-    const mergedRows: LineDiffRow[] = [];
-    let idx = 0;
-    while (idx < rawRows.length) {
-      const row = rawRows[idx];
-      if (row.status === 'same') {
-        mergedRows.push(row);
-        idx += 1;
-      } else {
-        const removed: string[] = [];
-        const added: string[] = [];
-        let k = idx;
-        while (k < rawRows.length && (rawRows[k].status === 'removed' || rawRows[k].status === 'added')) {
-          if (rawRows[k].status === 'removed') removed.push(rawRows[k].left);
-          else added.push(rawRows[k].right);
-          k += 1;
-        }
-        const pairCount = Math.max(removed.length, added.length);
-        for (let p = 0; p < pairCount; p += 1) {
-          const l = removed[p] ?? '';
-          const r = added[p] ?? '';
-          if (l && r) mergedRows.push({ left: l, right: r, status: 'modified' });
-          else if (l) mergedRows.push({ left: l, right: '', status: 'removed' });
-          else mergedRows.push({ left: '', right: r, status: 'added' });
-        }
-        idx = k;
-      }
-    }
-    return mergedRows;
+    return buildLineDiffRows(activeComparisonContent, currentContent);
   }, [hasComparison, activeComparisonContent, currentContent]);
 
   useEffect(() => {
@@ -663,16 +670,17 @@ export const Step4TransformResult = ({
           result = await improveText(currentContent, {
             style: improveStyle || 'general',
             customInstruction: improveStyle === 'custom' ? customInstruction : undefined,
+            allowEmoji,
           });
           break;
         case 'continue':
-          result = await continueText(currentContent);
+          result = await continueText(currentContent, undefined, { allowEmoji });
           break;
         case 'summarize':
-          result = await summarizeText(currentContent);
+          result = await summarizeText(currentContent, undefined, { allowEmoji });
           break;
         case 'markdown':
-          result = await textToMarkdown(currentContent);
+          result = await textToMarkdown(currentContent, undefined, { allowEmoji });
           break;
       }
 
@@ -696,7 +704,6 @@ export const Step4TransformResult = ({
         setCurrentContent(result.data);
         onContentChange?.(result.data, { source: 'ai', action });
         setShowTextAI(false);
-        setShowImproveOptions(false);
         setShowCustomInput(false);
         setCustomInstruction('');
       } else {
@@ -709,44 +716,123 @@ export const Step4TransformResult = ({
     }
   };
 
-  const formatAiError = (raw: string): { title: string; hint?: string } => {
+  const handleReduceToPlatformLimit = async () => {
+    const limit = PLATFORM_CHAR_LIMITS[activeQaPlatform];
+    if (!limit) return;
+    const startChars = currentContent.length;
+    if (startChars <= limit) return;
+
+    setIsAIProcessing(true);
+    setAiError(null);
+    setShowReducingModal(true);
+    try {
+      let workingContent = currentContent;
+      const maxPasses = 2;
+      let lastError: string | null = null;
+
+      for (let pass = 1; pass <= maxPasses; pass += 1) {
+        const result = await improveText(workingContent, {
+          style: 'custom',
+          allowEmoji,
+          customInstruction: `Kürze diesen Text auf maximal ${limit} Zeichen für ${platformLabels[activeQaPlatform]}.
+Wichtig:
+- Behalte Kernaussage, Ton und Struktur so gut wie möglich.
+- Entferne Wiederholungen und Füllwörter zuerst.
+- Keine Meta-Erklärung, gib nur den finalen gekürzten Text aus.
+- Ziel: zwischen ${Math.max(1, limit - 120)} und ${limit} Zeichen.
+- Aktuelle Länge vor diesem Schritt: ${workingContent.length} Zeichen.`,
+        });
+
+        if (!result.success || !result.data) {
+          lastError = result.error || 'Kürzung auf Plattform-Limit fehlgeschlagen';
+          break;
+        }
+
+        workingContent = result.data.trim();
+        if (workingContent.length <= limit) {
+          const reducedBy = Math.max(0, startChars - workingContent.length);
+          setLastAction(`Auf ${platformLabels[activeQaPlatform]}-Limit gekürzt (-${reducedBy.toLocaleString('de-DE')})`);
+          setShowSuccessMessage(true);
+          setTimeout(() => setShowSuccessMessage(false), 3000);
+          setCurrentContent(workingContent);
+          onContentChange?.(workingContent, { source: 'ai', action: 'reduce-to-limit' });
+          setShowTextAI(false);
+          setShowCustomInput(false);
+          setCustomInstruction('');
+          setLimitToast({
+            kind: 'success',
+            message: `Fertig: ${workingContent.length.toLocaleString('de-DE')} / ${limit.toLocaleString('de-DE')} Zeichen (−${reducedBy.toLocaleString('de-DE')})`,
+          });
+          setTimeout(() => setLimitToast(null), 2600);
+          return;
+        }
+      }
+
+      if (lastError) {
+        setLimitToast({ kind: 'error', message: lastError });
+        setTimeout(() => setLimitToast(null), 3500);
+        return;
+      }
+
+      setCurrentContent(workingContent);
+      onContentChange?.(workingContent, { source: 'ai', action: 'reduce-to-limit' });
+      setLimitToast({
+        kind: 'warning',
+        message: `Noch leicht drüber: ${workingContent.length.toLocaleString('de-DE')} / ${limit.toLocaleString('de-DE')} Zeichen. Bitte 1x erneut kürzen.`,
+      });
+      setTimeout(() => setLimitToast(null), 3800);
+    } catch (error) {
+      setLimitToast({ kind: 'error', message: error instanceof Error ? error.message : 'Unbekannter Fehler' });
+      setTimeout(() => setLimitToast(null), 3500);
+    } finally {
+      setIsAIProcessing(false);
+      setShowReducingModal(false);
+    }
+  };
+
+  const formatAiError = (raw: string): { title: string; hint?: string; showAiSettingsCta?: boolean; severity: 'error' | 'warning' } => {
     const r = raw.toLowerCase();
-    if (r.includes('does not support chat') || r.includes('does not support')) {
-      const model = raw.match(/[`"\\]([a-z0-9][a-z0-9._:-]+)[`"\\]?\s+does not support/i)?.[1] ?? 'Deine ausgewählte AI';
+    const hasGenerateFallback = r.includes('fallback /api/generate') || r.includes('fallback-fehler (/api/generate)');
+
+    if (hasGenerateFallback) {
       return {
-        title: `${model} unterstützt keinen Chat-Modus.`,
+        title: 'Das Modell läuft nur im Generate-Modus, aber der Auto-Fallback ist fehlgeschlagen.',
+        hint: 'Bitte prüfe Ollama-Logs oder wähle ein anderes Modell. Die Chat-zu-Generate-Umschaltung ist bereits aktiv.',
+        severity: 'warning',
+      };
+    }
+    if ((r.includes('does not support chat') || r.includes('does not support')) && !hasGenerateFallback) {
+      return {
+        title: 'Deine ausgewählte AI unterstützt keinen Chat-Modus.',
         hint: 'Wähle in den Einstellungen ein anderes Ollama-Modell (z.B. llama3, mistral oder gemma).',
+        showAiSettingsCta: true,
+        severity: 'error',
       };
     }
     if (r.includes('connection refused') || r.includes('failed to fetch') || r.includes('networkerror')) {
       return {
         title: 'Ollama ist nicht erreichbar.',
         hint: 'Starte Ollama mit: OLLAMA_ORIGINS=* ollama serve',
+        severity: 'error',
       };
     }
     if (r.includes('model') && r.includes('not found')) {
       return {
         title: 'Modell nicht gefunden.',
         hint: 'Lade das Modell zuerst herunter: ollama pull <modellname>',
+        severity: 'error',
       };
     }
     if (r.includes('context length') || r.includes('context window')) {
       return {
         title: 'Text zu lang für dieses Modell.',
         hint: 'Kürze den Text oder wähle ein Modell mit größerem Kontext.',
+        severity: 'error',
       };
     }
-    return { title: raw };
+    return { title: raw, severity: 'error' };
   };
 
-  // Handle improvement style selection
-  const handleImproveClick = () => {
-    setShowImproveOptions(!showImproveOptions);
-    setShowCustomInput(false);
-  };
-
- 
- 
   const { openExternal } = useOpenExternal();
   const socialPlatform = platformMapping[platform];
   const config = loadSocialConfig();
@@ -774,7 +860,11 @@ export const Step4TransformResult = ({
 
 const handleDownload = async () => {
   try {
-    const filename = `${platform}-content.md`;
+    const safeLabel = originalLabel
+      .replace(/[/\\:*?"<>|]/g, '-')
+      .replace(/\.md$/i, '')
+      .trim();
+    const filename = `${safeLabel} - ${platformLabels[platform]}.md`;
     const dir = await downloadDir();
     const path = await join(dir, filename);
 
@@ -1674,7 +1764,13 @@ const handleDownload = async () => {
                       />
                       <button
                         type="button"
-                        onClick={() => { setLinkedInCoverImage(null); setLinkedInCoverPreview(null); }}
+                        onClick={() => {
+                          setLinkedInCoverImage(null);
+                          setLinkedInCoverPreview(null);
+                          if (postMeta && onMetaChange) {
+                            onMetaChange({ ...postMeta, imageUrl: '' });
+                          }
+                        }}
                         style={{
                           fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
                           color: '#555', background: 'none', border: 'none', cursor: 'pointer', padding: 0,
@@ -1692,7 +1788,16 @@ const handleDownload = async () => {
                           const file = e.target.files?.[0];
                           if (!file) return;
                           setLinkedInCoverImage(file);
-                          setLinkedInCoverPreview(URL.createObjectURL(file));
+                          const objectUrl = URL.createObjectURL(file);
+                          setLinkedInCoverPreview(objectUrl);
+                          if (postMeta && onMetaChange) {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+                              if (dataUrl) onMetaChange({ ...postMeta, imageUrl: dataUrl });
+                            };
+                            reader.readAsDataURL(file);
+                          }
                           e.target.value = '';
                         }}
                       />
@@ -1752,7 +1857,7 @@ const handleDownload = async () => {
 
             {/* Row 2: stats — muted, smaller */}
             {currentContent && currentContent.trim() ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 8 }}>
                 {(() => {
                   const words = engineStats?.word_count ?? currentContent.split(/\s+/).filter(Boolean).length;
                   const mins = Math.max(1, Math.ceil(words / 200));
@@ -1769,6 +1874,7 @@ const handleDownload = async () => {
 
                   return (
                     <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexWrap: 'wrap' }}>
                       <Stat>{words.toLocaleString('de-DE')} Wörter</Stat>
                       <Dot /><Stat>{mins} Min.</Stat>
                       {lines ? <><Dot /><Stat>{lines} Zeilen</Stat></> : null}
@@ -1792,9 +1898,65 @@ const handleDownload = async () => {
                       {downloadFeedback && (
                         <><Dot /><Stat color={downloadFeedback.ok ? '#4caf50' : '#c97a3a'}>{downloadFeedback.ok ? '✓ ' : '✗ '}{downloadFeedback.msg}</Stat></>
                       )}
-                   
-                    
-
+                      </div>
+                      {over && limit && (
+                        <div
+                          style={{
+                            display: 'flex',
+                            width: '98%',
+                            alignItems: 'center',
+                            gap: 20,
+                            padding: '6px 10px',
+                            border: '1px solid rgba(201,122,58,0.45)',
+                            borderRadius: 8,
+                            background: 'rgba(201,122,58,0.08)',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                          }}
+                        >
+                          <span style={{ fontSize: 10, color: '#252525' }}>
+                            Über Limit um {(chars - limit).toLocaleString('de-DE')} Zeichen.
+                          </span>
+                          {onGoToTransform && (
+                            <button
+                              type="button"
+                              onClick={() => onGoToTransform(activeQaPlatform)}
+                              disabled={isAIProcessing}
+                              style={{
+                                border: '1px solid #252525',
+                                borderRadius: 6,
+                                background: '#d0cbb8',
+                                color: '#2f2a22',
+                                padding: '5px 9px',
+                                fontSize: 10,
+                                cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                                opacity: isAIProcessing ? 0.6 : 1,
+                                fontFamily: 'IBM Plex Mono, monospace',
+                                
+                              }}
+                            >
+                              AI Transform öffnen
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={handleReduceToPlatformLimit}
+                            disabled={isAIProcessing}
+                            style={{
+                              border: '1px solid #252525',
+                              borderRadius: 6,
+                              background: '#d0cbb8',
+                              color: '#3a3a3a',
+                              padding: '5px 8px',
+                              fontSize: 10,
+                              cursor: isAIProcessing ? 'not-allowed' : 'pointer',
+                              opacity: isAIProcessing ? 0.6 : 1,
+                              fontFamily: 'IBM Plex Mono, monospace',
+                            }}
+                          >
+                            Direkt: Auf {limit.toLocaleString('de-DE')} Zeichen kürzen
+                          </button>
+                        </div>
+                      )}
                     </>
                     
                   );
@@ -1812,6 +1974,16 @@ const handleDownload = async () => {
                 transition: 'opacity 250ms ease',
               }}
             >
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' }}>
+                <label style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#3a3a3a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={!allowEmoji}
+                    onChange={(e) => onAllowEmojiChange?.(!e.target.checked)}
+                  />
+                  Keine Emojis
+                </label>
+              </div>
               <div
                 style={{
                   display: 'flex',
@@ -1824,188 +1996,181 @@ const handleDownload = async () => {
                 }}
               >
                 {/* Text verbessern */}
-                <div style={{ flex: '1 1 auto', minWidth: '140px', position: 'relative' }}>
-                  <button
-                    onClick={handleImproveClick}
+                <div style={{ flex: '1 1 auto', minWidth: '140px' }}>
+                  <ZenDropdown
+                    value=""
+                    onChange={() => { /* handled via custom menu */ }}
+                    options={[]}
                     disabled={isAIProcessing}
-                    style={{
-                      width: '100%',
-                      padding: '12px 16px',
-                      backgroundColor: showImproveOptions ? 'transparent' : 'transparent',
-                      border: showImproveOptions ? '0.5px solid #AC8E66' : '1px solid #3a3a3a',
-                      borderRadius: '8px',
+                    fullWidth
+                    variant="button"
+                    theme="dark"
+                    triggerLabel="Text verbessern"
+                    triggerIcon={<FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66', fontSize: '14px' }} />}
+                    triggerLayout="column"
+                    showCaret={false}
+                    triggerStyle={{
+                      border: '1px solid #252525',
+                      background: 'transparent',
                       color: '#252525',
-                      fontFamily: 'monospace',
-                      fontSize: '10px',
-                      cursor: isAIProcessing ? 'not-allowed' : 'pointer',
-                      opacity: isAIProcessing ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '6px',
+                      borderRadius: '8px',
+                      height: 60,
                     }}
-                    onMouseEnter={(e) => {
-                      if (!isAIProcessing && !showImproveOptions) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.borderColor = '#AC8E66';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!showImproveOptions) {
-                        e.currentTarget.style.backgroundColor = 'transparent';
-                        e.currentTarget.style.borderColor = '#3a3a3a';
-                      }
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: '#AC8E66', fontSize: '16px' }} />
-                    <span>Text verbessern</span>
-                  </button>
-
-                  {/* Improvement Style Dropdown */}
-                  {showImproveOptions && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: '100%',
-                        left: '65%',
-                        transform: 'translateX(-50%)',
-                        marginTop: '10px',
-                        backgroundColor: '#0A0A0A',
-                        border: '0.5px solid #AC8E66',
-                        borderRadius: '12px',
-                        padding: '8px',
-                        minWidth: '350px',
-                        zIndex: 100,
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-                      }}
-                    >
-                      <p style={{
-                        fontFamily: 'monospace',
-                        fontSize: '10px',
-                        color: '#e8e3d8',
-                        margin: '0 0 8px 0',
-                        textAlign: 'center',
-                        fontWeight: 600,
-                      }}>
-                        Wie soll verbessert werden?
-                      </p>
-
-                      {/* Style Options */}
-                {IMPROVE_OPTIONS.map((option) => (
-  <button
-    key={option.style}
-    onClick={() => handleTextAI('improve', option.style)}
-    disabled={isAIProcessing}
-    style={{
-      ...improveBaseStyle,
-      ...(isAIProcessing ? improveDisabledStyle : {}),
-    }}
-    onMouseEnter={(e) => {
-      if (!isAIProcessing) Object.assign(e.currentTarget.style, improveHoverStyle);
-    }}
-    onMouseLeave={(e) => {
-      Object.assign(e.currentTarget.style, improveBaseStyle);
-    }}
-  >
-    <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <FontAwesomeIcon icon={option.icon} style={{ color: '#AC8E66', fontSize: '12px' }} />
-      <span>{option.label}</span>
-    </div>
-
-    <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
-      {option.desc}
-    </div>
-  </button>
-))}
-
-
-                      {/* Custom Input Toggle */}
-                      <button
-                        onClick={() => setShowCustomInput(!showCustomInput)}
+                    customMenuContent={(closeMenu) => (
+                      <div
                         style={{
-                          width: '100%',
-                          padding: '10px 12px',
-                          backgroundColor: showCustomInput ? '#3a3a3a' : '#2A2A2A',
-                          border: showCustomInput ? '1px solid #AC8E66' : '1px solid #3a3a3a',
-                          borderRadius: '8px',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          textAlign: 'left',
-                        }}
-                        onMouseEnter={(e) => {
-                          if (!showCustomInput) {
-                            e.currentTarget.style.backgroundColor = '#3a3a3a';
-                            e.currentTarget.style.borderColor = '#AC8E66';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (!showCustomInput) {
-                            e.currentTarget.style.backgroundColor = '#2A2A2A';
-                            e.currentTarget.style.borderColor = '#3a3a3a';
-                          }
+                          backgroundColor: '#d0cbb8',
+                          border: '1px solid rgba(172,142,102,0.35)',
+                          borderRadius: '12px',
+                          padding: '10px',
+                          width: '520px',
+                          maxWidth: '92vw',
+                          boxShadow: '0 10px 24px rgba(0,0,0,0.32)',
                         }}
                       >
-                        <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#e5e5e5', fontWeight: 500 }}>
-                            <FontAwesomeIcon icon={faEdit} style={{ fontSize: '10px', marginTop: '-2px', color: '#AC8E66', marginRight: '8px' }} />
-                              Eigene Anweisung
-                        </div>
-                        <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#777', marginTop: '2px' }}>
-                          Beschreibe selbst wie
-                        </div>
-                      </button>
+                        <p style={{
+                          fontFamily: 'monospace',
+                          fontSize: '11px',
+                          color: '#1a1a1a',
+                          margin: '0 0 10px 0',
+                          textAlign: 'center',
+                         
+                          letterSpacing: '0.2px',
+                        }}>
+                          Wie soll verbessert werden?
+                        </p>
 
-                      {/* Custom Instruction Input */}
-                      {showCustomInput && (
-                        <div style={{ marginTop: '8px' }}>
-                          <textarea
-                            value={customInstruction}
-                            onChange={(e) => setCustomInstruction(e.target.value)}
-                            placeholder="z.B. 'Mache den Text lustiger' oder 'Füge mehr Beispiele hinzu'"
-                            style={{
-                              width: '93%',
-                              minHeight: '80px',
-                              padding: '10px',
-                              backgroundColor: '#2A2A2A',
-                              border: '1px solid #3a3a3a',
-                              borderRadius: '8px',
-                              color: '#e5e5e5',
-                              fontFamily: 'monospace',
-                              fontSize: '10px',
-                              resize: 'vertical',
-                              outline: 'none',
-                            }}
-                            onFocus={(e) => {
-                              e.currentTarget.style.borderColor = '#AC8E66';
-                            }}
-                            onBlur={(e) => {
-                              e.currentTarget.style.borderColor = '#3a3a3a';
-                            }}
-                          />
-                          <button
-                            onClick={() => handleTextAI('improve', 'custom')}
-                            disabled={isAIProcessing || !customInstruction.trim()}
-                            style={{
-                              width: '100%',
-                              marginTop: '8px',
-                              padding: '10px',
-                              backgroundColor: customInstruction.trim() ? '#AC8E66' : '#3a3a3a',
-                              border: 'none',
-                              borderRadius: '8px',
-                              color: customInstruction.trim() ? '#1A1A1A' : '#777',
-                              fontFamily: 'monospace',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
-                              transition: 'all 0.2s',
-                            }}
-                          >
-                            Verbessern mit eigener Anweisung
-                          </button>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                            gap: '8px',
+                          }}
+                        >
+                          {IMPROVE_OPTIONS.map((option) => (
+                            <button
+                              key={option.style}
+                              type="button"
+                              onClick={() => {
+                                closeMenu();
+                                handleTextAI('improve', option.style);
+                              }}
+                              disabled={isAIProcessing}
+                              style={{
+                                ...improveBaseStyle,
+                                ...(option.style === 'general' ? { gridColumn: '1 / -1' } : {}),
+                                ...(isAIProcessing ? improveDisabledStyle : {}),
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isAIProcessing) Object.assign(e.currentTarget.style, improveHoverStyle);
+                              }}
+                              onMouseLeave={(e) => {
+                                Object.assign(e.currentTarget.style, improveBaseStyle);
+                              }}
+                            >
+                              <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#252525',  display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <FontAwesomeIcon icon={option.icon} style={{ color: '#AC8E66', fontSize: '12px' }} />
+                                <span>{option.label}</span>
+                              </div>
+
+                              <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#353535', marginTop: '3px' }}>
+                                {option.desc}
+                              </div>
+                            </button>
+                          ))}
                         </div>
-                      )}
-                    </div>
-                  )}
+
+                        <button
+                          type="button"
+                          onClick={() => setShowCustomInput(!showCustomInput)}
+                          style={{
+                            width: '100%',
+                            padding: '10px 12px',
+                            marginTop: '4px',
+                            backgroundColor: showCustomInput ? 'rgba(172,142,102,0.14)' : 'rgba(255,255,255,0.02)',
+                            border: showCustomInput ? '1px solid rgba(172,142,102,0.55)' : '1px solid rgba(172,142,102,0.18)',
+                            borderRadius: '8px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            textAlign: 'left',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!showCustomInput) {
+                              e.currentTarget.style.backgroundColor = 'rgba(172,142,102,0.12)';
+                              e.currentTarget.style.borderColor = 'rgba(172,142,102,0.45)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!showCustomInput) {
+                              e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.02)';
+                              e.currentTarget.style.borderColor = 'rgba(172,142,102,0.18)';
+                            }
+                          }}
+                        >
+                          <div style={{ fontFamily: 'monospace', fontSize: '11px', color: '#252525', }}>
+                              <FontAwesomeIcon icon={faEdit} style={{ fontSize: '10px', marginTop: '-2px', color: '#AC8E66', marginRight: '8px' }} />
+                              Eigene Anweisung
+                          </div>
+                          <div style={{ fontFamily: 'monospace', fontSize: '9px', color: '#353535', marginTop: '3px' }}>
+                            Beschreibe selbst wie
+                          </div>
+                        </button>
+
+                        {showCustomInput && (
+                          <div style={{ marginTop: '8px' }}>
+                            <textarea
+                              value={customInstruction}
+                              onChange={(e) => setCustomInstruction(e.target.value)}
+                              placeholder="z.B. 'Mache den Text lustiger' oder 'Füge mehr Beispiele hinzu'"
+                              style={{
+                                width: '100%',
+                                minHeight: '80px',
+                                padding: '10px',
+                                backgroundColor: 'rgba(255,255,255,0.02)',
+                                border: '1px solid rgba(172,142,102,0.22)',
+                                borderRadius: '8px',
+                                color: '#ece7da',
+                                fontFamily: 'monospace',
+                                fontSize: '10px',
+                                resize: 'vertical',
+                                outline: 'none',
+                              }}
+                              onFocus={(e) => {
+                                e.currentTarget.style.borderColor = '#AC8E66';
+                              }}
+                              onBlur={(e) => {
+                                e.currentTarget.style.borderColor = '#3a3a3a';
+                              }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                closeMenu();
+                                handleTextAI('improve', 'custom');
+                              }}
+                              disabled={isAIProcessing || !customInstruction.trim()}
+                              style={{
+                                width: '100%',
+                                marginTop: '8px',
+                                padding: '10px',
+                                backgroundColor: customInstruction.trim() ? '#AC8E66' : 'transparent',
+                                border: '1px #353535 solid',
+                                borderRadius: '8px',
+                                color: customInstruction.trim() ? '#1A1A1A' : '#777',
+                                fontFamily: 'monospace',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: customInstruction.trim() ? 'pointer' : 'not-allowed',
+                                transition: 'all 0.2s',
+                              }}
+                            >
+                              Verbessern mit eigener Anweisung
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  />
                 </div>
 
                 {/* Text fortsetzen */}
@@ -2145,7 +2310,7 @@ const handleDownload = async () => {
                       animation: 'spin 1s linear infinite',
                     }}
                   />
-                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#AC8E66', fontWeight: '600' }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#252525', fontWeight: '600' }}>
                     AI verarbeitet...
                   </span>
                 </div>
@@ -2173,22 +2338,46 @@ const handleDownload = async () => {
 
               {/* AI Error */}
               {aiError && (() => {
-                const { title, hint } = formatAiError(aiError);
+                const { title, hint, showAiSettingsCta, severity } = formatAiError(aiError);
+                const isWarning = severity === 'warning';
                 return (
                   <div
                     style={{
                       marginTop: '12px',
                       padding: '12px 14px',
-                      backgroundColor: 'rgba(239, 68, 68, 0.08)',
-                      border: '1px solid rgba(239,68,68,0.5)',
+                      backgroundColor: isWarning ? 'rgba(245, 158, 11, 0.10)' : 'rgba(239, 68, 68, 0.08)',
+                      border: isWarning ? '1px solid rgba(245,158,11,0.55)' : '1px solid rgba(239,68,68,0.5)',
                       borderRadius: '8px',
                       fontFamily: 'IBM Plex Mono, monospace',
                       fontSize: '11px',
                     }}
                   >
-                    <div style={{ color: '#ef4444', fontWeight: 600 }}>{title}</div>
+                    <div style={{ color: isWarning ? '#b45309' : '#ef4444', fontWeight: 600 }}>{title}</div>
                     {hint && (
                       <div style={{ color: '#252525', marginTop: 4, fontSize: '10px' }}>{hint}</div>
+                    )}
+                    {showAiSettingsCta && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSettings(undefined)}
+                        style={{
+                          marginTop: 10,
+                          border: '1px solid #3A3A3A',
+                          borderRadius: 6,
+                          background: 'transparent',
+                          color: '#252525',
+                          fontSize: 10,
+                          padding: '6px 10px',
+                          cursor: 'pointer',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faCog} style={{ fontSize: 10 }} />
+                        <span>AI-Einstellungen öffnen</span>
+                      </button>
                     )}
                   </div>
                 );
@@ -2343,54 +2532,12 @@ const handleDownload = async () => {
                     </button>
                   </div>
                 </div>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: '8px',
-                    maxHeight: '340px',
-                    overflow: 'auto',
-                  }}
-                >
-                  <div style={{ border: '0.5px solid #3a3a3a', borderRadius: '8px', overflow: 'hidden' }}>
-                    {comparisonRows.map((row, index) => (
-                      <div
-                        key={`left-${index}`}
-                        style={{
-                          padding: '3px 8px',
-                          minHeight: '18px',
-                          borderBottom: '0.5px solid #202020',
-                          backgroundColor: (row.status === 'removed' || row.status === 'modified') ? 'rgba(239,68,68)' : '#171717',
-                          color: (row.status === 'removed' || row.status === 'modified') ? '#1a1a1a' : '#888',
-                          fontFamily: 'monospace',
-                          fontSize: '10px',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
-                        {row.left || ' '}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ border: '0.5px solid #AC8E66', borderRadius: '8px', overflow: 'hidden' }}>
-                    {comparisonRows.map((row, index) => (
-                      <div
-                        key={`right-${index}`}
-                        style={{
-                          padding: '3px 8px',
-                          minHeight: '18px',
-                          borderBottom: '0.5px solid #202020',
-                          backgroundColor: (row.status === 'added' || row.status === 'modified') ? 'rgba(34,197,94)' : '#171717',
-                          color: (row.status === 'added' || row.status === 'modified') ? '#1a1a1a' : '#d9d4c5',
-                          fontFamily: 'monospace',
-                          fontSize: '10px',
-                          whiteSpace: 'pre-wrap',
-                        }}
-                      >
-                        {row.right || ' '}
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                <DocumentComparisonPanel
+                  rows={comparisonRows}
+                  labels={comparisonUiLabels}
+                  maxHeight="340px"
+                  variant="paper"
+                />
               </div>
             )}
             {activePanel === 'qa' && (qaResult.errors.length > 0 || qaResult.warnings.length > 0) && (
@@ -2409,7 +2556,7 @@ const handleDownload = async () => {
                     padding: '12px 16px',
                     borderRadius: '8px',
                     border: qaResult.errors.length > 0 ? '1px solid #ef4444' : '1px solid #AC8E66',
-                    backgroundColor: qaResult.errors.length > 0 ? 'transparent' : '#d0cbb8',
+                    backgroundColor: qaResult.errors.length > 0 ? 'transparent' : 'transparent',
                   }}
                 >
                   <div className="flex items-center  border-[#1a1a1a] justify-between gap-3">
@@ -2419,7 +2566,7 @@ const handleDownload = async () => {
                         fontSize: '12px',
                         fontFamily: 'monospace',
                        
-                        color: qaResult.errors.length > 0 ? '#d0cbb8' : '#1a1a1a',
+                        color: qaResult.errors.length > 0 ? '#d0cbb8' : '#d0cbb8',
                         
                       }}
                     >
@@ -2463,7 +2610,7 @@ const handleDownload = async () => {
                         margin: '6px 0 0 0',
                         fontSize: '12px',
                         fontFamily: 'monospace',
-                        color: '#1a1a1a',
+                        color: '#d0cbb8',
                       }}
                     >
                       Hinweis: {issue.message}
@@ -2495,7 +2642,10 @@ const handleDownload = async () => {
                 }}
               >
                 <div
-                  className="rounded-[6px] border border-[#1a1a1a] overflow-hidden"
+                  className="
+                  rounded-[6px] 
+                  border border-[#1a1a1a] 
+                  overflow-hidden"
                   style={{ background: 'transparent' }}
                 >
                   <div className="px-[3px] py-[1.5px]  border-b 
@@ -2629,6 +2779,56 @@ const handleDownload = async () => {
         </div>
         </div>{/* end outer flex row */}
 
+        {limitToast && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 92,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 999999,
+              pointerEvents: 'none',
+            }}
+          >
+            <div
+              style={{
+                padding: '9px 14px',
+                borderRadius: 10,
+                border:
+                  limitToast.kind === 'success'
+                    ? '1px solid rgba(34,197,94,0.45)'
+                    : limitToast.kind === 'warning'
+                      ? '1px solid rgba(245,158,11,0.5)'
+                      : limitToast.kind === 'error'
+                        ? '1px solid rgba(239,68,68,0.5)'
+                        : '1px solid rgba(172,142,102,0.45)',
+                background:
+                  limitToast.kind === 'success'
+                    ? 'rgba(34,197,94,0.16)'
+                    : limitToast.kind === 'warning'
+                      ? 'rgba(245,158,11,0.16)'
+                      : limitToast.kind === 'error'
+                        ? 'rgba(239,68,68,0.16)'
+                        : 'rgba(20,20,20,0.92)',
+                color:
+                  limitToast.kind === 'success'
+                    ? '#166534'
+                    : limitToast.kind === 'warning'
+                      ? '#92400e'
+                      : limitToast.kind === 'error'
+                        ? '#b91c1c'
+                        : '#d0cbb8',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: 11,
+                boxShadow: '0 10px 30px rgba(0,0,0,0.28)',
+                maxWidth: '80vw',
+              }}
+            >
+              {limitToast.message}
+            </div>
+          </div>
+        )}
+
         {/* Post Result Status */}
         {postResult && postResult.success && (
           <div
@@ -2739,11 +2939,19 @@ const handleDownload = async () => {
         onAIOptimize={handleMultiAIOptimize}
         selectedPlatforms={selectedPostPlatforms}
       />
+      <ZenGeneratingModal
+        isOpen={showReducingModal}
+        templateName={`auf ${activeQaPlatform ? PLATFORM_CHAR_LIMITS[activeQaPlatform]?.toLocaleString('de-DE') : ''} Zeichen gekürzt`}
+        onClose={() => { setShowReducingModal(false); setIsAIProcessing(false); }}
+      />
       <ZenImageGalleryModal
         isOpen={showCoverGallery}
         onClose={() => setShowCoverGallery(false)}
         onInsertUrl={async (url, fileName) => {
           setShowCoverGallery(false);
+          if (postMeta && onMetaChange) {
+            onMetaChange({ ...postMeta, imageUrl: url });
+          }
           try {
             const resp = await fetch(url);
             const blob = await resp.blob();

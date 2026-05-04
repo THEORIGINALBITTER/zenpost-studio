@@ -15,6 +15,44 @@ import {
   type CropMode,
 } from '../../services/converterCropService';
 
+const ResultAccordion = ({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) => (
+  <div style={{ borderTop: '1px solid rgba(172,142,102,0.25)', padding: '8px' }}>
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: 'transparent',
+        border: 'none',
+        paddingLeft: 10,
+        cursor: 'pointer',
+        fontFamily: 'IBM Plex Mono, monospace',
+        fontSize: '10px',
+        color: '#6b5a40',
+        textTransform: 'uppercase',
+        letterSpacing: '1px',
+      }}
+    >
+      <span>{title}</span>
+      <span style={{ fontSize: '12px', color: '#8a7a60' }}>{open ? '–' : '+'}</span>
+    </button>
+    {open && <div style={{ marginTop: '8px' }}>{children}</div>}
+  </div>
+);
+
 interface Step4ResultProps {
   activeFormat: SupportedFormat;
   availableFormats: SupportedFormat[];
@@ -127,10 +165,7 @@ export const Step4Result = ({
   copyFeedback = null,
   cloudSaveFeedback = null,
   imageMeta = { title: '', altText: '', caption: '', tags: [] },
-  onCopyImageDataUrl,
-  onCopyImageBase64,
-  onSaveDataUrlTxt,
-  onSaveBase64Txt,
+
   onImageMetaChange,
   onDownload,
   onDownloadAll,
@@ -151,7 +186,6 @@ export const Step4Result = ({
       ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(outputContent)}`
       : '';
   const imagePreviewSrc = isBlobUrl ? outputContent : isDataImageUrl ? outputContent : isHttpImageUrl ? outputContent : svgDataUrl;
-  const canCopyBase64 = isBlobUrl || isHttpImageUrl || outputContent.startsWith('data:') || activeFormat === 'svg';
   const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
   const [cropBaseDimensions, setCropBaseDimensions] = useState<{ width: number; height: number } | null>(null);
   const [customMaxSizeInput, setCustomMaxSizeInput] = useState('');
@@ -219,44 +253,6 @@ export const Step4Result = ({
     onSvgOutputSizeChange?.(null);
     setSvgSizeInput({ width: '', height: '' });
   };
-
-  const Accordion = ({
-    title,
-    open,
-    onToggle,
-    children,
-  }: {
-    title: string;
-    open: boolean;
-    onToggle: () => void;
-    children: React.ReactNode;
-  }) => (
-    <div style={{ borderTop: '1px solid rgba(172,142,102,0.25)', padding: '8px' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        style={{
-          width: '100%',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          background: 'transparent',
-          border: 'none',
-          paddingLeft: 10,
-          cursor: 'pointer',
-          fontFamily: 'IBM Plex Mono, monospace',
-          fontSize: '10px',
-          color: '#6b5a40',
-          textTransform: 'uppercase',
-          letterSpacing: '1px',
-        }}
-      >
-        <span>{title}</span>
-        <span style={{ fontSize: '12px', color: '#8a7a60' }}>{open ? '–' : '+'}</span>
-      </button>
-      {open && <div style={{ marginTop: '8px' }}>{children}</div>}
-    </div>
-  );
 
   useEffect(() => {
     setLocalCropRect(cropRect);
@@ -529,7 +525,7 @@ export const Step4Result = ({
         <p
           style={{
             fontFamily: 'IBM Plex Mono, monospace',
-            fontSize: 'clamp(16px, 2.5vw, 12px)',
+            fontSize: 'clamp(10px, 2.5vw, 12px)',
             fontWeight: 400,
             margin: '0 0 4px',
           }}
@@ -745,17 +741,20 @@ export const Step4Result = ({
                 <div
                   ref={rightPanelRef}
                   style={{
-                    width: '300px',
+                    width: '350px',
                     borderRadius: '8px',
                     border: '1px solid rgba(172,142,102,0.35)',
                     background: '#e8e3d8',
                     padding: '12px',
+                    boxSizing: 'border-box',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '10px',
                     maxHeight: '440px',
                     overflowY: 'auto',
                     position: 'relative',
+                    overflowX: 'hidden',
+                    overscrollBehaviorX: 'none',
                   }}
                 >
                   {rightHasTopShadow && (
@@ -763,8 +762,10 @@ export const Step4Result = ({
                       style={{
                         position: 'sticky',
                         top: 0,
+                        left: 0,
+                        right: 0,
+                        width: '100%',
                         height: 10,
-                        margin: '-12px -12px 0',
                         background: 'linear-gradient(to bottom, rgba(0,0,0,0.18), rgba(0,0,0,0))',
                         pointerEvents: 'none',
                         zIndex: 2,
@@ -776,8 +777,10 @@ export const Step4Result = ({
                       style={{
                         position: 'sticky',
                         bottom: 0,
+                        left: 0,
+                        right: 0,
+                        width: '100%',
                         height: 10,
-                        margin: '0 -12px -12px',
                         background: 'linear-gradient(to top, rgba(0,0,0,0.18), rgba(0,0,0,0))',
                         pointerEvents: 'none',
                         zIndex: 2,
@@ -880,7 +883,7 @@ export const Step4Result = ({
                       Kanten glätten
                     </span>
                   </label>
-                  <Accordion
+                  <ResultAccordion
                     title="Max. Ausgabegröße"
                     open={openMaxSize}
                     onToggle={() => {
@@ -903,7 +906,7 @@ export const Step4Result = ({
                             style={{
                               borderRadius: '6px',
                               border: isActive ? '1px solid rgba(172,142,102,0.8)' : '1px solid rgba(90,80,60,0.3)',
-                              background: isActive ? '#AC8E66' : 'rgba(255,255,255,0.35)',
+                              background: isActive ? '#252525' : 'rgba(255,255,255,0.35)',
                               color: isActive ? '#fff' : '#5a5040',
                               fontFamily: 'IBM Plex Mono, monospace',
                               fontSize: '9px',
@@ -958,7 +961,7 @@ export const Step4Result = ({
                     <span style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace' }}>
                       Gilt für PNG, JPG, WEBP
                     </span>
-                  </Accordion>
+                  </ResultAccordion>
                   {isCropSupported && (
                     <div style={{ borderTop: '1px solid rgba(172,142,102,0.25)', marginTop: '2px', paddingTop: '8px' }}>
                       <p
@@ -991,7 +994,7 @@ export const Step4Result = ({
                               style={{
                                 borderRadius: '6px',
                                 border: isActive ? '1px solid rgba(172,142,102,0.8)' : '1px solid rgba(90,80,60,0.3)',
-                                background: isActive ? '#AC8E66' : 'rgba(255,255,255,0.35)',
+                                background: isActive ? '#252525' : 'rgba(255,255,255,0.35)',
                                 color: isActive ? '#fff' : '#5a5040',
                                 fontFamily: 'IBM Plex Mono, monospace',
                                 fontSize: '9px',
@@ -1278,7 +1281,9 @@ export const Step4Result = ({
                     </div>
                   )}
                   {activeFormat === 'svg' && (
-                    <div style={{ borderTop: '1px solid rgba(172,142,102,0.25)', marginTop: '2px', paddingTop: '8px' }}>
+                    <div style={{ 
+                      borderTop: '1px solid rgba(172,142,102,0.25)', 
+                      marginTop: '2px', paddingTop: '8px' }}>
                       <p
                         style={{
                           margin: '0 0 6px',
@@ -1391,7 +1396,7 @@ export const Step4Result = ({
                     </div>
                   )}
                   {isImageFormat && (
-                    <Accordion
+                    <ResultAccordion
                       title="Filter"
                       open={openFilters}
                       onToggle={() => {
@@ -1479,10 +1484,10 @@ export const Step4Result = ({
                       <div style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', marginTop: '6px' }}>
                         Filter wirken auf PNG/JPG/WEBP/SVG Export.
                       </div>
-                    </Accordion>
+                    </ResultAccordion>
                   )}
                   {isImageFormat && (
-                    <Accordion
+                    <ResultAccordion
                       title="Meta/SEO"
                       open={openMeta}
                       onToggle={() => setOpenMeta((prev) => !prev)}
@@ -1587,10 +1592,10 @@ export const Step4Result = ({
                           />
                         </label>
                       </div>
-                    </Accordion>
+                    </ResultAccordion>
                   )}
                 
-                  <Accordion
+                  <ResultAccordion
                     title="Export/Info"
                     open={openExport}
                     onToggle={() => {
@@ -1614,7 +1619,7 @@ export const Step4Result = ({
                
                     
                     </div>
-                  </Accordion>
+                  </ResultAccordion>
                 </div>
               )}
             </div>

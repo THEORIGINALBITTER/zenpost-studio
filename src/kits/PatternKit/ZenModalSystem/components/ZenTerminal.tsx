@@ -46,7 +46,7 @@ export const ZenTerminal = ({ command, title = "Terminal" }: ZenTerminalProps) =
           style={{
             fontFamily: "IBM Plex Mono, monospace",
             fontSize: 9,
-            color: "#666",
+            color: "#b0ac9b",
             letterSpacing: "0.5px",
           }}
         >
@@ -71,7 +71,7 @@ export const ZenTerminal = ({ command, title = "Terminal" }: ZenTerminalProps) =
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path
                 d="M3 7L6 10L11 4"
-                stroke="#28c840"
+                stroke="#b0ac9b"
                 strokeWidth="1.8"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -79,10 +79,10 @@ export const ZenTerminal = ({ command, title = "Terminal" }: ZenTerminalProps) =
             </svg>
           ) : (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke="#666" strokeWidth="1" />
+              <rect x="4.5" y="4.5" width="7" height="7" rx="1.5" stroke="#d0cbb8" strokeWidth="1" />
               <path
                 d="M9.5 4.5V3A1.5 1.5 0 008 1.5H3A1.5 1.5 0 001.5 3v5A1.5 1.5 0 003 9.5h1.5"
-                stroke="#666"
+                stroke="#b0ac9b"
                 strokeWidth="1"
               />
             </svg>

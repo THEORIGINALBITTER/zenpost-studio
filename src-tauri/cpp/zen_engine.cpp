@@ -10,6 +10,7 @@
 #include <queue>
 #include <future>
 #include <mutex>
+#include <utility>
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,24 @@ struct Rule {
     bool                     is_user_rule  = false;
     bool                     is_regex      = false;
     bool                     word_boundary = false;
+
+    Rule() = default;
+    Rule(std::string id_,
+         std::string pattern_,
+         std::string suggestion_,
+         float confidence_ = 0.8f,
+         std::vector<std::string> replacements_ = {},
+         bool is_user_rule_ = false,
+         bool is_regex_ = false,
+         bool word_boundary_ = false)
+        : id(std::move(id_)),
+          pattern(std::move(pattern_)),
+          suggestion(std::move(suggestion_)),
+          confidence(confidence_),
+          replacements(std::move(replacements_)),
+          is_user_rule(is_user_rule_),
+          is_regex(is_regex_),
+          word_boundary(word_boundary_) {}
 };
 
 // ─── MatchResult ──────────────────────────────────────────────────────────────

@@ -1,11 +1,12 @@
 // App1.tsx
-import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { Helmet } from "react-helmet-async";
 
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faFolderOpen,
   faFileLines,
+
   faPencil,
   faArrowLeft,
   faTableList,
@@ -17,6 +18,9 @@ import {
   faPaperPlane,
   faCloudArrowUp,
   faDownload,
+  faTrash,
+  faCopy,
+  faPersonCane,
 } from "@fortawesome/free-solid-svg-icons";
 import { WelcomeScreen } from "./screens/WelcomeScreen";
 import { ConverterScreen } from "./screens/ConverterScreen";
@@ -24,7 +28,7 @@ import { ContentTransformScreen } from "./screens/ContentTransformScreen";
 import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStudioDashboardScreen";
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { ZenNoteStudioScreen } from "./screens/ZenNoteStudio/ZenNoteStudioScreen";
-import { GettingStartedScreen, type GettingStartedRecentItem } from "./screens/GettingStartedScreen";
+import { GettingStartedScreen } from "./screens/GettingStartedScreen";
 import { MobileInboxScreen } from "./screens/MobileInboxScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
@@ -38,6 +42,7 @@ import { ZenPlannerModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenPlan
 import { ZenExportModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenExportModal";
 import { ZenUpgradeModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenUpgradeModal";
 import { ZenBootstrapModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenBootstrapModal";
+import { ZenModal } from "./kits/PatternKit/ZenModalSystem/components/ZenModal";
 import { type ProjectMetadata } from "./kits/PatternKit/ZenModalSystem/modals/ZenMetadataModal";
 import type { ScheduledPost } from "./types/scheduling";
 import { saveScheduledPostsWithFiles } from "./services/publishingService";
@@ -89,6 +94,7 @@ import {
   createImageDataUrlFromBytes,
   downloadPreviewAsset,
   type ContentPreviewState,
+  type ZenOpenTargetMenuItem,
 } from "./services/contentPreviewService";
 
 import ZenCursor from "./components/ZenCursor";
@@ -197,7 +203,7 @@ export default function App1() {
 
 // App content (moved from App1)
 function AppContent() {
-  const { checkFeature, requestUpgrade } = useLicense();
+
   const WEB_DOCS_STORAGE_KEY = "zenpost_web_documents_v1";
   const [isMobileBlocked, setIsMobileBlocked] = useState(false);
   const isIdle = useZenIdle(2000);
@@ -207,6 +213,7 @@ function AppContent() {
   const appReadyFiredRef = useRef(false);
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [showImageGalleryModal, setShowImageGalleryModal] = useState(false);
+  const [imageGalleryFocusDocId, setImageGalleryFocusDocId] = useState<number | null>(null);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud' | 'converter'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
@@ -242,9 +249,15 @@ function AppContent() {
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
   const [contentStudioPreview, setContentStudioPreview] = useState<ContentPreviewState | null>(null);
+  const [previewDeleteConfirm, setPreviewDeleteConfirm] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+  const [isPreviewDeleting, setIsPreviewDeleting] = useState(false);
   const [pendingConverterOpenFileRequest, setPendingConverterOpenFileRequest] = useState<OpenConverterWithFileRequest | null>(null);
   const [showContentStudioModal, setShowContentStudioModal] = useState(false);
-  const [contentStudioModalTab, setContentStudioModalTab] = useState<"project" | "all">("project");
+  const [contentStudioModalTab ] = useState<"project" | "all">("project");
   const [showWebProjectPicker, setShowWebProjectPicker] = useState(false);
   const [contentTransformHeaderAction, setContentTransformHeaderAction] = useState<
     "preview"
@@ -372,7 +385,7 @@ function AppContent() {
   const [exportContent, setExportContent] = useState<string>("");
   const [exportTags, setExportTags] = useState<string[]>([]);
   const [isEditingZenThoughts, setIsEditingZenThoughts] = useState(false);
-  const [exportDocumentName, setExportDocumentName] = useState<string>("");
+  const [exportDocumentName] = useState<string>("");
   const [exportSubtitle, setExportSubtitle] = useState<string>("");
   const [exportImageUrl, setExportImageUrl] = useState<string>("");
 
@@ -728,6 +741,14 @@ function AppContent() {
     setShowContentStudioModal(false);
   };
 
+  const askPreviewDeleteConfirmation = (
+    title: string,
+    message: string,
+    onConfirm: () => void | Promise<void>
+  ) => {
+    setPreviewDeleteConfirm({ title, message, onConfirm });
+  };
+
   const handlePreviewCloudImage = (docId: number, fileName: string) => {
     const url = getCloudDocumentUrl(docId);
     if (!url) return;
@@ -736,33 +757,69 @@ function AppContent() {
       title: fileName,
       subtitle: 'Bild-Vorschau aus ZenCloud',
       items: [{ kind: 'image', src: url, fileName, format: extension }],
-      openAction: {
-        label: 'Öffnen',
-        onOpen: async () => {
-          setContentStudioPreview(null);
-          await handleLoadCloudDocument(docId, fileName);
-          setContentStudioDashboardView("dashboard");
-          setContentTransformStep(1);
+      context: {
+        kind: 'cloud-image',
+        docId,
+        fileName,
+        url,
+      },
+      deleteAction: {
+        label: 'Löschen',
+        onDelete: () => {
+          askPreviewDeleteConfirmation(
+            'ZenCloud Dokument löschen',
+            `${fileName} wirklich aus ZenCloud löschen?`,
+            async () => {
+              const deleted = await deleteCloudDocument(docId);
+              if (!deleted) return;
+              setCloudDocuments((prev) => prev.filter((doc) => doc.id !== docId));
+              setContentStudioPreview(null);
+            }
+          );
         },
       },
     });
   };
 
-  const handlePreviewCloudDocument = async (docId: number, fileName: string, subtitle = 'Dokument-Vorschau aus ZenCloud') => {
+  const handlePreviewCloudDocument = async (
+    docId: number,
+    fileName: string,
+    options?: {
+      subtitle?: string;
+      openTargets?: ZenOpenTargetMenuItem[];
+    }
+  ) => {
     const content = await downloadCloudDocumentText(docId);
     if (!content) return;
     const extension = fileName.split('.').pop()?.toUpperCase() ?? 'DOKUMENT';
+    const defaultOpenAction = async () => {
+      setContentStudioPreview(null);
+      await handleLoadCloudDocument(docId, fileName);
+      setContentStudioDashboardView("dashboard");
+      setContentTransformStep(1);
+    };
     setContentStudioPreview({
       title: fileName,
-      subtitle,
+      subtitle: options?.subtitle ?? 'Dokument-Vorschau aus ZenCloud',
       items: [{ kind: 'document', fileName, format: extension, content }],
+      openTargets: options?.openTargets,
       openAction: {
         label: 'Öffnen',
-        onOpen: async () => {
-          setContentStudioPreview(null);
-          await handleLoadCloudDocument(docId, fileName);
-          setContentStudioDashboardView("dashboard");
-          setContentTransformStep(1);
+        onOpen: options?.openTargets?.[0]?.onOpen ?? defaultOpenAction,
+      },
+      deleteAction: {
+        label: 'Löschen',
+        onDelete: () => {
+          askPreviewDeleteConfirmation(
+            'ZenCloud Dokument löschen',
+            `${fileName} wirklich aus ZenCloud löschen?`,
+            async () => {
+              const deleted = await deleteCloudDocument(docId);
+              if (!deleted) return;
+              setCloudDocuments((prev) => prev.filter((doc) => doc.id !== docId));
+              setContentStudioPreview(null);
+            }
+          );
         },
       },
     });
@@ -809,6 +866,24 @@ function AppContent() {
             setContentTransformStep(1);
           },
         },
+        deleteAction: {
+          label: 'Löschen',
+          onDelete: () => {
+            askPreviewDeleteConfirmation(
+              'Datei aus Projektmappe löschen',
+              `"${fileName}" wirklich aus der Projektmappe löschen?`,
+              async () => {
+                try {
+                  await fsRemove(filePath);
+                  setContentStudioAllFiles((prev) => prev.filter((file) => file.path !== filePath));
+                  setContentStudioPreview(null);
+                } catch {
+                  // ignore delete errors
+                }
+              }
+            );
+          },
+        },
       });
     } catch {
       // Falls Bildvorschau fehlschlägt, Datei normal im Editor öffnen.
@@ -834,6 +909,24 @@ function AppContent() {
             setContentStudioRequestedFilePath(filePath);
             setContentStudioDashboardView("dashboard");
             setContentTransformStep(1);
+          },
+        },
+        deleteAction: {
+          label: 'Löschen',
+          onDelete: () => {
+            askPreviewDeleteConfirmation(
+              'Datei aus Projektmappe löschen',
+              `"${fileName}" wirklich aus der Projektmappe löschen?`,
+              async () => {
+                try {
+                  await fsRemove(filePath);
+                  setContentStudioAllFiles((prev) => prev.filter((file) => file.path !== filePath));
+                  setContentStudioPreview(null);
+                } catch {
+                  // ignore delete errors
+                }
+              }
+            );
           },
         },
       });
@@ -1586,7 +1679,7 @@ function AppContent() {
     patchZenStudioSettings({ thoughts: parseZenThoughtsFromEditor(content) });
   };
 
-  const [homeToast, setHomeToast] = useState(false);
+  const [homeToast] = useState(false);
   const [cloudToast, setCloudToast] = useState<string | null>(null);
   const handleHomeClick = () => {
     setCurrentScreen("getting-started");
@@ -1606,41 +1699,6 @@ function AppContent() {
   };
   const handleCloseBugReport = () => {
     setShowBugReportModal(false);
-  };
-  const handleSendBugReportMail = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const counterKey = `zen_bug_report_counter_${year}_${month}`;
-    const raw = localStorage.getItem(counterKey);
-    const current = raw ? Number.parseInt(raw, 10) : 0;
-    const next = Number.isFinite(current) ? current + 1 : 1;
-    localStorage.setItem(counterKey, String(next));
-
-    const subject = `BugReport_${year}_${month}_${String(next).padStart(3, "0")}`;
-    const rawBody = "";
-    const body = rawBody
-      // normalize newlines
-      .replace(/\r\n/g, "\n")
-      // fenced code blocks -> keep content only
-      .replace(/```[\s\S]*?\n([\s\S]*?)```/g, (_m, code) => `${code}\n`)
-      // inline code
-      .replace(/`([^`]+)`/g, "$1")
-      // links [text](url)
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1 ($2)")
-      // headings
-      .replace(/^#{1,6}\s+/gm, "")
-      // bold/italic
-      .replace(/\*\*([^*]+)\*\*/g, "$1")
-      .replace(/__([^_]+)__/g, "$1")
-      .replace(/\*([^*]+)\*/g, "$1")
-      .replace(/_([^_]+)_/g, "$1")
-      // collapse 3+ newlines
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-    const mailto = `mailto:saghallo@denisbitter.de?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    void openExternal(mailto);
-    setShowMailSuccessModal(true);
   };
   const handleHelpClick = () => setShowWalkthroughModal(true);
   const handleCloseAboutModal = () => setShowAboutModal(false);
@@ -1722,53 +1780,6 @@ function AppContent() {
     setContentStudioAllFiles(files);
   };
 
-  const gettingStartedRecentItems = useMemo<GettingStartedRecentItem[]>(() => {
-    const articleFileNames = new Set(contentStudioRecentArticles.map((article) => article.fileName.toLowerCase()));
-
-    const articleItems: GettingStartedRecentItem[] = contentStudioRecentArticles.map((article) => ({
-      id: `article:${article.id}`,
-      title: article.title || article.fileName || "Artikel",
-      subtitle: article.fileName,
-      updatedAt: new Date(article.updatedAt || article.createdAt || Date.now()).getTime(),
-      source: "content-ai",
-      articleId: article.id,
-    }));
-
-    const fileItems: GettingStartedRecentItem[] = contentStudioAllFiles.map((file) => {
-      const normalizedPath = file.path.replace(/\\/g, "/").toLowerCase();
-      const isArticleFile =
-        normalizedPath.includes("/publishing/articles/") ||
-        normalizedPath.includes("/posts/") ||
-        normalizedPath.includes("/blog/") ||
-        articleFileNames.has(file.name.toLowerCase());
-
-      return {
-        id: `file:${file.path}`,
-        title: file.name,
-        subtitle: file.path,
-        updatedAt: file.modifiedAt ?? 0,
-        source: "content-ai",
-        filePath: file.path,
-      };
-    });
-
-    const merged = [...articleItems, ...fileItems]
-      .filter((item) => item.updatedAt > 0)
-      .sort((a, b) => b.updatedAt - a.updatedAt);
-
-    const deduped: GettingStartedRecentItem[] = [];
-    const seenKeys = new Set<string>();
-    for (const item of merged) {
-      const key = item.articleId ? `a:${item.articleId}` : `f:${item.filePath ?? item.id}`;
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      deduped.push(item);
-      if (deduped.length >= 8) break;
-    }
-
-    return deduped;
-  }, [contentStudioRecentArticles, contentStudioAllFiles]);
-
   const handleOpenServerArticle = async (slug: string) => {
     const settings = loadZenStudioSettings();
     const preview = await fetchServerArticlePreview(slug);
@@ -1815,24 +1826,6 @@ function AppContent() {
       Array.isArray(prev) ? prev.filter((a) => (a as { slug?: string }).slug !== slug) : prev
     );
     refetchContentStudioServerArticles();
-  };
-
-  const handleContinueRecentItem = (item: GettingStartedRecentItem) => {
-    if (item.source === "content-ai") {
-      setActiveServerArticleSlug(null);
-      setContentStudioServerCachePath(null);
-      if (item.articleId) {
-        setContentStudioRequestedArticleId(item.articleId);
-      } else if (item.filePath) {
-        setContentStudioRequestedFilePath(item.filePath);
-      }
-      setCurrentScreen("content-transform");
-      setContentTransformStep(1);
-      setCameFromDocStudio(false);
-      setCameFromDashboard(false);
-      return;
-    }
-
   };
 
   // Listen for macOS "About" menu event
@@ -2825,7 +2818,30 @@ function AppContent() {
                   setCurrentScreen("zen-note");
                 }}
                 onPreviewZenNoteDocument={(docId, fileName) => {
-                  void handlePreviewCloudDocument(docId, fileName, 'ZenNote-Vorschau');
+                  void handlePreviewCloudDocument(docId, fileName, {
+                    subtitle: 'ZenNote-Vorschau',
+                    openTargets: [
+                      {
+                        key: 'zennote',
+                        label: 'In ZenNote öffnen',
+                        onOpen: async () => {
+                          setContentStudioPreview(null);
+                          setRequestedZenNoteId(docId);
+                          setCurrentScreen("zen-note");
+                        },
+                      },
+                      {
+                        key: 'content-studio',
+                        label: 'In Content Studio öffnen',
+                        onOpen: async () => {
+                          setContentStudioPreview(null);
+                          await handleLoadCloudDocument(docId, fileName);
+                          setContentStudioDashboardView("dashboard");
+                          setContentTransformStep(1);
+                        },
+                      },
+                    ],
+                  });
                 }}
                 onPreviewCloudImage={(docId, fileName) => {
                   handlePreviewCloudImage(docId, fileName);
@@ -2878,7 +2894,7 @@ function AppContent() {
                     id: `cloud:${doc.id}`,
                     name: doc.fileName,
                     projectPath: contentStudioProjectPath ?? undefined,
-                    subtitle: 'Cloud-Dokument',
+                    subtitle: 'ZenCloud-Dokument',
                     updatedAt: Date.parse(doc.createdAt),
                   })) : []),
                 ]}
@@ -2959,13 +2975,13 @@ function AppContent() {
                 }}
                 onOpenDocuments={(path) => {
                   if (path) void handleSwitchContentStudioProject(path);
-                  if (path && isCloudProjectPath(path)) return;
                   setContentStudioDashboardView("project-map");
                 }}
                 onOpenPlanner={() => {
                   void openPlannerModal('planen', { clearSchedulerPosts: true });
                 }}
                 onOpenZenImage={() => {
+                  setImageGalleryFocusDocId(null);
                   setShowImageGalleryModal(true);
                 }}
                 serverArticles={contentStudioServerArticles}
@@ -3058,7 +3074,10 @@ function AppContent() {
               setSettingsDefaultTab('converter');
               setShowAISettingsModal(true);
             }}
-            onOpenImageGallery={() => setShowImageGalleryModal(true)}
+            onOpenImageGallery={() => {
+              setImageGalleryFocusDocId(null);
+              setShowImageGalleryModal(true);
+            }}
             onOpenZenNote={handleSelectZenNote}
             onOpenMobileInbox={handleSelectMobileInbox}
             onOpenMobileSettings={() => {
@@ -3169,7 +3188,11 @@ function AppContent() {
 
       <ZenImageGalleryModal
         isOpen={showImageGalleryModal}
-        onClose={() => setShowImageGalleryModal(false)}
+        initialLightboxDocId={imageGalleryFocusDocId}
+        onClose={() => {
+          setShowImageGalleryModal(false);
+          setImageGalleryFocusDocId(null);
+        }}
       />
 
       <ZenWebProjectPickerModal
@@ -3184,41 +3207,184 @@ function AppContent() {
           preview={contentStudioPreview}
           hideInlineDownload={true}
           actions={[
-            ...(contentStudioPreview.openAction
+            ...(!contentStudioPreview.items.some((item) => item.kind === 'image') && contentStudioPreview.openTargets && contentStudioPreview.openTargets.length > 0
               ? [{
-                  label: contentStudioPreview.openAction.label || 'Öffnen',
+                  label: contentStudioPreview.openAction?.label || 'Öffnen',
                   variant: 'success' as const,
-                  onClick: async () => {
-                    await contentStudioPreview.openAction?.onOpen();
-                  },
+                  menuItems: contentStudioPreview.openTargets.map((target) => ({
+                    label: target.label,
+                    onClick: async () => {
+                      await target.onOpen();
+                    },
+                    variant: target.key === 'zennote' ? 'success' as const : 'accent' as const,
+                  })),
+                  onClick: async () => {},
                 }]
-              : []),
+              : !contentStudioPreview.items.some((item) => item.kind === 'image') && contentStudioPreview.openAction
+                ? [{
+                    label: contentStudioPreview.openAction.label || 'Öffnen',
+                    variant: 'success' as const,
+                    onClick: async () => {
+                      await contentStudioPreview.openAction?.onOpen();
+                    },
+                  }]
+                : []),
             ...(() => {
               const imageItem = contentStudioPreview.items.find((item) => item.kind === 'image');
-              if (!imageItem) return [];
-              return [{
-                label: 'Im Converter öffnen',
-                variant: 'accent' as const,
+              const menuItems: Array<{
+                label: string;
+                onClick: () => void | Promise<void>;
+                icon?: typeof faDownload;
+                variant?: 'default' | 'accent' | 'success' | 'danger';
+              }> = [];
+              if (imageItem) {
+                menuItems.push({
+                  label: 'In Converter bearbeiten',
+                  icon: faPencil,
+                  onClick: async () => {
+                    await handleOpenPreviewImageInConverter(imageItem.src, imageItem.fileName);
+                  },
+                  variant: 'accent',
+                });
+                if (contentStudioPreview.context?.kind === 'cloud-image') {
+                  menuItems.push({
+                    label: 'In ImageGallery Metatags bearbeiten',
+                    icon: faPersonCane,
+                    onClick: async () => {
+                      setContentStudioPreview(null);
+                      setImageGalleryFocusDocId(contentStudioPreview.context?.docId ?? null);
+                      setShowImageGalleryModal(true);
+                    },
+                    variant: 'accent',
+                  });
+                }
+              }
+              menuItems.push({
+                label: 'Download speichern',
+                icon: faDownload,
                 onClick: async () => {
-                  await handleOpenPreviewImageInConverter(imageItem.src, imageItem.fileName);
+                  for (const item of contentStudioPreview.items) {
+                    if (item.kind !== 'image') continue;
+                    await downloadPreviewAsset(item.src, item.fileName);
+                  }
                 },
+                variant: 'accent',
+              });
+              if (contentStudioPreview.context?.kind === 'cloud-image') {
+                menuItems.push({
+                  label: 'Link kopieren',
+                  icon: faCopy,
+                  onClick: async () => {
+                    try {
+                      await navigator.clipboard.writeText(contentStudioPreview.context?.url ?? '');
+                    } catch {
+                      // ignore clipboard errors
+                    }
+                  },
+                  variant: 'accent',
+                });
+              }
+              if (contentStudioPreview.deleteAction) {
+                menuItems.push({
+                  label: contentStudioPreview.deleteAction.label || 'Löschen',
+                  icon: faTrash,
+                  onClick: async () => {
+                    await contentStudioPreview.deleteAction?.onDelete();
+                  },
+                  variant: 'danger',
+                });
+              }
+              return [{
+                label: 'Aktionen',
+                variant: 'default' as const,
+                menuItems,
+                onClick: async () => {},
               }];
             })(),
-            {
-              label: 'Download speichern',
-              icon: faDownload,
-              variant: 'accent',
-              onClick: async () => {
-                for (const item of contentStudioPreview.items) {
-                  if (item.kind !== 'image') continue;
-                  await downloadPreviewAsset(item.src, item.fileName);
-                }
-              },
-            },
           ]}
           onClose={() => setContentStudioPreview(null)}
         />
       )}
+
+      <ZenModal
+        isOpen={!!previewDeleteConfirm}
+        onClose={() => {
+          if (isPreviewDeleting) return;
+          setPreviewDeleteConfirm(null);
+        }}
+        size="sm"
+        showCloseButton={false}
+        title={previewDeleteConfirm?.title ?? 'Löschen bestätigen'}
+        subtitle="Projektmappe · Vorschau"
+        headerAlign="center"
+      >
+        <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p
+            style={{
+              margin: 0,
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              color: '#2d261f',
+              
+              lineHeight: 1.55,
+            }}
+          >
+            {previewDeleteConfirm?.message}
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setPreviewDeleteConfirm(null)}
+              disabled={isPreviewDeleting}
+          
+          
+              style={{
+                borderRadius: '8px',
+                border: '1px solid rgba(30, 24, 16, 0.22)',
+                background:'rgba(255,255,255,0.02)',
+                color: '#3e362c',
+               
+                minHeight: '36px',
+                padding: '0 12px',
+                cursor: isPreviewDeleting ? 'not-allowed' : 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                opacity: isPreviewDeleting ? 0.6 : 1,
+              }}
+            >
+              Abbrechen
+            </button>
+            <button
+              type="button"
+              disabled={isPreviewDeleting}
+              onClick={async () => {
+                if (!previewDeleteConfirm) return;
+                setIsPreviewDeleting(true);
+                try {
+                  await previewDeleteConfirm.onConfirm();
+                } finally {
+                  setIsPreviewDeleting(false);
+                  setPreviewDeleteConfirm(null);
+                }
+              }}
+              style={{
+                borderRadius: '8px',
+                border: '1px solid rgba(179,38,30,0.36)',
+                background: 'rgba(179,38,30,0.1)',
+                color: '#8f1d16',
+                minHeight: '36px',
+                padding: '0 12px',
+                cursor: isPreviewDeleting ? 'not-allowed' : 'pointer',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '10px',
+                opacity: isPreviewDeleting ? 0.6 : 1,
+              }}
+            >
+              {isPreviewDeleting ? 'Löscht…' : 'Löschen'}
+            </button>
+          </div>
+        </div>
+      </ZenModal>
 
       <ZenContentStudioModal
         isOpen={showContentStudioModal}

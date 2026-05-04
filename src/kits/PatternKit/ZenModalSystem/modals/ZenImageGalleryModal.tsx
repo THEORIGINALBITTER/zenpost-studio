@@ -48,9 +48,10 @@ interface ZenImageGalleryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onInsertUrl?: (url: string, fileName: string) => void;
+  initialLightboxDocId?: number | null;
 }
 
-export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageGalleryModalProps) {
+export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl, initialLightboxDocId = null }: ZenImageGalleryModalProps) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,6 +139,15 @@ export function ZenImageGalleryModal({ isOpen, onClose, onInsertUrl }: ZenImageG
     if (isOpen) loadImages();
     else { setImages([]); setError(null); setUploadFeedback(null); }
   }, [isOpen, loadImages]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (!initialLightboxDocId) return;
+    if (!images.length) return;
+    const index = images.findIndex((img) => img.id === initialLightboxDocId);
+    if (index < 0) return;
+    setLightboxIndex(index);
+  }, [images, initialLightboxDocId, isOpen]);
 
   useEffect(() => {
     if (lightboxIndex === null) return;

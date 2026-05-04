@@ -201,7 +201,7 @@ export function ContentStudioDashboardScreen({
       .finally(() => { setDeletingSlug(null); setConfirmingDeleteSlug(null); });
   };
   const [cardHovered, setCardHovered] = useState(false);
-  const [hoveredDocId, setHoveredDocId] = useState<string | null>(null);
+
   const [hoveredProjectDocId, setHoveredProjectDocId] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [hoveredArticleSlug, setHoveredArticleSlug] = useState<string | null>(null);

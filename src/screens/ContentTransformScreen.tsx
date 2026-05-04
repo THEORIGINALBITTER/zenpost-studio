@@ -23,6 +23,10 @@ import type { PreviewThemeId } from '../kits/PatternKit/ZenMarkdownPreview';
 import {
   transformContent,
   translateContent,
+  improveText,
+  continueText,
+  summarizeText,
+  textToMarkdown,
   type ContentPlatform,
   type ContentTone,
   type ContentLength,
@@ -161,6 +165,13 @@ interface ContentTransformScreenProps {
     imageAlt?: string;
     imageTitle?: string;
     imageCaption?: string;
+    project?: string;
+    day?: string;
+    status?: string;
+    focus?: string;
+    today?: string;
+    blockers?: string;
+    next?: string;
   } | null;
   initialPlatform?: ContentPlatform;
   cameFromDocStudio?: boolean;
@@ -236,6 +247,13 @@ type ContentTransformSessionCache = {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
   };
   postMetaByTab: Record<string, {
     title: string;
@@ -246,6 +264,13 @@ type ContentTransformSessionCache = {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    project: string;
+    day: string;
+    status: string;
+    focus: string;
+    today: string;
+    blockers: string;
+    next: string;
   }>;
 };
 
@@ -272,6 +297,13 @@ const EMPTY_POST_META = {
   imageAlt: '',
   imageTitle: '',
   imageCaption: '',
+  project: '',
+  day: '',
+  status: '',
+  focus: '',
+  today: '',
+  blockers: '',
+  next: '',
 };
 type PostMeta = typeof EMPTY_POST_META;
 
@@ -325,6 +357,13 @@ const buildContentWithMeta = (content: string, meta: PostMeta): string => {
   if (meta.imageTitle) lines.push(`coverImageTitle: "${meta.imageTitle.replace(/"/g, '\\"')}"`);
   if (meta.imageCaption) lines.push(`coverImageCaption: "${meta.imageCaption.replace(/"/g, '\\"')}"`);
   if (meta.date) lines.push(`date: ${meta.date}`);
+  if (meta.project) lines.push(`project: "${meta.project.replace(/"/g, '\\"')}"`);
+  if (meta.day) lines.push(`day: "${meta.day.replace(/"/g, '\\"')}"`);
+  if (meta.status) lines.push(`status: "${meta.status.replace(/"/g, '\\"')}"`);
+  if (meta.focus) lines.push(`focus: "${meta.focus.replace(/"/g, '\\"')}"`);
+  if (meta.today.trim()) lines.push(`today: [${meta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
+  if (meta.blockers.trim()) lines.push(`blockers: [${meta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
+  if (meta.next.trim()) lines.push(`next: [${meta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
   if (meta.tags.length > 0) {
     lines.push(`tags: [${meta.tags.join(', ')}]`);
     lines.push(`keywords: ${meta.tags.join(', ')}`);
@@ -357,6 +396,15 @@ const extractPostMetaFromContent = (
   const fmImageAlt = getFm('coverImageAlt') || getFm('imageAlt');
   const fmImageTitle = getFm('coverImageTitle') || getFm('imageTitle');
   const fmImageCaption = getFm('coverImageCaption') || getFm('imageCaption');
+  const fmProject = getFm('project');
+  const fmDay = getFm('day');
+  const fmStatus = getFm('status');
+  const fmFocus = getFm('focus');
+  const parseListField = (key: string) => {
+    const raw = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim() ?? '';
+    if (!raw) return '';
+    return raw.replace(/^\[|\]$/g, '').split(',').map((v: string) => v.trim().replace(/^["']|["']$/g, '')).filter(Boolean).join('\n');
+  };
   return {
     title: fmTitle || h1Title || fallbackClean,
     subtitle: fmSubtitle,
@@ -366,7 +414,50 @@ const extractPostMetaFromContent = (
     imageAlt: fmImageAlt,
     imageTitle: fmImageTitle,
     imageCaption: fmImageCaption,
+    project: fmProject,
+    day: fmDay,
+    status: fmStatus,
+    focus: fmFocus,
+    today: parseListField('today'),
+    blockers: parseListField('blockers'),
+    next: parseListField('next'),
   };
+};
+
+const MANIFEST_EXTRA_KEYS = ['project', 'day', 'status', 'focus', 'today', 'blockers', 'next'] as const;
+
+const parseFrontmatterInlineValue = (rawValue: string): unknown => {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    return trimmed
+      .slice(1, -1)
+      .split(',')
+      .map((item) => item.trim().replace(/^["']|["']$/g, ''))
+      .filter(Boolean);
+  }
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  return trimmed;
+};
+
+const extractManifestExtrasFromFrontmatter = (content: string): Record<string, unknown> => {
+  const frontmatter = content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+  if (!frontmatter) return {};
+  const extras: Record<string, unknown> = {};
+  for (const key of MANIFEST_EXTRA_KEYS) {
+    const match = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'));
+    if (!match?.[1]) continue;
+    const parsed = parseFrontmatterInlineValue(match[1]);
+    if (parsed === '' || parsed === null || parsed === undefined) continue;
+    if (Array.isArray(parsed) && parsed.length === 0) continue;
+    extras[key] = parsed;
+  }
+  return extras;
 };
 
 /**
@@ -402,6 +493,13 @@ const loadMetaFromManifest = async (filePath: string): Promise<Partial<PostMeta>
       imageCaption: typeof entry.coverImageCaption === 'string' && entry.coverImageCaption.trim() ? entry.coverImageCaption.trim() : undefined,
       date: typeof entry.date === 'string' ? normalizeDateForInput(entry.date) : undefined,
       tags: Array.isArray(entry.tags) ? (entry.tags as string[]) : undefined,
+      project: typeof entry.project === 'string' ? entry.project : undefined,
+      day: typeof entry.day === 'string' ? entry.day : undefined,
+      status: typeof entry.status === 'string' ? entry.status : undefined,
+      focus: typeof entry.focus === 'string' ? entry.focus : undefined,
+      today: Array.isArray(entry.today) ? entry.today.join('\n') : undefined,
+      blockers: Array.isArray(entry.blockers) ? entry.blockers.join('\n') : undefined,
+      next: Array.isArray(entry.next) ? entry.next.join('\n') : undefined,
     };
   } catch { return null; }
 };
@@ -413,6 +511,13 @@ const postMetaEquals = (a: PostMeta, b: PostMeta): boolean =>
   a.imageAlt === b.imageAlt &&
   a.imageTitle === b.imageTitle &&
   a.imageCaption === b.imageCaption &&
+  a.project === b.project &&
+  a.day === b.day &&
+  a.status === b.status &&
+  a.focus === b.focus &&
+  a.today === b.today &&
+  a.blockers === b.blockers &&
+  a.next === b.next &&
   a.date === b.date &&
   JSON.stringify(a.tags) === JSON.stringify(b.tags);
 
@@ -1038,6 +1143,13 @@ const normalizeIncomingPostMeta = (
     imageAlt?: string;
     imageTitle?: string;
     imageCaption?: string;
+    project?: string;
+    day?: string;
+    status?: string;
+    focus?: string;
+    today?: string;
+    blockers?: string;
+    next?: string;
   } | null
 ): {
   title: string;
@@ -1048,6 +1160,13 @@ const normalizeIncomingPostMeta = (
   imageAlt: string;
   imageTitle: string;
   imageCaption: string;
+  project: string;
+  day: string;
+  status: string;
+  focus: string;
+  today: string;
+  blockers: string;
+  next: string;
 } => ({
   title: (meta?.title ?? '').trim(),
   subtitle: (meta?.subtitle ?? '').trim(),
@@ -1057,6 +1176,13 @@ const normalizeIncomingPostMeta = (
   imageAlt: (meta?.imageAlt ?? '').trim(),
   imageTitle: (meta?.imageTitle ?? '').trim(),
   imageCaption: (meta?.imageCaption ?? '').trim(),
+  project: (meta?.project ?? '').trim(),
+  day: (meta?.day ?? '').trim(),
+  status: (meta?.status ?? '').trim(),
+  focus: (meta?.focus ?? '').trim(),
+  today: (meta?.today ?? '').trim(),
+  blockers: (meta?.blockers ?? '').trim(),
+  next: (meta?.next ?? '').trim(),
 });
 
 const toUserFacingError = (rawError: string, context: 'transform' | 'post'): string => {
@@ -1580,6 +1706,16 @@ export const ContentTransformScreen = ({
 
     const saveBaseName = getSaveBaseName();
     const defaultName = buildDefaultSaveName(saveBaseName, 1);
+    const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
+    const activeDisplayPath = activeTab?.displayPath ?? activeTab?.filePath ?? projectPath ?? null;
+
+    // Cloud-Projekte nutzen den internen Dateiname-Dialog statt OS-Save-Dialog.
+    if (activeDisplayPath && isCloudProjectPath(activeDisplayPath)) {
+      const suggestedName = (activeTab?.title || fileName || saveBaseName || 'Entwurf').trim().replace(/\.md$/i, '');
+      setCloudSaveInputName(suggestedName);
+      setCloudSaveDialog({ content: contentToSave, suggestedName });
+      return;
+    }
 
     if (isTauri()) {
       if (!projectPath) {
@@ -1771,6 +1907,13 @@ export const ContentTransformScreen = ({
           postMeta.subtitle.trim() ? `subtitle: "${postMeta.subtitle.trim().replace(/"/g, '\\"')}"` : null,
           `date: "${date}"`,
           postMeta.tags.length > 0 ? `tags: [${postMeta.tags.join(', ')}]` : null,
+          postMeta.project.trim() ? `project: "${postMeta.project.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.day.trim() ? `day: "${postMeta.day.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.status.trim() ? `status: "${postMeta.status.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.focus.trim() ? `focus: "${postMeta.focus.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.today.trim() ? `today: [${postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
+          postMeta.blockers.trim() ? `blockers: [${postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
+          postMeta.next.trim() ? `next: [${postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
           `readingTime: ${readingTime}`,
           coverImageValue ? `coverImage: "${coverImageValue}"` : null,
           postMeta.imageAlt.trim() ? `coverImageAlt: "${postMeta.imageAlt.trim().replace(/"/g, '\\"')}"` : null,
@@ -1800,9 +1943,26 @@ export const ContentTransformScreen = ({
             }
           } catch { /* server fetch non-fatal */ }
         }
-        const entry: Record<string, unknown> = { slug, title: titleText, date, readingTime, localFileName: localFilename };
+        const existingEntry = manifest.posts.find((p) => p.slug === slug) ?? {};
+        const frontmatterExtras = extractManifestExtrasFromFrontmatter(actualContent);
+        const entry: Record<string, unknown> = {
+          ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
+          ...frontmatterExtras,
+          slug,
+          title: titleText,
+          date,
+          readingTime,
+          localFileName: localFilename,
+        };
         if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
         if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
+        if (postMeta.project.trim()) entry.project = postMeta.project.trim();
+        if (postMeta.day.trim()) entry.day = postMeta.day.trim();
+        if (postMeta.status.trim()) entry.status = postMeta.status.trim();
+        if (postMeta.focus.trim()) entry.focus = postMeta.focus.trim();
+        if (postMeta.today.trim()) entry.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+        if (postMeta.blockers.trim()) entry.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+        if (postMeta.next.trim()) entry.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
         if (coverImageValue) entry.coverImage = coverImageValue;
         if (postMeta.imageAlt.trim()) entry.coverImageAlt = postMeta.imageAlt.trim();
         if (postMeta.imageTitle.trim()) entry.coverImageTitle = postMeta.imageTitle.trim();
@@ -1937,6 +2097,13 @@ export const ContentTransformScreen = ({
         coverImageCaption: postMeta.imageCaption.trim() || null,
         title: postMeta.title.trim() || null,
         date: postMeta.date.trim() || null,
+        project: postMeta.project.trim() || null,
+        day: postMeta.day.trim() || null,
+        status: postMeta.status.trim() || null,
+        focus: postMeta.focus.trim() || null,
+        today: postMeta.today.trim() ? `[${postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
+        blockers: postMeta.blockers.trim() ? `[${postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
+        next: postMeta.next.trim() ? `[${postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
       });
       // Convert base64 coverImage in YAML frontmatter to _assets/ file before writing
       const fmBase64Match = contentToWrite.match(/^(---[\s\S]*?coverImage:\s*")(data:image\/([a-zA-Z0-9.+-]+);base64,([^"]+))("[\s\S]*?---)/);
@@ -2010,7 +2177,11 @@ export const ContentTransformScreen = ({
             }
             const wordCountFtp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
             const readingTimeFtp = Math.max(1, Math.round(wordCountFtp / 220));
+            const existingEntry = manifest.posts.find((p) => p.slug === slug) ?? {};
+            const frontmatterExtras = extractManifestExtrasFromFrontmatter(contentToWrite);
             const entry: Record<string, unknown> = {
+              ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
+              ...frontmatterExtras,
               slug,
               title: postMeta.title.trim() || slug,
               date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
@@ -2021,6 +2192,13 @@ export const ContentTransformScreen = ({
             const ftpImgUrl = postMeta.imageUrl.trim();
             if (ftpImgUrl && !ftpImgUrl.startsWith('data:image/')) entry.coverImage = ftpImgUrl;
             if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
+            if (postMeta.project.trim()) entry.project = postMeta.project.trim();
+            if (postMeta.day.trim()) entry.day = postMeta.day.trim();
+            if (postMeta.status.trim()) entry.status = postMeta.status.trim();
+            if (postMeta.focus.trim()) entry.focus = postMeta.focus.trim();
+            if (postMeta.today.trim()) entry.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+            if (postMeta.blockers.trim()) entry.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+            if (postMeta.next.trim()) entry.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
             const idx = manifest.posts.findIndex((p) => p.slug === slug);
             if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
             await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -2074,7 +2252,11 @@ export const ContentTransformScreen = ({
           const slug2 = sanitizeBlogFilename(savedName);
           const wordCountPhp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
           const readingTimePhp = Math.max(1, Math.round(wordCountPhp / 220));
+          const existingEntry = manifest.posts.find((p) => p.slug === slug2) ?? {};
+          const frontmatterExtras = extractManifestExtrasFromFrontmatter(contentToWrite);
           const entry2: Record<string, unknown> = {
+            ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
+            ...frontmatterExtras,
             slug: slug2,
             title: postMeta.title.trim() || slug2,
             date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
@@ -2088,6 +2270,13 @@ export const ContentTransformScreen = ({
             entry2.coverImage = phpImgUrl;
           }
           if (postMeta.tags.length > 0) entry2.tags = postMeta.tags;
+          if (postMeta.project.trim()) entry2.project = postMeta.project.trim();
+          if (postMeta.day.trim()) entry2.day = postMeta.day.trim();
+          if (postMeta.status.trim()) entry2.status = postMeta.status.trim();
+          if (postMeta.focus.trim()) entry2.focus = postMeta.focus.trim();
+          if (postMeta.today.trim()) entry2.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+          if (postMeta.blockers.trim()) entry2.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
+          if (postMeta.next.trim()) entry2.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
           const idx2 = manifest.posts.findIndex((p) => p.slug === slug2);
           if (idx2 >= 0) manifest.posts[idx2] = entry2; else manifest.posts.unshift(entry2);
           await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
@@ -2507,6 +2696,13 @@ export const ContentTransformScreen = ({
         imageAlt: incomingMeta.imageAlt || extractedMeta.imageAlt,
         imageTitle: incomingMeta.imageTitle || extractedMeta.imageTitle,
         imageCaption: incomingMeta.imageCaption || extractedMeta.imageCaption,
+        project: incomingMeta.project || extractedMeta.project,
+        day: incomingMeta.day || extractedMeta.day,
+        status: incomingMeta.status || extractedMeta.status,
+        focus: incomingMeta.focus || extractedMeta.focus,
+        today: incomingMeta.today || extractedMeta.today,
+        blockers: incomingMeta.blockers || extractedMeta.blockers,
+        next: incomingMeta.next || extractedMeta.next,
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
@@ -2691,6 +2887,13 @@ export const ContentTransformScreen = ({
         imageAlt: inferredMeta.imageAlt,
         imageTitle: inferredMeta.imageTitle,
         imageCaption: inferredMeta.imageCaption,
+        project: inferredMeta.project,
+        day: inferredMeta.day,
+        status: inferredMeta.status,
+        focus: inferredMeta.focus,
+        today: inferredMeta.today,
+        blockers: inferredMeta.blockers,
+        next: inferredMeta.next,
       };
       setPostMeta(nextMeta);
       setPostMetaByTab((prev) => ({ ...prev, [tabId]: nextMeta }));
@@ -2738,6 +2941,13 @@ export const ContentTransformScreen = ({
           imageAlt: manifestMeta2?.imageAlt || extractedMeta2.imageAlt,
           imageTitle: manifestMeta2?.imageTitle || extractedMeta2.imageTitle,
           imageCaption: manifestMeta2?.imageCaption || extractedMeta2.imageCaption,
+          project: manifestMeta2?.project || extractedMeta2.project,
+          day: manifestMeta2?.day || extractedMeta2.day,
+          status: manifestMeta2?.status || extractedMeta2.status,
+          focus: manifestMeta2?.focus || extractedMeta2.focus,
+          today: manifestMeta2?.today || extractedMeta2.today,
+          blockers: manifestMeta2?.blockers || extractedMeta2.blockers,
+          next: manifestMeta2?.next || extractedMeta2.next,
         };
         setPostMeta(nextMeta);
         setPostMetaByTab((prev) => ({ ...prev, [targetTabId]: nextMeta }));
@@ -2776,6 +2986,13 @@ export const ContentTransformScreen = ({
           imageAlt: manifestMeta?.imageAlt || extractedMeta.imageAlt,
           imageTitle: manifestMeta?.imageTitle || extractedMeta.imageTitle,
           imageCaption: manifestMeta?.imageCaption || extractedMeta.imageCaption,
+          project: manifestMeta?.project || extractedMeta.project,
+          day: manifestMeta?.day || extractedMeta.day,
+          status: manifestMeta?.status || extractedMeta.status,
+          focus: manifestMeta?.focus || extractedMeta.focus,
+          today: manifestMeta?.today || extractedMeta.today,
+          blockers: manifestMeta?.blockers || extractedMeta.blockers,
+          next: manifestMeta?.next || extractedMeta.next,
         };
         // postMetaByTab VOR docTabContents setzen — so findet der useEffect sofort den richtigen Wert
         setPostMetaByTab((prev) => ({ ...prev, [resolvedTabId]: nextMeta }));
@@ -2835,11 +3052,14 @@ export const ContentTransformScreen = ({
   const [styleMode, setStyleMode] = useState<'global' | 'platform'>('platform');
   const [stylePlatformOverrides, setStylePlatformOverrides] = useState<Partial<Record<ContentPlatform, PlatformStyleConfig>>>({});
   const [activeStylePlatform, setActiveStylePlatform] = useState<ContentPlatform | null>(null);
+  const [allowEmoji, setAllowEmoji] = useState<boolean>(false);
+  const [isQuickActionRunning, setIsQuickActionRunning] = useState<boolean>(false);
 
   // Step 4: Result
   const [transformedContent, setTransformedContent] = useState<string>('');
   const [isTransforming, setIsTransforming] = useState<boolean>(false);
   const transformInFlightRef = useRef(false);
+  const transformRunIdRef = useRef(0);
 
   // Multi-platform results (for multi-select mode)
   const [transformedContents, setTransformedContents] = useState<Record<ContentPlatform, string>>({} as Record<ContentPlatform, string>);
@@ -3489,8 +3709,59 @@ export const ContentTransformScreen = ({
     setDirtyDocTabs((prev) => ({ ...prev, [draftTabId]: false }));
   };
 
+  const handleStep3QuickAction = async (
+    action: 'improve' | 'continue' | 'summarize' | 'markdown',
+    improveStyle?: 'general' | 'charming' | 'professional' | 'technical' | 'concise' | 'custom',
+    customInstruction?: string
+  ) => {
+    if (isQuickActionRunning) return;
+    const baseContent = (sourceContentRef.current || sourceContent || '').trim();
+    if (baseContent.length < 10) {
+      setError('Bitte zuerst im Editor genug Inhalt eingeben, damit Text-AI arbeiten kann.');
+      return;
+    }
+
+    setIsQuickActionRunning(true);
+    setError(null);
+    try {
+      let result;
+      switch (action) {
+        case 'improve':
+          result = await improveText(baseContent, {
+            style: improveStyle || 'general',
+            customInstruction: improveStyle === 'custom' ? customInstruction : undefined,
+            allowEmoji,
+          });
+          break;
+        case 'continue':
+          result = await continueText(baseContent, undefined, { allowEmoji });
+          break;
+        case 'summarize':
+          result = await summarizeText(baseContent, undefined, { allowEmoji });
+          break;
+        case 'markdown':
+          result = await textToMarkdown(baseContent, undefined, { allowEmoji });
+          break;
+      }
+
+      if (result.success && result.data) {
+        setSourceContent(result.data);
+        sourceContentRef.current = result.data;
+      } else {
+        setError(result.error || 'Text-AI Aktion fehlgeschlagen.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unbekannter Fehler bei Text-AI Aktion.');
+    } finally {
+      setIsQuickActionRunning(false);
+    }
+  };
+
   const handleTransform = async () => {
     if (transformInFlightRef.current) return;
+    const runId = transformRunIdRef.current + 1;
+    transformRunIdRef.current = runId;
+    const isRunActive = () => transformRunIdRef.current === runId;
     transformInFlightRef.current = true;
     setPreviewMode(false);
     setIsTransforming(true);
@@ -3527,7 +3798,9 @@ export const ContentTransformScreen = ({
             length: styleConfig.length,
             audience: styleConfig.audience,
             targetLanguage,
+            allowEmoji,
           });
+          if (!isRunActive()) return;
 
           console.log(`[Multi-Platform] Result for ${platform}:`, {
             success: result.success,
@@ -3547,6 +3820,7 @@ export const ContentTransformScreen = ({
             // Translate if target language is not deutsch
             if (targetLanguage && targetLanguage !== 'deutsch') {
               const translateResult = await translateContent(finalContent, targetLanguage);
+              if (!isRunActive()) return;
               if (translateResult.success && translateResult.data) {
                 finalContent = translateResult.data;
               }
@@ -3587,7 +3861,9 @@ export const ContentTransformScreen = ({
           length,
           audience,
           targetLanguage,
+          allowEmoji,
         });
+        if (!isRunActive()) return;
 
         if (result.success && result.data) {
           let finalContent = result.data;
@@ -3600,6 +3876,7 @@ export const ContentTransformScreen = ({
           // Step 2: Translate if target language is not deutsch (assuming source is deutsch)
           if (targetLanguage && targetLanguage !== 'deutsch') {
             const translateResult = await translateContent(finalContent, targetLanguage);
+            if (!isRunActive()) return;
             if (translateResult.success && translateResult.data) {
               finalContent = translateResult.data;
             } else {
@@ -3647,10 +3924,20 @@ export const ContentTransformScreen = ({
         // Settings notification handled by modal
       }
     } finally {
-      setIsTransforming(false);
-      transformInFlightRef.current = false;
+      if (isRunActive()) {
+        setIsTransforming(false);
+        transformInFlightRef.current = false;
+      }
     }
   };
+
+  const handleCancelTransform = useCallback(() => {
+    if (!isTransforming && !transformInFlightRef.current) return;
+    transformRunIdRef.current += 1;
+    transformInFlightRef.current = false;
+    setIsTransforming(false);
+    setError('Transformation abgebrochen. Bitte erneut starten.');
+  }, [isTransforming]);
 
   const handleFormatOnly = () => {
     setPreviewMode(false);
@@ -4183,6 +4470,10 @@ export const ContentTransformScreen = ({
             onBackToEditor={() => setStep(1)}
             onTransform={handleTransform}
             onPostDirectly={handlePostDirectly}
+            onQuickAction={handleStep3QuickAction}
+            isQuickActionRunning={isQuickActionRunning}
+            allowEmoji={allowEmoji}
+            onAllowEmojiChange={setAllowEmoji}
             isTransforming={isTransforming}
             isPosting={isPosting}
             error={error}
@@ -4296,6 +4587,8 @@ export const ContentTransformScreen = ({
                 setSelectedPlatform(targetPlatform);
                 setStep(3); // Go directly to Step 3 (Style Options)
               }}
+              allowEmoji={allowEmoji}
+              onAllowEmojiChange={setAllowEmoji}
               multiPlatformMode={multiPlatformMode}
               transformedContents={transformedContents}
               activeResultTab={activeResultTab}
@@ -4323,6 +4616,8 @@ export const ContentTransformScreen = ({
               projectPath={projectPath}
               previewTheme={previewTheme}
               onPreviewThemeChange={setPreviewTheme}
+              postMeta={postMeta}
+              onMetaChange={handleMetaChange}
             />
           </>
         );
@@ -4426,7 +4721,7 @@ export const ContentTransformScreen = ({
       <ZenGeneratingModal
         isOpen={isTransforming}
         templateName={`${getPlatformLabel(selectedPlatform)} Content`}
-        onClose={() => setIsTransforming(false)}
+        onClose={handleCancelTransform}
       />
 
       {/* Cloud Save — Filename Dialog */}
@@ -4525,7 +4820,7 @@ export const ContentTransformScreen = ({
         isOpen={!!pendingCloseTabId}
         onClose={() => setPendingCloseTabId(null)}
         size="md"
-        
+        showCloseButton={false}
       >
         <ZenModalHeader
           title="Ungespeicherte Änderungen"
@@ -4562,6 +4857,7 @@ export const ContentTransformScreen = ({
             />
             <ZenRoughButton
               label="Speichern"
+              variant="active"
               size="small"
               width={140}
               height={38}

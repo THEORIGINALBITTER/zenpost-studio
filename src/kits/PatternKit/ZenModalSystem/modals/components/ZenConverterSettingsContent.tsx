@@ -301,7 +301,7 @@ export const ZenConverterSettingsContent = () => {
                 onClick={() => handleMaxSize(opt.value)}
                 style={{
                   ...btnBase,
-                  background: isActive ? '#AC8E66' : 'rgba(255,255,255,0.5)',
+                  background: isActive ? '#252525' : 'rgba(255,255,255,0.5)',
                   border: isActive ? '1px solid rgba(172,142,102,0.7)' : '1px solid rgba(90,80,60,0.3)',
                   color: isActive ? '#fff' : '#5a5040',
                   fontWeight: isActive ? 500 : 400,
@@ -336,7 +336,7 @@ export const ZenConverterSettingsContent = () => {
             disabled={!customSizeInput}
             style={{
               ...btnBase,
-              background: customSizeInput ? '#AC8E66' : 'rgba(172,142,102,0.12)',
+              background: customSizeInput ? '#252525' : 'rgba(172,142,102,0.12)',
               border: '1px solid rgba(172,142,102,0.5)',
               color: customSizeInput ? '#fff' : '#9a8870',
               cursor: customSizeInput ? 'pointer' : 'not-allowed',

@@ -30,7 +30,7 @@ private:
   RuleIndex index_;
   Analyzer* analyzer_ = nullptr;
   ReplacementEngine replacement_;
-  SuggestionBuilder suggestions_;
+  [[maybe_unused]] SuggestionBuilder suggestions_;
   JsonBuilder json_;
   MatchFormatter formatter_;
 };

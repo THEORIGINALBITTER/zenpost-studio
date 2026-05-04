@@ -14,13 +14,30 @@ export type ContentPreviewDocumentItem = {
 
 export type ContentPreviewItem = ContentPreviewImageItem | ContentPreviewDocumentItem;
 
+export type ZenOpenTargetMenuItem = {
+  key: string;
+  label: string;
+  onOpen: () => void | Promise<void>;
+};
+
 export type ContentPreviewState = {
   title: string;
   subtitle?: string;
   items: ContentPreviewItem[];
+  context?: {
+    kind: 'cloud-image';
+    docId: number;
+    fileName: string;
+    url: string;
+  };
+  openTargets?: ZenOpenTargetMenuItem[];
   openAction?: {
     label?: string;
     onOpen: () => void | Promise<void>;
+  };
+  deleteAction?: {
+    label?: string;
+    onDelete: () => void | Promise<void>;
   };
 };
 

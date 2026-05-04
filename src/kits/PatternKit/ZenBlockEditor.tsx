@@ -40,6 +40,8 @@ import DragDrop from 'editorjs-drag-drop';
 import { ZenDropdown } from './ZenModalSystem/components/ZenDropdown';
 import { PREVIEW_THEME_EDITOR_TOKENS, type PreviewThemeId } from './zenMarkdownPreviewTypes';
 import { canUploadToZenCloud, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
+import { resolveEditorPaperStyle, type EditorPaperStyle } from '../../services/editorPaperStyleService';
+import type { EditorPaperIntensity } from '../../services/editorSettingsService';
 import './ZenBlockEditor.css';
 
 const DEBUG_BLOCK_EDITOR_SYNC = false;
@@ -1085,6 +1087,8 @@ interface ZenBlockEditorProps {
   wrapLines?: boolean;
   showLineNumbers?: boolean;
   theme?: EditorTheme;
+  paperStyle?: EditorPaperStyle;
+  paperIntensity?: EditorPaperIntensity;
   previewTheme?: PreviewThemeId;
   focusHeadingRequest?: { headingIndex: number; token: number } | null;
   onActiveHeadingChange?: (headingIndex: number) => void;
@@ -1242,6 +1246,8 @@ export const ZenBlockEditor = ({
   wrapLines = true,
   showLineNumbers = true,
   theme = 'light',
+  paperStyle = 'classic',
+  paperIntensity = 'medium',
   previewTheme = 'mono-clean',
   focusHeadingRequest = null,
   onActiveHeadingChange,
@@ -1542,6 +1548,7 @@ export const ZenBlockEditor = ({
   const [showIntelPanel, setShowIntelPanel] = useState(false);
   const [showEngineAbout, setShowEngineAbout] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [editorScrollTop, setEditorScrollTop] = useState(0);
   const intelDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Stop words as module-level constant — not recreated on every render
@@ -3096,6 +3103,13 @@ export const ZenBlockEditor = ({
   };
 
   const colors = themeStyles[theme];
+  const paperStyleTokens = resolveEditorPaperStyle({
+    theme,
+    paperStyle,
+    paperIntensity,
+    baseBackground: colors.background,
+  });
+  const paperBackgroundPositionY = `${(paperStyleTokens.scrollOffsetY ?? 0) - editorScrollTop}px`;
   const gold = '#AC8E66';
 
   const className = [
@@ -4128,7 +4142,11 @@ export const ZenBlockEditor = ({
       style={{
         border: `1px solid ${colors.border}`,
         borderRadius: 8,
-        backgroundColor: colors.background,
+        backgroundColor: paperStyleTokens.backgroundColor,
+        backgroundImage: paperStyleTokens.backgroundImage,
+        backgroundSize: paperStyleTokens.backgroundSize,
+        backgroundPosition: paperStyleTokens.backgroundPosition,
+        backgroundPositionY: paperBackgroundPositionY,
         display: 'flex',
         flexDirection: 'column',
         height,
@@ -4338,7 +4356,12 @@ export const ZenBlockEditor = ({
         </div>
       )}
 
-      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+      <div
+        style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}
+        onScroll={(event) => {
+          setEditorScrollTop(event.currentTarget.scrollTop);
+        }}
+      >
       <div
         ref={holderRef}
         style={{

@@ -135,7 +135,7 @@ interface ExportOption {
   id: string;
   label: string;
   icon: any;
-  format: 'html' | 'pdf' | 'markdown' | 'text' | 'docx' | 'rtf' | 'odt' | 'epub';
+  format: 'html' | 'pdf' | 'pdf-print' | 'markdown' | 'text' | 'docx' | 'rtf' | 'odt' | 'epub';
 }
 
 interface PublishOption {
@@ -148,7 +148,8 @@ interface PublishOption {
 
 const EXPORT_OPTIONS: ExportOption[] = [
   { id: 'html', label: 'HTML', icon: faCode, format: 'html' },
-  { id: 'pdf', label: 'PDF', icon: faFilePdf, format: 'pdf' },
+  { id: 'pdf', label: 'PDF Datei', icon: faFilePdf, format: 'pdf' },
+  { id: 'pdf-print', label: 'PDF Drucken', icon: faFilePdf, format: 'pdf-print' },
   { id: 'markdown', label: 'Markdown', icon: faFileLines, format: 'markdown' },
   { id: 'text', label: 'Text', icon: faFileAlt, format: 'text' },
 ];
@@ -352,6 +353,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const createPdfBytes = async (text: string) => {
     const toWinAnsiSafe = (input: string) =>
       input
+        .replace(/禅/g, 'Zen')
         .replace(/→/g, '->')
         .replace(/←/g, '<-')
         .replace(/↔/g, '<->')
@@ -362,7 +364,9 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
         .replace(/[“”]/g, '"')
         .replace(/[‘’]/g, "'")
         .replace(/[–—]/g, '-')
-        .replace(/\u00A0/g, ' ');
+        .replace(/\u00A0/g, ' ')
+        // Keep only WinAnsi-safe range for StandardFonts; unsupported glyphs crash pdf-lib.
+        .replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g, '?');
 
     const normalizedText = text
       .replace(/&nbsp;/g, ' ')
@@ -1250,11 +1254,171 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
       .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'");
 
+  const printRenderedMarkdownAsPdf = async (markdown: string, title: string) => {
+    if (typeof document === 'undefined') throw new Error('Print is not available in this environment.');
+
+    const renderedHtml = await marked.parse(markdown, { gfm: true, breaks: true });
+    const safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    document.body.appendChild(iframe);
+
+    const frameDoc = iframe.contentDocument;
+    const frameWindow = iframe.contentWindow;
+    if (!frameDoc || !frameWindow) {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+      throw new Error('Print frame could not be initialized.');
+    }
+
+    const html = `<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <style>
+    @page { size: A4 portrait; margin: 16mm; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #111; }
+    body {
+      font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+      font-size: 12px;
+      line-height: 1.65;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    h1, h2, h3, h4, h5, h6 { margin: 1.1em 0 0.5em; line-height: 1.25; break-after: avoid-page; }
+    h1 { font-size: 1.9em; }
+    h2 { font-size: 1.5em; }
+    h3 { font-size: 1.28em; }
+    p, ul, ol, blockquote, table, pre { margin: 0.72em 0; }
+    ul, ol { padding-left: 1.35rem; }
+    li { margin: 0.25em 0; }
+    a { color: #1b4ea3; text-decoration: underline; }
+    blockquote { border-left: 3px solid #999; padding-left: 10px; color: #333; }
+    pre { background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px; padding: 10px; overflow-x: auto; }
+    code { background: #f5f5f5; padding: 0.08em 0.3em; border-radius: 4px; }
+    pre code { background: transparent; padding: 0; }
+    img { max-width: 100%; height: auto; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #d8d8d8; padding: 6px 8px; text-align: left; vertical-align: top; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 1.25em 0; }
+  </style>
+</head>
+<body>${renderedHtml}</body>
+</html>`;
+
+    frameDoc.open();
+    frameDoc.write(html);
+    frameDoc.close();
+
+    const cleanup = () => {
+      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    };
+
+    const onAfterPrint = () => {
+      cleanup();
+      window.removeEventListener('afterprint', onAfterPrint);
+    };
+
+    window.addEventListener('afterprint', onAfterPrint);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    });
+
+    frameWindow.focus();
+    frameWindow.print();
+    window.setTimeout(cleanup, 4000);
+  };
+
   const handleExport = async (option: ExportOption) => {
     setExportingId(option.id);
     setExportError(null);
     try {
       const normalizedContent = await resolveOpfsImagesInContent(normalizeHtmlEntities(content));
+      const extensionByFormat: Record<ExportOption['format'], string> = {
+        html: 'html',
+        pdf: 'pdf',
+        'pdf-print': 'pdf',
+        markdown: 'md',
+        text: 'txt',
+        docx: 'docx',
+        rtf: 'rtf',
+        odt: 'odt',
+        epub: 'epub',
+      };
+      const suggestedFilename = generateExportFilename(documentName, normalizedContent, extensionByFormat[option.format]);
+
+      if (option.format === 'pdf-print') {
+        const pdfTitle = normalizedContent.match(/^#\s+(.+)$/m)?.[1]?.trim()
+          ?? deriveExportBaseName(documentName, normalizedContent);
+        await printRenderedMarkdownAsPdf(normalizedContent, pdfTitle);
+        setExportedId(option.id);
+        setTimeout(() => setExportedId(null), 2000);
+        return;
+      }
+
+      if (option.format === 'pdf') {
+        // Tauri/Desktop: keep explicit save dialog for predictable file export UX.
+        if (isTauri()) {
+          const pdfBytes = await createPdfBytes(normalizedContent);
+          const pdfPath = await save({
+            defaultPath: generateExportFilename(documentName, normalizedContent, 'pdf'),
+            filters: [{ name: 'PDF', extensions: ['pdf'] }],
+          });
+          if (!pdfPath) {
+            setExportingId(null);
+            return;
+          }
+          const normalizedPath = pdfPath.toLowerCase().endsWith('.pdf') ? pdfPath : `${pdfPath}.pdf`;
+          await writeFile(normalizedPath, pdfBytes);
+          setExportedId(option.id);
+          setTimeout(() => setExportedId(null), 2000);
+          return;
+        }
+
+        // Web fallback: browser print-to-PDF flow.
+        try {
+          const pdfTitle = normalizedContent.match(/^#\s+(.+)$/m)?.[1]?.trim()
+            ?? deriveExportBaseName(documentName, normalizedContent);
+          await printRenderedMarkdownAsPdf(normalizedContent, pdfTitle);
+          setExportedId(option.id);
+          setTimeout(() => setExportedId(null), 2000);
+          return;
+        } catch (printError) {
+          console.warn('Rendered print export failed, fallback to direct PDF generation:', printError);
+          const pdfBytes = await createPdfBytes(normalizedContent);
+          const inTauriPdf = isTauri();
+          const pdfName = generateExportFilename(documentName, normalizedContent, 'pdf');
+          const pdfPath = inTauriPdf
+            ? await save({ defaultPath: pdfName, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+            : null;
+          if (pdfPath) {
+            const normalizedPath = pdfPath.toLowerCase().endsWith('.pdf') ? pdfPath : `${pdfPath}.pdf`;
+            await writeFile(normalizedPath, pdfBytes);
+          } else if (typeof window !== 'undefined') {
+            const pdfArray = new Uint8Array(pdfBytes);
+            const blob = new Blob([pdfArray.buffer], { type: 'application/pdf' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = pdfName;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+          setExportedId(option.id);
+          setTimeout(() => setExportedId(null), 2000);
+          return;
+        }
+      }
+
       let fileContent = normalizedContent;
       let binaryContent: Uint8Array | null = null;
       let extension = 'md';
@@ -1299,9 +1463,6 @@ ${renderedHtml}
 </html>`;
           extension = 'html';
           break;
-        case 'pdf':
-          extension = 'pdf';
-          break;
         case 'text': {
           try {
             fileContent = isTauri() ? await ZenEngine.markdownToPlain(normalizedContent) : markdownToPlainText(normalizedContent);
@@ -1345,35 +1506,12 @@ ${renderedHtml}
       }
 
       const inTauri = isTauri();
-      const suggestedFilename = generateExportFilename(documentName, normalizedContent, extension);
       const filePath = inTauri
         ? await save({
             defaultPath: suggestedFilename,
             filters: [{ name: option.label, extensions: [extension] }],
           })
         : null;
-
-      if (option.format === 'pdf') {
-        const pdfBytes = await createPdfBytes(normalizedContent);
-        if (filePath) {
-          const ensureExt = (path: string, ext: string) =>
-            path.toLowerCase().endsWith(`.${ext}`) ? path : `${path}.${ext}`;
-          const normalizedPath = ensureExt(filePath, extension);
-          await writeFile(normalizedPath, pdfBytes);
-        } else if (typeof window !== 'undefined') {
-          const pdfArray = new Uint8Array(pdfBytes);
-          const blob = new Blob([pdfArray.buffer], { type: 'application/pdf' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = suggestedFilename;
-          a.click();
-          URL.revokeObjectURL(url);
-        }
-        setExportedId(option.id);
-        setTimeout(() => setExportedId(null), 2000);
-        return;
-      }
 
       if ((option.format === 'docx' || option.format === 'odt' || option.format === 'epub') && binaryContent) {
         if (filePath) {
