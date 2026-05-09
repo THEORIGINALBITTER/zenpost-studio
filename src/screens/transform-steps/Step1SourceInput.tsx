@@ -106,10 +106,14 @@ interface Step1SourceInputProps {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    visualMode: string;
     project: string;
     day: string;
     status: string;
     focus: string;
+    placeholderWord: string;
+    placeholderStatus: string;
+    placeholderFocus: string;
     today: string;
     blockers: string;
     next: string;
@@ -123,10 +127,14 @@ interface Step1SourceInputProps {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    visualMode: string;
     project: string;
     day: string;
     status: string;
     focus: string;
+    placeholderWord: string;
+    placeholderStatus: string;
+    placeholderFocus: string;
     today: string;
     blockers: string;
     next: string;
@@ -787,16 +795,20 @@ export const Step1SourceInput = ({
     imageAlt: '',
     imageTitle: '',
     imageCaption: '',
+    visualMode: 'image',
     project: '',
     day: '',
     status: '',
     focus: '',
+    placeholderWord: '',
+    placeholderStatus: '',
+    placeholderFocus: '',
     today: '',
     blockers: '',
     next: '',
   };
 
-  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date' | 'imageAlt' | 'imageTitle' | 'imageCaption' | 'project' | 'day' | 'status' | 'focus' | 'today' | 'blockers' | 'next', value: string) => {
+  const updatePostMetaField = useCallback((field: 'title' | 'subtitle' | 'imageUrl' | 'date' | 'imageAlt' | 'imageTitle' | 'imageCaption' | 'visualMode' | 'project' | 'day' | 'status' | 'focus' | 'placeholderWord' | 'placeholderStatus' | 'placeholderFocus' | 'today' | 'blockers' | 'next', value: string) => {
     onMetaChange?.({ ...(postMeta ?? EMPTY_META), [field]: value });
   }, [onMetaChange, postMeta]);
 
@@ -1742,24 +1754,47 @@ export const Step1SourceInput = ({
                   </div>
                 </div>
 
-                {(['title', 'subtitle', 'imageUrl', 'imageTitle', 'imageAlt', 'imageCaption', 'date'] as const).map((field) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div className="font-mono text-[10px] text-[#1a1a1a]">Visual Modus</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {([
+                      { value: 'image', label: 'Bild URL' },
+                      { value: 'placeholder', label: 'Placeholder' },
+                    ] as const).map((mode) => {
+                      const active = (postMeta?.visualMode ?? 'image') === mode.value;
+                      return (
+                        <button
+                          key={mode.value}
+                          type="button"
+                          onClick={() => updatePostMetaField('visualMode', mode.value)}
+                          style={{
+                            background: active ? '#1a1a1a' : 'transparent',
+                            border: '0.5px solid #3A3A3A',
+                            borderRadius: 4,
+                            color: active ? '#e4e3cb' : '#1a1a1a',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: 10,
+                            padding: '5px 8px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {mode.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {(['title', 'subtitle', 'date'] as const).map((field) => (
                   <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div className="font-mono text-[10px] text-[#1a1a1a]">
-                      {field === 'imageUrl'
-                        ? 'Bild-URL'
-                        : field === 'title'
+                      {field === 'title'
                         ? 'Titel'
                         : field === 'subtitle'
                         ? 'Untertitel'
-                        : field === 'imageTitle'
-                        ? 'Bild-Titel'
-                        : field === 'imageAlt'
-                        ? 'Bild ALT Text'
-                        : field === 'imageCaption'
-                        ? 'Bild-Caption'
                         : 'Datum'}
                     </div>
-                    {field === 'title' || field === 'subtitle' || field === 'imageCaption' ? (
+                    {field === 'title' || field === 'subtitle' ? (
                       <textarea
                         value={postMeta?.[field] ?? ''}
                         onChange={(e) => updatePostMetaField(field, e.target.value)}
@@ -1769,7 +1804,7 @@ export const Step1SourceInput = ({
                             ? 'Titel eingeben...'
                             : field === 'subtitle'
                             ? 'Untertitel eingeben...'
-                            : 'Bild-Caption eingeben...'
+                            : 'Untertitel eingeben...'
                         }
                         style={{
                           background: '#e4e3cb',
@@ -1783,53 +1818,74 @@ export const Step1SourceInput = ({
                           outline: 'none',
                           boxSizing: 'border-box',
                           resize: 'vertical',
-                          minHeight: field === 'title' ? 42 : field === 'subtitle' ? 54 : 42,
+                          minHeight: field === 'title' ? 42 : 54,
                           lineHeight: '14px',
                         }}
                       />
                     ) : (
                       <input
-                        type={field === 'date' ? 'date' : 'text'}
+                        type="date"
                         value={postMeta?.[field] ?? ''}
                         onChange={(e) => updatePostMetaField(field, e.target.value)}
-                        onBlur={field === 'imageUrl' ? (event) => {
-                          void commitMetaImageUrl(event.target.value);
-                        } : undefined}
-                        onKeyDown={field === 'imageUrl' ? (event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault();
-                            void commitMetaImageUrl((event.target as HTMLInputElement).value);
-                          }
-                        } : undefined}
-                        onDragEnter={field === 'imageUrl' ? (event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setIsMetaImageDragActive(true);
-                        } : undefined}
-                        onDragOver={field === 'imageUrl' ? (event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setIsMetaImageDragActive(true);
-                        } : undefined}
-                        onDragLeave={field === 'imageUrl' ? (event) => {
-                          const nextTarget = event.relatedTarget as Node | null;
-                          if (nextTarget && event.currentTarget.contains(nextTarget)) return;
-                          setIsMetaImageDragActive(false);
-                        } : undefined}
-                        onDrop={field === 'imageUrl' ? (event) => {
-                          void handleMetaImageDrop(event);
-                        } : undefined}
                         placeholder={
-                          field === 'imageUrl'
-                            ? 'https://...'
-                            : field === 'date'
-                            ? new Date().toISOString().slice(0, 10)
-                            : field === 'imageTitle'
-                            ? 'Titel für OG/Twitter'
-                            : field === 'imageAlt'
-                            ? 'Beschreibung für Screenreader'
-                            : ''
+                          new Date().toISOString().slice(0, 10)
                         }
+                        style={{
+                          background: '#e4e3cb',
+                          border: '0.5px solid #3A3A3A',
+                          borderRadius: 4,
+                          padding: '6px 8px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          color: '#1a1a1a',
+                          width: '100%',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    )}
+                  </div>
+                ))}
+
+                {(postMeta?.visualMode ?? 'image') === 'image' && (['imageUrl', 'imageTitle', 'imageAlt', 'imageCaption'] as const).map((field) => (
+                  <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">
+                      {field === 'imageUrl' ? 'Bild-URL' : field === 'imageTitle' ? 'Bild-Titel' : field === 'imageAlt' ? 'Bild ALT Text' : 'Bild-Caption'}
+                    </div>
+                    {field === 'imageCaption' ? (
+                      <textarea
+                        value={postMeta?.[field] ?? ''}
+                        onChange={(e) => updatePostMetaField(field, e.target.value)}
+                        rows={2}
+                        placeholder="Bild-Caption eingeben..."
+                        style={{
+                          background: '#e4e3cb',
+                          border: '0.5px solid #3A3A3A',
+                          borderRadius: 4,
+                          padding: '6px 8px',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '10px',
+                          color: '#1a1a1a',
+                          width: '100%',
+                          outline: 'none',
+                          boxSizing: 'border-box',
+                          resize: 'vertical',
+                          minHeight: 42,
+                          lineHeight: '14px',
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={postMeta?.[field] ?? ''}
+                        onChange={(e) => updatePostMetaField(field, e.target.value)}
+                        onBlur={field === 'imageUrl' ? (event) => { void commitMetaImageUrl(event.target.value); } : undefined}
+                        onKeyDown={field === 'imageUrl' ? (event) => { if (event.key === 'Enter') { event.preventDefault(); void commitMetaImageUrl((event.target as HTMLInputElement).value); } } : undefined}
+                        onDragEnter={field === 'imageUrl' ? (event) => { event.preventDefault(); event.stopPropagation(); setIsMetaImageDragActive(true); } : undefined}
+                        onDragOver={field === 'imageUrl' ? (event) => { event.preventDefault(); event.stopPropagation(); setIsMetaImageDragActive(true); } : undefined}
+                        onDragLeave={field === 'imageUrl' ? (event) => { const nextTarget = event.relatedTarget as Node | null; if (nextTarget && event.currentTarget.contains(nextTarget)) return; setIsMetaImageDragActive(false); } : undefined}
+                        onDrop={field === 'imageUrl' ? (event) => { void handleMetaImageDrop(event); } : undefined}
+                        placeholder={field === 'imageUrl' ? 'https://...' : field === 'imageTitle' ? 'Titel für OG/Twitter' : 'Beschreibung für Screenreader'}
                         style={{
                           background: field === 'imageUrl' && isMetaImageDragActive ? 'rgba(172, 142, 102, 0.08)' : '#e4e3cb',
                           border: field === 'imageUrl' && isMetaImageDragActive ? '0.5px solid #AC8E66' : '0.5px solid #3A3A3A',
@@ -1846,38 +1902,22 @@ export const Step1SourceInput = ({
                     )}
                     {field === 'imageUrl' && (
                       <>
-                        <div
-                          className="font-mono text-[9px]"
-                          style={{ color: (postMeta?.imageUrl ?? '').trim() ? '#1a1a1a' : '#1a1a1a' }}
-                        >
+                        <div className="font-mono text-[9px]" style={{ color: '#1a1a1a' }}>
                           {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
                         </div>
-                        <div
-                          className="font-mono text-[9px]"
-                          style={{ color: cloudImageUploadEnabled ? '#1a1a1a' : '#8b8b8b', lineHeight: '12px' }}
-                        >
+                        <div className="font-mono text-[9px]" style={{ color: cloudImageUploadEnabled ? '#1a1a1a' : '#8b8b8b', lineHeight: '12px' }}>
                           {cloudImageUploadEnabled
                             ? 'Drag & Drop lädt Titelbild direkt in ZenCloud und speichert die Asset-URL.'
                             : 'Drag & Drop setzt lokal Pfad/OPFS. Mit ZenCloud wird hier direkt die Asset-URL gespeichert.'}
                         </div>
                         {metaImageIsInlineData && isTauri() && (
-                          <div
-                            className="font-mono text-[9px]"
-                            style={{ color: '#d39b52', lineHeight: '13px' }}
-                          >
+                          <div className="font-mono text-[9px]" style={{ color: '#d39b52', lineHeight: '13px' }}>
                             Altes Format (base64) — wird beim nächsten Speichern automatisch in _assets/ konvertiert.
                           </div>
                         )}
                         {metaImageInvalidForServer && !isTauri() && (
-                          <div
-                            className="font-mono text-[9px]"
-                            style={{
-                              color: '#d39b52',
-                              lineHeight: '12px',
-                            }}
-                          >
-                            Hinweis: data/blob Bild-URLs werden beim Server-Export hochgeladen,
-                            wenn in ZenSettings ein Upload-Endpunkt gesetzt ist.
+                          <div className="font-mono text-[9px]" style={{ color: '#d39b52', lineHeight: '12px' }}>
+                            Hinweis: data/blob Bild-URLs werden beim Server-Export hochgeladen, wenn in ZenSettings ein Upload-Endpunkt gesetzt ist.
                           </div>
                         )}
                         {(postMeta?.imageUrl ?? '').trim() &&
@@ -1885,16 +1925,7 @@ export const Step1SourceInput = ({
                             <img
                               src={metaImageBlobUrl ?? (postMeta?.imageUrl ?? '').trim()}
                               alt="Meta Bild Vorschau"
-                              style={{
-                                width: '100%',
-                                maxHeight: '50%',
-                                objectFit: 'fill',
-                                borderRadius: 4,
-                                fontSize: '12px',
-                                
-                                border: 'none',
-                                background: '#0f0f0f',
-                              }}
+                              style={{ width: '100%', maxHeight: '50%', objectFit: 'fill', borderRadius: 4, fontSize: '12px', border: 'none', background: '#0f0f0f' }}
                             />
                           )}
                       </>
@@ -1955,6 +1986,35 @@ export const Step1SourceInput = ({
                         Wird als YAML-Liste gespeichert und in `manifest.json` als Array abgelegt.
                       </div>
                     )}
+                  </div>
+                ))}
+
+                {(postMeta?.visualMode ?? 'image') === 'placeholder' && (['placeholderWord', 'placeholderStatus', 'placeholderFocus'] as const).map((field) => (
+                  <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div className="font-mono text-[10px] text-[#1a1a1a]">
+                      {field === 'placeholderWord' ? 'Placeholder Wort' : field === 'placeholderStatus' ? 'Placeholder Status' : 'Placeholder Fokus'}
+                    </div>
+                    <textarea
+                      value={postMeta?.[field] ?? ''}
+                      onChange={(e) => updatePostMetaField(field, e.target.value)}
+                      rows={2}
+                      placeholder={field === 'placeholderWord' ? 'z.B. ZENORBIT' : field === 'placeholderStatus' ? 'z.B. In Arbeit' : 'z.B. Validierung, Metriken'}
+                      style={{
+                        background: '#e4e3cb',
+                        border: '0.5px solid #3A3A3A',
+                        borderRadius: 4,
+                        padding: '6px 8px',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '10px',
+                        color: '#1a1a1a',
+                        width: '100%',
+                        outline: 'none',
+                        boxSizing: 'border-box',
+                        resize: 'vertical',
+                        minHeight: 40,
+                        lineHeight: '14px',
+                      }}
+                    />
                   </div>
                 ))}
               </div>

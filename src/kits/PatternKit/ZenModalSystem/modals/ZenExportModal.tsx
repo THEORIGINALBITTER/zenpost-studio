@@ -87,6 +87,23 @@ const deriveExportBaseName = (documentName: string | undefined, content: string)
   return 'Export';
 };
 
+const normalizeInlineValue = (value: string): string =>
+  value.replace(/\s+/g, ' ').trim();
+
+const deriveThoughtFromContent = (markdown: string): string => {
+  const lines = markdown.replace(/\r\n/g, '\n').split('\n');
+  for (const rawLine of lines) {
+    const line = normalizeInlineValue(rawLine || '');
+    if (!line) continue;
+    if (line.startsWith('```')) continue;
+    if (/^---$/.test(line)) continue;
+    if (/^#{1,6}\s+/.test(line)) continue;
+    if (/^!\[.*\]\(.*\)$/.test(line)) continue;
+    return line.slice(0, 220);
+  }
+  return '';
+};
+
 const markdownToPlainText = (markdown: string): string => {
   return markdown
     .replace(/\r\n/g, '\n')
@@ -1640,6 +1657,16 @@ ${renderedHtml}
         const newEntry: Record<string, unknown> = { slug, title: titleText, date, tags: tags.length > 0 ? tags : [tag], readingTime };
         if (subtitle) newEntry.subtitle = subtitle;
         if (coverImageValue) newEntry.coverImage = coverImageValue;
+        const placeholderWord = (tags[0] ?? 'build').toUpperCase();
+        const placeholderStatus = 'In Arbeit';
+        const placeholderFocus = subtitle?.trim() || deriveThoughtFromContent(content) || 'Clarity';
+        const thought = deriveThoughtFromContent(content);
+        newEntry.placeholder = {
+          word: placeholderWord,
+          status: placeholderStatus,
+          focus: placeholderFocus,
+        };
+        if (thought) newEntry.thought = thought;
         const existingIdx = manifest.posts.findIndex((p) => p.slug === slug);
         if (existingIdx >= 0) manifest.posts[existingIdx] = newEntry;
         else manifest.posts.unshift(newEntry);
@@ -1759,7 +1786,17 @@ ${renderedHtml}
             '',
           ].filter((l): l is string => l !== null).join('\n');
           const phpErr = await phpBlogUpload(
-            { filename: `${slug}.md`, content: serverFrontmatter + uploadedContent, manifest },
+            {
+              filename: `${slug}.md`,
+              content: serverFrontmatter + uploadedContent,
+              manifest,
+              thought,
+              placeholder: {
+                word: placeholderWord,
+                status: placeholderStatus,
+                focus: placeholderFocus,
+              },
+            },
             phpCfg,
           );
           if (phpErr) {

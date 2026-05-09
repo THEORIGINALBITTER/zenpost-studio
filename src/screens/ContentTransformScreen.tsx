@@ -169,6 +169,9 @@ interface ContentTransformScreenProps {
     day?: string;
     status?: string;
     focus?: string;
+    placeholderWord?: string;
+    placeholderStatus?: string;
+    placeholderFocus?: string;
     today?: string;
     blockers?: string;
     next?: string;
@@ -247,10 +250,14 @@ type ContentTransformSessionCache = {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    visualMode: string;
     project: string;
     day: string;
     status: string;
     focus: string;
+    placeholderWord: string;
+    placeholderStatus: string;
+    placeholderFocus: string;
     today: string;
     blockers: string;
     next: string;
@@ -264,10 +271,14 @@ type ContentTransformSessionCache = {
     imageAlt: string;
     imageTitle: string;
     imageCaption: string;
+    visualMode: string;
     project: string;
     day: string;
     status: string;
     focus: string;
+    placeholderWord: string;
+    placeholderStatus: string;
+    placeholderFocus: string;
     today: string;
     blockers: string;
     next: string;
@@ -297,10 +308,14 @@ const EMPTY_POST_META = {
   imageAlt: '',
   imageTitle: '',
   imageCaption: '',
+  visualMode: 'image',
   project: '',
   day: '',
   status: '',
   focus: '',
+  placeholderWord: '',
+  placeholderStatus: '',
+  placeholderFocus: '',
   today: '',
   blockers: '',
   next: '',
@@ -356,11 +371,15 @@ const buildContentWithMeta = (content: string, meta: PostMeta): string => {
   if (meta.imageAlt) lines.push(`coverImageAlt: "${meta.imageAlt.replace(/"/g, '\\"')}"`);
   if (meta.imageTitle) lines.push(`coverImageTitle: "${meta.imageTitle.replace(/"/g, '\\"')}"`);
   if (meta.imageCaption) lines.push(`coverImageCaption: "${meta.imageCaption.replace(/"/g, '\\"')}"`);
+  if (meta.visualMode) lines.push(`visualMode: "${meta.visualMode}"`);
   if (meta.date) lines.push(`date: ${meta.date}`);
   if (meta.project) lines.push(`project: "${meta.project.replace(/"/g, '\\"')}"`);
   if (meta.day) lines.push(`day: "${meta.day.replace(/"/g, '\\"')}"`);
   if (meta.status) lines.push(`status: "${meta.status.replace(/"/g, '\\"')}"`);
   if (meta.focus) lines.push(`focus: "${meta.focus.replace(/"/g, '\\"')}"`);
+  if (meta.placeholderWord) lines.push(`placeholderWord: "${meta.placeholderWord.replace(/"/g, '\\"')}"`);
+  if (meta.placeholderStatus) lines.push(`placeholderStatus: "${meta.placeholderStatus.replace(/"/g, '\\"')}"`);
+  if (meta.placeholderFocus) lines.push(`placeholderFocus: "${meta.placeholderFocus.replace(/"/g, '\\"')}"`);
   if (meta.today.trim()) lines.push(`today: [${meta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
   if (meta.blockers.trim()) lines.push(`blockers: [${meta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
   if (meta.next.trim()) lines.push(`next: [${meta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]`);
@@ -396,10 +415,14 @@ const extractPostMetaFromContent = (
   const fmImageAlt = getFm('coverImageAlt') || getFm('imageAlt');
   const fmImageTitle = getFm('coverImageTitle') || getFm('imageTitle');
   const fmImageCaption = getFm('coverImageCaption') || getFm('imageCaption');
+  const fmVisualMode = getFm('visualMode');
   const fmProject = getFm('project');
   const fmDay = getFm('day');
   const fmStatus = getFm('status');
   const fmFocus = getFm('focus');
+  const fmPlaceholderWord = getFm('placeholderWord');
+  const fmPlaceholderStatus = getFm('placeholderStatus');
+  const fmPlaceholderFocus = getFm('placeholderFocus');
   const parseListField = (key: string) => {
     const raw = frontmatter.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim() ?? '';
     if (!raw) return '';
@@ -414,17 +437,21 @@ const extractPostMetaFromContent = (
     imageAlt: fmImageAlt,
     imageTitle: fmImageTitle,
     imageCaption: fmImageCaption,
+    visualMode: fmVisualMode === 'placeholder' ? 'placeholder' : 'image',
     project: fmProject,
     day: fmDay,
     status: fmStatus,
     focus: fmFocus,
+    placeholderWord: fmPlaceholderWord,
+    placeholderStatus: fmPlaceholderStatus,
+    placeholderFocus: fmPlaceholderFocus,
     today: parseListField('today'),
     blockers: parseListField('blockers'),
     next: parseListField('next'),
   };
 };
 
-const MANIFEST_EXTRA_KEYS = ['project', 'day', 'status', 'focus', 'today', 'blockers', 'next'] as const;
+const MANIFEST_EXTRA_KEYS = ['project', 'day', 'status', 'focus', 'placeholderWord', 'placeholderStatus', 'placeholderFocus', 'today', 'blockers', 'next'] as const;
 
 const parseFrontmatterInlineValue = (rawValue: string): unknown => {
   const trimmed = rawValue.trim();
@@ -491,12 +518,28 @@ const loadMetaFromManifest = async (filePath: string): Promise<Partial<PostMeta>
       imageAlt: typeof entry.coverImageAlt === 'string' && entry.coverImageAlt.trim() ? entry.coverImageAlt.trim() : undefined,
       imageTitle: typeof entry.coverImageTitle === 'string' && entry.coverImageTitle.trim() ? entry.coverImageTitle.trim() : undefined,
       imageCaption: typeof entry.coverImageCaption === 'string' && entry.coverImageCaption.trim() ? entry.coverImageCaption.trim() : undefined,
+      visualMode: typeof entry.visualMode === 'string' ? entry.visualMode : undefined,
       date: typeof entry.date === 'string' ? normalizeDateForInput(entry.date) : undefined,
       tags: Array.isArray(entry.tags) ? (entry.tags as string[]) : undefined,
       project: typeof entry.project === 'string' ? entry.project : undefined,
       day: typeof entry.day === 'string' ? entry.day : undefined,
       status: typeof entry.status === 'string' ? entry.status : undefined,
       focus: typeof entry.focus === 'string' ? entry.focus : undefined,
+      placeholderWord: typeof entry.placeholderWord === 'string'
+        ? entry.placeholderWord
+        : (typeof (entry as { placeholder?: { word?: unknown } }).placeholder?.word === 'string'
+          ? String((entry as { placeholder?: { word?: unknown } }).placeholder?.word)
+          : undefined),
+      placeholderStatus: typeof entry.placeholderStatus === 'string'
+        ? entry.placeholderStatus
+        : (typeof (entry as { placeholder?: { status?: unknown } }).placeholder?.status === 'string'
+          ? String((entry as { placeholder?: { status?: unknown } }).placeholder?.status)
+          : undefined),
+      placeholderFocus: typeof entry.placeholderFocus === 'string'
+        ? entry.placeholderFocus
+        : (typeof (entry as { placeholder?: { focus?: unknown } }).placeholder?.focus === 'string'
+          ? String((entry as { placeholder?: { focus?: unknown } }).placeholder?.focus)
+          : undefined),
       today: Array.isArray(entry.today) ? entry.today.join('\n') : undefined,
       blockers: Array.isArray(entry.blockers) ? entry.blockers.join('\n') : undefined,
       next: Array.isArray(entry.next) ? entry.next.join('\n') : undefined,
@@ -1143,10 +1186,14 @@ const normalizeIncomingPostMeta = (
     imageAlt?: string;
     imageTitle?: string;
     imageCaption?: string;
+    visualMode?: string;
     project?: string;
     day?: string;
     status?: string;
     focus?: string;
+    placeholderWord?: string;
+    placeholderStatus?: string;
+    placeholderFocus?: string;
     today?: string;
     blockers?: string;
     next?: string;
@@ -1160,10 +1207,14 @@ const normalizeIncomingPostMeta = (
   imageAlt: string;
   imageTitle: string;
   imageCaption: string;
+  visualMode: string;
   project: string;
   day: string;
   status: string;
   focus: string;
+  placeholderWord: string;
+  placeholderStatus: string;
+  placeholderFocus: string;
   today: string;
   blockers: string;
   next: string;
@@ -1176,10 +1227,14 @@ const normalizeIncomingPostMeta = (
   imageAlt: (meta?.imageAlt ?? '').trim(),
   imageTitle: (meta?.imageTitle ?? '').trim(),
   imageCaption: (meta?.imageCaption ?? '').trim(),
+  visualMode: meta?.visualMode === 'placeholder' ? 'placeholder' : 'image',
   project: (meta?.project ?? '').trim(),
   day: (meta?.day ?? '').trim(),
   status: (meta?.status ?? '').trim(),
   focus: (meta?.focus ?? '').trim(),
+  placeholderWord: (meta?.placeholderWord ?? '').trim(),
+  placeholderStatus: (meta?.placeholderStatus ?? '').trim(),
+  placeholderFocus: (meta?.placeholderFocus ?? '').trim(),
   today: (meta?.today ?? '').trim(),
   blockers: (meta?.blockers ?? '').trim(),
   next: (meta?.next ?? '').trim(),
@@ -1796,7 +1851,8 @@ export const ContentTransformScreen = ({
         const postsDir = await join(blogSaveTarget.path, 'posts');
         if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
         // If meta image is base64 or local path, extract and save as image file next to the post
-        let coverImageValue = postMeta.imageUrl.trim();
+        const prefersPlaceholderVisual = postMeta.visualMode === 'placeholder';
+        let coverImageValue = prefersPlaceholderVisual ? '' : postMeta.imageUrl.trim();
         let localCoverImagePath: string | null = null;
         if (coverImageValue && isTauri() && isLocalFilesystemImageUrl(coverImageValue)) {
           localCoverImagePath = normalizeLocalImagePath(coverImageValue);
@@ -1911,6 +1967,9 @@ export const ContentTransformScreen = ({
           postMeta.day.trim() ? `day: "${postMeta.day.trim().replace(/"/g, '\\"')}"` : null,
           postMeta.status.trim() ? `status: "${postMeta.status.trim().replace(/"/g, '\\"')}"` : null,
           postMeta.focus.trim() ? `focus: "${postMeta.focus.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.placeholderWord.trim() ? `placeholderWord: "${postMeta.placeholderWord.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.placeholderStatus.trim() ? `placeholderStatus: "${postMeta.placeholderStatus.trim().replace(/"/g, '\\"')}"` : null,
+          postMeta.placeholderFocus.trim() ? `placeholderFocus: "${postMeta.placeholderFocus.trim().replace(/"/g, '\\"')}"` : null,
           postMeta.today.trim() ? `today: [${postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
           postMeta.blockers.trim() ? `blockers: [${postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
           postMeta.next.trim() ? `next: [${postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
@@ -1960,6 +2019,19 @@ export const ContentTransformScreen = ({
         if (postMeta.day.trim()) entry.day = postMeta.day.trim();
         if (postMeta.status.trim()) entry.status = postMeta.status.trim();
         if (postMeta.focus.trim()) entry.focus = postMeta.focus.trim();
+        if (postMeta.placeholderWord.trim()) entry.placeholderWord = postMeta.placeholderWord.trim();
+        if (postMeta.placeholderStatus.trim()) entry.placeholderStatus = postMeta.placeholderStatus.trim();
+        if (postMeta.placeholderFocus.trim()) entry.placeholderFocus = postMeta.placeholderFocus.trim();
+        const effectivePlaceholderWord = postMeta.placeholderWord.trim() || postMeta.project.trim() || (postMeta.tags[0] ?? '').trim();
+        const effectivePlaceholderStatus = postMeta.placeholderStatus.trim() || postMeta.status.trim();
+        const effectivePlaceholderFocus = postMeta.placeholderFocus.trim() || postMeta.focus.trim();
+        if (effectivePlaceholderWord || effectivePlaceholderStatus || effectivePlaceholderFocus) {
+          entry.placeholder = {
+            ...(effectivePlaceholderWord ? { word: effectivePlaceholderWord.toUpperCase() } : {}),
+            ...(effectivePlaceholderStatus ? { status: effectivePlaceholderStatus } : {}),
+            ...(effectivePlaceholderFocus ? { focus: effectivePlaceholderFocus } : {}),
+          };
+        }
         if (postMeta.today.trim()) entry.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
         if (postMeta.blockers.trim()) entry.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
         if (postMeta.next.trim()) entry.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
@@ -2091,16 +2163,20 @@ export const ContentTransformScreen = ({
       // (subtitle + imageUrl are stored in postMeta state, not automatically in sourceContent)
       let contentToWrite = mergeFrontmatterFields(contentToSave, {
         subtitle: postMeta.subtitle.trim() || null,
-        coverImage: postMeta.imageUrl.trim() || null,
+        coverImage: postMeta.visualMode === 'placeholder' ? null : (postMeta.imageUrl.trim() || null),
         coverImageAlt: postMeta.imageAlt.trim() || null,
         coverImageTitle: postMeta.imageTitle.trim() || null,
         coverImageCaption: postMeta.imageCaption.trim() || null,
+        visualMode: postMeta.visualMode,
         title: postMeta.title.trim() || null,
         date: postMeta.date.trim() || null,
         project: postMeta.project.trim() || null,
         day: postMeta.day.trim() || null,
         status: postMeta.status.trim() || null,
         focus: postMeta.focus.trim() || null,
+        placeholderWord: postMeta.placeholderWord.trim() || null,
+        placeholderStatus: postMeta.placeholderStatus.trim() || null,
+        placeholderFocus: postMeta.placeholderFocus.trim() || null,
         today: postMeta.today.trim() ? `[${postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
         blockers: postMeta.blockers.trim() ? `[${postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
         next: postMeta.next.trim() ? `[${postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean).map((v) => `"${v.replace(/"/g, '\\"')}"`).join(', ')}]` : null,
@@ -2189,7 +2265,7 @@ export const ContentTransformScreen = ({
               localFileName: savedName,
             };
             if (postMeta.subtitle.trim()) entry.subtitle = postMeta.subtitle.trim();
-            const ftpImgUrl = postMeta.imageUrl.trim();
+            const ftpImgUrl = postMeta.visualMode === 'placeholder' ? '' : postMeta.imageUrl.trim();
             if (ftpImgUrl && !ftpImgUrl.startsWith('data:image/')) entry.coverImage = ftpImgUrl;
             if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
             if (postMeta.project.trim()) entry.project = postMeta.project.trim();
@@ -2264,7 +2340,7 @@ export const ContentTransformScreen = ({
             localFileName: savedName,
           };
           if (postMeta.subtitle.trim()) entry2.subtitle = postMeta.subtitle.trim();
-          const phpImgUrl = postMeta.imageUrl.trim();
+          const phpImgUrl = postMeta.visualMode === 'placeholder' ? '' : postMeta.imageUrl.trim();
           // Nur https:// URLs direkt übernehmen — lokale Pfade werden unten nach Upload ersetzt
           if (phpImgUrl && !phpImgUrl.startsWith('data:image/') && !isLocalFilesystemImageUrl(phpImgUrl)) {
             entry2.coverImage = phpImgUrl;
@@ -2274,6 +2350,19 @@ export const ContentTransformScreen = ({
           if (postMeta.day.trim()) entry2.day = postMeta.day.trim();
           if (postMeta.status.trim()) entry2.status = postMeta.status.trim();
           if (postMeta.focus.trim()) entry2.focus = postMeta.focus.trim();
+          if (postMeta.placeholderWord.trim()) entry2.placeholderWord = postMeta.placeholderWord.trim();
+          if (postMeta.placeholderStatus.trim()) entry2.placeholderStatus = postMeta.placeholderStatus.trim();
+          if (postMeta.placeholderFocus.trim()) entry2.placeholderFocus = postMeta.placeholderFocus.trim();
+          const effectivePlaceholderWord2 = postMeta.placeholderWord.trim() || postMeta.project.trim() || (postMeta.tags[0] ?? '').trim();
+          const effectivePlaceholderStatus2 = postMeta.placeholderStatus.trim() || postMeta.status.trim();
+          const effectivePlaceholderFocus2 = postMeta.placeholderFocus.trim() || postMeta.focus.trim();
+          if (effectivePlaceholderWord2 || effectivePlaceholderStatus2 || effectivePlaceholderFocus2) {
+            entry2.placeholder = {
+              ...(effectivePlaceholderWord2 ? { word: effectivePlaceholderWord2.toUpperCase() } : {}),
+              ...(effectivePlaceholderStatus2 ? { status: effectivePlaceholderStatus2 } : {}),
+              ...(effectivePlaceholderFocus2 ? { focus: effectivePlaceholderFocus2 } : {}),
+            };
+          }
           if (postMeta.today.trim()) entry2.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
           if (postMeta.blockers.trim()) entry2.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
           if (postMeta.next.trim()) entry2.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
@@ -2285,7 +2374,7 @@ export const ContentTransformScreen = ({
         const cleanFilename = `${sanitizeBlogFilename(savedName)}.md`;
         // Cover-Image hochladen → URL in manifest entry ersetzen
         const phpCfg2 = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
-        const rawImg2 = postMeta.imageUrl.trim();
+        const rawImg2 = postMeta.visualMode === 'placeholder' ? '' : postMeta.imageUrl.trim();
         if (phpManifest && rawImg2) {
           let uploadedUrl2: string | null = null;
           const slugForImg = sanitizeBlogFilename(savedName);
@@ -2696,10 +2785,14 @@ export const ContentTransformScreen = ({
         imageAlt: incomingMeta.imageAlt || extractedMeta.imageAlt,
         imageTitle: incomingMeta.imageTitle || extractedMeta.imageTitle,
         imageCaption: incomingMeta.imageCaption || extractedMeta.imageCaption,
+        visualMode: incomingMeta.visualMode || extractedMeta.visualMode || 'image',
         project: incomingMeta.project || extractedMeta.project,
         day: incomingMeta.day || extractedMeta.day,
         status: incomingMeta.status || extractedMeta.status,
         focus: incomingMeta.focus || extractedMeta.focus,
+        placeholderWord: incomingMeta.placeholderWord || extractedMeta.placeholderWord,
+        placeholderStatus: incomingMeta.placeholderStatus || extractedMeta.placeholderStatus,
+        placeholderFocus: incomingMeta.placeholderFocus || extractedMeta.placeholderFocus,
         today: incomingMeta.today || extractedMeta.today,
         blockers: incomingMeta.blockers || extractedMeta.blockers,
         next: incomingMeta.next || extractedMeta.next,
@@ -2887,10 +2980,14 @@ export const ContentTransformScreen = ({
         imageAlt: inferredMeta.imageAlt,
         imageTitle: inferredMeta.imageTitle,
         imageCaption: inferredMeta.imageCaption,
+        visualMode: inferredMeta.visualMode || 'image',
         project: inferredMeta.project,
         day: inferredMeta.day,
         status: inferredMeta.status,
         focus: inferredMeta.focus,
+        placeholderWord: inferredMeta.placeholderWord,
+        placeholderStatus: inferredMeta.placeholderStatus,
+        placeholderFocus: inferredMeta.placeholderFocus,
         today: inferredMeta.today,
         blockers: inferredMeta.blockers,
         next: inferredMeta.next,
@@ -2941,10 +3038,14 @@ export const ContentTransformScreen = ({
           imageAlt: manifestMeta2?.imageAlt || extractedMeta2.imageAlt,
           imageTitle: manifestMeta2?.imageTitle || extractedMeta2.imageTitle,
           imageCaption: manifestMeta2?.imageCaption || extractedMeta2.imageCaption,
+          visualMode: manifestMeta2?.visualMode || extractedMeta2.visualMode || 'image',
           project: manifestMeta2?.project || extractedMeta2.project,
           day: manifestMeta2?.day || extractedMeta2.day,
           status: manifestMeta2?.status || extractedMeta2.status,
           focus: manifestMeta2?.focus || extractedMeta2.focus,
+          placeholderWord: manifestMeta2?.placeholderWord || extractedMeta2.placeholderWord,
+          placeholderStatus: manifestMeta2?.placeholderStatus || extractedMeta2.placeholderStatus,
+          placeholderFocus: manifestMeta2?.placeholderFocus || extractedMeta2.placeholderFocus,
           today: manifestMeta2?.today || extractedMeta2.today,
           blockers: manifestMeta2?.blockers || extractedMeta2.blockers,
           next: manifestMeta2?.next || extractedMeta2.next,
@@ -2986,10 +3087,14 @@ export const ContentTransformScreen = ({
           imageAlt: manifestMeta?.imageAlt || extractedMeta.imageAlt,
           imageTitle: manifestMeta?.imageTitle || extractedMeta.imageTitle,
           imageCaption: manifestMeta?.imageCaption || extractedMeta.imageCaption,
+          visualMode: manifestMeta?.visualMode || extractedMeta.visualMode || 'image',
           project: manifestMeta?.project || extractedMeta.project,
           day: manifestMeta?.day || extractedMeta.day,
           status: manifestMeta?.status || extractedMeta.status,
           focus: manifestMeta?.focus || extractedMeta.focus,
+          placeholderWord: manifestMeta?.placeholderWord || extractedMeta.placeholderWord,
+          placeholderStatus: manifestMeta?.placeholderStatus || extractedMeta.placeholderStatus,
+          placeholderFocus: manifestMeta?.placeholderFocus || extractedMeta.placeholderFocus,
           today: manifestMeta?.today || extractedMeta.today,
           blockers: manifestMeta?.blockers || extractedMeta.blockers,
           next: manifestMeta?.next || extractedMeta.next,

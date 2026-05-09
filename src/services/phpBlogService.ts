@@ -13,6 +13,12 @@ export interface PhpBlogUploadPayload {
   filename: string;           // e.g. 2026-03-16-my-post.md
   content: string;            // full markdown content with frontmatter
   manifest?: unknown;         // updated manifest.json content (optional)
+  thought?: string;           // optional thought summary for external app flows
+  placeholder?: {
+    word?: string;
+    status?: string;
+    focus?: string;
+  };
 }
 
 /**
@@ -201,6 +207,11 @@ if (!is_array($body)) {
     echo json_encode(['error' => 'Invalid JSON body']);
     exit;
 }
+
+// Optional fields for future integrations (currently informational):
+// - thought: short thought/intent string from external apps
+// - placeholder: { word, status, focus } visual placeholder hints
+// They are accepted and can be stored inside manifest entries by the client.
 
 // ── Image Upload ─────────────────────────────────────────────────────────────
 if (isset($body['imageData'])) {
