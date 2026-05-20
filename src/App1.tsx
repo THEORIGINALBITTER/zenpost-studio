@@ -510,6 +510,8 @@ function AppContent() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    const mobileRedirectUrl = "https://zenpostpocket.denisbitter.de";
+    const desktopOverride = new URLSearchParams(window.location.search).get("desktop") === "1";
     const media = window.matchMedia("(max-width: 900px)");
     const isIpad = () =>
       /iPad/.test(navigator.userAgent) ||
@@ -531,6 +533,14 @@ function AppContent() {
     const update = () => {
       const shouldBlock =
         !isTauri() && !isIpad() && (media.matches || isMobileLikeDevice());
+      if (shouldBlock && !desktopOverride) {
+        const currentHost = window.location.hostname;
+        const targetHost = new URL(mobileRedirectUrl).hostname;
+        if (currentHost !== targetHost) {
+          window.location.replace(mobileRedirectUrl);
+          return;
+        }
+      }
       setIsMobileBlocked(shouldBlock);
     };
 
@@ -2496,7 +2506,7 @@ function AppContent() {
               Eine Mobil App entsteht gerade —<br />
               noch nicht für Mobile verfügbar.<br />
               <br />
-              <span style={{ color: "#AC8E66" }}>Jetzt testen:</span> Web Desktop<br />
+              <span style={{ color: "#AC8E66" }}>BETA:</span> Web Desktop<br />
               oder Desktop App (Mac / Windows / Linux).<br />
               <br />
               Die Geschichte dahinter...<br />
