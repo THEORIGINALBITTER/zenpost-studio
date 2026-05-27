@@ -6,7 +6,9 @@ It integrates OpenAI, Anthropic, and Ollama through a provider-agnostic abstract
 ZenPost Studio is not a writing assistant. It is a modular content architecture designed for long-term clarity, maintainability, and technical ownership.
 
 ---
-<img width="1200" height="630" alt="github-preview-1200x630_2" src="https://github.com/user-attachments/assets/141111cd-c00c-4acc-bd06-6ec237c6c939" />
+
+
+<img width="1180" height="646" alt="og_zenpost-stduio" src="https://github.com/user-attachments/assets/f3d8b6fb-f173-4e75-950c-d38cb4bed881" />
 
 
 
