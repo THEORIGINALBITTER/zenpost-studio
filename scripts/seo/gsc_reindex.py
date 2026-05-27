@@ -3,15 +3,12 @@
 Google Search Console — URL Re-Indexer
 Liest URLs aus sitemap.xml und meldet sie via Google Indexing API neu an.
 
-Setup (einmalig):
-  1. Google Cloud Console → Projekt öffnen
-  2. APIs & Services → "Indexing API" aktivieren
-  3. Credentials → OAuth 2.0 Client-ID → Typ: "Desktop App" → credentials.json herunterladen
-  4. pip install -r requirements.txt
-  5. python gsc_reindex.py --site https://zenpost.denisbitter.de
+Lokal (OAuth Desktop App):
+  python gsc_reindex.py --site https://zenpost.denisbitter.de
 
-Beim ersten Start öffnet sich der Browser für die OAuth-Bestätigung.
-Danach wird token.json gecacht — kein erneutes Login nötig.
+CI/GitHub Actions (Service Account):
+  export GOOGLE_SA_JSON='{"type":"service_account",...}'
+  python gsc_reindex.py --site https://zenpost.denisbitter.de
 
 Quota: 200 URLs/Tag (Google Limit)
 """
@@ -28,6 +25,7 @@ from pathlib import Path
 try:
     import requests
     from google.oauth2.credentials import Credentials
+    from google.oauth2 import service_account
     from google_auth_oauthlib.flow import InstalledAppFlow
     from google.auth.transport.requests import Request as GoogleRequest
 except ImportError:
@@ -49,6 +47,20 @@ SITES = [
 
 
 # ── Auth ───────────────────────────────────────────────────────
+def get_sa_credentials() -> service_account.Credentials | None:
+    """Service Account aus GOOGLE_SA_JSON Env-Var (für CI/GitHub Actions)."""
+    sa_json = os.environ.get('GOOGLE_SA_JSON')
+    if not sa_json:
+        return None
+    try:
+        sa_info = json.loads(sa_json)
+        return service_account.Credentials.from_service_account_info(
+            sa_info, scopes=SCOPES)
+    except Exception as e:
+        print(f"FEHLER beim Laden des Service Accounts: {e}")
+        sys.exit(1)
+
+
 def get_credentials(credentials_file: str, token_file: str) -> Credentials:
     creds = None
 
@@ -192,8 +204,12 @@ def main():
     print(f"  Sites: {len(target_sites)}")
     print(f"{'═'*54}")
 
-    # Einmalig Auth — gilt für alle Sites
-    creds = get_credentials(args.credentials, args.token)
+    # Auth: Service Account (CI) hat Vorrang vor OAuth (lokal)
+    creds = get_sa_credentials() or get_credentials(args.credentials, args.token)
+    if isinstance(creds, service_account.Credentials):
+        print("  Auth: Service Account (CI-Modus)")
+    else:
+        print("  Auth: OAuth Desktop App (lokal)")
 
     all_results = []
     for site in target_sites:
