@@ -1,0 +1,101 @@
+name: Build macOS PKG Installer
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release Tag (z.B. v1.0.8)"
+        required: true
+
+jobs:
+  build-pkg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Setup Rust (universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri App (universal, kein Bundle-Upload)
+        run: npm run tauri build -- --target universal-apple-darwin --bundles app
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Locate built .app
+        id: app
+        run: |
+          APP="src-tauri/target/universal-apple-darwin/release/bundle/macos/ZenPost Studio.app"
+          if [ ! -d "$APP" ]; then
+            APP="src-tauri/target/release/bundle/macos/ZenPost Studio.app"
+          fi
+          echo "path=$APP" >> "$GITHUB_OUTPUT"
+          echo "Gefunden: $APP"
+
+      - name: Read version from tauri.conf.json
+        id: version
+        run: |
+          VERSION=$(grep '"version"' src-tauri/tauri.conf.json | head -1 \
+            | sed 's/.*"version": *"\([^"]*\)".*/\1/')
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version: $VERSION"
+
+      - name: Build .pkg Installer
+        run: |
+          APP_PATH="${{ steps.app.outputs.path }}"
+          VERSION="${{ steps.version.outputs.value }}"
+          PKG_NAME="ZenPost_Studio_${VERSION}_Installer.pkg"
+
+          PAYLOAD_DIR=".pkg_build/payload/Applications"
+          SCRIPTS_DIR=".pkg_build/scripts"
+          mkdir -p "$PAYLOAD_DIR" "$SCRIPTS_DIR"
+
+          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
+
+          cat > "$SCRIPTS_DIR/postinstall" << 'SCRIPT'
+#!/bin/bash
+APP="/Applications/ZenPost Studio.app"
+if [ -d "$APP" ]; then
+  xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
+  xattr -dr com.apple.metadata:kMDItemWhereFroms "$APP" 2>/dev/null || true
+fi
+exit 0
+SCRIPT
+          chmod +x "$SCRIPTS_DIR/postinstall"
+
+          pkgbuild \
+            --root ".pkg_build/payload" \
+            --scripts "$SCRIPTS_DIR" \
+            --identifier "de.denisbitter.zenpoststudio" \
+            --version "$VERSION" \
+            --install-location "/" \
+            "$PKG_NAME"
+
+          rm -rf .pkg_build
+          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
+          echo "Installer gebaut: $PKG_NAME ($(du -sh "$PKG_NAME" | cut -f1))"
+
+      - name: Upload .pkg to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          gh release upload "$TAG" "$PKG_NAME" --clobber
+          echo "Hochgeladen: $PKG_NAME → Release $TAG"

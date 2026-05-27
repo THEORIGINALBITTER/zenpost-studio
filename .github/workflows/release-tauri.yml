@@ -143,3 +143,4 @@ jobs:
             Details: https://github.com/THEORIGINALBITTER/zenpost-studio/blob/main/docs/INSTALL_MACOS.md
           prerelease: false
           args: ${{ matrix.tauri_args }}
+
