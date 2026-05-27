@@ -80,10 +80,10 @@ ZenPost Studio is built as a modular studio system:
 ```
 ZenPost Studio
 │
-├── Converter Studio
 ├── Content AI Studio
+├── Converter Studio
 ├── Content Planner
-└── Doc Studio
+
 ```
 
 Each studio solves a distinct domain problem —  
