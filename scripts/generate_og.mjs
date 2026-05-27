@@ -16,7 +16,8 @@ const server = createServer((_, res) => {
 await new Promise((r) => server.listen(7438, r));
 
 const browser = await chromium.launch();
-const page = await browser.newPage();
+// deviceScaleFactor: 2 → rendert als 2400×1260px PNG (kein Pixeln auf Retina/LinkedIn)
+const page = await browser.newContext({ deviceScaleFactor: 2 }).then(ctx => ctx.newPage());
 await page.setViewportSize({ width: 1200, height: 630 });
 await page.goto('http://localhost:7438');
 await page.waitForLoadState('networkidle');
