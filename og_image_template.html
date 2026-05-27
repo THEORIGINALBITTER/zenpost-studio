@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=1200">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
@@ -18,15 +19,13 @@
     position: relative;
   }
 
-  /* Warm glow top-right */
+  /* Warm top-right glow */
   body::before {
     content: '';
     position: absolute;
-    top: -100px;
-    right: -60px;
-    width: 480px;
-    height: 480px;
-    background: radial-gradient(circle, rgba(172,142,102,0.08) 0%, transparent 70%);
+    top: -140px; right: -100px;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, rgba(172,142,102,0.09) 0%, transparent 65%);
     pointer-events: none;
     z-index: 0;
   }
@@ -35,76 +34,74 @@
   body::after {
     content: '';
     position: absolute;
-    bottom: -80px;
-    left: -40px;
-    width: 360px;
-    height: 360px;
-    background: radial-gradient(circle, rgba(172,142,102,0.04) 0%, transparent 70%);
+    bottom: -100px; left: -80px;
+    width: 420px; height: 420px;
+    background: radial-gradient(circle, rgba(172,142,102,0.05) 0%, transparent 65%);
     pointer-events: none;
     z-index: 0;
   }
 
-  /* ── Left panel ─────────────────────────────────────────────── */
+  /* ── Left panel ────────────────────────────────────────────── */
   .left {
     position: relative;
     z-index: 1;
-    width: 520px;
-    padding: 56px 60px;
+    width: 510px;
+    padding: 52px 56px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     flex-shrink: 0;
   }
 
-  .label {
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 10.5px;
-    font-weight: 500;
-    letter-spacing: 0.22em;
-    color: #6b6558;
-    text-transform: uppercase;
-    margin-bottom: 18px;
-  }
-
   .zen-mark {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     color: #AC8E66;
-    letter-spacing: 0.06em;
-    margin-bottom: 12px;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+
+  .label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.22em;
+    color: #5a5248;
+    text-transform: uppercase;
+    margin-bottom: 20px;
   }
 
   .headline {
-    font-size: 64px;
+    font-size: 76px;
     font-weight: 900;
-    line-height: 1.0;
+    line-height: 0.95;
     letter-spacing: -0.04em;
-    color: #e8e3d7;
+    color: #ede8e0;
   }
 
   .headline .accent {
-    color: #d0cbb8;
     display: block;
-    font-weight: 800;
-    font-size: 50px;
-    letter-spacing: -0.03em;
-    margin-top: 4px;
+    font-weight: 900;
+    font-size: 76px;
+    letter-spacing: -0.04em;
+    color: #6b5e48;
+    margin-top: 2px;
   }
 
   .tagline {
-    margin-top: 20px;
-    font-size: 14px;
+    margin-top: 22px;
+    font-size: 13.5px;
     font-weight: 400;
-    color: #4e4840;
+    color: #4a4540;
     line-height: 1.65;
-    max-width: 340px;
+    max-width: 330px;
   }
 
   .features {
     display: flex;
     flex-direction: column;
-    gap: 7px;
+    gap: 6px;
   }
 
   .pill {
@@ -112,10 +109,10 @@
     align-items: center;
     gap: 8px;
     width: fit-content;
-    background: rgba(255,255,255,0.03);
-    border: 1px solid rgba(172,142,102,0.12);
+    background: rgba(172,142,102,0.06);
+    border: 1px solid rgba(172,142,102,0.14);
     border-radius: 999px;
-    padding: 5px 13px 5px 9px;
+    padding: 5px 14px 5px 10px;
   }
 
   .pill-dot {
@@ -127,31 +124,37 @@
 
   .pill-text {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 11.5px;
+    font-size: 11px;
     font-weight: 500;
-    color: #8a8070;
+    color: #7a7060;
     letter-spacing: 0.02em;
   }
 
   .url {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 11px;
-    color: #3e3830;
-    letter-spacing: 0.06em;
+    font-size: 10.5px;
+    color: #3a3428;
+    letter-spacing: 0.08em;
   }
 
-  /* ── Divider ────────────────────────────────────────────────── */
+  /* ── Divider ───────────────────────────────────────────────── */
   .divider {
     position: absolute;
-    left: 520px;
-    top: 48px;
-    bottom: 48px;
+    left: 510px;
+    top: 44px;
+    bottom: 44px;
     width: 1px;
-    background: linear-gradient(to bottom, transparent, rgba(172,142,102,0.12) 30%, rgba(172,142,102,0.12) 70%, transparent);
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(172,142,102,0.14) 25%,
+      rgba(172,142,102,0.14) 75%,
+      transparent 100%
+    );
     z-index: 1;
   }
 
-  /* ── Right panel ────────────────────────────────────────────── */
+  /* ── Right panel ───────────────────────────────────────────── */
   .right {
     position: relative;
     z-index: 1;
@@ -162,9 +165,8 @@
   }
 
   .transform-svg {
-    width: 560px;
-    height: 560px;
-    overflow: visible;
+    width: 100%;
+    height: 100%;
   }
 </style>
 </head>
@@ -178,7 +180,7 @@
       <p class="zen-mark">禅 ZenPost Studio</p>
       <p class="label">Denis Bitter · Content AI Studio</p>
       <h1 class="headline">
-        Einmal.
+        Einmal.<br>
         <span class="accent">Überall.</span>
       </h1>
       <p class="tagline">Schreibe einmal — transformiere in plattformspezifische Formate für LinkedIn, Blog, Reddit, Newsletter und mehr.</p>
@@ -204,216 +206,186 @@
 
   <!-- RIGHT: Document Transformation Visual -->
   <div class="right">
-    <svg class="transform-svg" viewBox="-280 -280 560 560" xmlns="http://www.w3.org/2000/svg">
+    <svg class="transform-svg" viewBox="0 0 690 630" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
-          <feMerge>
-            <feMergeNode in="blur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
+          <feGaussianBlur in="SourceGraphic" stdDeviation="3.5" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
-        <filter id="center-glow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur"/>
-          <feMerge>
-            <feMergeNode in="blur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
+        <filter id="center-glow" x="-120%" y="-120%" width="340%" height="340%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
-        <filter id="soft-glow" x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
-          <feMerge>
-            <feMergeNode in="blur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
+        <filter id="soft-glow" x="-70%" y="-70%" width="240%" height="240%">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
+        <radialGradient id="bgGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="rgba(172,142,102,0.07)"/>
+          <stop offset="100%" stop-color="rgba(172,142,102,0)"/>
+        </radialGradient>
       </defs>
 
-      <!-- ── Orbit rings ─────────────────────────────────────── -->
-      <circle cx="0" cy="0" r="80"
-        fill="none"
-        stroke="rgba(172,142,102,0.12)"
-        stroke-width="1"/>
+      <!-- Center anchor: 345, 315 -->
 
-      <circle cx="0" cy="0" r="155"
-        fill="none"
-        stroke="rgba(172,142,102,0.07)"
-        stroke-width="1"
-        stroke-dasharray="4 8"/>
+      <!-- Background glow circle -->
+      <circle cx="345" cy="315" r="200" fill="url(#bgGlow)"/>
 
-      <circle cx="0" cy="0" r="230"
-        fill="none"
-        stroke="rgba(172,142,102,0.04)"
-        stroke-width="1"
-        stroke-dasharray="2 12"/>
+      <!-- ── Orbit rings ──────────────────────────────────────── -->
+      <circle cx="345" cy="315" r="92"
+        fill="none" stroke="rgba(172,142,102,0.14)" stroke-width="1"/>
+      <circle cx="345" cy="315" r="178"
+        fill="none" stroke="rgba(172,142,102,0.08)" stroke-width="1"
+        stroke-dasharray="5 9"/>
+      <circle cx="345" cy="315" r="262"
+        fill="none" stroke="rgba(172,142,102,0.04)" stroke-width="1"
+        stroke-dasharray="2 14"/>
 
-      <!-- ── Center: Document icon ───────────────────────────── -->
-      <circle cx="0" cy="0" r="40"
-        fill="rgba(172,142,102,0.06)"
-        filter="url(#center-glow)"/>
+      <!-- ── Connector lines (center → ring-1) ──────────────── -->
+      <!-- top 270° -->
+      <line x1="345" y1="269" x2="345" y2="225" stroke="rgba(172,142,102,0.2)" stroke-width="0.75"/>
+      <!-- top-right 315° -->
+      <line x1="410" y1="250" x2="451" y2="210" stroke="rgba(172,142,102,0.1)" stroke-width="0.75"/>
+      <!-- right 0° -->
+      <line x1="437" y1="315" x2="521" y2="315" stroke="rgba(172,142,102,0.1)" stroke-width="0.75"/>
+      <!-- bottom-right 45° -->
+      <line x1="410" y1="380" x2="451" y2="420" stroke="rgba(172,142,102,0.1)" stroke-width="0.75"/>
+      <!-- bottom 90° -->
+      <line x1="345" y1="407" x2="345" y2="491" stroke="rgba(172,142,102,0.1)" stroke-width="0.75"/>
+      <!-- left 180° -->
+      <line x1="253" y1="315" x2="169" y2="315" stroke="rgba(172,142,102,0.1)" stroke-width="0.75"/>
 
-      <!-- Document body -->
-      <rect x="-18" y="-23" width="36" height="46" rx="4"
-        fill="#1a1814"
-        stroke="rgba(172,142,102,0.35)"
-        stroke-width="1.5"/>
+      <!-- ── Center document icon ────────────────────────────── -->
+      <circle cx="345" cy="315" r="46"
+        fill="rgba(172,142,102,0.07)" filter="url(#center-glow)"/>
+      <circle cx="345" cy="315" r="46"
+        fill="#141210" stroke="rgba(172,142,102,0.28)" stroke-width="1.5"/>
+
+      <!-- Doc body -->
+      <rect x="326" y="292" width="38" height="46" rx="4"
+        fill="#1c1915" stroke="rgba(172,142,102,0.4)" stroke-width="1.5"/>
       <!-- Folded corner -->
-      <polygon points="-18,-23 -18,-13 -8,-23"
-        fill="#0e0d0b"
-        stroke="rgba(172,142,102,0.2)"
-        stroke-width="0.5"/>
-      <!-- Document lines -->
-      <line x1="-10" y1="-7" x2="12" y2="-7" stroke="rgba(172,142,102,0.5)" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="-10" y1="1" x2="12" y2="1" stroke="rgba(172,142,102,0.35)" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="-10" y1="9" x2="7" y2="9" stroke="rgba(172,142,102,0.25)" stroke-width="1.5" stroke-linecap="round"/>
-      <line x1="-10" y1="17" x2="10" y2="17" stroke="rgba(172,142,102,0.2)" stroke-width="1.5" stroke-linecap="round"/>
+      <polygon points="326,292 326,302 336,292"
+        fill="#0e0d0b" stroke="rgba(172,142,102,0.22)" stroke-width="0.75"/>
+      <!-- Doc lines -->
+      <line x1="334" y1="307" x2="356" y2="307" stroke="rgba(172,142,102,0.6)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="334" y1="315" x2="356" y2="315" stroke="rgba(172,142,102,0.4)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="334" y1="323" x2="350" y2="323" stroke="rgba(172,142,102,0.28)" stroke-width="1.5" stroke-linecap="round"/>
+      <line x1="334" y1="331" x2="353" y2="331" stroke="rgba(172,142,102,0.2)" stroke-width="1.5" stroke-linecap="round"/>
 
-      <!-- ── Connector lines (center → ring-1 nodes) ──────────── -->
-      <!-- top -->
-      <line x1="0" y1="-40" x2="0" y2="-71" stroke="rgba(172,142,102,0.18)" stroke-width="0.5"/>
-      <!-- top-right -->
-      <line x1="28" y1="-28" x2="56" y2="-56" stroke="rgba(172,142,102,0.10)" stroke-width="0.5"/>
-      <!-- right -->
-      <line x1="40" y1="0" x2="71" y2="0" stroke="rgba(172,142,102,0.10)" stroke-width="0.5"/>
-      <!-- bottom-right -->
-      <line x1="28" y1="28" x2="56" y2="56" stroke="rgba(172,142,102,0.10)" stroke-width="0.5"/>
-      <!-- bottom -->
-      <line x1="0" y1="40" x2="0" y2="71" stroke="rgba(172,142,102,0.10)" stroke-width="0.5"/>
-      <!-- left -->
-      <line x1="-40" y1="0" x2="-71" y2="0" stroke="rgba(172,142,102,0.10)" stroke-width="0.5"/>
+      <!-- ── Ring 1 nodes (r=92) — 6 platforms ──────────────── -->
 
-      <!-- ── Ring 1 nodes (r=80) — 6 platforms ─────────────────── -->
-
-      <!-- Top (270°) → LinkedIn — highlighted -->
-      <g transform="translate(0, -80)" filter="url(#glow)">
-        <circle cx="0" cy="0" r="10" fill="#1a1814" stroke="#7b9cd4" stroke-width="1.5"/>
-        <circle cx="0" cy="0" r="4.5" fill="#7b9cd4"/>
-        <text x="0" y="-18"
-          text-anchor="middle"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9.5"
-          font-weight="600"
-          fill="#7b9cd4"
-          letter-spacing="0.08em">LinkedIn</text>
+      <!-- Top 270° → (345, 223) — LinkedIn highlighted -->
+      <g transform="translate(345, 223)" filter="url(#glow)">
+        <circle cx="0" cy="0" r="13" fill="#141210" stroke="#7b9cd4" stroke-width="1.75"/>
+        <circle cx="0" cy="0" r="5.5" fill="#7b9cd4"/>
+        <text x="0" y="-21"
+          text-anchor="middle" dominant-baseline="auto"
+          font-family="IBM Plex Mono, monospace" font-size="10.5"
+          font-weight="600" fill="#7b9cd4" letter-spacing="0.08em">LinkedIn</text>
       </g>
 
-      <!-- Top-right (315°) → (56.6, -56.6) -->
-      <g transform="translate(56.6, -56.6)">
-        <circle cx="0" cy="0" r="8" fill="#1a1814" stroke="rgba(172,142,102,0.35)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="3.5" fill="rgba(172,142,102,0.5)"/>
-        <text x="18" y="-10"
+      <!-- Top-right 315° → (410, 250) — Blog -->
+      <g transform="translate(410, 250)">
+        <circle cx="0" cy="0" r="10" fill="#141210" stroke="rgba(172,142,102,0.38)" stroke-width="1.25"/>
+        <circle cx="0" cy="0" r="4" fill="rgba(172,142,102,0.55)"/>
+        <text x="18" y="-12"
           text-anchor="start"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9"
-          fill="#6b5e4a"
-          letter-spacing="0.06em">Blog</text>
+          font-family="IBM Plex Mono, monospace" font-size="9.5"
+          fill="#6b5c44" letter-spacing="0.06em">Blog</text>
       </g>
 
-      <!-- Right (0°) → (80, 0) -->
-      <g transform="translate(80, 0)">
-        <circle cx="0" cy="0" r="8" fill="#1a1814" stroke="rgba(172,142,102,0.3)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="3.5" fill="rgba(172,142,102,0.45)"/>
+      <!-- Right 0° → (437, 315) — Twitter/X -->
+      <g transform="translate(437, 315)">
+        <circle cx="0" cy="0" r="10" fill="#141210" stroke="rgba(172,142,102,0.32)" stroke-width="1.25"/>
+        <circle cx="0" cy="0" r="4" fill="rgba(172,142,102,0.48)"/>
         <text x="20" y="4"
           text-anchor="start"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9"
-          fill="#6b5e4a"
-          letter-spacing="0.06em">Twitter/X</text>
+          font-family="IBM Plex Mono, monospace" font-size="9.5"
+          fill="#6b5c44" letter-spacing="0.06em">Twitter / X</text>
       </g>
 
-      <!-- Bottom-right (45°) → (56.6, 56.6) — highlighted green -->
-      <g transform="translate(56.6, 56.6)" filter="url(#soft-glow)">
-        <circle cx="0" cy="0" r="9" fill="#1a1814" stroke="#88b882" stroke-width="1.5"/>
-        <circle cx="0" cy="0" r="4" fill="#88b882"/>
-        <text x="18" y="14"
+      <!-- Bottom-right 45° → (410, 380) — Reddit highlighted green -->
+      <g transform="translate(410, 380)" filter="url(#soft-glow)">
+        <circle cx="0" cy="0" r="11" fill="#141210" stroke="#88b882" stroke-width="1.5"/>
+        <circle cx="0" cy="0" r="4.5" fill="#88b882"/>
+        <text x="18" y="16"
           text-anchor="start"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9"
-          font-weight="600"
-          fill="#88b882"
-          letter-spacing="0.06em">Reddit</text>
+          font-family="IBM Plex Mono, monospace" font-size="9.5"
+          font-weight="600" fill="#88b882" letter-spacing="0.06em">Reddit</text>
       </g>
 
-      <!-- Bottom (90°) → (0, 80) -->
-      <g transform="translate(0, 80)">
-        <circle cx="0" cy="0" r="8" fill="#1a1814" stroke="rgba(172,142,102,0.3)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="3.5" fill="rgba(172,142,102,0.45)"/>
-        <text x="0" y="20"
+      <!-- Bottom 90° → (345, 407) — Newsletter -->
+      <g transform="translate(345, 407)">
+        <circle cx="0" cy="0" r="10" fill="#141210" stroke="rgba(172,142,102,0.32)" stroke-width="1.25"/>
+        <circle cx="0" cy="0" r="4" fill="rgba(172,142,102,0.48)"/>
+        <text x="0" y="22"
           text-anchor="middle"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9"
-          fill="#6b5e4a"
-          letter-spacing="0.06em">Newsletter</text>
+          font-family="IBM Plex Mono, monospace" font-size="9.5"
+          fill="#6b5c44" letter-spacing="0.06em">Newsletter</text>
       </g>
 
-      <!-- Left (180°) → (-80, 0) -->
-      <g transform="translate(-80, 0)">
-        <circle cx="0" cy="0" r="8" fill="#1a1814" stroke="rgba(172,142,102,0.3)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="3.5" fill="rgba(172,142,102,0.45)"/>
+      <!-- Left 180° → (253, 315) — Instagram -->
+      <g transform="translate(253, 315)">
+        <circle cx="0" cy="0" r="10" fill="#141210" stroke="rgba(172,142,102,0.32)" stroke-width="1.25"/>
+        <circle cx="0" cy="0" r="4" fill="rgba(172,142,102,0.48)"/>
         <text x="-20" y="4"
           text-anchor="end"
-          font-family="IBM Plex Mono, monospace"
-          font-size="9"
-          fill="#6b5e4a"
-          letter-spacing="0.06em">Instagram</text>
+          font-family="IBM Plex Mono, monospace" font-size="9.5"
+          fill="#6b5c44" letter-spacing="0.06em">Instagram</text>
       </g>
 
-      <!-- ── Ring 2 nodes (r=155) ─── sparse ────────────────── -->
+      <!-- ── Ring 2 nodes (r=178) — sparse ──────────────────── -->
 
-      <!-- 330° → (134.2, -77.5) — KI -->
-      <g transform="translate(134.2, -77.5)" filter="url(#soft-glow)">
-        <circle cx="0" cy="0" r="7" fill="#1a1814" stroke="rgba(172,142,102,0.28)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="3" fill="rgba(172,142,102,0.4)"/>
+      <!-- 330° → (345+154, 315-89) = (499, 226) — KI Studio -->
+      <g transform="translate(499, 226)" filter="url(#soft-glow)">
+        <circle cx="0" cy="0" r="8" fill="#141210" stroke="rgba(172,142,102,0.3)" stroke-width="1.25"/>
+        <circle cx="0" cy="0" r="3.5" fill="rgba(172,142,102,0.45)"/>
         <text x="18" y="4"
           text-anchor="start"
-          font-family="IBM Plex Mono, monospace"
-          font-size="8.5"
-          fill="#5a4e3c"
-          letter-spacing="0.06em">KI Studio</text>
+          font-family="IBM Plex Mono, monospace" font-size="8.5"
+          fill="#5a4e3c" letter-spacing="0.06em">KI Studio</text>
       </g>
 
-      <!-- 210° → (-134.2, 77.5) -->
-      <g transform="translate(-134.2, 77.5)">
-        <circle cx="0" cy="0" r="6" fill="#1a1814" stroke="rgba(172,142,102,0.18)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="2.5" fill="rgba(172,142,102,0.3)"/>
-        <text x="-18" y="16"
-          text-anchor="middle"
-          font-family="IBM Plex Mono, monospace"
-          font-size="8"
-          fill="#3e3428"
-          letter-spacing="0.06em">ZenCloud</text>
-      </g>
-
-      <!-- 90° → (0, 155) -->
-      <g transform="translate(0, 155)">
-        <circle cx="0" cy="0" r="5.5" fill="rgba(136,184,130,0.08)" stroke="rgba(136,184,130,0.22)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="2" fill="rgba(136,184,130,0.45)"/>
+      <!-- 210° → (345-154, 315+89) = (191, 404) — ZenCloud -->
+      <g transform="translate(191, 404)">
+        <circle cx="0" cy="0" r="7" fill="#141210" stroke="rgba(172,142,102,0.2)" stroke-width="1"/>
+        <circle cx="0" cy="0" r="3" fill="rgba(172,142,102,0.32)"/>
         <text x="0" y="18"
           text-anchor="middle"
-          font-family="IBM Plex Mono, monospace"
-          font-size="7.5"
-          fill="#3e5e3a"
-          letter-spacing="0.06em">Planer</text>
+          font-family="IBM Plex Mono, monospace" font-size="8"
+          fill="#3e3428" letter-spacing="0.06em">ZenCloud</text>
       </g>
 
-      <!-- 270° → (0, -155) -->
-      <g transform="translate(0, -155)">
-        <circle cx="0" cy="0" r="5" fill="rgba(123,156,212,0.08)" stroke="rgba(123,156,212,0.2)" stroke-width="1"/>
-        <circle cx="0" cy="0" r="2" fill="rgba(123,156,212,0.4)"/>
-        <text x="0" y="-15"
+      <!-- 90° → (345, 315+178) = (345, 493) — Planer -->
+      <g transform="translate(345, 493)">
+        <circle cx="0" cy="0" r="6.5" fill="rgba(136,184,130,0.08)" stroke="rgba(136,184,130,0.24)" stroke-width="1"/>
+        <circle cx="0" cy="0" r="2.5" fill="rgba(136,184,130,0.5)"/>
+        <text x="0" y="18"
           text-anchor="middle"
-          font-family="IBM Plex Mono, monospace"
-          font-size="7.5"
-          fill="#3a4e6a"
-          letter-spacing="0.06em">ZenImage</text>
+          font-family="IBM Plex Mono, monospace" font-size="8"
+          fill="#3e5e3a" letter-spacing="0.06em">Planer</text>
       </g>
 
-      <!-- ── Active arc (LinkedIn area) ─────────────────────── -->
-      <path d="M 0 -80 A 80 80 0 0 1 56.6 -56.6"
-        fill="none"
-        stroke="rgba(123,156,212,0.22)"
-        stroke-width="1.5"
-        stroke-linecap="round"/>
+      <!-- 270° → (345, 315-178) = (345, 137) — ZenImage -->
+      <g transform="translate(345, 137)">
+        <circle cx="0" cy="0" r="6" fill="rgba(123,156,212,0.08)" stroke="rgba(123,156,212,0.22)" stroke-width="1"/>
+        <circle cx="0" cy="0" r="2.5" fill="rgba(123,156,212,0.45)"/>
+        <text x="0" y="-14"
+          text-anchor="middle"
+          font-family="IBM Plex Mono, monospace" font-size="8"
+          fill="#3a4e6a" letter-spacing="0.06em">ZenImage</text>
+      </g>
+
+      <!-- ── Active arc LinkedIn → Blog ─────────────────────── -->
+      <path d="M 345 223 A 92 92 0 0 1 410 250"
+        fill="none" stroke="rgba(123,156,212,0.25)"
+        stroke-width="2" stroke-linecap="round"/>
+
+      <!-- Active arc Reddit → Newsletter -->
+      <path d="M 410 380 A 92 92 0 0 1 345 407"
+        fill="none" stroke="rgba(136,184,130,0.2)"
+        stroke-width="1.5" stroke-linecap="round"/>
 
     </svg>
   </div>
