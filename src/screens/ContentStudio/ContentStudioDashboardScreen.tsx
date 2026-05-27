@@ -50,14 +50,14 @@ type ContentStudioDashboardScreenProps = {
   serverError?: string | null;
   serverName?: string;
   serverLocalCachePath?: string | null;
-  onOpenServerArticle?: (slug: string) => void;
+  onOpenServerArticle?: (slug: string, blog?: BlogConfig) => void;
   onDeleteServerArticle?: (slug: string) => Promise<void>;
   onOpenApiSettings?: () => void;
   onRemoveProject?: (path: string) => void;
   onDeleteDocument?: (doc: DashboardDocument) => Promise<void>;
   blogs?: BlogConfig[];
   onStartWritingToBlog?: (blog: BlogConfig) => void;
-  onOpenBlogPost?: (filePath: string, blog: BlogConfig) => void;
+  onOpenBlogPost?: (filePath: string, blog: BlogConfig, prefetchedContent?: string) => void;
   onActiveContextChange?: (path: string | null) => void;
 };
 
@@ -202,6 +202,20 @@ export function ContentStudioDashboardScreen({
   };
   const [cardHovered, setCardHovered] = useState(false);
 
+  const cardContainerRef = useRef<HTMLDivElement>(null);
+  const tabsContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const card = cardContainerRef.current;
+    const tabs = tabsContainerRef.current;
+    if (!card || !tabs) return;
+    const ro = new ResizeObserver(() => {
+      if (card && tabs) tabs.style.maxHeight = `${card.offsetHeight}px`;
+    });
+    ro.observe(card);
+    return () => ro.disconnect();
+  }, []);
+
   const [hoveredProjectDocId, setHoveredProjectDocId] = useState<string | null>(null);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [hoveredArticleSlug, setHoveredArticleSlug] = useState<string | null>(null);
@@ -256,12 +270,23 @@ export function ContentStudioDashboardScreen({
     });
     if (normalizedMatch?.name) return join(postsDir, normalizedMatch.name);
 
+    // Support legacy/date-prefixed filenames: YYYY-MM-DD-<slug>.md
+    const suffixMatch = mdEntries.find((entry) => {
+      const stem = (entry.name ?? '').replace(/\.md$/i, '').toLowerCase();
+      const slugStem = post.slug.toLowerCase();
+      return stem.endsWith(`-${slugStem}`);
+    });
+    if (suffixMatch?.name) return join(postsDir, suffixMatch.name);
+
+    // Last-resort: only accept title-match when it is unique to avoid wrong file opens
+    const titleCandidates: string[] = [];
     for (const entry of mdEntries) {
       if (!entry.name) continue;
       const candidatePath = await join(postsDir, entry.name);
       const candidateTitle = await readLocalTitle(candidatePath, post.slug);
-      if (candidateTitle.trim() === post.title.trim()) return candidatePath;
+      if (candidateTitle.trim() === post.title.trim()) titleCandidates.push(candidatePath);
     }
+    if (titleCandidates.length === 1) return titleCandidates[0];
 
     return fallbackPath;
   };
@@ -496,6 +521,8 @@ export function ContentStudioDashboardScreen({
         >
           <div style={{ display: 'flex', alignItems: 'stretch', position: 'relative' }}>
             <div
+              ref={tabsContainerRef}
+              className="zen-no-scrollbar"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
@@ -504,6 +531,8 @@ export function ContentStudioDashboardScreen({
                 marginRight: '-1px',
                 position: 'relative',
                 zIndex: 5,
+                overflowY: 'auto',
+                overflowX: 'visible',
               }}
             >
               {allProjects.map((path) => {
@@ -715,6 +744,7 @@ export function ContentStudioDashboardScreen({
             </div>
 
             <div
+              ref={cardContainerRef}
               style={{ position: 'relative', width: '300px', minHeight: '0', maxHeight: '340px', zIndex: 15, display: 'flex', flexDirection: 'column' }}
               onMouseEnter={() => selectedTab !== 'server' && !selectedTab.startsWith('blog:') && hasDocs && setCardHovered(true)}
               onMouseLeave={() => setCardHovered(false)}
@@ -798,7 +828,12 @@ export function ContentStudioDashboardScreen({
                           </div>
                           <div
                             onClick={async () => {
-                              if (!activeBlog || !isTauri()) return;
+                              if (!activeBlog) return;
+                              if (!isTauri()) {
+                                // Web: keep the original server-article open flow (no cross-origin post fetch here)
+                                onOpenServerArticle?.(post.slug, activeBlog);
+                                return;
+                              }
                               if (!activeBlog.path) {
                                 alert('Bitte zuerst einen lokalen Ordner für diesen Blog in den Einstellungen angeben.');
                                 return;
@@ -810,7 +845,8 @@ export function ContentStudioDashboardScreen({
                               }
                               const fp = await resolveLocalBlogPostPath(activeBlog.path, post);
                               // If local file missing, fetch from server and save locally
-                              if (!(await exists(fp))) {
+                              let localFileReady = await exists(fp);
+                              if (!localFileReady) {
                                 try {
                                   const base = activeBlog.siteUrl
                                     ? (activeBlog.siteUrl.startsWith('http') ? activeBlog.siteUrl : 'https://' + activeBlog.siteUrl)
@@ -823,9 +859,15 @@ export function ContentStudioDashboardScreen({
                                       const { mkdir: mkdirFs } = await import('@tauri-apps/plugin-fs');
                                       await mkdirFs(await join(activeBlog.path, 'posts'), { recursive: true }).catch(() => {});
                                       await writeTextFile(fp, mdContent);
+                                      localFileReady = true;
                                     }
                                   }
-                                } catch { /* open anyway, editor will handle missing file */ }
+                                } catch { /* fallback handled below */ }
+                              }
+                              if (!localFileReady) {
+                                // Never open an empty/missing local file. Use blog/server open flow instead.
+                                onOpenServerArticle?.(post.slug, activeBlog);
+                                return;
                               }
                               onOpenBlogPost?.(fp, activeBlog);
                             }}
