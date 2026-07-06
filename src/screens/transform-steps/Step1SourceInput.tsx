@@ -30,6 +30,7 @@ import {
 import { canUploadToZenCloud, uploadCloudDocument, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
 import { loadZenStudioSettings } from '../../services/zenStudioSettingsService';
 import { resolveImageMeta, saveImageMeta } from '../../services/imageMetaService';
+import type { SEOData } from '../../services/aiService';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
@@ -38,9 +39,10 @@ const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> =
   devto: { label: 'Dev.to', icon: faDev },
   medium: { label: 'Medium', icon: faMedium },
   reddit: { label: 'Reddit', icon: faReddit },
+  substack: { label: 'Substack', icon: faHashnode },
   'github-discussion': { label: 'GitHub', icon: faGithub },
   'github-blog': { label: 'GitHub Blog', icon: faGithub },
-  youtube: { label: 'YouTube', icon: faGithub }, // No YouTube icon, use placeholder
+  youtube: { label: 'YouTube', icon: faGithub },
   'blog-post': { label: 'Blog', icon: faHashnode },
 };
 
@@ -141,6 +143,8 @@ interface Step1SourceInputProps {
   }) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
+  seoData?: SEOData | null;
+  onApplySeoDataToPostMeta?: (data: SEOData) => void;
   previewTheme?: PreviewThemeId;
   onPreviewThemeChange?: (theme: PreviewThemeId) => void;
 }
@@ -323,6 +327,8 @@ export const Step1SourceInput = ({
   onMetaChange,
   analysisKeywords = [],
   onAnalysisKeywordsChange,
+  seoData = null,
+  onApplySeoDataToPostMeta,
   previewTheme = 'mono-clean',
   onPreviewThemeChange,
 }: Step1SourceInputProps) => {
@@ -1643,31 +1649,50 @@ export const Step1SourceInput = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div className="font-mono text-[10px] text-[#1a1a1a]">Tags/Keywords</div>
-                    {analysisKeywords.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const current = postMeta?.tags ?? [];
-                          const merged = Array.from(new Set([...current, ...analysisKeywords]));
-                          updatePostMetaTags(merged);
-                        }}
-                        style={{
-                           background: 'rgba(208, 255, 184, 0.4)',
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      {seoData && onApplySeoDataToPostMeta && (
+                        <button
+                          type="button"
+                          onClick={() => onApplySeoDataToPostMeta(seoData)}
+                          style={{
+                            background: 'rgba(172, 142, 102, 0.18)',
                             boxShadow: 'none',
-                          borderRadius: 4,
-                          
-                          color: '#1a1a1a',
-                          fontFamily: 'IBM Plex Mono, monospace',
-                          fontSize: 8,
-                          padding: '4px 6px',
-                          cursor: 'pointer',
-                        
-                        }}
-                        title="Top-Keywords aus Analyse als Tags übernehmen"
-                      >
-                        Aus Analyse übernehmen
-                      </button>
-                    )}
+                            borderRadius: 4,
+                            color: '#1a1a1a',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: 8,
+                            padding: '4px 6px',
+                            cursor: 'pointer',
+                          }}
+                          title="SEO-Titel, Beschreibung, OG-Titel und Keywords in die Post-Metadaten übernehmen"
+                        >
+                          Post-Metadaten befüllen
+                        </button>
+                      )}
+                      {analysisKeywords.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const current = postMeta?.tags ?? [];
+                            const merged = Array.from(new Set([...current, ...analysisKeywords]));
+                            updatePostMetaTags(merged);
+                          }}
+                          style={{
+                            background: 'rgba(208, 255, 184, 0.4)',
+                            boxShadow: 'none',
+                            borderRadius: 4,
+                            color: '#1a1a1a',
+                            fontFamily: 'IBM Plex Mono, monospace',
+                            fontSize: 8,
+                            padding: '4px 6px',
+                            cursor: 'pointer',
+                          }}
+                          title="Top-Keywords aus Analyse als Tags übernehmen"
+                        >
+                          Aus Analyse übernehmen
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {/* Chip list */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, minHeight: 24 }}>

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faCheck, faWandMagicSparkles, faArrowRight, faCompress, faCode, faBriefcase, faWrench, faBolt, faPenNib, faEdit } from '@fortawesome/free-solid-svg-icons';
+import { faCheck, faWandMagicSparkles, faArrowRight, faCompress, faCode, faBriefcase, faWrench, faBolt, faPenNib, faEdit, faMagnifyingGlass, faSpinner, faCopy } from '@fortawesome/free-solid-svg-icons';
 import { ZenDropdown } from '../../kits/PatternKit/ZenModalSystem';
 import { ZenSubtitleDark } from '../../kits/PatternKit/ZenSubtitleDark';
 import { ZenBackButton } from '../../kits/DesignKit/ZenBackButton';
 
-import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage, type ImprovementStyle } from '../../services/aiService';
+import { ContentTone, ContentLength, ContentAudience, ContentPlatform, TargetLanguage, type ImprovementStyle, generateSEOData, type SEOData } from '../../services/aiService';
 
 interface Step3StyleOptionsProps {
   selectedPlatform: ContentPlatform;
@@ -38,10 +38,15 @@ interface Step3StyleOptionsProps {
   isQuickActionRunning?: boolean;
   allowEmoji?: boolean;
   onAllowEmojiChange?: (allow: boolean) => void;
+  seoData?: SEOData | null;
+  onSeoDataChange?: (data: SEOData | null) => void;
+  onApplySeoDataToPostMeta?: (data: SEOData) => void;
 
   isTransforming: boolean;
   isPosting: boolean;
   error: string | null;
+  sourceContent?: string;
+  sourceTitle?: string;
 }
 
 const toneOptions = [
@@ -110,16 +115,44 @@ export const Step3StyleOptions = ({
   isQuickActionRunning = false,
   allowEmoji = true,
   onAllowEmojiChange,
+  seoData,
+  onSeoDataChange,
+  onApplySeoDataToPostMeta,
 
   isTransforming,
   isPosting: _isPosting,
   error,
+  sourceContent = '',
+  sourceTitle = '',
 }: Step3StyleOptionsProps) => {
   const [changedOptions, setChangedOptions] = useState<Set<string>>(new Set());
   const [showCustomImproveInput, setShowCustomImproveInput] = useState(false);
   const [customImproveInstruction, setCustomImproveInstruction] = useState('');
   const [showCustomizerMenu, setShowCustomizerMenu] = useState(false);
+  const [seoOpen, setSeoOpen] = useState(false);
+  const [seoLoading, setSeoLoading] = useState(false);
+  const [seoError, setSeoError] = useState<string | null>(null);
+  const [seoCopied, setSeoCopied] = useState<string | null>(null);
   const cardWidth = 220;
+
+  const handleSeoGenerate = async () => {
+    setSeoLoading(true);
+    setSeoError(null);
+    onSeoDataChange?.(null);
+    const result = await generateSEOData(sourceTitle, sourceContent);
+    if (result.success && result.data) {
+      onSeoDataChange?.(result.data);
+    } else {
+      setSeoError(result.error || 'Fehler bei der SEO-Generierung.');
+    }
+    setSeoLoading(false);
+  };
+
+  const copySeo = (text: string, key: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
+    setSeoCopied(key);
+    setTimeout(() => setSeoCopied(null), 1800);
+  };
   const cardGap = 32;
   const cardsRowWidth = cardWidth * 4 + cardGap * 3;
 
@@ -658,6 +691,149 @@ export const Step3StyleOptions = ({
           >
             {isTransforming ? 'Transformiere...' : 'Neu transformieren'}
           </button>
+        </div>
+
+        {/* ── SEO Assistent ── */}
+        <div style={{ width: sharedSectionWidth, marginBottom: 24 }}>
+          <button
+            type="button"
+            onClick={() => setSeoOpen((v) => !v)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              padding: '10px 16px',
+              borderRadius: seoOpen ? '12px 12px 0 0' : 12,
+              border: '1px solid',
+              borderColor: seoOpen ? '#4a9a6a' : '#4a4a4a',
+              background: seoOpen ? '#e8f5ee' : 'transparent',
+              cursor: 'pointer',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <FontAwesomeIcon icon={faMagnifyingGlass} style={{ color: '#3a8a5a', fontSize: 13 }} />
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 12, color: '#1a3a2a', fontWeight: 600 }}>SEO Assistent</span>
+            </div>
+            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#5a8a6a' }}>
+              {seoOpen ? '▲ schließen' : '▼ öffnen'}
+            </span>
+          </button>
+
+          {seoOpen && (
+            <div style={{ border: '1px solid #4a9a6a', borderTop: 'none', borderRadius: '0 0 12px 12px', background: '#f2faf5', padding: 16 }}>
+              {/* Generate Button */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#3a6a4a' }}>
+                  Claude analysiert Titel + Inhalt
+                </p>
+                <button
+                  type="button"
+                  disabled={seoLoading || !sourceContent}
+                  onClick={() => void handleSeoGenerate()}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 12px', borderRadius: 8,
+                    border: '1px solid #4a9a6a', background: '#e0f2e8',
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, fontWeight: 600, color: '#1a5a30',
+                    cursor: seoLoading || !sourceContent ? 'not-allowed' : 'pointer',
+                    opacity: seoLoading || !sourceContent ? 0.6 : 1,
+                  }}
+                >
+                  <FontAwesomeIcon icon={seoLoading ? faSpinner : faMagnifyingGlass} className={seoLoading ? 'animate-spin' : ''} />
+                  {seoLoading ? 'Analysiere …' : 'Generieren'}
+                </button>
+              </div>
+
+              {seoError && (
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#a03020', background: '#fdf0ec', border: '1px solid #e0b0a0', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>{seoError}</p>
+              )}
+
+              {seoData && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {/* Google SERP Preview */}
+                  <div style={{ background: 'white', border: '1px solid #c8e4d4', borderRadius: 8, padding: '10px 12px' }}>
+                    <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 9, color: '#4a8060', letterSpacing: '0.1em', marginBottom: 4 }}>GOOGLE VORSCHAU</p>
+                    <p style={{ fontSize: 13, color: '#1a0dab', marginBottom: 1 }}>{seoData.seo_title}</p>
+                    <p style={{ fontSize: 11, color: '#006621', marginBottom: 2 }}>denisbitter.de</p>
+                    <p style={{ fontSize: 11, color: '#545454', lineHeight: 1.5 }}>{seoData.meta_description}</p>
+                  </div>
+
+                  {/* SEO Title */}
+                  {[
+                    { key: 'seo_title', label: 'SEO Titel', value: seoData.seo_title, max: 60 },
+                    { key: 'meta_description', label: 'Meta Description', value: seoData.meta_description, max: 155 },
+                    { key: 'og_title', label: 'Social Titel (OG)', value: seoData.og_title, max: 70 },
+                  ].map(({ key, label, value, max }) => (
+                    <div key={key}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, fontWeight: 600, color: '#287848' }}>{label}</span>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: value.length > max ? '#c0392b' : '#5a8a6a' }}>{value.length}/{max}</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          value={value}
+                          readOnly
+                          style={{ flex: 1, fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, border: '1px solid #b8dcc8', borderRadius: 6, padding: '5px 8px', background: 'white', color: '#1a2e20', outline: 'none' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => copySeo(value, key)}
+                          style={{ flexShrink: 0, padding: '5px 8px', borderRadius: 6, border: '1px solid #b8dcc8', background: seoCopied === key ? '#d0f0dc' : 'white', cursor: 'pointer' }}
+                          title="Kopieren"
+                        >
+                          <FontAwesomeIcon icon={seoCopied === key ? faCheck : faCopy} style={{ fontSize: 11, color: seoCopied === key ? '#287848' : '#5a8a6a' }} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Keywords */}
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, fontWeight: 600, color: '#287848' }}>Keywords</span>
+                      <button type="button" onClick={() => copySeo(seoData.keywords.join(', '), 'keywords')} style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, color: '#5a8a6a', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                        {seoCopied === 'keywords' ? 'Kopiert ✓' : 'Alle kopieren'}
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {seoData.keywords.map((kw) => (
+                        <span key={kw} style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 10, padding: '3px 8px', borderRadius: 999, border: '1px solid #b8dcc8', background: '#edf7f0', color: '#287848' }}>{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {onApplySeoDataToPostMeta && (
+                    <button
+                      type="button"
+                      onClick={() => onApplySeoDataToPostMeta(seoData)}
+                      style={{
+                        alignSelf: 'flex-start',
+                        padding: '7px 12px',
+                        borderRadius: 8,
+                        border: '1px solid #4a9a6a',
+                        background: '#e0f2e8',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: '#1a5a30',
+                        cursor: 'pointer',
+                      }}
+                      title="SEO-Daten direkt in die Post-Metadaten übernehmen"
+                    >
+                      Post-Metadaten befüllen
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {!seoData && !seoLoading && !seoError && (
+                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#7ab898', textAlign: 'center', padding: '8px 0' }}>
+                  Auf „Generieren" klicken um SEO-Daten zu erstellen.
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {error && (

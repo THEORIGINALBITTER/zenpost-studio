@@ -32,6 +32,7 @@ import {
   type ContentLength,
   type ContentAudience,
   type TargetLanguage,
+  type SEOData,
 } from '../services/aiService';
 import { applySteuerFormatConfig } from '../config/formatConfigTrans';
 import { loadArticle } from '../services/publishingService';
@@ -65,6 +66,7 @@ import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../s
 import { canUploadToZenCloud, downloadCloudDocumentText, uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
 import { subscribeToInsertContentStudioSnippet } from '../services/contentStudioBridgeService';
 import { isCloudProjectPath } from '../services/cloudProjectService';
+import { decodeWebProjectId, getDirectoryHandle, isWebProjectPath } from '../services/webProjectService';
 import ZenEngine from '../services/zenEngineService';
 
 interface PlatformOption {
@@ -143,6 +145,7 @@ const defaultPlatformStyles: Record<ContentPlatform, PlatformStyleConfig> = {
   twitter: { tone: 'enthusiastic', length: 'short', audience: 'intermediate' },
   medium: { tone: 'professional', length: 'long', audience: 'intermediate' },
   reddit: { tone: 'casual', length: 'medium', audience: 'intermediate' },
+  substack: { tone: 'casual', length: 'medium', audience: 'intermediate' },
   'github-discussion': { tone: 'technical', length: 'medium', audience: 'expert' },
   'github-blog': { tone: 'technical', length: 'long', audience: 'intermediate' },
   youtube: { tone: 'enthusiastic', length: 'medium', audience: 'beginner' },
@@ -297,6 +300,12 @@ const parseDerivedTabId = (tabId: string): { sourceKey: string; platform: string
   const match = tabId.match(DERIVED_TAB_ID_PATTERN);
   if (!match) return null;
   return { sourceKey: match[1], platform: match[2] };
+};
+
+const toDisplayTabTitle = (raw: string): string => {
+  const base = raw.replace(/\.md$/i, '').trim();
+  const withoutDatePrefix = base.replace(/^\d{4}-\d{2}-\d{2}-/, '').trim();
+  return withoutDatePrefix || base || 'Entwurf';
 };
 
 const EMPTY_POST_META = {
@@ -1366,6 +1375,22 @@ export const ContentTransformScreen = ({
       });
     }
   }, []);
+  useEffect(() => {
+    postMetaRef.current = postMeta;
+  }, [postMeta]);
+  const [seoData, setSeoData] = useState<SEOData | null>(null);
+  const applySeoDataToPostMeta = useCallback((data: SEOData) => {
+    const keywords = data.keywords.map((keyword) => keyword.trim()).filter(Boolean);
+    handleMetaChange({
+      ...postMetaRef.current,
+      title: data.seo_title.trim(),
+      subtitle: data.meta_description.trim(),
+      imageAlt: data.seo_title.trim(),
+      imageTitle: data.og_title.trim(),
+      imageCaption: data.meta_description.trim(),
+      tags: keywords,
+    });
+  }, [handleMetaChange]);
   const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>(() => contentTransformSessionCache?.openDocTabs ?? []);
   const [activeDocTabId, setActiveDocTabId] = useState<string | null>(
     () => contentTransformSessionCache?.activeDocTabId ?? null
@@ -1687,6 +1712,31 @@ export const ContentTransformScreen = ({
   const getLatestSourceContent = (override?: string) =>
     override ?? sourceContentRef.current ?? sourceContent;
 
+  const saveToSelectedWebProjectFolder = async (webPath: string, fileNameRaw: string, content: string) => {
+    const projectId = decodeWebProjectId(webPath);
+    if (!projectId) return null;
+    const dirHandle = await getDirectoryHandle(projectId);
+    if (!dirHandle) return null;
+    const targetName = fileNameRaw.endsWith('.md') ? fileNameRaw : `${fileNameRaw}.md`;
+
+    try {
+      // Request write access for the previously selected folder.
+      const handleWithPermission = dirHandle as FileSystemDirectoryHandle & {
+        requestPermission?: (descriptor?: { mode?: 'read' | 'readwrite' }) => Promise<PermissionState>;
+      };
+      const perm = await handleWithPermission.requestPermission?.({ mode: 'readwrite' });
+      if (perm !== 'granted') return null;
+    } catch {
+      return null;
+    }
+
+    const fileHandle = await dirHandle.getFileHandle(targetName, { create: true });
+    const writable = await fileHandle.createWritable();
+    await writable.write(content);
+    await writable.close();
+    return targetName;
+  };
+
   const getStep1AutosaveKey = () => {
     const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
     if (!activeTab) return 'content-step1:global';
@@ -1719,7 +1769,7 @@ export const ContentTransformScreen = ({
     filePath: string | undefined,
     savedName: string,
     content: string,
-    options?: { markAsFile?: boolean }
+    options?: { markAsFile?: boolean; message?: string }
   ) => {
     if (activeDocTabId) {
       setDirtyDocTabs((prev) => ({ ...prev, [activeDocTabId]: false }));
@@ -1739,7 +1789,7 @@ export const ContentTransformScreen = ({
     setSavedFileName(savedName);
     setSavedFilePath(filePath);
     setSavedFilePaths(filePath ? [filePath] : undefined);
-    setSaveSuccessMessage(undefined);
+    setSaveSuccessMessage(options?.message);
     setSaveSuccessPathsLabel(undefined);
     setSaveSuccessPrimaryActionLabel(undefined);
     setSaveSuccessPrimaryActionUrl(null);
@@ -1751,6 +1801,13 @@ export const ContentTransformScreen = ({
       window.dispatchEvent(new Event('zenpost-project-files-updated'));
     }
   };
+
+  const requestZenFileName = (defaultName: string): Promise<string | null> =>
+    new Promise((resolve) => {
+      saveAsResolverRef.current = resolve;
+      setSaveAsInputName(defaultName.replace(/\.md$/i, ''));
+      setSaveAsDialog({ defaultName });
+    });
 
   const handleSaveAsSourceToProject = async (contentOverride?: string) => {
     const contentToSave = await resolveLatestSourceContent(contentOverride);
@@ -1793,17 +1850,29 @@ export const ContentTransformScreen = ({
       return;
     }
 
+    const userName = await requestZenFileName(defaultName);
+    if (userName === null) return;
+    const finalName = userName.trim() || defaultName;
+    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+
+    // Browser + @web: save directly into the chosen folder when possible.
+    if (activeDisplayPath && isWebProjectPath(activeDisplayPath)) {
+      const savedName = await saveToSelectedWebProjectFolder(activeDisplayPath, finalFileName, contentToSave);
+      if (savedName) {
+        finalizeSavedSource(undefined, savedName, contentToSave, { message: 'Gespeichert in Web-Ordner.' });
+        return;
+      }
+    }
+
+    // Fallback: browser download (no native prompt dialog).
     const blob = new Blob([contentToSave], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    const userName = window.prompt('Dateiname anpassen?', defaultName);
-    const finalName = (userName && userName.trim()) ? userName.trim() : defaultName;
-    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
     link.download = finalFileName;
     link.click();
     URL.revokeObjectURL(url);
-    finalizeSavedSource(undefined, finalFileName, contentToSave);
+    finalizeSavedSource(undefined, finalFileName, contentToSave, { message: 'Als Download gespeichert.' });
   };
 
   const handleSaveSourceToProject = async (contentOverride?: string, triggerFtp = false) => {
@@ -2750,7 +2819,7 @@ export const ContentTransformScreen = ({
       };
 
       const contentTitle = extractTitleFromContent(initialContent);
-      const tabTitle = initialFileName || contentTitle || 'Geplanter Post';
+      const tabTitle = initialFileName ? toDisplayTabTitle(initialFileName) : (contentTitle || 'Geplanter Post');
       const existingTabByTitle = openDocTabs.find((tab) => tab.title === tabTitle);
       const placeholderDraftTab = openDocTabs.find(isPlaceholderDraftTab);
       const targetTabId = existingTabByTitle?.id ?? placeholderDraftTab?.id ?? `initial-${Date.now()}`;
@@ -2773,7 +2842,7 @@ export const ContentTransformScreen = ({
       pendingContentOwnerTabIdRef.current = targetTabId;
       lastProgrammaticLoadAtRef.current = Date.now();
       setSourceContent(initialContent);
-      setFileName(tabTitle);
+      setFileName(initialFileName || tabTitle);
       const extractedMeta = extractPostMetaFromContent(initialContent, tabTitle);
       const incomingMeta = normalizeIncomingPostMeta(initialPostMeta);
       const nextMeta = {
@@ -3073,6 +3142,7 @@ export const ContentTransformScreen = ({
         const fileNameFromPath = isCloudRequestedFile
           ? cloudRequestedFileName
           : requestedFilePath.split(/[\\/]/).pop() || 'Datei';
+        const displayTitleFromPath = toDisplayTabTitle(fileNameFromPath);
         const resolvedTabId =
           existingFileTab?.id ||
           openDocTabsRef.current.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath)?.id ||
@@ -3106,14 +3176,14 @@ export const ContentTransformScreen = ({
             prev.find((tab) => tab.kind === 'file' && tab.filePath === requestedFilePath) ??
             prev.find((tab) => tab.id === tabId);
           if (!match) {
-            return [...prev, { id: tabId, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }];
+            return [...prev, { id: tabId, title: displayTitleFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }];
           }
-          if (match.title === fileNameFromPath && match.kind === 'file' && match.filePath === requestedFilePath && match.displayPath === requestedFilePath) {
+          if (match.title === displayTitleFromPath && match.kind === 'file' && match.filePath === requestedFilePath && match.displayPath === requestedFilePath) {
             return prev;
           }
           return prev.map((tab) =>
             tab.id === match.id
-              ? { ...tab, title: fileNameFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }
+              ? { ...tab, title: displayTitleFromPath, kind: 'file', filePath: requestedFilePath, displayPath: requestedFilePath }
               : tab
           );
         });
@@ -3227,6 +3297,9 @@ export const ContentTransformScreen = ({
   const [cloudSaveDialog, setCloudSaveDialog] = useState<{ content: string; suggestedName: string } | null>(null);
   const [cloudSaveInputName, setCloudSaveInputName] = useState('');
   const [cloudSaveUploading, setCloudSaveUploading] = useState(false);
+  const [saveAsDialog, setSaveAsDialog] = useState<{ defaultName: string } | null>(null);
+  const [saveAsInputName, setSaveAsInputName] = useState('');
+  const saveAsResolverRef = useRef<((value: string | null) => void) | null>(null);
   const [savedFilePath, setSavedFilePath] = useState<string | undefined>(undefined);
   const [savedFilePaths, setSavedFilePaths] = useState<string[] | undefined>(undefined);
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | undefined>(undefined);
@@ -3674,12 +3747,32 @@ export const ContentTransformScreen = ({
       return true;
     }
 
+    const fallbackName = tab.title || buildDefaultSaveName(getActiveSavePlatform(), 1);
+    const userName = await requestZenFileName(fallbackName);
+    if (userName === null) return false;
+    const finalName = userName.trim() || fallbackName;
+    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
+
+    // Browser + @web: save directly into chosen folder when available.
+    if (projectPath && isWebProjectPath(projectPath)) {
+      const savedName = await saveToSelectedWebProjectFolder(projectPath, finalFileName, content);
+      if (savedName) {
+        setDirtyDocTabs((prev) => ({ ...prev, [tabId]: false }));
+        setSavedFileName(savedName);
+        setSavedFilePath(undefined);
+        setSavedFilePaths(undefined);
+        setSaveSuccessMessage('Gespeichert in Web-Ordner.');
+        setSaveSuccessPathsLabel(undefined);
+        setSaveSuccessPrimaryActionLabel(undefined);
+        setSaveSuccessPrimaryActionUrl(null);
+        setShowSaveSuccess(true);
+        return true;
+      }
+    }
+
+    // Fallback: browser download (no prompt dialog).
     const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const fallbackName = tab.title || buildDefaultSaveName(getActiveSavePlatform(), 1);
-    const userName = window.prompt('Dateiname anpassen?', fallbackName);
-    const finalName = (userName && userName.trim()) ? userName.trim() : fallbackName;
-    const finalFileName = finalName.endsWith('.md') ? finalName : `${finalName}.md`;
     const link = document.createElement('a');
     link.href = url;
     link.download = finalFileName;
@@ -3689,7 +3782,7 @@ export const ContentTransformScreen = ({
     setSavedFileName(finalFileName);
     setSavedFilePath(undefined);
     setSavedFilePaths(undefined);
-    setSaveSuccessMessage(undefined);
+    setSaveSuccessMessage('Als Download gespeichert.');
     setSaveSuccessPathsLabel(undefined);
     setSaveSuccessPrimaryActionLabel(undefined);
     setSaveSuccessPrimaryActionUrl(null);
@@ -4106,12 +4199,13 @@ export const ContentTransformScreen = ({
         'linkedin': 'linkedin',
         'twitter': 'twitter',
         'reddit': 'reddit',
+        'substack': null,
         'devto': 'devto',
         'medium': 'medium',
         'github-discussion': 'github',
         'github-blog': 'github',
-        'youtube': null, // YouTube is not supported for direct posting
-        'blog-post': null, // Generic blog post is not supported for direct posting
+        'youtube': null,
+        'blog-post': null,
       };
 
       const socialPlatform = platformMap[selectedPlatform];
@@ -4476,6 +4570,8 @@ export const ContentTransformScreen = ({
               onMetaChange={handleMetaChange}
               analysisKeywords={analysisKeywords}
               onAnalysisKeywordsChange={setAnalysisKeywords}
+              seoData={seoData}
+              onApplySeoDataToPostMeta={applySeoDataToPostMeta}
               previewTheme={previewTheme}
               onPreviewThemeChange={setPreviewTheme}
             />
@@ -4571,6 +4667,9 @@ export const ContentTransformScreen = ({
               setAudience(nextAudience);
             }}
             onTargetLanguageChange={setTargetLanguage}
+            seoData={seoData}
+            onSeoDataChange={setSeoData}
+            onApplySeoDataToPostMeta={applySeoDataToPostMeta}
             onBack={() => setStep(2)}
             onBackToEditor={() => setStep(1)}
             onTransform={handleTransform}
@@ -4582,6 +4681,8 @@ export const ContentTransformScreen = ({
             isTransforming={isTransforming}
             isPosting={isPosting}
             error={error}
+            sourceContent={sourceContent}
+            sourceTitle={fileName}
           />
         );
       case 4:
@@ -4828,6 +4929,97 @@ export const ContentTransformScreen = ({
         templateName={`${getPlatformLabel(selectedPlatform)} Content`}
         onClose={handleCancelTransform}
       />
+
+      {/* Cloud Save — Filename Dialog */}
+      {saveAsDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10000,
+          background: 'rgba(0,0,0,0.65)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            background: '#1a1a1a',
+            border: '1px solid #AC8E66',
+            borderRadius: '12px',
+            padding: '24px 28px',
+            width: '360px',
+            display: 'flex', flexDirection: 'column', gap: '14px',
+          }}>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '13px', color: '#AC8E66' }}>
+              Dateiname festlegen
+            </div>
+            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#e8e3d8' }}>
+              Name für „Speichern unter…“:
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                autoFocus
+                type="text"
+                value={saveAsInputName}
+                onChange={(e) => setSaveAsInputName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const val = saveAsInputName.trim() || saveAsDialog.defaultName.replace(/\.md$/i, '');
+                    saveAsResolverRef.current?.(val);
+                    saveAsResolverRef.current = null;
+                    setSaveAsDialog(null);
+                  }
+                  if (e.key === 'Escape') {
+                    saveAsResolverRef.current?.(null);
+                    saveAsResolverRef.current = null;
+                    setSaveAsDialog(null);
+                  }
+                }}
+                placeholder="Dateiname"
+                style={{
+                  flex: 1,
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px',
+                  padding: '8px 10px',
+                  background: '#252525', color: '#d0cbb8',
+                  border: '1px solid #3A3A3A', borderRadius: '6px',
+                  outline: 'none',
+                }}
+              />
+              <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#555' }}>.md</span>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  saveAsResolverRef.current?.(null);
+                  saveAsResolverRef.current = null;
+                  setSaveAsDialog(null);
+                }}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                  padding: '7px 14px', borderRadius: '6px',
+                  border: '1px solid #3A3A3A', background: 'transparent',
+                  color: '#777', cursor: 'pointer',
+                }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => {
+                  const val = saveAsInputName.trim() || saveAsDialog.defaultName.replace(/\.md$/i, '');
+                  saveAsResolverRef.current?.(val);
+                  saveAsResolverRef.current = null;
+                  setSaveAsDialog(null);
+                }}
+                style={{
+                  fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                  padding: '7px 16px', borderRadius: '6px',
+                  border: '1px solid #AC8E66',
+                  background: '#AC8E66',
+                  color: '#1a1a1a',
+                  cursor: 'pointer',
+                }}
+              >
+                Speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Cloud Save — Filename Dialog */}
       {cloudSaveDialog && (
