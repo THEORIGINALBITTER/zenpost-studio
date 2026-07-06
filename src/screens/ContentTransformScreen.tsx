@@ -1385,9 +1385,7 @@ export const ContentTransformScreen = ({
       ...postMetaRef.current,
       title: data.seo_title.trim(),
       subtitle: data.meta_description.trim(),
-      imageAlt: data.seo_title.trim(),
       imageTitle: data.og_title.trim(),
-      imageCaption: data.meta_description.trim(),
       tags: keywords,
     });
   }, [handleMetaChange]);
@@ -4667,6 +4665,7 @@ export const ContentTransformScreen = ({
               setAudience(nextAudience);
             }}
             onTargetLanguageChange={setTargetLanguage}
+            analysisContent={sourceContent || transformedContent}
             seoData={seoData}
             onSeoDataChange={setSeoData}
             onApplySeoDataToPostMeta={applySeoDataToPostMeta}

@@ -29,6 +29,7 @@ interface Step3StyleOptionsProps {
   onLengthChange: (length: ContentLength) => void;
   onAudienceChange: (audience: ContentAudience) => void;
   onTargetLanguageChange?: (language: TargetLanguage) => void;
+  analysisContent?: string;
 
   onBack: () => void;
   onBackToEditor: () => void;
@@ -106,6 +107,7 @@ export const Step3StyleOptions = ({
   onLengthChange,
   onAudienceChange,
   onTargetLanguageChange,
+  analysisContent,
 
   onBack: _onBack,
   onBackToEditor,
@@ -136,10 +138,15 @@ export const Step3StyleOptions = ({
   const cardWidth = 220;
 
   const handleSeoGenerate = async () => {
+    const contentToAnalyze = (analysisContent ?? sourceContent).trim();
+    if (!contentToAnalyze) {
+      setSeoError('Kein Inhalt für die SEO-Analyse vorhanden.');
+      return;
+    }
     setSeoLoading(true);
     setSeoError(null);
     onSeoDataChange?.(null);
-    const result = await generateSEOData(sourceTitle, sourceContent);
+    const result = await generateSEOData(sourceTitle, contentToAnalyze);
     if (result.success && result.data) {
       onSeoDataChange?.(result.data);
     } else {
@@ -729,15 +736,15 @@ export const Step3StyleOptions = ({
                 </p>
                 <button
                   type="button"
-                  disabled={seoLoading || !sourceContent}
+                  disabled={seoLoading || !(analysisContent ?? sourceContent).trim()}
                   onClick={() => void handleSeoGenerate()}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '6px 12px', borderRadius: 8,
                     border: '1px solid #4a9a6a', background: '#e0f2e8',
                     fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, fontWeight: 600, color: '#1a5a30',
-                    cursor: seoLoading || !sourceContent ? 'not-allowed' : 'pointer',
-                    opacity: seoLoading || !sourceContent ? 0.6 : 1,
+                    cursor: seoLoading || !(analysisContent ?? sourceContent).trim() ? 'not-allowed' : 'pointer',
+                    opacity: seoLoading || !(analysisContent ?? sourceContent).trim() ? 0.6 : 1,
                   }}
                 >
                   <FontAwesomeIcon icon={seoLoading ? faSpinner : faMagnifyingGlass} className={seoLoading ? 'animate-spin' : ''} />
