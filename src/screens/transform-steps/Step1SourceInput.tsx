@@ -344,9 +344,11 @@ export const Step1SourceInput = ({
   const [showTipModal, setShowTipModal] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [showComparison, setShowComparison] = useState(false);
+  const [seoApplyMessage, setSeoApplyMessage] = useState<string | null>(null);
   const latestContentRef = useRef(sourceContent);
   const editorSnapshotGetterRef = useRef<(() => Promise<string>) | null>(null);
   const lastMetadataPanelOpenRequestRef = useRef<number | undefined>(metadataPanelOpenRequest);
+  const seoApplyMessageTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     latestContentRef.current = sourceContent;
@@ -357,7 +359,21 @@ export const Step1SourceInput = ({
     if (lastMetadataPanelOpenRequestRef.current === metadataPanelOpenRequest) return;
     lastMetadataPanelOpenRequestRef.current = metadataPanelOpenRequest;
     setShowMeta(true);
+    setSeoApplyMessage('Metadaten übernommen');
+    if (seoApplyMessageTimerRef.current) {
+      window.clearTimeout(seoApplyMessageTimerRef.current);
+    }
+    seoApplyMessageTimerRef.current = window.setTimeout(() => {
+      setSeoApplyMessage(null);
+      seoApplyMessageTimerRef.current = null;
+    }, 2200);
   }, [metadataPanelOpenRequest]);
+
+  useEffect(() => () => {
+    if (seoApplyMessageTimerRef.current) {
+      window.clearTimeout(seoApplyMessageTimerRef.current);
+    }
+  }, []);
 
   const emitSourceContentChange = (content: string) => {
     latestContentRef.current = content;
@@ -1704,6 +1720,11 @@ export const Step1SourceInput = ({
                       )}
                     </div>
                   </div>
+                  {seoApplyMessage && (
+                    <div className="font-mono text-[9px] text-[#1a1a1a]" style={{ lineHeight: '11px' }}>
+                      {seoApplyMessage}
+                    </div>
+                  )}
                   {/* Chip list */}
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, minHeight: 24 }}>
                     {(postMeta?.tags ?? []).map((tag) => (
