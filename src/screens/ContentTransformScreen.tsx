@@ -1379,6 +1379,7 @@ export const ContentTransformScreen = ({
     postMetaRef.current = postMeta;
   }, [postMeta]);
   const [seoData, setSeoData] = useState<SEOData | null>(null);
+  const [metadataPanelOpenRequest, setMetadataPanelOpenRequest] = useState<number | undefined>(undefined);
   const applySeoDataToPostMeta = useCallback((data: SEOData) => {
     const keywords = data.keywords.map((keyword) => keyword.trim()).filter(Boolean);
     handleMetaChange({
@@ -1388,6 +1389,8 @@ export const ContentTransformScreen = ({
       imageTitle: data.og_title.trim(),
       tags: keywords,
     });
+    setMetadataPanelOpenRequest((count) => (typeof count === 'number' ? count + 1 : 1));
+    setStep(1);
   }, [handleMetaChange]);
   const [openDocTabs, setOpenDocTabs] = useState<ContentDocTab[]>(() => contentTransformSessionCache?.openDocTabs ?? []);
   const [activeDocTabId, setActiveDocTabId] = useState<string | null>(
@@ -4570,6 +4573,7 @@ export const ContentTransformScreen = ({
               onAnalysisKeywordsChange={setAnalysisKeywords}
               seoData={seoData}
               onApplySeoDataToPostMeta={applySeoDataToPostMeta}
+              metadataPanelOpenRequest={metadataPanelOpenRequest}
               previewTheme={previewTheme}
               onPreviewThemeChange={setPreviewTheme}
             />

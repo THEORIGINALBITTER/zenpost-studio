@@ -145,6 +145,7 @@ interface Step1SourceInputProps {
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
   seoData?: SEOData | null;
   onApplySeoDataToPostMeta?: (data: SEOData) => void;
+  metadataPanelOpenRequest?: number;
   previewTheme?: PreviewThemeId;
   onPreviewThemeChange?: (theme: PreviewThemeId) => void;
 }
@@ -329,6 +330,7 @@ export const Step1SourceInput = ({
   onAnalysisKeywordsChange,
   seoData = null,
   onApplySeoDataToPostMeta,
+  metadataPanelOpenRequest,
   previewTheme = 'mono-clean',
   onPreviewThemeChange,
 }: Step1SourceInputProps) => {
@@ -344,10 +346,18 @@ export const Step1SourceInput = ({
   const [showComparison, setShowComparison] = useState(false);
   const latestContentRef = useRef(sourceContent);
   const editorSnapshotGetterRef = useRef<(() => Promise<string>) | null>(null);
+  const lastMetadataPanelOpenRequestRef = useRef<number | undefined>(metadataPanelOpenRequest);
 
   useEffect(() => {
     latestContentRef.current = sourceContent;
   }, [sourceContent]);
+
+  useEffect(() => {
+    if (metadataPanelOpenRequest === undefined) return;
+    if (lastMetadataPanelOpenRequestRef.current === metadataPanelOpenRequest) return;
+    lastMetadataPanelOpenRequestRef.current = metadataPanelOpenRequest;
+    setShowMeta(true);
+  }, [metadataPanelOpenRequest]);
 
   const emitSourceContentChange = (content: string) => {
     latestContentRef.current = content;
