@@ -13,6 +13,16 @@ const APP_WALKTHROUGH_STEPS: WalkthroughStep[] = [
     icon: '✦',
   },
   {
+    title: 'SEO-Assistent',
+    description: 'Generiere SEO-Titel, Meta Description, OG-Titel und Keywords aus deinem Text — und übernimm sie direkt in die Post-Metadaten.',
+    icon: '🔎',
+  },
+  {
+    title: 'Post-Metadaten befüllen',
+    description: 'Nutze den Button im Metadaten-Panel, um die KI-Ergebnisse automatisch in Titel, Untertitel, OG-Titel und Tags zu schreiben.',
+    icon: '🧷',
+  },
+  {
     title: 'Doc Studio',
     description: 'Generiere README, Changelog, API-Docs und mehr direkt aus deinem Projekt. Scan → Template → Fertig.',
     icon: '📄',
