@@ -136,6 +136,54 @@ pub fn autofix_text(text: &str, rules_json: Option<&str>) -> Result<AutofixResul
     }
 }
 
+// ── Readability (LIX) — V1 FFI ────────────────────────────────────────────────
+
+#[repr(C)]
+struct CZenReadabilityResult {
+    char_count:      c_uint,
+    word_count:      c_uint,
+    sentence_count:  c_uint,
+    long_word_count: c_uint,
+    lix:             i32,
+}
+
+extern "C" {
+    fn zen_readability_analyze(text: *const c_char) -> *mut CZenReadabilityResult;
+    fn zen_readability_result_free(result: *mut CZenReadabilityResult);
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReadabilityResult {
+    pub char_count:      u32,
+    pub word_count:      u32,
+    pub sentence_count:  u32,
+    pub long_word_count: u32,
+    pub lix:             i32,
+}
+
+/// UTF-8-sichere Textmetrik (LIX-Lesbarkeitsindex). Zaehlt Unicode-Codepoints,
+/// nicht Bytes — deutsche Umlaute/ß zaehlen dadurch korrekt als je ein Zeichen.
+pub fn analyze_readability(text: &str) -> Result<ReadabilityResult, String> {
+    let c_text = CString::new(text)
+        .map_err(|e| format!("Text-Encoding-Fehler: {}", e))?;
+
+    unsafe {
+        let raw = zen_readability_analyze(c_text.as_ptr());
+        if raw.is_null() {
+            return Err("zen_readability_analyze gab null zurueck".to_string());
+        }
+        let result = ReadabilityResult {
+            char_count:      (*raw).char_count,
+            word_count:      (*raw).word_count,
+            sentence_count:  (*raw).sentence_count,
+            long_word_count: (*raw).long_word_count,
+            lix:             (*raw).lix,
+        };
+        zen_readability_result_free(raw);
+        Ok(result)
+    }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // V2 FFI — zen_engine_v2_c.h
 // ═════════════════════════════════════════════════════════════════════════════

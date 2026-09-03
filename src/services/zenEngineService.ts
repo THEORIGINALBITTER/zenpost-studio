@@ -3,7 +3,7 @@
  * Alle Calls gehen über Tauri IPC → Rust → C++ zen_engine
  */
 import { invoke, isTauri } from '@tauri-apps/api/core';
-import { analyzeTextWeb, autofixTextWeb } from './zenEngineWebFallback';
+import { analyzeTextWeb, autofixTextWeb, analyzeReadabilityWeb } from './zenEngineWebFallback';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -84,6 +84,17 @@ export interface RuleAnalysisResult {
 export interface AutofixResult {
   text: string;
   fix_count: number;
+}
+
+/** UTF-8-sichere Textmetrik (LIX-Lesbarkeitsindex). Zählt Unicode-Zeichen,
+ *  nicht Bytes — deutsche Umlaute/ß zählen korrekt als je ein Zeichen. */
+export interface ReadabilityResult {
+  char_count: number;
+  word_count: number;
+  sentence_count: number;
+  /** Wörter mit mehr als 6 Zeichen (LIX-Definition) */
+  long_word_count: number;
+  lix: number;
 }
 
 // ─── V2 Types ─────────────────────────────────────────────────────────────────
@@ -245,6 +256,16 @@ export const ZenEngine = {
       text,
       rules_json: rulesJson,
     });
+  },
+
+  /**
+   * UTF-8-sichere Textmetrik für LIX-Lesbarkeitsindex, Wort-/Zeichenzahl.
+   * Läuft nativ (C++, Unicode-Codepoint-Iteration) in der Desktop-App,
+   * mit funktional identischem TS-Fallback im Browser.
+   */
+  analyzeReadability(text: string): Promise<ReadabilityResult> {
+    if (!isTauri()) return Promise.resolve(analyzeReadabilityWeb(text));
+    return invoke<ReadabilityResult>('engine_analyze_readability', { text });
   },
 
   // ── Rule Engine V2 ────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@
  * Used when running in browser (no Tauri/C++ available).
  * Matches C++ zen_engine.cpp built_in_rules() 1:1.
  */
-import type { AnalysisResultV2, MatchV2, SuggestionV2 } from './zenEngineService';
+import type { AnalysisResultV2, MatchV2, SuggestionV2, ReadabilityResult } from './zenEngineService';
 
 // ─── Word Boundary Helpers ─────────────────────────────────────────────────────
 
@@ -239,4 +239,60 @@ export function autofixTextWeb(text: string): { text: string; fix_count: number 
   }
 
   return { text: result, fix_count: fixCount };
+}
+
+// ─── Readability (LIX) — mirrors zen_readability_analyze in zen_engine.cpp ────
+//
+// JS strings are UTF-16; iterating with `[...text]` walks Unicode codepoints
+// (not UTF-16 code units), so this stays correct even for characters outside
+// the BMP — a slightly stronger guarantee than the C++ side needs for German
+// text, kept identical in shape so both paths agree on the same document.
+
+const READABILITY_WORD_RE = /[a-zA-Z0-9_ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖØÙÚÛÜÝÞßàáâãäåæçèéêëìíîïðñòóôõöøùúûüýþÿĀ-ɏ]/;
+
+export function analyzeReadabilityWeb(text: string): ReadabilityResult {
+  const chars = [...text];
+
+  let wordCount = 0;
+  let longWordCount = 0;
+  let sentenceCount = 0;
+  let inWord = false;
+  let currentWordLen = 0;
+  let inSentenceBreak = false;
+
+  for (const ch of chars) {
+    const isWord = READABILITY_WORD_RE.test(ch);
+    if (isWord) {
+      if (!inWord) { inWord = true; currentWordLen = 0; }
+      currentWordLen++;
+    } else if (inWord) {
+      wordCount++;
+      if (currentWordLen > 6) longWordCount++;
+      inWord = false;
+    }
+
+    const isSentenceEnd = ch === '.' || ch === '!' || ch === '?';
+    if (isSentenceEnd) {
+      if (!inSentenceBreak) { sentenceCount++; inSentenceBreak = true; }
+    } else {
+      inSentenceBreak = false;
+    }
+  }
+  if (inWord) {
+    wordCount++;
+    if (currentWordLen > 6) longWordCount++;
+  }
+  if (sentenceCount === 0) sentenceCount = 1;
+
+  const avgSentenceLen = wordCount / sentenceCount;
+  const longWordPct = wordCount > 0 ? (longWordCount * 100) / wordCount : 0;
+  const lix = Math.round(avgSentenceLen + longWordPct);
+
+  return {
+    char_count: chars.length,
+    word_count: wordCount,
+    sentence_count: sentenceCount,
+    long_word_count: longWordCount,
+    lix,
+  };
 }

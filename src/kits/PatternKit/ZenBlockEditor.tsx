@@ -1559,47 +1559,50 @@ export const ZenBlockEditor = ({
     if (!value) { setContentIntel(null); return; }
 
     intelDebounceRef.current = setTimeout(() => {
-      // Strip base64 images for char count (otherwise inflated by MB of data)
-      const valueForCount = value.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
-      const charCount = valueForCount.replace(/^---\n[\s\S]*?\n---\n?/, '').length;
+      void (async () => {
+        // Strip base64 images for char count (otherwise inflated by MB of data)
+        const valueForCount = value.replace(/!\[([^\]]*)\]\(data:[^;]+;base64,[A-Za-z0-9+/=\n]+\)/g, '![$1]()');
+        const charCount = valueForCount.replace(/^---\n[\s\S]*?\n---\n?/, '').length;
 
-      // Strip HTML + markdown syntax for text analysis
-      const plain = valueForCount
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-        .replace(/#{1,6}\s/g, '')
-        .replace(/[*_`~]/g, '')
-        .replace(/^\s*[-*+]\s/gm, '')
-        .replace(/^\s*\d+\.\s/gm, '');
+        // Strip HTML + markdown syntax for text analysis
+        const plain = valueForCount
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/#{1,6}\s/g, '')
+          .replace(/[*_`~]/g, '')
+          .replace(/^\s*[-*+]\s/gm, '')
+          .replace(/^\s*\d+\.\s/gm, '');
 
-      const words = plain.split(/\s+/).filter(Boolean);
-      const sentences = plain.split(/[.!?]+/).filter(s => s.trim().length > 2);
-      const wc = words.length;
-      const sc = Math.max(sentences.length, 1);
-      const avgSentenceLen = Math.round(wc / sc);
-      const longWords = words.filter(w => w.replace(/[^a-zA-ZäöüÄÖÜß]/g, '').length > 6).length;
-      const lix = Math.round(avgSentenceLen + (longWords * 100 / Math.max(wc, 1)));
-      const lixLabel = lix < 30 ? 'Sehr leicht' : lix < 40 ? 'Leicht' : lix < 50 ? 'Mittel' : lix < 60 ? 'Schwer' : 'Sehr schwer';
-      const readingTime = Math.max(1, Math.ceil(wc / 200));
+        // UTF-8-sichere Wort-/Satz-/LIX-Metrik aus der ZenEngine (nativ in
+        // der Desktop-App, funktional identischer TS-Fallback im Browser) —
+        // zählt deutsche Umlaute/ß korrekt als je ein Zeichen.
+        const readability = await ZenEngine.analyzeReadability(plain);
+        const wc = readability.word_count;
+        const avgSentenceLen = Math.round(wc / readability.sentence_count);
+        const lix = readability.lix;
+        const lixLabel = lix < 30 ? 'Sehr leicht' : lix < 40 ? 'Leicht' : lix < 50 ? 'Mittel' : lix < 60 ? 'Schwer' : 'Sehr schwer';
+        const readingTime = Math.max(1, Math.ceil(wc / 200));
 
-      const freq = new Map<string, number>();
-      for (const w of words) {
-        const clean = w.toLowerCase().replace(/[^a-zA-ZäöüÄÖÜß]/g, '');
-        if (clean.length > 3 && !STOP_WORDS.current.has(clean)) freq.set(clean, (freq.get(clean) ?? 0) + 1);
-      }
-      const keywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([word, f]) => ({ word, freq: f }));
+        const words = plain.split(/\s+/).filter(Boolean);
+        const freq = new Map<string, number>();
+        for (const w of words) {
+          const clean = w.toLowerCase().replace(/[^a-zA-ZäöüÄÖÜß]/g, '');
+          if (clean.length > 3 && !STOP_WORDS.current.has(clean)) freq.set(clean, (freq.get(clean) ?? 0) + 1);
+        }
+        const keywords = Array.from(freq.entries()).sort((a, b) => b[1] - a[1]).slice(0, 7).map(([word, f]) => ({ word, freq: f }));
 
-      const imageMatches = [...value.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)];
-      const imageCount = imageMatches.length;
-      const missingAltCount = imageMatches.filter(m => !m[1].trim()).length;
+        const imageMatches = [...value.matchAll(/!\[([^\]]*)\]\([^)]*\)/g)];
+        const imageCount = imageMatches.length;
+        const missingAltCount = imageMatches.filter(m => !m[1].trim()).length;
 
-      const headlineMatches = value.match(/^#{1,6}\s.+/gm) ?? [];
-      const headlineCount = headlineMatches.length;
-      const multipleH1 = headlineMatches.filter(h => h.startsWith('# ')).length > 1;
+        const headlineMatches = value.match(/^#{1,6}\s.+/gm) ?? [];
+        const headlineCount = headlineMatches.length;
+        const multipleH1 = headlineMatches.filter(h => h.startsWith('# ')).length > 1;
 
-      setContentIntel({ readingTime, lix, lixLabel, avgSentenceLen, keywords, imageCount, missingAltCount, headlineCount, multipleH1, wordCount: wc, charCount });
-      onKeywordsChange?.(keywords.map(k => k.word));
+        setContentIntel({ readingTime, lix, lixLabel, avgSentenceLen, keywords, imageCount, missingAltCount, headlineCount, multipleH1, wordCount: wc, charCount });
+        onKeywordsChange?.(keywords.map(k => k.word));
+      })();
     }, 400);
 
     return () => { if (intelDebounceRef.current) clearTimeout(intelDebounceRef.current); };

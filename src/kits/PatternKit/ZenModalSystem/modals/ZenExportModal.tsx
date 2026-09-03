@@ -389,6 +389,9 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [zipExportDone, setZipExportDone] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishedId, setPublishedId] = useState<string | null>(null);
+  // True when the just-published post landed as a draft (dev.to/Medium),
+  // not a live post — cleared together with publishedId.
+  const [publishedIsDraft, setPublishedIsDraft] = useState(false);
   const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
   // Platforms where API failed → show persistent "Copy & Open" fallback button
   const [copyFallbackIds, setCopyFallbackIds] = useState<Set<string>>(new Set());
@@ -1917,7 +1920,7 @@ ${renderedHtml}
       setPublishError(null);
       try {
         const title = documentName || 'Untitled';
-        let result: { success: boolean; url?: string; error?: string };
+        let result: { success: boolean; url?: string; error?: string; isDraft?: boolean };
 
         const meta = { title, subtitle: subtitle ?? undefined, imageUrl: imageUrl ?? undefined, tags };
 
@@ -2003,12 +2006,13 @@ ${renderedHtml}
 
         if (result.success) {
           setPublishedId(option.id);
+          setPublishedIsDraft(!!result.isDraft);
           // Remove copy-fallback state on successful post
           setCopyFallbackIds(prev => { const s = new Set(prev); s.delete(option.id); return s; });
           if (result.url) {
             try { await openExternal(result.url); } catch { window.open(result.url, '_blank', 'noopener,noreferrer'); }
           }
-          setTimeout(() => setPublishedId(null), 3000);
+          setTimeout(() => { setPublishedId(null); setPublishedIsDraft(false); }, 3000);
         } else {
           // Activate persistent "Copy & Open" fallback for API errors
           setCopyFallbackIds(prev => new Set(prev).add(option.id));
@@ -2358,11 +2362,14 @@ ${renderedHtml}
                 : !!(socialPid && isPlatformConfigured(socialPid, socialConfig));
               const isPublishing = publishingId === option.id;
               const isPublished = publishedId === option.id;
+              const isPublishedDraft = isPublished && publishedIsDraft;
+              const publishedColor = isPublishedDraft ? '#fbbf24' : '#4caf50';
+              const publishedLabel = isPublishedDraft ? 'Entwurf gespeichert!' : 'Gepostet!';
               const hasError = publishError?.id === option.id;
               const hasCopyFallback = copyFallbackIds.has(option.id);
               const isSelected = selectedPlatformIds.has(option.id);
-              const borderColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? 'rgba(172,142,102,0.6)' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.3)' : '#3A3A3A';
-              const iconColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? '#AC8E66' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
+              const borderColor = isPublished ? publishedColor : isSelected ? '#AC8E66' : hasCopyFallback ? 'rgba(172,142,102,0.6)' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.3)' : '#3A3A3A';
+              const iconColor = isPublished ? publishedColor : isSelected ? '#AC8E66' : hasCopyFallback ? '#AC8E66' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
 
               // Char-Limit Berechnung
               const ruleKey = (option.id === 'github-gist' ? 'github' : option.id) as keyof typeof PLATFORM_POST_RULES;
@@ -2477,7 +2484,7 @@ ${renderedHtml}
                       }}
                       onMouseEnter={(e) => {
                         if (isPublishing) return;
-                        (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = isPublished ? '#4caf50' : '#AC8E66';
+                        (e.currentTarget.parentElement as HTMLDivElement).style.borderColor = isPublished ? publishedColor : '#AC8E66';
                         (e.currentTarget.parentElement as HTMLDivElement).style.backgroundColor = isPublished ? 'rgba(76,175,80,0.12)' : 'rgba(172,142,102,0.1)';
                       }}
                       onMouseLeave={(e) => {
@@ -2493,10 +2500,10 @@ ${renderedHtml}
                       <span style={{
                         fontFamily: 'IBM Plex Mono, monospace',
                         fontSize: '11px',
-                        color: isPublished ? '#4caf50' : iconColor,
+                        color: isPublished ? publishedColor : iconColor,
                         fontWeight: 500,
                       }}>
-                        {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : option.label}
+                        {isPublishing ? 'Wird gepostet …' : isPublished ? publishedLabel : option.label}
                       </span>
                       {isPublishing && linkedInImage && (
                         <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66' }}>
@@ -2599,8 +2606,8 @@ ${renderedHtml}
                         spin={isPublishing}
                         style={{ fontSize: '22px', color: iconColor }}
                       />
-                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: isPublished ? '#4caf50' : iconColor, fontWeight: 500 }}>
-                        {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : option.label}
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: isPublished ? publishedColor : iconColor, fontWeight: 500 }}>
+                        {isPublishing ? 'Wird gepostet …' : isPublished ? publishedLabel : option.label}
                       </span>
                     </button>
                     {!isPublishing && !isPublished && (
@@ -2652,7 +2659,7 @@ ${renderedHtml}
                   }}
                   onMouseEnter={(e) => {
                     if (isPublishing || hasCopyFallback) return;
-                    e.currentTarget.style.borderColor = isPublished ? '#4caf50' : isConfigured ? '#AC8E66' : '#555555';
+                    e.currentTarget.style.borderColor = isPublished ? publishedColor : isConfigured ? '#AC8E66' : '#555555';
                     e.currentTarget.style.backgroundColor = isPublished ? 'rgba(76,175,80,0.12)' : isConfigured ? 'rgba(172,142,102,0.1)' : '#55555520';
                     e.currentTarget.style.transform = 'translateY(-2px)';
                   }}
@@ -2709,10 +2716,10 @@ ${renderedHtml}
                   <span style={{
                     fontFamily: 'IBM Plex Mono, monospace',
                     fontSize: '11px',
-                    color: isPublished ? '#4caf50' : hasCopyFallback ? '#AC8E66' : hasError ? '#e05c5c' : iconColor,
+                    color: isPublished ? publishedColor : hasCopyFallback ? '#AC8E66' : hasError ? '#e05c5c' : iconColor,
                     fontWeight: isConfigured ? 500 : 'normal',
                   }}>
-                    {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : hasError ? 'Fehler' : option.label}
+                    {isPublishing ? 'Wird gepostet …' : isPublished ? publishedLabel : hasError ? 'Fehler' : option.label}
                   </span>
                   {hasError && !hasCopyFallback && (
                     <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', textAlign: 'center', lineHeight: 1.4 }}>

@@ -1017,8 +1017,11 @@ export function validateSteuerFormatContent(
   }
 
   if (rule.maxTotalChars && textForCount.length > rule.maxTotalChars) {
+    // A hard platform limit is a hard limit everywhere — preparePostContent()
+    // silently truncates at maxTotalChars before sending, so treating this as
+    // a non-blocking "warning" anywhere let mid-sentence cuts ship unnoticed.
     issues.push({
-      level: platform === "linkedin" ? "error" : "warning",
+      level: "error",
       code: "max-total-chars",
       message: `${rule.label}: ${textForCount.length} Zeichen (Limit ${rule.maxTotalChars}).`,
     });

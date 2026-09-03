@@ -1447,6 +1447,8 @@ export const Step1SourceInput = ({
                 backgroundColor: '#1a1a1a',
                 position: 'relative',
                 zIndex: 10,
+                maxWidth: '100%',
+                overflowX: 'hidden',
               }}
             >
               <div style={{ 

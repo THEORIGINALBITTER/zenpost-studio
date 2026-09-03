@@ -1717,15 +1717,15 @@ const handleDownload = async () => {
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 4,
                         padding: '3px 8px', borderRadius: '20px',
-                        border: '1px solid rgba(76,175,80,0.5)',
-                        background: 'rgba(76,175,80,0.12)',
+                        border: postResult.isDraft ? '1px solid rgba(251,191,36,0.5)' : '1px solid rgba(76,175,80,0.5)',
+                        background: postResult.isDraft ? 'rgba(251,191,36,0.12)' : 'rgba(76,175,80,0.12)',
                         fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-                        color: '#4caf50', letterSpacing: '0.03em', textDecoration: 'none',
+                        color: postResult.isDraft ? '#fbbf24' : '#4caf50', letterSpacing: '0.03em', textDecoration: 'none',
                         cursor: postResult.url ? 'pointer' : 'default',
                       }}
                     >
                       <FontAwesomeIcon icon={faCheck} style={{ fontSize: '7px' }} />
-                      Gepostet!{postResult.url ? ' →' : ''}
+                      {postResult.isDraft ? 'Entwurf gespeichert!' : 'Gepostet!'}{postResult.url ? ' →' : ''}
                     </a>
                   ) : hasConfig ? (
                     <span style={{
@@ -2857,14 +2857,16 @@ const handleDownload = async () => {
                 icon={postResult.success ? faCheck : faRotateLeft}
                 className={postResult.success ? 'text-green-500' : 'text-red-500'}
               />
-              <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-2 flex-wrap">
                 <p
                   className={`font-mono text-sm ${
                     postResult.success ? 'text-green-400' : 'text-red-400'
                   }`}
                 >
                   {postResult.success
-                    ? `Erfolgreich auf ${platformLabels[platform]} gepostet!`
+                    ? postResult.isDraft
+                      ? `Als Entwurf auf ${platformLabels[platform]} gespeichert — noch nicht veröffentlicht.`
+                      : `Erfolgreich auf ${platformLabels[platform]} gepostet!`
                     : `Fehler beim Posten: ${postResult.error}`}
                 </p>
                 {!postResult.success && (
@@ -2883,11 +2885,16 @@ const handleDownload = async () => {
                     rel="noopener noreferrer"
                     className="text-xs text-blue-400 hover:underline ml-2"
                   >
-                    Post öffnen →
+                    {postResult.isDraft ? 'Entwurf öffnen →' : 'Post öffnen →'}
                   </a>
                 )}
               </div>
             </div>
+            {postResult.success && postResult.warning && (
+              <p className="font-mono text-xs text-amber-400 mt-2">
+                ⚠ {postResult.warning}
+              </p>
+            )}
           </div>
         )}
 

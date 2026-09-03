@@ -48,6 +48,23 @@ typedef struct ZenImageMeta {
 ZenImageMeta* zen_image_meta(const uint8_t* data, uint32_t len);
 void          zen_image_meta_free(ZenImageMeta* meta);
 
+// ─── Readability (LIX) ─────────────────────────────────────────────────────────
+//
+// UTF-8-safe text metrics: counts Unicode codepoints, not bytes, so German
+// umlauts (ä ö ü Ä Ö Ü ß) and other multi-byte characters count as one
+// character each and are correctly recognized as word characters.
+
+typedef struct ZenReadabilityResult {
+    uint32_t char_count;      // Unicode codepoints, not bytes
+    uint32_t word_count;
+    uint32_t sentence_count;
+    uint32_t long_word_count; // words with more than 6 codepoints (LIX definition)
+    int32_t  lix;             // rounded LIX score: avg sentence length + % long words
+} ZenReadabilityResult;
+
+ZenReadabilityResult* zen_readability_analyze(const char* text);
+void                   zen_readability_result_free(ZenReadabilityResult* result);
+
 // ─── Engine Info ──────────────────────────────────────────────────────────────
 
 const char* zen_engine_version(void);

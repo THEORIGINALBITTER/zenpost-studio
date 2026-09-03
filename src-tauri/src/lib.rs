@@ -284,6 +284,11 @@ fn engine_autofix_text(
 }
 
 #[tauri::command]
+fn engine_analyze_readability(text: String) -> Result<rules::ReadabilityResult, String> {
+    rules::analyze_readability(&text)
+}
+
+#[tauri::command]
 fn engine_analyze_text_v2(
     state: tauri::State<ZenEngineState>,
     text: String,
@@ -334,6 +339,7 @@ pub fn run() {
         engine_generate_platform_thumbnail,
         engine_analyze_text,
         engine_autofix_text,
+        engine_analyze_readability,
         engine_analyze_text_v2,
         engine_autofix_text_v2,
     ])

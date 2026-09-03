@@ -1,0 +1,507 @@
+<meta charset="utf-8">
+<title>Publish Reliability Agent</title>
+<meta name="description" content="Konzeptpapier: warum ein Agent bei ZenPost Studio nicht beim Schreiben, sondern beim verlässlichen Ausliefern ansetzen sollte.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f2ede3;
+    --surface: #ffffff;
+    --surface-2: #eae2d0;
+    --ink: #24201a;
+    --ink-dim: #6e6353;
+    --accent: #8a6a3f;
+    --accent-ink: #ffffff;
+    --rule: rgba(36,31,25,0.14);
+    --rule-strong: rgba(36,31,25,0.28);
+    --good: #2e7d46;
+    --good-bg: rgba(46,125,70,0.10);
+    --bad: #ac342b;
+    --bad-bg: rgba(172,52,43,0.08);
+    --chip-bg: rgba(138,106,63,0.10);
+    --shadow: 0 1px 2px rgba(36,31,25,0.06), 0 8px 24px rgba(36,31,25,0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15130f;
+      --surface: #1c1a15;
+      --surface-2: #221f19;
+      --ink: #ece5d6;
+      --ink-dim: #a89b85;
+      --accent: #c9a26c;
+      --accent-ink: #1c1a15;
+      --rule: rgba(236,229,214,0.14);
+      --rule-strong: rgba(236,229,214,0.26);
+      --good: #5cbf72;
+      --good-bg: rgba(92,191,114,0.12);
+      --bad: #e2716a;
+      --bad-bg: rgba(226,113,106,0.12);
+      --chip-bg: rgba(201,162,108,0.14);
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15130f;
+    --surface: #1c1a15;
+    --surface-2: #221f19;
+    --ink: #ece5d6;
+    --ink-dim: #a89b85;
+    --accent: #c9a26c;
+    --accent-ink: #1c1a15;
+    --rule: rgba(236,229,214,0.14);
+    --rule-strong: rgba(236,229,214,0.26);
+    --good: #5cbf72;
+    --good-bg: rgba(92,191,114,0.12);
+    --bad: #e2716a;
+    --bad-bg: rgba(226,113,106,0.12);
+    --chip-bg: rgba(201,162,108,0.14);
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 12px 32px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+    line-height: 1.6;
+  }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+
+  /* ── Window chrome — echoes the app's own macOS title bar ── */
+  .chrome {
+    border: 1px solid var(--rule-strong);
+    border-radius: 10px 10px 0 0;
+    background: var(--surface-2);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+  }
+  .chrome .dots { display: flex; gap: 6px; margin-right: 4px; }
+  .chrome .dot { width: 9px; height: 9px; border-radius: 50%; }
+  .chrome .dot.r { background: #e0605a; }
+  .chrome .dot.y { background: #e0b04a; }
+  .chrome .dot.g { background: #5cbf72; }
+  .chrome .path { letter-spacing: 0.02em; }
+
+  .doc {
+    border: 1px solid var(--rule-strong);
+    border-top: none;
+    border-radius: 0 0 10px 10px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    padding: 56px 64px 64px;
+  }
+  @media (max-width: 600px) {
+    .doc { padding: 36px 22px 44px; }
+    .page { padding: 24px 12px 64px; }
+  }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 14px;
+  }
+
+  h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-weight: 600;
+    font-size: clamp(28px, 4vw, 38px);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 16px;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+
+  .dek {
+    font-size: 17px;
+    color: var(--ink-dim);
+    max-width: 60ch;
+    margin: 0 0 28px;
+    text-wrap: balance;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-dim);
+    padding: 16px 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 44px;
+  }
+  .meta span b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  h2 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink);
+    margin: 56px 0 18px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h2 .num { color: var(--accent); margin-right: 10px; }
+  section:first-of-type h2 { margin-top: 0; }
+
+  p { margin: 0 0 16px; max-width: 66ch; }
+  strong { font-weight: 600; }
+  code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9em;
+    background: var(--chip-bg);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+  }
+
+  /* ── Bug evidence chips ── */
+  .evidence { display: flex; flex-direction: column; gap: 10px; margin: 0 0 20px; }
+  .ev-row {
+    display: grid;
+    grid-template-columns: 90px 1fr;
+    gap: 14px;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .ev-row:last-child { border-bottom: none; }
+  .ev-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    background: var(--chip-bg);
+    border-radius: 5px;
+    padding: 3px 7px;
+    white-space: nowrap;
+    width: fit-content;
+  }
+  .ev-text { font-size: 14px; color: var(--ink-dim); }
+  .ev-text b { color: var(--ink); font-weight: 500; }
+
+  /* ── Pipeline ── */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 24px 0 8px;
+  }
+  .stage {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 18px;
+  }
+  .stage-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .stage-num {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent);
+    color: var(--accent);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    background: var(--surface);
+  }
+  .stage-line {
+    width: 1.5px;
+    flex: 1;
+    background: var(--rule-strong);
+    margin: 4px 0;
+    min-height: 28px;
+  }
+  .stage:last-child .stage-line { display: none; }
+  .stage-body { padding-bottom: 34px; }
+  .stage-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 3px 0 4px;
+  }
+  .stage-tech {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    color: var(--ink-dim);
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .stage-desc { font-size: 14px; color: var(--ink-dim); margin: 0 0 10px; max-width: 58ch; }
+  .stage-example {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 9px 12px;
+    color: var(--ink-dim);
+  }
+  .stage-example b { color: var(--ink); font-weight: 500; }
+
+  /* ── Pro/Contra ── */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 8px 0 24px;
+  }
+  @media (max-width: 560px) { .split { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .card.good { border-color: color-mix(in srgb, var(--good) 35%, var(--rule)); }
+  .card.bad { border-color: color-mix(in srgb, var(--bad) 35%, var(--rule)); }
+  .card-head {
+    display: flex; align-items: center; gap: 8px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .card.good .card-head { color: var(--good); }
+  .card.bad .card-head { color: var(--bad); }
+  .dot-mark { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .card.good .dot-mark { background: var(--good); }
+  .card.bad .dot-mark { background: var(--bad); }
+  .card ul { margin: 0; padding: 0 0 0 16px; }
+  .card li { font-size: 13.5px; color: var(--ink-dim); margin-bottom: 9px; }
+  .card li:last-child { margin-bottom: 0; }
+  .card li b { color: var(--ink); font-weight: 500; }
+
+  /* ── Recommendation callout ── */
+  .callout {
+    border: 1.5px solid var(--accent);
+    border-radius: 10px;
+    padding: 22px 24px;
+    background: var(--chip-bg);
+    margin: 8px 0 8px;
+  }
+  .callout-head {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  .callout p { margin: 0 0 10px; font-size: 14.5px; }
+  .callout p:last-child { margin: 0; }
+
+  .steps { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: step; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 30px;
+    font-size: 13.5px;
+    color: var(--ink-dim);
+    margin-bottom: 10px;
+  }
+  .steps li b { color: var(--ink); font-weight: 500; }
+  .steps li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px; font-weight: 600;
+    color: var(--accent);
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10.5px;
+    color: var(--ink-dim);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+
+<div class="page">
+  <div class="chrome">
+    <span class="dots"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span></span>
+    <span class="path">ZenPost Studio · /konzepte/publish-reliability-agent.md</span>
+  </div>
+
+  <article class="doc">
+    <p class="eyebrow">Konzeptpapier · Entwurf</p>
+    <h1>Der Publish Reliability Agent</h1>
+    <p class="dek">Nicht noch ein Schreibassistent. Ein Agent, der dafür sorgt, dass das, was geschrieben wurde, auf allen neun Kanälen wirklich ankommt.</p>
+
+    <div class="meta">
+      <span>Projekt: <b>ZenPost Studio</b></span>
+      <span>Datum: <b>03.09.2026</b></span>
+      <span>Status: <b>Konzept, ungeprüft</b></span>
+      <span>Grundlage: <b>heutige Debugging-Session</b></span>
+    </div>
+
+    <section>
+      <h2><span class="num">01</span>Ausgangslage</h2>
+      <p>ZenPost Studio hat bereits eine KI-Integration für das Schreiben und das plattformspezifische Transformieren eines Artikels (bis zu neun Ziele: Blog, LinkedIn, Reddit, Twitter, dev.to, Medium, GitHub …). Die heutige Debugging-Session hat aber gezeigt: Die eigentlichen Fehler passieren nicht beim Schreiben oder Transformieren, sondern danach — beim tatsächlichen Ausliefern und Synchronhalten.</p>
+      <div class="evidence">
+        <div class="ev-row">
+          <span class="ev-tag">FUND 01</span>
+          <span class="ev-text"><b>Manifest-Cache eingefroren:</b> der Docs-Endpoint gab bei nicht-leerer Manifest immer den alten Stand zurück, egal was im Ordner lag.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">FUND 02</span>
+          <span class="ev-text"><b>Löschen ohne Löschen:</b> ein Dokument verschwand aus der Manifest, die Datei blieb aber verwaist auf dem Server liegen — bei Docs, bei Blog-Posts und bei FTP-Blogs gleichermaßen.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">FUND 03</span>
+          <span class="ev-text"><b>Falscher Endpoint, stiller Erfolg:</b> „Erfolgreich gespeichert“ zeigte einen Server an, der mit dem eingestellten Blog gar nichts zu tun hatte — ein Legacy-Fallback griff unbemerkt.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">FUND 04</span>
+          <span class="ev-text"><b>Kontext verloren beim Öffnen:</b> ein Dokument aus der Blog-Liste geöffnet, aber der Blog-Bezug ging auf einem Fallback-Pfad verloren — „Speichern“ landete dann am falschen Ort.</span>
+        </div>
+      </div>
+      <p>Gemeinsamer Nenner: In jedem Fall meldete die Oberfläche Erfolg, während der tatsächliche Zustand auf dem Server ein anderer war. Genau das ist das Muster, für das ein Agent gebaut wird — nicht Kreativität, sondern <strong>Verlässlichkeit</strong>.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">02</span>Kernthese</h2>
+      <p>Eine Transformation „ein Artikel → neun Plattformversionen“ ist kein Agent. Es ist ein Batch-Job: Text rein, pro Ziel ein Prompt mit Formatregeln, Text raus. Kein Entscheidungsspielraum, kein mehrstufiges Vorgehen — das als „Agent“ zu bezeichnen wäre Etikettenschwindel.</p>
+      <p>Ein Agent lohnt sich dort, wo <strong>Entscheidungen unter Unsicherheit</strong> nötig sind: Ist die Antwort der Plattform ein Erfolg oder eine versteckte Ablehnung? Passt der Text noch, oder muss er nachbearbeitet werden? Soll bei einem Fehler automatisch erneut versucht werden oder die Nutzerin informiert werden? Genau das ist der Bereich zwischen Transformation und tatsächlicher Veröffentlichung — und genau dort lagen heute alle vier Funde.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">03</span>Architekturkonzept</h2>
+      <p>Ein dreistufiger Ablauf, der die bereits vorhandene KI-Transformation und die eigene ZenEngine (C++) als deterministische Prüfinstanz kombiniert, bevor ein Agent-Loop die Zustellung selbst übernimmt.</p>
+
+      <div class="pipeline">
+        <div class="stage">
+          <div class="stage-rail"><div class="stage-num">1</div><div class="stage-line"></div></div>
+          <div class="stage-body">
+            <p class="stage-tech">Bestehende KI-Transformation</p>
+            <p class="stage-title">Transform</p>
+            <p class="stage-desc">Der Artikel wird pro Zielplattform umformuliert — Tonalität, Länge, Struktur an LinkedIn, Reddit, Twitter usw. angepasst. Kreative Aufgabe, bleibt beim LLM.</p>
+            <div class="stage-example">Eingabe: <b>1 Markdown-Artikel</b> → Ausgabe: <b>9 plattformspezifische Entwürfe</b></div>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stage-rail"><div class="stage-num">2</div><div class="stage-line"></div></div>
+          <div class="stage-body">
+            <p class="stage-tech">ZenEngine (C++) als Werkzeug des Agenten</p>
+            <p class="stage-title">Validate</p>
+            <p class="stage-desc">Jeder Entwurf wird gegen echte, harte Regeln geprüft — deterministisch, ohne weiteren LLM-Aufruf, ohne Halluzinationsrisiko. Das ist die Prüfung, die eine reine LLM-Antwort nicht garantieren kann.</p>
+            <div class="stage-example">Zeichenlimit Twitter, Markdown-Kompatibilität pro Plattform, kaputte Bildreferenzen, Lesbarkeits-Score (<b>LIX</b>, neu als <code>analyze_readability</code> in der Engine, UTF-8-sicher)</div>
+          </div>
+        </div>
+        <div class="stage">
+          <div class="stage-rail"><div class="stage-num">3</div></div>
+          <div class="stage-body">
+            <p class="stage-tech">Agent-Loop</p>
+            <p class="stage-title">Publish → Verify → Retry</p>
+            <p class="stage-desc">Erst hier trifft ein Agent echte Entscheidungen: senden, Antwort der Plattform tatsächlich prüfen (nicht nur HTTP-200 glauben), bei Ablehnung selbst nachbessern oder verständlich eskalieren.</p>
+            <div class="stage-example">Genau die Fehlerklasse aus <b>Fund 01–04</b>: „gemeldeter Erfolg“ ≠ „tatsächlicher Zustand“</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">04</span>Abwägung</h2>
+      <div class="split">
+        <div class="card good">
+          <p class="card-head"><span class="dot-mark"></span>Dafür</p>
+          <ul>
+            <li><b>Trifft ein reales Problem:</b> alle vier heutigen Bugs sind exakt „Erfolg gemeldet, Zustand falsch“ — kein Sonderfall, sondern das Muster.</li>
+            <li><b>Nutzt einen echten Wettbewerbsvorteil:</b> die eigene C++-Engine liefert Ground Truth, die ein reiner LLM-Wrapper nicht hat.</li>
+            <li><b>Passt zur Zielgruppe:</b> Blogger:innen wollen schreiben, nicht Sync-Zustände zwischen lokal, Manifest und Server im Kopf behalten.</li>
+            <li><b>Skaliert mit den neun Kanälen:</b> je mehr Zielplattformen, desto mehr Stellen, an denen still etwas schiefgehen kann.</li>
+          </ul>
+        </div>
+        <div class="card bad">
+          <p class="card-head"><span class="dot-mark"></span>Dagegen</p>
+          <ul>
+            <li><b>Autonome Aktionen sind heikel:</b> ein Agent, der eigenständig löscht oder überschreibt, braucht sehr klare Bestätigungs-UX — sonst Vertrauensbruch bei Content, an dem Nutzer hängen.</li>
+            <li><b>Fundament zuerst:</b> zwei parallele Sync-Pfade (PHP/FTP) plus Legacy-Felder sorgen schon ohne Agent für Verwirrung — ein Agent obendrauf verschleiert das eher, statt es zu lösen.</li>
+            <li><b>Kostenrisiko:</b> jeder zusätzliche Agent-Schritt mit LLM-Beteiligung kostet Zeit und Geld — nur einsetzen, wo deterministische Prüfung (Stufe 2) nicht reicht.</li>
+            <li><b>Erwartungsmanagement:</b> „Agent“ weckt Erwartungen an Autonomie, die eine erste Version bewusst noch nicht einlösen sollte.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">05</span>Bestandsaufnahme: ZenEngine (C++)</h2>
+      <p>Vor der Umsetzung von <code>analyze_readability</code> wurde die bestehende Engine-Architektur geprüft — Ziel: die neue Funktion ins vorhandene Muster einfügen statt einen Fremdkörper zu bauen.</p>
+
+      <div class="evidence">
+        <div class="ev-row">
+          <span class="ev-tag">STRUKTUR</span>
+          <span class="ev-text">Zwei Engines koexistieren aktiv, nicht Alt/Neu-Ablösung: <b>V1</b> (<code>cpp/zen_engine.cpp</code>, 755 Zeilen, globale Engine mit Mutex, Ergebnis als C-Struct-Array) und <b>V2</b> (<code>cpp/zen_engine_v2/</code>, ~2.470 Zeilen, modular, persistenter Handle pro App-Instanz, Ergebnis als JSON-String). Beide über getrennte Tauri-Commands ansprechbar.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">BUILD</span>
+          <span class="ev-text">Reine <code>cc</code>-Crate-Kompilierung mit rohem <code>extern "C"</code> — kein <code>cxx</code>, kein <code>cbindgen</code>. Header-Structs werden von Hand 1:1 als <code>#[repr(C)]</code> in Rust nachgebildet (<code>rules.rs</code>), mit dem Kommentar „müssen exakt zu <code>zen_engine.h</code> passen" — Codegenerierung würde diese Fehlerquelle eliminieren, ist aber bewusst nicht im Einsatz.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">SPEICHER</span>
+          <span class="ev-text">Strikte Regel über die gesamte Engine: wer alloziert (<code>new</code>/<code>strdup</code> in C++), gibt auch frei — über eine dedizierte <code>_free</code>-Funktion, die wieder in C++ läuft. Rust kopiert alle Daten in eigene, besitzergesteuerte Typen, bevor es freigibt. Sauberes, konsistentes Muster.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">UTF-8 — FUND</span>
+          <span class="ev-text"><b>Kein echtes Unicode-Handling.</b> Wortgrenzen werden über eine Byte-Heuristik erkannt (<code>is_wchar()</code>, <code>zen_engine.cpp:77</code>): jedes Byte ≥ 0x80 gilt pauschal als „Wortzeichen" — es wird nicht dekodiert, keine Codepoint-Iteration, keine Bibliothek (kein ICU/utfcpp/simdutf) im Einsatz. Für <code>analyze_readability</code> braucht es diese Iterationshilfe daher <b>neu</b> — es gibt noch keine Vorlage dafür.</span>
+        </div>
+        <div class="ev-row">
+          <span class="ev-tag">TESTS</span>
+          <span class="ev-text">Keine C++-Unit-Tests (kein Catch2/GTest/doctest), keine Rust-<code>#[test]</code>s für die Engine-Bridge. Einziges Testwerkzeug: ein CLI-Tool (<code>zen_engine_v2_cli.cpp</code>), das nicht einmal im Standard-Build mitläuft.</span>
+        </div>
+      </div>
+
+      <p><strong>Konsequenz für <code>analyze_readability</code>:</strong> stilistisch an V1 orientieren (zustandslos, keine Handle-Verwaltung nötig — reine Text-Metrik) — <code>extern "C"</code>-Funktion mit passendem <code>_free</code>-Pendant, analog zu <code>zen_rules_analyze</code>/<code>zen_rules_result_free</code>. Erster Baustein: eine UTF-8-Codepoint-Iterationsfunktion, die es in der Engine bisher nicht gibt — und die zugleich die erste automatisierte Testabdeckung für die C++-Engine überhaupt wäre.</p>
+    </section>
+
+    <section>
+      <h2><span class="num">06</span>Empfehlung</h2>
+      <div class="callout">
+        <p class="callout-head">Nicht den ganzen Agenten auf einmal</p>
+        <p>Zuerst die deterministische <strong>Validate</strong>-Stufe isolieren und mit der ZenEngine unabhängig testbar machen — das ist der Teil mit dem größten Alleinstellungsmerkmal und dem geringsten Risiko. Der Agent-Loop (Stufe 3) kommt erst, wenn Transform und Validate zuverlässig stehen.</p>
+        <ul class="steps">
+          <li><b>ZenEngine-Prüfregeln definieren</b> — Zeichenlimits und Formatregeln je Plattform als Konfiguration, nicht Prosa im Prompt.</li>
+          <li><b>Validate als Vorschau im Editor</b> — Prüfergebnis direkt beim Transformieren zeigen, bevor überhaupt gesendet wird.</li>
+          <li><b>Publish-Verify erst danach</b> — Agent-Loop mit Bestätigung bei riskanten Aktionen (Löschen, Überschreiben), nicht vollautonom.</li>
+        </ul>
+      </div>
+    </section>
+
+    <footer>
+      <span>ZenPost Studio — internes Konzeptpapier</span>
+      <span>Basis: Debugging-Session vom 03.09.2026</span>
+    </footer>
+  </article>
+</div>

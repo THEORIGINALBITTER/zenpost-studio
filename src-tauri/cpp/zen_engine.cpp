@@ -11,6 +11,7 @@
 #include <future>
 #include <mutex>
 #include <utility>
+#include <cmath>
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 
@@ -746,6 +747,111 @@ ZenImageMeta* zen_image_meta(const uint8_t* data, uint32_t len) {
     }
 
     return meta;
+}
+
+// ─── Readability (LIX) ──────────────────────────────────────────────────────
+//
+// Decodes UTF-8 into Unicode codepoints before counting anything, so every
+// German umlaut/ß (and any other multi-byte character) counts as exactly one
+// character — unlike a byte-based scan, which would count e.g. "ü" as two.
+
+static std::vector<char32_t> utf8_decode(const std::string& s) {
+    std::vector<char32_t> out;
+    out.reserve(s.size());
+    size_t i = 0, n = s.size();
+    while (i < n) {
+        unsigned char c = static_cast<unsigned char>(s[i]);
+        char32_t cp;
+        size_t len;
+        if (c < 0x80)                { cp = c;          len = 1; }
+        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F;  len = 2; }
+        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F;  len = 3; }
+        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07;  len = 4; }
+        else { out.push_back(c); i += 1; continue; } // invalid lead byte — keep going
+
+        if (i + len > n) { out.push_back(c); i += 1; continue; } // truncated sequence
+
+        bool valid = true;
+        char32_t decoded = cp;
+        for (size_t k = 1; k < len; ++k) {
+            unsigned char cc = static_cast<unsigned char>(s[i + k]);
+            if ((cc & 0xC0) != 0x80) { valid = false; break; }
+            decoded = (decoded << 6) | (cc & 0x3F);
+        }
+        if (!valid) { out.push_back(c); i += 1; continue; }
+
+        out.push_back(decoded);
+        i += len;
+    }
+    return out;
+}
+
+// Word-character classification by codepoint (not byte): ASCII alnum plus the
+// Latin-1 Supplement and Latin Extended-A/B letter ranges, which cover German
+// umlauts/ß and the accented letters of most European languages. Not a full
+// Unicode letter-category table (no ICU dependency), but correct for the
+// European text this editor is built for.
+static bool is_word_codepoint(char32_t cp) {
+    if ((cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z') ||
+        (cp >= '0' && cp <= '9') || cp == '_') return true;
+    if (cp >= 0x00C0 && cp <= 0x024F && cp != 0x00D7 && cp != 0x00F7) return true; // skip × ÷
+    return false;
+}
+
+ZenReadabilityResult* zen_readability_analyze(const char* text) {
+    std::string input(text ? text : "");
+    std::vector<char32_t> cps = utf8_decode(input);
+
+    uint32_t word_count = 0;
+    uint32_t long_word_count = 0;
+    uint32_t sentence_count = 0;
+    bool in_word = false;
+    uint32_t current_word_len = 0;
+    bool in_sentence_break = false;
+
+    for (char32_t cp : cps) {
+        bool is_word = is_word_codepoint(cp);
+        if (is_word) {
+            if (!in_word) { in_word = true; current_word_len = 0; }
+            current_word_len++;
+        } else {
+            if (in_word) {
+                word_count++;
+                if (current_word_len > 6) long_word_count++;
+                in_word = false;
+            }
+        }
+
+        bool is_sentence_end = (cp == '.' || cp == '!' || cp == '?');
+        if (is_sentence_end) {
+            if (!in_sentence_break) { sentence_count++; in_sentence_break = true; }
+        } else {
+            in_sentence_break = false;
+        }
+    }
+    if (in_word) {
+        word_count++;
+        if (current_word_len > 6) long_word_count++;
+    }
+    if (sentence_count == 0) sentence_count = 1;
+
+    ZenReadabilityResult* result = new ZenReadabilityResult();
+    result->char_count      = static_cast<uint32_t>(cps.size());
+    result->word_count      = word_count;
+    result->sentence_count  = sentence_count;
+    result->long_word_count = long_word_count;
+
+    double avg_sentence_len = static_cast<double>(word_count) / sentence_count;
+    double long_word_pct    = word_count > 0
+        ? (static_cast<double>(long_word_count) * 100.0 / word_count)
+        : 0.0;
+    result->lix = static_cast<int32_t>(std::lround(avg_sentence_len + long_word_pct));
+
+    return result;
+}
+
+void zen_readability_result_free(ZenReadabilityResult* result) {
+    delete result;
 }
 
 void zen_image_meta_free(ZenImageMeta* meta) {

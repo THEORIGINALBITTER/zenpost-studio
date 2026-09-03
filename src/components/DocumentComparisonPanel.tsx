@@ -65,7 +65,7 @@ export const DocumentComparisonPanel = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr auto 1fr',
+          gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
           gap: '8px',
           alignItems: 'center',
           marginBottom: '8px',
@@ -77,13 +77,14 @@ export const DocumentComparisonPanel = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '8px',
+            minWidth: 0,
             border: palette.sideChipBorder,
             borderRadius: '6px',
             backgroundColor: palette.sideChipBackground,
             padding: '6px 8px',
           }}
         >
-          <span className="font-mono text-[10px]" style={{ color: palette.sideChipLeftText }}>{labels.leftSideTitle}</span>
+          <span className="font-mono text-[10px]" style={{ color: palette.sideChipLeftText, flexShrink: 0 }}>{labels.leftSideTitle}</span>
           <span
             className="font-mono text-[10px]"
             style={{ color: palette.sideChipContextText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -113,13 +114,14 @@ export const DocumentComparisonPanel = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             gap: '8px',
+            minWidth: 0,
             border: palette.sideChipBorder,
             borderRadius: '6px',
             backgroundColor: palette.sideChipBackground,
             padding: '6px 8px',
           }}
         >
-          <span className="font-mono text-[10px]" style={{ color: palette.sideChipRightText }}>{labels.rightSideTitle}</span>
+          <span className="font-mono text-[10px]" style={{ color: palette.sideChipRightText, flexShrink: 0 }}>{labels.rightSideTitle}</span>
           <span
             className="font-mono text-[10px]"
             style={{ color: palette.sideChipContextText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
@@ -132,13 +134,13 @@ export const DocumentComparisonPanel = ({
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
           gap: '8px',
           maxHeight,
           overflow: 'auto',
         }}
       >
-        <div style={{ border: palette.leftCardBorder, borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ border: palette.leftCardBorder, borderRadius: '8px', overflow: 'hidden', minWidth: 0 }}>
           <div
             style={{
               position: 'sticky',
@@ -171,13 +173,14 @@ export const DocumentComparisonPanel = ({
                 fontFamily: 'monospace',
                 fontSize: '10px',
                 whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
               }}
             >
               {row.left || ' '}
             </div>
           ))}
         </div>
-        <div style={{ border: palette.rightCardBorder, borderRadius: '8px', overflow: 'hidden' }}>
+        <div style={{ border: palette.rightCardBorder, borderRadius: '8px', overflow: 'hidden', minWidth: 0 }}>
           <div
             style={{
               position: 'sticky',
@@ -213,6 +216,7 @@ export const DocumentComparisonPanel = ({
                 fontFamily: 'monospace',
                 fontSize: '10px',
                 whiteSpace: 'pre-wrap',
+                overflowWrap: 'anywhere',
               }}
             >
               {row.right || ' '}

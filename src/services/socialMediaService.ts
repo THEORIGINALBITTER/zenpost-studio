@@ -80,6 +80,10 @@ export interface PostResult {
   postId?: string;
   url?: string;
   error?: string;
+  /** Non-fatal issue alongside a success (e.g. a thread tweet failed to send) */
+  warning?: string;
+  /** True when the platform saved this as a draft, not a live/published post */
+  isDraft?: boolean;
 }
 
 export interface TwitterPostOptions {
@@ -198,12 +202,20 @@ export async function postToTwitter(
     }
 
     const data = await response.json();
+    const tweetId: string | undefined = data?.data?.id;
+    if (!tweetId) {
+      throw new Error('Twitter-Antwort enthielt keine Tweet-ID — Tweet-Status unklar.');
+    }
 
-    // If it's a thread, post additional tweets
+    // If it's a thread, post additional tweets. A failed segment stops the
+    // thread there (posting further replies to a broken chain makes it worse)
+    // and is surfaced as a warning — the main tweet still went out, so this
+    // is not treated as a full failure.
+    let threadFailedAt: number | null = null;
     if (content.thread && content.thread.length > 0) {
-      let previousTweetId = data.data.id;
+      let previousTweetId = tweetId;
 
-      for (const threadText of content.thread) {
+      for (let i = 0; i < content.thread.length; i++) {
         const threadResponse = await httpFetch('https://api.twitter.com/2/tweets', {
           method: 'POST',
           headers: {
@@ -211,25 +223,35 @@ export async function postToTwitter(
             Authorization: `Bearer ${config.bearerToken}`,
           },
           body: JSON.stringify({
-            text: threadText,
+            text: content.thread[i],
             reply: {
               in_reply_to_tweet_id: previousTweetId,
             },
           }),
         });
 
-        if (threadResponse.ok) {
-          const threadData = await threadResponse.json();
-          previousTweetId = threadData.data.id;
+        if (!threadResponse.ok) {
+          threadFailedAt = i + 1; // 1-based: "Folge-Tweet 1" = content.thread[0]
+          break;
         }
+        const threadData = await threadResponse.json();
+        const nextId: string | undefined = threadData?.data?.id;
+        if (!nextId) {
+          threadFailedAt = i + 1;
+          break;
+        }
+        previousTweetId = nextId;
       }
     }
 
     return {
       success: true,
       platform: 'twitter',
-      postId: data.data.id,
-      url: `https://twitter.com/i/web/status/${data.data.id}`,
+      postId: tweetId,
+      url: `https://twitter.com/i/web/status/${tweetId}`,
+      warning: threadFailedAt
+        ? `Thread unvollständig: Folge-Tweet ${threadFailedAt} von ${content.thread!.length} ist fehlgeschlagen, danach abgebrochen.`
+        : undefined,
     };
   } catch (error) {
     return {
@@ -298,11 +320,17 @@ export async function postToReddit(
 
     const data = await response.json();
 
-    if (data.json.errors && data.json.errors.length > 0) {
+    if (data?.json?.errors && data.json.errors.length > 0) {
       throw new Error(data.json.errors[0][1]);
     }
 
-    const postUrl = data.json.data.url;
+    const postUrl: string | undefined = data?.json?.data?.url;
+    if (!postUrl) {
+      // Reddit returned 200 with no errors[] but also no post URL — this
+      // happens e.g. when a post is silently caught by the spam filter.
+      // Treating that as success would hide a post that never went live.
+      throw new Error('Reddit meldete keinen Fehler, lieferte aber auch keine Post-URL zurück — Status unklar (evtl. Spam-Filter).');
+    }
 
     return {
       success: true,
@@ -591,12 +619,16 @@ export async function postToDevTo(
     }
 
     const data = await response.json();
+    if (data?.id === undefined || data?.id === null) {
+      throw new Error('dev.to-Antwort enthielt keine Artikel-ID — Status unklar.');
+    }
 
     return {
       success: true,
       platform: 'devto',
       postId: data.id.toString(),
       url: data.url,
+      isDraft: !content.published,
     };
   } catch (error) {
     return {
@@ -648,12 +680,17 @@ export async function postToMedium(
     }
 
     const data = await response.json();
+    const postId: string | undefined = data?.data?.id;
+    if (!postId) {
+      throw new Error('Medium-Antwort enthielt keine Post-ID — Status unklar.');
+    }
 
     return {
       success: true,
       platform: 'medium',
-      postId: data.data.id,
+      postId,
       url: data.data.url,
+      isDraft: content.publishStatus !== 'public',
     };
   } catch (error) {
     return {
@@ -736,7 +773,12 @@ export async function postToGitHubDiscussions(
       throw new Error(data.errors[0].message);
     }
 
-    const discussion = data.data.createDiscussion.discussion;
+    const discussion = data?.data?.createDiscussion?.discussion;
+    if (!discussion?.id) {
+      // GitHub returned 200 with no errors[] but also no discussion — some
+      // partial-permission failures leave createDiscussion null this way.
+      throw new Error('GitHub lieferte weder Fehler noch eine erstellte Discussion zurück — Status unklar.');
+    }
 
     return {
       success: true,
