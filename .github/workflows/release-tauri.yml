@@ -144,3 +144,17 @@ jobs:
           prerelease: false
           args: ${{ matrix.tauri_args }}
 
+      - name: Build .pkg Installer (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          bash build_installer.sh
+          PKG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/*.pkg 2>/dev/null | head -1)
+          echo "PKG_PATH=$PKG" >> "$GITHUB_ENV"
+
+      - name: Upload .pkg to Release (macOS)
+        if: matrix.os == 'macos-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" "$PKG_PATH" --clobber
+

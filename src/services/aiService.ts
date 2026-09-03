@@ -76,6 +76,7 @@ export type ContentPlatform =
   | 'twitter'
   | 'medium'
   | 'reddit'
+  | 'substack'
   | 'github-discussion'
   | 'github-blog'
   | 'youtube'
@@ -930,6 +931,23 @@ Style: ${config.tone || 'professional'}
 Length: ${config.length || 'long'}
 Target Audience: ${config.audience || 'intermediate'}
 `,
+    substack: `
+Transform this markdown content into a Substack newsletter post:
+
+Guidelines:
+- Warm, personal tone — write to the reader directly ("you")
+- Start with a compelling personal hook or observation
+- Use short paragraphs for easy reading
+- Add a clear section break between intro, main content, and closing
+- End with a personal reflection or call-to-action (subscribe, share, reply)
+- Keep the energy of a personal letter, not a blog post
+- Avoid bullet-list overload — prefer flowing prose
+- Include a subject line suggestion at the top as: "Subject: ..."
+
+Style: ${config.tone || 'casual'}
+Length: ${config.length || 'medium'}
+Target Audience: ${config.audience || 'intermediate'}
+`,
     reddit: `
 Transform this markdown content into a Reddit post:
 
@@ -1556,4 +1574,54 @@ ${content}
 Zusammenfassung:`;
 
   return await callAIForTransform(aiConfig, prompt);
+}
+
+// ── SEO Data Generation ────────────────────────────────────────────────────
+
+export interface SEOData {
+  seo_title: string;
+  meta_description: string;
+  keywords: string[];
+  og_title: string;
+}
+
+export async function generateSEOData(
+  title: string,
+  content: string,
+  customAIConfig?: Partial<AIConfig>
+): Promise<{ success: boolean; data?: SEOData; error?: string }> {
+  if (!content || content.trim().length < 20) {
+    return { success: false, error: 'Text ist zu kurz für SEO-Analyse (mind. 20 Zeichen).' };
+  }
+
+  const aiConfig = { ...loadAIConfig(), ...customAIConfig };
+  const snippet = content.slice(0, 2500);
+
+  const prompt = `Analysiere diesen Artikel und erstelle SEO-Daten. Antworte NUR mit validem JSON, kein Markdown, keine Erklärung.
+
+Titel: ${title}
+Inhalt:
+${snippet}
+
+JSON-Format:
+{
+  "seo_title": "SEO-Titel, max 60 Zeichen, Hauptkeyword am Anfang",
+  "meta_description": "Meta Description, max 155 Zeichen, handlungsorientiert mit Hauptkeyword",
+  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "og_title": "Social-Titel, max 70 Zeichen, Aufmerksamkeit weckend"
+}`;
+
+  const result = await callAIForTransform(aiConfig, prompt);
+  if (!result.success || !result.data) {
+    return { success: false, error: result.error || 'SEO-Generierung fehlgeschlagen.' };
+  }
+
+  try {
+    const jsonMatch = result.data.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Kein JSON in der Antwort gefunden.');
+    const parsed = JSON.parse(jsonMatch[0]) as SEOData;
+    return { success: true, data: parsed };
+  } catch {
+    return { success: false, error: 'KI-Antwort konnte nicht als SEO-Daten gelesen werden.' };
+  }
 }

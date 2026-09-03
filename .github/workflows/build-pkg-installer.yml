@@ -59,43 +59,15 @@ jobs:
 
       - name: Build .pkg Installer
         run: |
-          APP_PATH="${{ steps.app.outputs.path }}"
-          VERSION="${{ steps.version.outputs.value }}"
-          PKG_NAME="ZenPost_Studio_${VERSION}_Installer.pkg"
-
-          PAYLOAD_DIR=".pkg_build/payload/Applications"
-          SCRIPTS_DIR=".pkg_build/scripts"
-          mkdir -p "$PAYLOAD_DIR" "$SCRIPTS_DIR"
-
-          cp -R "$APP_PATH" "$PAYLOAD_DIR/"
-
-          cat > "$SCRIPTS_DIR/postinstall" << 'SCRIPT'
-#!/bin/bash
-APP="/Applications/ZenPost Studio.app"
-if [ -d "$APP" ]; then
-  xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
-  xattr -dr com.apple.metadata:kMDItemWhereFroms "$APP" 2>/dev/null || true
-fi
-exit 0
-SCRIPT
-          chmod +x "$SCRIPTS_DIR/postinstall"
-
-          pkgbuild \
-            --root ".pkg_build/payload" \
-            --scripts "$SCRIPTS_DIR" \
-            --identifier "de.denisbitter.zenpoststudio" \
-            --version "$VERSION" \
-            --install-location "/" \
-            "$PKG_NAME"
-
-          rm -rf .pkg_build
-          echo "PKG_NAME=$PKG_NAME" >> "$GITHUB_ENV"
-          echo "Installer gebaut: $PKG_NAME ($(du -sh "$PKG_NAME" | cut -f1))"
+          bash build_installer.sh
+          PKG=$(ls src-tauri/target/universal-apple-darwin/release/bundle/*.pkg 2>/dev/null | head -1)
+          echo "PKG_NAME=$(basename "$PKG")" >> "$GITHUB_ENV"
+          echo "PKG_PATH=$PKG" >> "$GITHUB_ENV"
 
       - name: Upload .pkg to GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.event.release.tag_name || inputs.tag }}"
-          gh release upload "$TAG" "$PKG_NAME" --clobber
+          gh release upload "$TAG" "$PKG_PATH" --clobber
           echo "Hochgeladen: $PKG_NAME → Release $TAG"

@@ -27,4 +27,7 @@ docs-dist/
 # Google OAuth
 credentials.json
 token.json
+gsc_token.json
 reindex_log_*.json
+keyword_report_*.json
+keyword_report_*.md

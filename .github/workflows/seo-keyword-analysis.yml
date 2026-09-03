@@ -1,0 +1,42 @@
+name: SEO Keyword Analysis
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Jeden Montag 08:00 UTC
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'Analysezeitraum in Tagen'
+        default: '90'
+        required: false
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install google-auth google-auth-oauthlib requests
+
+      - name: Write GSC OAuth token
+        env:
+          GOOGLE_GSC_TOKEN: ${{ secrets.GOOGLE_GSC_TOKEN }}
+        run: echo "$GOOGLE_GSC_TOKEN" > scripts/seo/gsc_token.json
+
+      - name: Run keyword analysis
+        run: |
+          cd scripts/seo
+          python gsc_keywords.py --days ${{ inputs.days || 90 }}
+
+      - name: Upload reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: keyword-reports-${{ github.run_id }}
+          path: scripts/seo/keyword_report_*.md
+          retention-days: 90

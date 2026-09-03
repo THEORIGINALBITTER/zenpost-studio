@@ -270,7 +270,7 @@ export const Step3StyleOptions = ({
 
           <div className="max-w-4xl 
           p-[20px] 
-          border-[0.5px] border-[#2525258a] rounded-[12px]
+          border-[0.1px] border-[#2525258a] rounded-[12px]
           
           "
           style={{ width: sharedSectionWidth }}

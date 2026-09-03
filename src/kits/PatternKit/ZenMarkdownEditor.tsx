@@ -1658,10 +1658,10 @@ onKeyUp={(e) => {
           style={{ 
             paddingTop: '2px', 
            position: 'relative', // oder 'absolute' / 'sticky'
-      zIndex: 20,
+            zIndex: 1,
             paddingLeft: '60px' , 
             background: '#c9c1ad',
-            boxShadow: '0px 0 0 1px rgba(26,26,26, 0.73)'
+           
           }}
         >
           {/* Shortcuts linke Seite  */}

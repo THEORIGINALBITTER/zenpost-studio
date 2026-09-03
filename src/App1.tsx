@@ -62,7 +62,6 @@ import { ZenContentPreviewModal } from "./components/ZenContentPreviewModal";
 import { usePublishingEngine } from "./services/publishingEngine";
 import { CornerRibbon } from "./components/CornerRibbon";
 import { isTauri } from "@tauri-apps/api/core";
-import { useOpenExternal } from "./hooks/useOpenExternal";
 import { useZenIdle } from "./hooks/useZenIdle";
 import { ensureAppConfig, markBootstrapNoticeSeen, updateLastProjectPath } from "./services/appConfigService";
 import { getLastProjectPath, getRecentProjectPaths, rememberProjectPath, removeProjectPath } from "./utils/projectHistory";
@@ -87,9 +86,10 @@ import {
 } from "./services/converterBridgeService";
 import { navigateToAppScreen, openAppSettings, subscribeToAppNavigation, subscribeToOpenAppSettings } from "./services/appShellBridgeService";
 import { subscribeToOpenPlannerWithScheduledPost } from "./services/plannerBridgeService";
-import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings } from "./services/zenStudioSettingsService";
+import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings, type BlogConfig } from "./services/zenStudioSettingsService";
 import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 import { subscribeToCloudSessionSync } from "./services/cloudSessionSyncService";
+import { loadSettingsBackupFromCloud, setCloudSettingsSyncStatus } from "./services/cloudSettingsSyncService";
 import {
   createImageDataUrlFromBytes,
   downloadPreviewAsset,
@@ -98,6 +98,81 @@ import {
 } from "./services/contentPreviewService";
 
 import ZenCursor from "./components/ZenCursor";
+
+type StudioDraftQueryPayload = {
+  title: string;
+  content: string;
+  requestId: string;
+};
+
+function readDraftFromQuery(): StudioDraftQueryPayload | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('openDraft') !== '1') return null;
+
+  const decodeUtf8Base64 = (value: string): string => {
+    try {
+      return decodeURIComponent(escape(atob(value)));
+    } catch {
+      return '';
+    }
+  };
+
+  const fromWindowName = (() => {
+    const rawName = window.name || '';
+    const prefix = 'zenpost-draft:';
+    if (!rawName.startsWith(prefix)) return null;
+    const encoded = rawName.slice(prefix.length);
+    const decoded = decodeUtf8Base64(encoded);
+    if (!decoded) return null;
+    try {
+      const parsed = JSON.parse(decoded) as { title?: string; content?: string };
+      if (!parsed?.content || !String(parsed.content).trim()) return null;
+      return {
+        title: parsed.title || 'Entwurf',
+        content: String(parsed.content),
+      };
+    } catch {
+      return null;
+    }
+  })();
+
+  if (fromWindowName) {
+    return {
+      title: fromWindowName.title,
+      content: fromWindowName.content,
+      requestId: `window-name-open-draft-${Date.now()}`,
+    };
+  }
+
+  const title = params.get('draftTitle') || 'Entwurf';
+  const content = params.get('draftContent') || '';
+  if (!content.trim()) return null;
+
+  return {
+    title,
+    content,
+    requestId: `query-open-draft-${Date.now()}`,
+  };
+}
+
+function clearDraftQueryParams(): void {
+  if (typeof window === 'undefined') return;
+  const url = new URL(window.location.href);
+  ['openDraft', 'draftTitle', 'draftContent', 'draftSlug', 'sourceUrl'].forEach((key) => {
+    url.searchParams.delete(key);
+  });
+  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  if ((window.name || '').startsWith('zenpost-draft:')) {
+    window.name = '';
+  }
+}
+
+function isZenPostDraftMessage(value: unknown): value is { type: 'zenpost-open-draft'; payload?: { title?: string; content?: string } } {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: string };
+  return candidate.type === 'zenpost-open-draft';
+}
 
 const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unknown> }>, title?: string): string => {
   const lines: string[] = [];
@@ -205,9 +280,7 @@ export default function App1() {
 function AppContent() {
 
   const WEB_DOCS_STORAGE_KEY = "zenpost_web_documents_v1";
-  const [isMobileBlocked, setIsMobileBlocked] = useState(false);
   const isIdle = useZenIdle(2000);
-  const { openExternal } = useOpenExternal();
   const [currentScreen, setCurrentScreen] = useState<Screen>("getting-started");
   const [bootstrapComplete, setBootstrapComplete] = useState(!isTauri());
   const appReadyFiredRef = useRef(false);
@@ -354,6 +427,25 @@ function AppContent() {
       }
 
       if (reason === 'login' || reason === 'project-change' || reason === 'focus') {
+        if (reason === 'login' || reason === 'project-change') {
+          void loadSettingsBackupFromCloud()
+            .then((ok) => {
+              setCloudSettingsSyncStatus({
+                timestamp: new Date().toISOString(),
+                source: 'auto-load',
+                result: ok ? 'success' : 'empty',
+                message: ok ? 'Auto-Sync aus ZenCloud geladen.' : 'Auto-Sync: keine Cloud-Einstellungen gefunden.',
+              });
+            })
+            .catch((error) => {
+              setCloudSettingsSyncStatus({
+                timestamp: new Date().toISOString(),
+                source: 'auto-load',
+                result: 'error',
+                message: `Auto-Sync Fehler: ${error instanceof Error ? error.message : 'Unbekannt'}`,
+              });
+            });
+        }
         void reloadScheduledPosts();
         refetchContentStudioServerArticles();
       }
@@ -510,7 +602,6 @@ function AppContent() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const mobileRedirectUrl = "https://zenpostpocket.denisbitter.de";
     const desktopOverride = new URLSearchParams(window.location.search).get("desktop") === "1";
     const media = window.matchMedia("(max-width: 900px)");
     const isIpad = () =>
@@ -518,14 +609,14 @@ function AppContent() {
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
     const isMobileLikeDevice = () => {
       const ua = navigator.userAgent || "";
-      const mobileUa = /Android|iPhone|iPod|Windows Phone|webOS|Mobile/i.test(ua);
+      const mobileUa = /iPhone|iPod|Android.*Mobile|Windows Phone|webOS|BlackBerry/i.test(ua);
       const touchPoints = navigator.maxTouchPoints || 0;
       const viewportWidth = Math.min(
         window.innerWidth || Number.MAX_SAFE_INTEGER,
         window.screen?.width || Number.MAX_SAFE_INTEGER
       );
-      // Handles phones/tablets even when "Desktop Website" is enabled.
-      const touchViewportMatch = touchPoints > 1 && viewportWidth <= 1280;
+      // Handles phones with desktop-site mode, but avoids large-tablet false positives.
+      const touchViewportMatch = touchPoints > 1 && viewportWidth <= 820;
 
       return mobileUa || touchViewportMatch;
     };
@@ -535,13 +626,11 @@ function AppContent() {
         !isTauri() && !isIpad() && (media.matches || isMobileLikeDevice());
       if (shouldBlock && !desktopOverride) {
         const currentHost = window.location.hostname;
-        const targetHost = new URL(mobileRedirectUrl).hostname;
-        if (currentHost !== targetHost) {
-          window.location.replace(mobileRedirectUrl);
+        if (currentHost !== "zenpostpocket.denisbitter.de") {
+          window.location.replace("https://zenpostpocket.denisbitter.de/?from=zenpost");
           return;
         }
       }
-      setIsMobileBlocked(shouldBlock);
     };
 
     update();
@@ -963,16 +1052,75 @@ function AppContent() {
     });
   };
 
-  const fetchServerArticlePreview = async (slug: string) => {
+  const fetchServerArticlePreview = async (slug: string, blog?: BlogConfig | null) => {
     const settings = loadZenStudioSettings();
-    let base = (settings.contentServerApiUrl ?? '').trim();
+    let base = '';
+    let endpoint = '';
+    const headers: Record<string, string> = {};
+
+    if (blog?.phpApiUrl?.trim()) {
+      base = blog.phpApiUrl.trim();
+      endpoint = '';
+      if (blog.phpApiKey?.trim()) headers['X-Api-Key'] = blog.phpApiKey.trim();
+    } else {
+      base = (settings.contentServerApiUrl ?? '').trim();
+      endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
+      if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
+    }
+
     if (!base) return null;
     if (!/^https?:\/\//i.test(base)) base = `https://${base}`;
-    const endpoint = (settings.contentServerListEndpoint ?? '/articles.php').trim();
-    const listUrl = /^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
+    if (blog?.phpApiUrl?.trim()) {
+      // Preferred: read single post via PHP endpoint (?slug=...), so CORS for posts/*.md is not required.
+      const separator = base.includes('?') ? '&' : '?';
+      const bySlugUrl = `${base}${separator}slug=${encodeURIComponent(slug)}&t=${Date.now()}`;
+      const bySlugRes = await fetch(bySlugUrl, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
+      if (bySlugRes.ok) {
+        const bySlugJson = await bySlugRes.json().catch(() => null) as {
+          success?: boolean;
+          title?: string;
+          subtitle?: string;
+          markdown?: string;
+        } | null;
+        if (bySlugJson && bySlugJson.success !== false && bySlugJson.markdown?.trim()) {
+          return {
+            title: bySlugJson.title?.trim() || slug,
+            subtitle: bySlugJson.subtitle?.trim() || '',
+            markdown: bySlugJson.markdown,
+          };
+        }
+      }
+
+      // Backward compatibility with older PHP scripts: manifest + direct posts/*.md.
+      const manifestRes = await fetch(base, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
+      if (!manifestRes.ok) return null;
+      const manifest = await manifestRes.json().catch(() => null) as { posts?: Array<Record<string, unknown>> } | null;
+      const postEntry = Array.isArray(manifest?.posts)
+        ? manifest!.posts!.find((entry) => String(entry.slug ?? '').trim() === slug)
+        : null;
+
+      const siteBaseFromSiteUrl = blog.siteUrl?.trim()
+        ? (/^https?:\/\//i.test(blog.siteUrl.trim()) ? blog.siteUrl.trim() : `https://${blog.siteUrl.trim()}`)
+        : null;
+      const siteBaseFromPhpUrl = base.replace(/\/[^/]*$/, '');
+      const siteBase = (siteBaseFromSiteUrl ?? siteBaseFromPhpUrl).replace(/\/+$/, '');
+      const postUrl = `${siteBase}/posts/${encodeURIComponent(slug)}.md?t=${Date.now()}`;
+      const postRes = await fetch(postUrl, { method: 'GET', signal: AbortSignal.timeout(10000) });
+      if (!postRes.ok) return null;
+      const markdown = (await postRes.text()).trim();
+      if (!markdown) return null;
+
+      return {
+        title: String(postEntry?.title ?? slug).trim() || slug,
+        subtitle: String(postEntry?.subtitle ?? '').trim(),
+        markdown,
+      };
+    }
+
+    const listUrl = endpoint
+      ? (/^https?:\/\//i.test(endpoint) ? endpoint : `${base.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`)
+      : base;
     const url = `${listUrl}?slug=${encodeURIComponent(slug)}`;
-    const headers: Record<string, string> = {};
-    if (settings.contentServerApiKey) headers['Authorization'] = `Bearer ${settings.contentServerApiKey}`;
     const res = await fetch(url, { method: 'GET', headers, signal: AbortSignal.timeout(10000) });
     if (!res.ok) return null;
     const data = await res.json() as {
@@ -1068,6 +1216,57 @@ function AppContent() {
       setContentTransformStep(1);
       setCurrentScreen("content-transform");
     });
+  }, []);
+
+  useEffect(() => {
+    const queryDraft = readDraftFromQuery();
+    if (!queryDraft) return;
+    setTransferContent(queryDraft.content);
+    setTransferFileName(queryDraft.title.trim() || 'Entwurf');
+    setTransferPostMeta(null);
+    setContentStudioInitialRequestId(queryDraft.requestId);
+    setActiveServerArticleSlug(null);
+    setContentStudioServerCachePath(null);
+    setActiveBlogForEditor(null);
+    setContentStudioRequestedArticleId(null);
+    setContentStudioRequestedFilePath(null);
+    setCameFromDocStudio(false);
+    setCameFromDashboard(false);
+    setMultiPlatformMode(false);
+    setContentStudioDashboardView("dashboard");
+    setContentTransformStep(1);
+    setCurrentScreen("content-transform");
+    clearDraftQueryParams();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const allowedOrigin = 'https://zenpostapp.denisbitter.de';
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== allowedOrigin) return;
+      if (!isZenPostDraftMessage(event.data)) return;
+      const title = String(event.data.payload?.title || 'Entwurf');
+      const content = String(event.data.payload?.content || '');
+      if (!content.trim()) return;
+
+      setTransferContent(content);
+      setTransferFileName(title.trim() || 'Entwurf');
+      setTransferPostMeta(null);
+      setContentStudioInitialRequestId(`postmessage-open-draft-${Date.now()}`);
+      setActiveServerArticleSlug(null);
+      setContentStudioServerCachePath(null);
+      setActiveBlogForEditor(null);
+      setContentStudioRequestedArticleId(null);
+      setContentStudioRequestedFilePath(null);
+      setCameFromDocStudio(false);
+      setCameFromDashboard(false);
+      setMultiPlatformMode(false);
+      setContentStudioDashboardView("dashboard");
+      setContentTransformStep(1);
+      setCurrentScreen("content-transform");
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
   }, []);
 
   useEffect(() => {
@@ -1790,10 +1989,35 @@ function AppContent() {
     setContentStudioAllFiles(files);
   };
 
-  const handleOpenServerArticle = async (slug: string) => {
+  const handleOpenServerArticle = async (slug: string, blog?: BlogConfig | null) => {
     const settings = loadZenStudioSettings();
-    const preview = await fetchServerArticlePreview(slug);
-    if (!preview) return;
+    let resolvedBlog: BlogConfig | null = blog ?? null;
+    let preview = await fetchServerArticlePreview(slug, resolvedBlog);
+
+    // If no explicit blog was passed, try all configured blog targets first
+    // before falling back to legacy global server API endpoints.
+    if (!preview && !resolvedBlog) {
+      const blogs = (settings.blogs ?? []).filter((candidate) => (
+        Boolean(candidate?.phpApiUrl?.trim()) || Boolean(candidate?.siteUrl?.trim())
+      ));
+      for (const candidate of blogs) {
+        const candidatePreview = await fetchServerArticlePreview(slug, candidate);
+        if (candidatePreview) {
+          resolvedBlog = candidate;
+          preview = candidatePreview;
+          break;
+        }
+      }
+    }
+
+    if (!preview) {
+      const siteUrl = resolvedBlog?.siteUrl?.trim();
+      if (siteUrl) {
+        const normalizedBase = /^https?:\/\//i.test(siteUrl) ? siteUrl : `https://${siteUrl}`;
+        window.open(`${normalizedBase.replace(/\/+$/, '')}/post/${encodeURIComponent(slug)}`, '_blank', 'noopener,noreferrer');
+      }
+      return;
+    }
     const imageFromBlocks = '';
     const markdown = preview.markdown;
     persistWebDocument(markdown, `${slug}.md`);
@@ -1813,6 +2037,10 @@ function AppContent() {
     );
     setContentStudioServerCachePath(resolvedServerCachePath);
     setActiveServerArticleSlug(slug);
+    // Keep the blog context so "Auf Server speichern" saves back into this
+    // blog (via its phpApiUrl) instead of falling through to the generic,
+    // blog-unaware "Server API" settings.
+    setActiveBlogForEditor(resolvedBlog);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setCurrentScreen("content-transform");
@@ -2438,183 +2666,6 @@ function AppContent() {
     );
   };
 
-  if (isMobileBlocked) {
-    return (
-      <>
-        <div
-          style={{
-            minHeight: "100vh",
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "space-between",
-            padding: "48px 28px 36px",
-            background: "#111111",
-            color: "#EFE7DC",
-            fontFamily: "IBM Plex Mono, monospace",
-            boxSizing: "border-box",
-          }}
-        >
-          {/* Top: Brand mark */}
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
-              <div style={{ width: "24px", height: "1px", background: "#AC8E66" }} />
-              <span style={{ 
-                fontSize: "10px", 
-                color: "#AC8E66", letterSpacing: "0.18em", 
-                textTransform: "uppercase" as const }}>
-                ZenPost Studio
-              </span>
-            </div>
-            <div style={{ fontSize: "10px", color: "#EFE7DC", letterSpacing: "0.08em", paddingLeft: "34px" }}>
-              v0.1 · Building in Public
-            </div>
-          </div>
-
-          {/* Middle: Story */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", paddingTop: "52px", paddingBottom: "52px" }}>
-            <div
-              style={{
-                fontSize: "30px",
-                fontWeight: 700,
-                lineHeight: 1.15,
-                color: "#EFE7DC",
-                marginBottom: "28px",
-                letterSpacing: "-0.02em",
-              }}
-            >
-              Ein Werkzeug<br />
-              <span style={{ color: "#AC8E66" }}>für ruhiges</span><br />
-              Schreiben.
-            </div>
-
-            <div
-              style={{
-                fontSize: "12px",
-                lineHeight: 1.95,
-                color: "#EFE7DC",
-                borderLeft: "1px solid #222",
-                paddingLeft: "16px",
-                marginBottom: "40px",
-              }}
-            >
-              ZenPost Studio ist ein Tool —<br />
-              gebaut für Menschen, die denken,<br />
-              bevor sie posten.<br />
-              <br />
-
-              1 mal Schreiben. 9mal Transformieren.<br />
-              Eine Mobil App entsteht gerade —<br />
-              noch nicht für Mobile verfügbar.<br />
-              <br />
-              <span style={{ color: "#AC8E66" }}>BETA:</span> Web Desktop<br />
-              oder Desktop App (Mac / Windows / Linux).<br />
-              <br />
-              Die Geschichte dahinter...<br />
-              Öffentlich. Ehrlich. Zeile für Zeile.
-              <br />
-              Als Dev Log - Building in Public
-            </div>
-
-            {/* Ornamental divider */}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "28px" }}>
-              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to right, #AC8E66, transparent)" }} />
-              <span style={{ fontSize: "9px", color: "#AC8E66", letterSpacing: "0.2em" }}>DEV LOG</span>
-              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to left, #AC8E66, transparent)" }} />
-            </div>
-
-            {/* Primary CTA */}
-            <button
-              onClick={() => openExternal("https://zenpostmobil.denisbitter.de")}
-              style={{
-                padding: "14px 18px",
-                background: "rgba(172,142,102,)",
-                border: "1px solid #AC8E66",
-                borderRadius: "6px",
-                color: "#AC8E66",
-                fontFamily: "IBM Plex Mono, monospace",
-                fontSize: "13px",
-                cursor: "pointer",
-                textAlign: "left" as const,
-                letterSpacing: "0.02em",
-                marginBottom: "20px",
-              }}
-            >
-              Building in Public lesen ↗
-            </button>
-
-            {/* Secondary links */}
-            <div style={{ display: "flex", gap: "24px" }}>
-              <button
-                onClick={() => openExternal("https://zenpostdocs.denisbitter.de/")}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#EFE7DC",
-                  fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: "11px",
-                  cursor: "pointer",
-                  padding: 0,
-                  textDecoration: "underline",
-                  textDecorationColor: "#2a2a2a",
-                }}
-              >
-                ZenPost Guide
-              </button>
-              <button
-                onClick={() => openExternal("https://github.com/THEORIGINALBITTER/zenpost-studio")}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#EFE7DC",
-                  fontFamily: "IBM Plex Mono, monospace",
-                  fontSize: "11px",
-                  cursor: "pointer",
-                  padding: 0,
-                  textDecoration: "underline",
-                  textDecorationColor: "#2a2a2a",
-                }}
-              >
-                GitHub
-              </button>
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div
-            style={{
-              borderTop: "1px solid #1c1c1c",
-              paddingTop: "20px",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-            }}
-          >
-            <span style={{ fontSize: "10px", 
-              color: "#4e4e4e", letterSpacing: "0.08em" }}>
-              Desktop Web Mobil 
-            </span>
-            <button
-              onClick={() => openExternal("https://denisbitter.de")}
-              style={{
-                background: "none",
-                border: "none",
-                fontSize: "10px",
-                color: "#404040",
-                fontFamily: "IBM Plex Mono, monospace",
-                cursor: "pointer",
-                padding: 0,
-                letterSpacing: "0.06em",
-              }}
-            >
-              by <span style={{ color: "#AC8E66" }}>Denis Bitter</span>
-            </button>
-          </div>
-        </div>
-        <ZenCursor />
-      </>
-    );
-  }
-
   const seoMeta = (() => {
     const appName = "ZenPost Studio";
     const baseDescription =
@@ -2939,18 +2990,25 @@ function AppContent() {
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
-                onOpenBlogPost={(filePath, blog) => {
+                onOpenBlogPost={(filePath, blog, prefetchedContent) => {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
                   setActiveBlogForEditor(blog);
                   setContentStudioProjectPath(blog.path);
                   setContentStudioRequestedArticleId(null);
-                  setTransferContent(null);
-                  setTransferFileName(null);
+                  if (typeof prefetchedContent === 'string' && prefetchedContent.trim()) {
+                    const normalizedName = filePath.replace(/^@remote:/, '') || `${blog.name}.md`;
+                    setTransferContent(prefetchedContent);
+                    setTransferFileName(normalizedName);
+                    setContentStudioRequestedFilePath(null);
+                  } else {
+                    setTransferContent(null);
+                    setTransferFileName(null);
+                    setContentStudioRequestedFilePath(filePath);
+                  }
                   setTransferPostMeta(null);
                   setCameFromDocStudio(false);
                   setCameFromDashboard(false);
-                  setContentStudioRequestedFilePath(filePath);
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
@@ -2999,7 +3057,7 @@ function AppContent() {
                 serverError={contentStudioServerArticlesError}
                 serverName={getContentStudioServerState().serverName}
                 serverLocalCachePath={getContentStudioServerState().serverLocalCachePath}
-                onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
+                onOpenServerArticle={(slug, blog) => { void handleOpenServerArticle(slug, blog); }}
                 onDeleteServerArticle={handleDeleteServerArticle}
                 onOpenApiSettings={() => {
                   setSettingsDefaultTab('api');
@@ -3517,6 +3575,7 @@ function AppContent() {
         }}
       />
       </div>
+
     </>
   );
 }

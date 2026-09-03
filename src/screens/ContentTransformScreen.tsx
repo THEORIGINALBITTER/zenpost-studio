@@ -1914,11 +1914,14 @@ export const ContentTransformScreen = ({
         const slug = `${date}-${titleText.toLowerCase()
           .replace(/[äöüß]/g, (c: string) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
           .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+        const isDocsSite = blogSaveTarget.siteType === 'docs';
         // Lokaler Dateiname: echter Titel, nur Dateisystem-Sonderzeichen entfernen
-        const localFilename = `${date}-${titleText.replace(/[/\\:*?"<>|]/g, '-').trim()}.md`;
+        const localFilename = isDocsSite
+          ? `${slug}.md`
+          : `${date}-${titleText.replace(/[/\\:*?"<>|]/g, '-').trim()}.md`;
         const wordCount = actualContent.trim().split(/\s+/).length;
         const readingTime = Math.max(1, Math.round(wordCount / 220));
-        const postsDir = await join(blogSaveTarget.path, 'posts');
+        const postsDir = await join(blogSaveTarget.path, isDocsSite ? 'docs' : 'posts');
         if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
         // If meta image is base64 or local path, extract and save as image file next to the post
         const prefersPlaceholderVisual = postMeta.visualMode === 'placeholder';
@@ -2052,6 +2055,104 @@ export const ContentTransformScreen = ({
         ].filter((l): l is string => l !== null).join('\n');
         const filePath = await join(postsDir, localFilename);
         await writeTextFile(filePath, fmLines + processedContent);
+
+        if (isDocsSite) {
+          const manifestPath = await join(blogSaveTarget.path, 'docs', 'manifest.json');
+          let manifest: { site?: Record<string, string>; content?: Record<string, string>; documents: Array<Record<string, unknown>> } = {
+            site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
+            content: { format: 'markdown', directory: 'docs' },
+            documents: [],
+          };
+          try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new */ }
+          if (!Array.isArray(manifest.documents)) manifest.documents = [];
+          manifest.site = { ...(manifest.site ?? {}), title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' };
+          manifest.content = { ...(manifest.content ?? {}), format: 'markdown', directory: 'docs' };
+
+          if (blogSaveTarget.siteUrl) {
+            try {
+              const siteBase = (blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '');
+              const res = await fetch(`${siteBase}/docs/manifest.json`);
+              if (res.ok) {
+                const serverManifest = await res.json() as typeof manifest;
+                if (Array.isArray(serverManifest?.documents) && serverManifest.documents.length >= manifest.documents.length) {
+                  manifest = serverManifest;
+                }
+              }
+            } catch { /* server fetch non-fatal */ }
+          }
+
+          if (!Array.isArray(manifest.documents)) manifest.documents = [];
+          const visibleDocuments = manifest.documents.filter((doc) => doc.showOnHome !== false && (doc.section ?? 'fundament') === 'fundament');
+          const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+          const nextNumber = visibleDocuments.length === 0 ? '01-0' : `01-${roman[visibleDocuments.length] ?? visibleDocuments.length}`;
+          const nextOrder = manifest.documents.reduce((max, doc) => Math.max(max, Number(doc.order ?? 0) || 0), 0) + 10;
+          const summary = postMeta.subtitle.trim()
+            || processedContent
+              .replace(/^---[\s\S]*?---/, '')
+              .split('\n')
+              .map((line) => line.replace(/^#+\s*/, '').trim())
+              .find(Boolean)
+            || '';
+          const existingEntry = manifest.documents.find((doc) => doc.path === localFilename || doc.id === slug) ?? {};
+          const entry: Record<string, unknown> = {
+            ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
+            ...extractManifestExtrasFromFrontmatter(actualContent),
+            id: slug,
+            path: localFilename,
+            title: titleText,
+            homeTitle: titleText,
+            summary,
+            type: 'memo',
+            section: (existingEntry.section as string | undefined) ?? 'fundament',
+            showOnHome: existingEntry.showOnHome ?? true,
+            number: (existingEntry.number as string | undefined) ?? nextNumber,
+            order: existingEntry.order ?? nextOrder,
+            date,
+            readingTime,
+            localFileName: localFilename,
+          };
+          if (postMeta.tags.length > 0) entry.tags = postMeta.tags;
+          if (coverImageValue) entry.coverImage = coverImageValue;
+          const idx = manifest.documents.findIndex((doc) => doc.path === localFilename || doc.id === slug);
+          if (idx >= 0) manifest.documents[idx] = entry; else manifest.documents.push(entry);
+          manifest.documents.sort((a, b) => (Number(a.order ?? 0) || 0) - (Number(b.order ?? 0) || 0));
+          await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+          if (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
+            const phpCfg = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
+            if (coverImageValue.startsWith('data:image/')) {
+              const extM = coverImageValue.match(/^data:image\/(png|jpe?g|webp|gif);/i);
+              const ext2 = extM ? (extM[1].toLowerCase() === 'jpeg' ? 'jpg' : extM[1].toLowerCase()) : 'jpg';
+              const uploadedUrl = await phpBlogImageUpload(coverImageValue, `cover-${slug}.${ext2}`, phpCfg);
+              if (uploadedUrl) {
+                entry.coverImage = uploadedUrl;
+                const pi = manifest.documents.findIndex((doc) => doc.path === localFilename || doc.id === slug);
+                if (pi >= 0) manifest.documents[pi] = entry;
+              }
+            }
+            const phpErr = await phpBlogUpload(
+              { filename: localFilename, content: fmLines + processedContent, manifest },
+              phpCfg,
+            );
+            const viewUrl = blogSaveTarget.siteUrl ? `${(blogSaveTarget.siteUrl.startsWith('http') ? blogSaveTarget.siteUrl : 'https://' + blogSaveTarget.siteUrl).replace(/\/$/, '')}/memo.html?file=${encodeURIComponent(localFilename)}` : undefined;
+            setSavedFileName(localFilename);
+            setSavedFilePath(filePath);
+            setSavedFilePaths(phpErr
+              ? [`Lokal: ${filePath}`, `PHP Upload fehlgeschlagen: ${phpErr}`]
+              : [`Docs: ${blogSaveTarget.name}`, blogSaveTarget.phpApiUrl, ...(viewUrl ? [`Ansicht: ${viewUrl}`] : [])]);
+            setSaveSuccessMessage(phpErr ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : 'Dokument lokal gespeichert und per PHP hochgeladen.');
+            setSaveSuccessPathsLabel('Details:');
+            setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Dokument anschauen' : undefined);
+            setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+            setShowSaveSuccess(true);
+            onBlogPostSaved?.(slug);
+            return;
+          }
+
+          finalizeSavedSource(filePath, localFilename, processedContent, { markAsFile: true });
+          return;
+        }
+
         // Update manifest.json
         const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
         let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
@@ -2376,6 +2477,88 @@ export const ContentTransformScreen = ({
 
       // PHP Upload für bestehende File-Tabs
       if (triggerFtp && blogSaveTarget?.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
+        if (blogSaveTarget.siteType === 'docs') {
+          let phpManifest: { site?: Record<string, string>; content?: Record<string, string>; documents: Array<Record<string, unknown>> } | undefined;
+          const docFileName = savedName.endsWith('.md') ? savedName : `${sanitizeBlogFilename(savedName)}.md`;
+          const docId = docFileName.replace(/\.md$/i, '');
+          try {
+            const manifestPath = await join(blogSaveTarget.path, 'docs', 'manifest.json');
+            let manifest: { site?: Record<string, string>; content?: Record<string, string>; documents: Array<Record<string, unknown>> } = {
+              site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
+              content: { format: 'markdown', directory: 'docs' },
+              documents: [],
+            };
+            try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new manifest */ }
+            try {
+              const res = await fetch(blogSaveTarget.phpApiUrl!, { method: 'GET' });
+              if (res.ok) {
+                const serverManifest = await res.json() as typeof manifest;
+                if (Array.isArray(serverManifest?.documents) && serverManifest.documents.length >= manifest.documents.length) {
+                  manifest = serverManifest;
+                }
+              }
+            } catch { /* server fetch non-fatal */ }
+            if (!Array.isArray(manifest.documents)) manifest.documents = [];
+            manifest.site = { ...(manifest.site ?? {}), title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' };
+            manifest.content = { ...(manifest.content ?? {}), format: 'markdown', directory: 'docs' };
+            const visibleDocuments = manifest.documents.filter((doc) => doc.showOnHome !== false && (doc.section ?? 'fundament') === 'fundament');
+            const roman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+            const nextNumber = visibleDocuments.length === 0 ? '01-0' : `01-${roman[visibleDocuments.length] ?? visibleDocuments.length}`;
+            const nextOrder = manifest.documents.reduce((max, doc) => Math.max(max, Number(doc.order ?? 0) || 0), 0) + 10;
+            const existingEntry = manifest.documents.find((doc) => doc.path === docFileName || doc.id === docId) ?? {};
+            const frontmatterExtras = extractManifestExtrasFromFrontmatter(contentToWrite);
+            const title = postMeta.title.trim() || String(frontmatterExtras.title ?? docId);
+            const summary = postMeta.subtitle.trim()
+              || String(frontmatterExtras.subtitle ?? '')
+              || contentToSave
+                .replace(/^---[\s\S]*?---/, '')
+                .split('\n')
+                .map((line) => line.replace(/^#+\s*/, '').trim())
+                .find(Boolean)
+              || '';
+            const entry2: Record<string, unknown> = {
+              ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
+              ...frontmatterExtras,
+              id: docId,
+              path: docFileName,
+              title,
+              homeTitle: (existingEntry.homeTitle as string | undefined) ?? title,
+              summary,
+              type: 'memo',
+              section: (existingEntry.section as string | undefined) ?? 'fundament',
+              showOnHome: existingEntry.showOnHome ?? true,
+              number: (existingEntry.number as string | undefined) ?? nextNumber,
+              order: existingEntry.order ?? nextOrder,
+              date: postMeta.date.trim() || new Date().toISOString().split('T')[0],
+              localFileName: docFileName,
+            };
+            const idx2 = manifest.documents.findIndex((doc) => doc.path === docFileName || doc.id === docId);
+            if (idx2 >= 0) manifest.documents[idx2] = entry2; else manifest.documents.push(entry2);
+            manifest.documents.sort((a, b) => (Number(a.order ?? 0) || 0) - (Number(b.order ?? 0) || 0));
+            await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+            phpManifest = manifest;
+          } catch { /* manifest update non-fatal */ }
+
+          const phpCfg2 = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
+          const phpErr = await phpBlogUpload(
+            { filename: docFileName, content: contentToSave, manifest: phpManifest },
+            phpCfg2,
+          );
+          const viewUrl = blogSaveTarget.siteUrl ? `${blogSaveTarget.siteUrl.replace(/\/$/, '')}/memo.html?file=${encodeURIComponent(docFileName)}` : undefined;
+          setSavedFileName(docFileName);
+          setSavedFilePath(activeTab.filePath);
+          setSavedFilePaths(phpErr
+            ? [activeTab.filePath, `PHP Upload fehlgeschlagen: ${phpErr}`]
+            : [`Docs: ${blogSaveTarget.name}`, blogSaveTarget.phpApiUrl, ...(viewUrl ? [`Ansicht: ${viewUrl}`] : [])]);
+          setSaveSuccessMessage(phpErr ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : 'Dokument lokal gespeichert und per PHP hochgeladen.');
+          setSaveSuccessPathsLabel('Details:');
+          setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Dokument anschauen' : undefined);
+          setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+          setShowSaveSuccess(true);
+          onFileSaved?.(activeTab.filePath, contentToSave, docFileName);
+          return;
+        }
+
         // Build updated manifest to send alongside the post
         let phpManifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } | undefined;
         try {
@@ -2507,21 +2690,30 @@ export const ContentTransformScreen = ({
       const currentZenSettings = loadZenStudioSettings();
       setZenStudioSettings(currentZenSettings);
 
-      let apiBaseUrl = (currentZenSettings.contentServerApiUrl ?? '').trim();
+      // Read from the active server in the servers[] list — the same source
+      // the "Server API" settings UI shows. Legacy flat fields (contentServerApiUrl
+      // at the settings root) are intentionally NOT used here anymore: they can
+      // hold stale values from before multi-server support was added, which would
+      // silently override an empty/"no server configured" state in the UI.
+      const servers = currentZenSettings.servers ?? [];
+      const activeServerIdx = Math.min(Math.max(currentZenSettings.activeServerIndex ?? 0, 0), servers.length - 1);
+      const activeServer = servers[activeServerIdx];
+
+      if (!activeServer || !(activeServer.contentServerApiUrl ?? '').trim()) {
+        setSettingsDefaultTab('api');
+        setShowSettings(true);
+        alert('Bitte zuerst einen Server unter Einstellungen -> Server API einrichten.');
+        return;
+      }
+
+      let apiBaseUrl = (activeServer.contentServerApiUrl ?? '').trim();
       // Ensure absolute URL – add https:// if user forgot the protocol
       if (apiBaseUrl && !/^https?:\/\//i.test(apiBaseUrl)) {
         apiBaseUrl = `https://${apiBaseUrl}`;
       }
-      const endpoint = (currentZenSettings.contentServerApiEndpoint ?? '').trim() || '/save_articles.php';
-      const uploadEndpoint = (currentZenSettings.contentServerImageUploadEndpoint ?? '').trim() || '/upload_images.php';
-      const apiKey = (currentZenSettings.contentServerApiKey ?? '').trim();
-
-      if (!apiBaseUrl && !/^https?:\/\//i.test(endpoint)) {
-        setSettingsDefaultTab('api');
-        setShowSettings(true);
-        alert('Bitte API URL in Einstellungen -> API setzen.');
-        return;
-      }
+      const endpoint = (activeServer.contentServerApiEndpoint ?? '').trim() || '/save_articles.php';
+      const uploadEndpoint = (activeServer.contentServerImageUploadEndpoint ?? '').trim() || '/upload_images.php';
+      const apiKey = (activeServer.contentServerApiKey ?? '').trim();
 
       const targetUrl = toAbsoluteEndpointUrl(apiBaseUrl, endpoint);
       const uploadUrl = uploadEndpoint
@@ -2599,7 +2791,7 @@ export const ContentTransformScreen = ({
         || /<img\b[^>]*\bsrc=["']data:image\/[^"']+["'][^>]*\/?>/i.test(markdownPrepared)) {
         throw new Error('Es sind noch nicht ersetzte data:image Inhalte im Markdown vorhanden.');
       }
-      const metaImage = resolveServerImageUrl(normalizedPreferredImage, currentZenSettings.contentServerImageBaseUrl);
+      const metaImage = resolveServerImageUrl(normalizedPreferredImage, activeServer.contentServerImageBaseUrl);
       if (metaImage && /^https?:\/\//i.test(metaImage)) {
         const filePart = metaImage.split('?')[0].split('#')[0].split('/').pop() ?? '';
         if (filePart && !/\.(png|jpe?g|webp|gif|svg)$/i.test(filePart)) {
@@ -2667,13 +2859,7 @@ export const ContentTransformScreen = ({
       };
 
       if (isTauri()) {
-        const activeServerIdx = Math.max(0, Math.min(currentZenSettings.activeServerIndex ?? 0, (currentZenSettings.servers ?? []).length - 1));
-        const activeServer = (currentZenSettings.servers ?? [])[activeServerIdx];
-        const localCacheBasePath = (
-          activeServer?.contentServerLocalCachePath
-          ?? currentZenSettings.contentServerLocalCachePath
-          ?? ''
-        ).trim();
+        const localCacheBasePath = (activeServer.contentServerLocalCachePath ?? '').trim();
 
         if (!localCacheBasePath) {
           setSettingsDefaultTab('api');

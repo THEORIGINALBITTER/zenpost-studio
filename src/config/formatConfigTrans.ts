@@ -570,6 +570,7 @@ export type TransformPlatformId =
   | "twitter"
   | "medium"
   | "reddit"
+  | "substack"
   | "github-discussion"
   | "github-blog"
   | "youtube"
@@ -822,6 +823,16 @@ export const steuerFormatConfig: SteuerFormatConfig = {
       keepMarkdownHeadings: false,
       splitLongParagraphs: false,
       maxHashtags: 3,
+      ensureTitleHeading: false,
+    },
+    substack: {
+      id: "substack",
+      label: "Substack",
+      outputMode: "markdown",
+      stripFrontmatter: true,
+      keepMarkdownHeadings: true,
+      splitLongParagraphs: false,
+      maxHashtags: 0,
       ensureTitleHeading: false,
     },
     "github-discussion": {

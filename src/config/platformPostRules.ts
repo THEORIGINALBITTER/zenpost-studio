@@ -208,6 +208,27 @@ export const PLATFORM_POST_RULES: Record<SocialPlatform, PlatformPostRule> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Copy-and-open platforms (no API — content is copied, browser opens the URL)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CopyOpenPlatform = 'substack' | 'wordpress' | 'hashnode';
+
+export const COPY_OPEN_PLATFORM_RULES: Record<CopyOpenPlatform, Pick<PlatformPostRule, 'maxChars' | 'notes'>> = {
+  substack: {
+    maxChars: undefined,
+    notes: 'No API. Content is copied to clipboard, Substack editor opens in browser.',
+  },
+  wordpress: {
+    maxChars: undefined,
+    notes: 'No API. Content is copied to clipboard, WordPress editor opens in browser.',
+  },
+  hashnode: {
+    maxChars: undefined,
+    notes: 'No API. Content is copied to clipboard, Hashnode editor opens in browser.',
+  },
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helper: apply rules to produce a platform-ready content object
 // ─────────────────────────────────────────────────────────────────────────────
 

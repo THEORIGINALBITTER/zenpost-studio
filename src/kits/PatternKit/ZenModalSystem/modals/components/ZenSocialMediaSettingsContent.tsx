@@ -8,14 +8,15 @@ import {
   faMedium,
   faGithub,
 } from '@fortawesome/free-brands-svg-icons';
-import { faEye, faEyeSlash, faGlobe, faFolderOpen, faPlus, faTrash, faArrowRight, faCheck, faArrowsRotate, faPen, faTriangleExclamation, faCircleInfo } from '@fortawesome/free-solid-svg-icons';
+import { faEye, faEyeSlash, faGlobe, faFolderOpen, faPlus, faTrash, faArrowRight, faCheck, faArrowsRotate, faPen, faCircleInfo } from '@fortawesome/free-solid-svg-icons';
 import { isTauri } from '@tauri-apps/api/core';
 import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { readDir, readTextFile, writeTextFile, exists, mkdir, remove } from '@tauri-apps/plugin-fs';
 import { join } from '@tauri-apps/api/path';
 import { loadZenStudioSettings, saveZenStudioSettings, exportZenStudioSettingsAsFile, importZenStudioSettingsFromFile, type BlogConfig } from '../../../../../services/zenStudioSettingsService';
+import { decodeCloudProjectId, encodeCloudProjectPath, getCloudProjects, getCloudProjectName } from '../../../../../services/cloudProjectService';
 import { ftpUpload } from '../../../../../services/ftpService';
-import { getPhpUploadScript, getHtaccessContent } from '../../../../../services/phpBlogService';
+import { getPhpUploadScript, getHtaccessContent, normalizePhpUploadUrl } from '../../../../../services/phpBlogService';
 import {
   loadSocialConfig,
   saveSocialConfig,
@@ -130,6 +131,9 @@ export const ZenSocialMediaSettingsContent = ({
   const [wizardPath, setWizardPath] = useState('');
   const [wizardSiteUrl, setWizardSiteUrl] = useState('');
   const [wizardSiteType, setWizardSiteType] = useState<'blog' | 'docs'>('blog');
+  const [wizardStorageMode, setWizardStorageMode] = useState<'local' | 'cloud'>('local');
+  const [wizardCloudProjectId, setWizardCloudProjectId] = useState<number | null>(null);
+  const [docsLikeBlogIds, setDocsLikeBlogIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const loadedConfig = loadSocialConfig();
@@ -143,7 +147,14 @@ export const ZenSocialMediaSettingsContent = ({
   }, []);
 
   const handleDownloadPhpPackage = async (blog?: BlogConfig) => {
-    const content = getPhpUploadScript(blog?.phpApiKey || undefined);
+    const effectiveSiteType = blog?.id && editingBlogId === blog.id ? wizardSiteType : blog?.siteType;
+    let uploadMode: 'blog' | 'docs' = effectiveSiteType === 'docs' ? 'docs' : 'blog';
+    if (uploadMode === 'blog' && isTauri() && blog?.path) {
+      try {
+        if (await exists(await join(blog.path, 'docs', 'manifest.json'))) uploadMode = 'docs';
+      } catch { /* keep configured mode */ }
+    }
+    const content = getPhpUploadScript(blog?.phpApiKey || undefined, uploadMode);
     const htaccess = getHtaccessContent();
 
     // Build ZIP with both files
@@ -242,14 +253,20 @@ export const ZenSocialMediaSettingsContent = ({
     setPhpTestMsg((p) => ({ ...p, [blog.id]: '' }));
     try {
       // GET zenpost-upload.php → returns manifest JSON (no auth needed)
-      const response = await fetch(blog.phpApiUrl, { method: 'GET' });
+      const endpointUrl = normalizePhpUploadUrl(blog.phpApiUrl);
+      const response = await fetch(endpointUrl, { method: 'GET' });
       if (!response.ok) {
         setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
         setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server antwortete mit ${response.status}` }));
         return;
       }
-      const json = await response.json() as { site?: unknown; posts?: unknown };
-      if ('posts' in json) {
+      const json = await response.json() as { site?: unknown; posts?: unknown; documents?: unknown };
+      if ('documents' in json) {
+        const count = Array.isArray(json.documents) ? json.documents.length : 0;
+        const info = count > 0 ? ` — ${count} Dokumente` : '';
+        setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
+        setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
+      } else if ('posts' in json) {
         const count = Array.isArray(json.posts) ? json.posts.length : 0;
         const info = count > 0 ? ` — ${count} Posts` : '';
         setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
@@ -352,7 +369,35 @@ export const ZenSocialMediaSettingsContent = ({
     } catch { /* cancelled */ }
   };
 
+  const handleWizardSelectFolderWeb = async () => {
+    if (isTauri()) return;
+    try {
+      const el = document.createElement('input');
+      el.type = 'file';
+      el.multiple = true;
+      el.setAttribute('webkitdirectory', '');
+      el.setAttribute('directory', '');
+      el.style.display = 'none';
+      document.body.appendChild(el);
+      await new Promise<void>((resolve) => {
+        el.onchange = () => {
+          const files = Array.from(el.files ?? []);
+          const folderName = (files[0] as File & { webkitRelativePath?: string })?.webkitRelativePath?.split('/')?.[0];
+          if (folderName) {
+            setWizardPath(`@web://${folderName}`);
+          }
+          resolve();
+        };
+        el.click();
+      });
+      document.body.removeChild(el);
+    } catch {
+      // ignore cancelled picker
+    }
+  };
+
   const handleEditBlog = (blog: BlogConfig) => {
+    const cloudId = decodeCloudProjectId(blog.path);
     setEditingBlogId(blog.id);
     setWizardName(blog.name);
     setWizardTagline(blog.tagline ?? '');
@@ -360,6 +405,13 @@ export const ZenSocialMediaSettingsContent = ({
     setWizardPath(blog.path);
     setWizardSiteUrl(blog.siteUrl ?? '');
     setWizardSiteType(blog.siteType ?? 'blog');
+    if (cloudId) {
+      setWizardStorageMode('cloud');
+      setWizardCloudProjectId(cloudId);
+    } else {
+      setWizardStorageMode('local');
+      setWizardCloudProjectId(null);
+    }
     setWizardStep('name');
   };
 
@@ -372,11 +424,16 @@ export const ZenSocialMediaSettingsContent = ({
     setWizardPath('');
     setWizardSiteUrl('');
     setWizardSiteType('blog');
+    setWizardStorageMode('local');
+    setWizardCloudProjectId(null);
   };
 
   const handleWizardSave = () => {
-    if (!wizardName.trim() || !wizardPath.trim()) return;
-    const blogPath = wizardPath.trim();
+    if (!wizardName.trim()) return;
+    const blogPath = wizardStorageMode === 'cloud'
+      ? (wizardCloudProjectId ? encodeCloudProjectPath(wizardCloudProjectId) : '')
+      : wizardPath.trim();
+    if (!blogPath) return;
     const blogName = wizardName.trim();
     if (editingBlogId) {
       saveBlogs(blogs.map((b) => b.id === editingBlogId ? {
@@ -399,18 +456,26 @@ export const ZenSocialMediaSettingsContent = ({
         siteType: wizardSiteType,
       };
       saveBlogs([...blogs, newBlog]);
-      // Auto-create posts/ folder + manifest.json for new blogs
+      // Auto-create the local content structure for new sources.
       if (isTauri()) {
         (async () => {
           try {
-            const postsDir = await join(blogPath, 'posts');
-            if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
-            const manifestPath = await join(blogPath, 'manifest.json');
+            const contentDir = await join(blogPath, wizardSiteType === 'docs' ? 'docs' : 'posts');
+            if (!(await exists(contentDir))) await mkdir(contentDir, { recursive: true });
+            const manifestPath = wizardSiteType === 'docs'
+              ? await join(blogPath, 'docs', 'manifest.json')
+              : await join(blogPath, 'manifest.json');
             if (!(await exists(manifestPath))) {
-              await writeTextFile(manifestPath, JSON.stringify({
+              const baseManifest = {
                 site: { title: blogName, tagline: wizardTagline.trim() || '', author: wizardAuthor.trim() || '', url: wizardSiteUrl.trim() || '' },
-                posts: [],
-              }, null, 2));
+              };
+              await writeTextFile(manifestPath, JSON.stringify(
+                wizardSiteType === 'docs'
+                  ? { ...baseManifest, content: { format: 'markdown', directory: 'docs' }, documents: [] }
+                  : { ...baseManifest, posts: [] },
+                null,
+                2,
+              ));
             }
           } catch { /* ignore — user can scan later */ }
         })();
@@ -424,6 +489,32 @@ export const ZenSocialMediaSettingsContent = ({
       setActiveTab(initialTab);
     }
   }, [initialTab]);
+
+  useEffect(() => {
+    if (wizardStorageMode === 'local') return;
+    if (wizardCloudProjectId) {
+      setWizardPath(encodeCloudProjectPath(wizardCloudProjectId));
+    } else {
+      setWizardPath('');
+    }
+  }, [wizardStorageMode, wizardCloudProjectId]);
+
+  useEffect(() => {
+    if (!isTauri()) return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<string, boolean> = {};
+      for (const blog of blogs) {
+        try {
+          next[blog.id] = !!blog.path && await exists(await join(blog.path, 'docs', 'manifest.json'));
+        } catch {
+          next[blog.id] = false;
+        }
+      }
+      if (!cancelled) setDocsLikeBlogIds(next);
+    })();
+    return () => { cancelled = true; };
+  }, [blogs]);
 
   // Auto-save on changes
   useEffect(() => {
@@ -1061,7 +1152,9 @@ export const ZenSocialMediaSettingsContent = ({
           {/* Blog List */}
           {blogs.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-              {blogs.map((blog) => (
+              {blogs.map((blog) => {
+                const effectiveIsDocs = blog.siteType === 'docs' || docsLikeBlogIds[blog.id] || (editingBlogId === blog.id && wizardSiteType === 'docs');
+                return (
                 <div
                   key={blog.id}
                   style={{
@@ -1090,7 +1183,7 @@ export const ZenSocialMediaSettingsContent = ({
                     )}
                     {/* Deploy type selector */}
                     <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      {(['none', 'git', 'ftp', 'php-api'] as const).filter((type) => !(type === 'php-api' && blog.siteType === 'docs')).map((type) => {
+                      {(['none', 'git', 'ftp', 'php-api'] as const).map((type) => {
                         const labels = { none: 'Nur lokal', git: 'Git + Server', ftp: 'FTP/SFTP', 'php-api': 'PHP Upload' };
                         const current = blog.deployType ?? (blog.gitAutoPush ? 'git' : 'none');
                         const isActive = current === type;
@@ -1203,22 +1296,21 @@ export const ZenSocialMediaSettingsContent = ({
                     {blog.deployType === 'php-api' && (
                       <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
 
-                        {/* Warning: nur für Post-basierte Blogs */}
-                        {blog.siteType === 'docs' && (
-                          <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'rgba(200,80,60,0.08)', border: '1px solid rgba(200,80,60,0.35)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                            <FontAwesomeIcon icon={faTriangleExclamation} style={{ color: '#c8503c', marginTop: '2px', flexShrink: 0 }} />
-                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#c8503c', lineHeight: 1.5 }}>
-                              <strong>PHP Upload ist für Post-basierte Blogs.</strong><br />
-                              Dieser Blog ist als <em>Docs-Site</em> markiert — PHP Upload erwartet <code>posts/*.md</code> + <code>manifest.json</code>. Für Docs-Sites verwende FTP/SFTP.
+                        {effectiveIsDocs && (
+                          <div style={{ padding: '8px 12px', borderRadius: '6px', background: 'rgba(172,142,102,0.07)', border: '1px solid rgba(172,142,102,0.25)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
+                            <FontAwesomeIcon icon={faCircleInfo} style={{ color: '#AC8E66', marginTop: '2px', flexShrink: 0, fontSize: '11px' }} />
+                            <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#6b6560', lineHeight: 1.5 }}>
+                              Dieser PHP-Endpoint läuft im <strong style={{ color: '#AC8E66' }}>Docs-Modus</strong>.<br />
+                              Nur dieser Transportweg braucht das PHP-Paket. Lokal, Git und FTP nutzen keinen PHP-Endpoint.
                             </div>
                           </div>
                         )}
-                        {blog.siteType !== 'docs' && (
+                        {!effectiveIsDocs && (
                           <div style={{ padding: '6px 12px', borderRadius: '6px', background: 'rgba(172,142,102,0.05)', border: '1px solid rgba(172,142,102,0.2)', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
                             <FontAwesomeIcon icon={faCircleInfo} style={{ color: '#AC8E66', marginTop: '2px', flexShrink: 0, fontSize: '11px' }} />
                             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#6b6560', lineHeight: 1.5 }}>
-                              PHP Upload ist für <strong style={{ color: '#AC8E66' }}>Post-basierte Blogs</strong> (MD-Artikel + manifest.json).<br />
-                              Nicht geeignet für Docs-Sites oder statische HTML-Projekte — dafür FTP/SFTP verwenden.
+                              Dieser PHP-Endpoint läuft im <strong style={{ color: '#AC8E66' }}>Blog-Modus</strong>.<br />
+                              Nur dieser Transportweg braucht das PHP-Paket. Lokal, Git und FTP nutzen keinen PHP-Endpoint.
                             </div>
                           </div>
                         )}
@@ -1231,9 +1323,9 @@ export const ZenSocialMediaSettingsContent = ({
                           {[
                             { step: '1', text: 'Wähle einen geheimen API Key (z.B. "meinKey123") und trage ihn unten ein.' },
                             { step: '2', text: 'Lade das PHP Paket herunter — 2 Dateien: zenpost-upload.php + .htaccess (Key ist eingetragen).' },
-                            { step: '3', text: 'Lade BEIDE Dateien direkt in das Blog-Hauptverzeichnis hoch (z.B. /zenpostapp/). NICHT in Unterordner!' },
+                            { step: '3', text: `Lade BEIDE Dateien direkt in das ${effectiveIsDocs ? 'Site' : 'Blog'}-Hauptverzeichnis hoch (z.B. /zenpostapp/). NICHT in Unterordner!` },
                             { step: '4', text: 'Trage die vollständige URL unten ein (z.B. https://meinserver.de/zenpostapp/zenpost-upload.php).' },
-                            { step: '5', text: 'Fertig — "Auf Server speichern" lädt Posts + Titelbilder hoch. Bilder landen automatisch in _assets/ auf dem Server und werden als URL im manifest verlinkt.' },
+                            { step: '5', text: `Fertig — "Auf Server speichern" nutzt diesen Endpoint und schreibt ${effectiveIsDocs ? 'docs/*.md + docs/manifest.json' : 'posts/*.md + manifest.json'}.` },
                           ].map(({ step, text }) => (
                             <div key={step} style={{ display: 'flex', gap: '8px', marginBottom: '4px' }}>
                               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a', fontWeight: 700, flexShrink: 0, width: '12px' }}>{step}.</span>
@@ -1245,7 +1337,7 @@ export const ZenSocialMediaSettingsContent = ({
                           <div style={{ marginTop: '10px', padding: '6px 8px', background: 'transparent', border: '1px solid rgba(172,142,102,0.3)', borderRadius: '4px' }}>
                             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', fontWeight: 700, marginBottom: '3px' }}>TITELBILDER</div>
                             <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#1a1a1a', lineHeight: 1.5 }}>
-                              Bild per Drag &amp; Drop in die Post-Metadaten ziehen. Beim Upload auf den Server wird das Bild automatisch in <span style={{ color: '#AC8E66', }}>_assets/</span> gespeichert und die URL im manifest.json verlinkt — kein manuelles Hochladen nötig.
+                              Bild per Drag &amp; Drop in die Metadaten ziehen. Beim PHP Upload wird das Bild automatisch in <span style={{ color: '#AC8E66', }}>{effectiveIsDocs ? 'docs/_assets/' : '_assets/'}</span> gespeichert und die URL im Manifest verlinkt.
                             </div>
                           </div>
                         </div>
@@ -1279,6 +1371,7 @@ export const ZenSocialMediaSettingsContent = ({
                           type="text"
                           value={blog.phpApiUrl ?? ''}
                           onChange={(e) => saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, phpApiUrl: e.target.value } : b))}
+                          onBlur={(e) => saveBlogs(blogs.map((b) => b.id === blog.id ? { ...b, phpApiUrl: normalizePhpUploadUrl(e.target.value) } : b))}
                           placeholder="Upload URL (z.B. https://meinserver.de/zenpostapp/zenpost-upload.php)"
                           style={{ width: '100%', padding: '6px 10px', 
                             border: '1px solid rgba(172,142,102,0.4)', 
@@ -1415,7 +1508,7 @@ export const ZenSocialMediaSettingsContent = ({
                     </div>
                   )}
                 </div>
-              ))}
+              );})}
             </div>
           )}
 
@@ -1482,7 +1575,7 @@ export const ZenSocialMediaSettingsContent = ({
           {wizardStep === 'name' && (
             <div style={{ padding: '16px', border: '1px solid rgba(172,142,102,0.5)', borderRadius: '8px', marginBottom: '20px', backgroundColor: 'rgba(172,142,102,0.04)' }}>
               <p style={{ margin: '0 0 14px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#1a1a1a' }}>
-                {editingBlogId ? 'Bearbeiten — Blog-Identität' : 'Schritt 1 / 2 — Blog-Identität'}
+                {editingBlogId ? 'Bearbeiten — Quelle' : 'Schritt 1 / 2 — Quelle'}
               </p>
               {/* Site-Typ Auswahl */}
               <p style={{ margin: '0 0 6px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Typ *</p>
@@ -1490,7 +1583,7 @@ export const ZenSocialMediaSettingsContent = ({
                 {(['blog', 'docs'] as const).map((t) => {
                   const isActive = wizardSiteType === t;
                   const label = t === 'blog' ? 'Blog / Posts' : 'Docs / Statische Site';
-                  const desc = t === 'blog' ? 'MD-Artikel, manifest.json, PHP Upload möglich' : 'HTML-Build, Doku, Assets — nur FTP/Git';
+                  const desc = t === 'blog' ? 'posts/*.md + manifest.json' : 'docs/*.md + docs/manifest.json';
                   return (
                     <button
                       key={t}
@@ -1512,7 +1605,7 @@ export const ZenSocialMediaSettingsContent = ({
                 })}
               </div>
               {/* Name */}
-              <p style={{ margin: '0 0 4px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Blog-Titel *</p>
+              <p style={{ margin: '0 0 4px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Titel *</p>
               <input
                 type="text"
                 value={wizardName}
@@ -1586,20 +1679,104 @@ export const ZenSocialMediaSettingsContent = ({
               <p style={{ margin: '0 0 12px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66' }}>
                 {editingBlogId ? `Bearbeiten — Ordner für „${wizardName}"` : `Schritt 2 / 2 — Ordner für „${wizardName}"`}
               </p>
-              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#666', marginBottom: '12px', minHeight: '20px', wordBreak: 'break-all' }}>
-                {wizardPath || 'Kein Ordner ausgewählt'}
-              </div>
-              {isTauri() ? (
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                 <button
-                  onClick={handleWizardSelectFolder}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid rgba(172,142,102,0.5)', borderRadius: '6px', background: 'transparent', cursor: 'pointer', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', marginBottom: '12px' }}
+                  onClick={() => setWizardStorageMode('local')}
+                  style={{
+                    padding: '6px 10px',
+                    border: `1px solid ${wizardStorageMode === 'local' ? '#AC8E66' : 'rgba(172,142,102,0.35)'}`,
+                    borderRadius: '6px',
+                    background: wizardStorageMode === 'local' ? 'rgba(172,142,102,0.14)' : 'transparent',
+                    cursor: 'pointer',
+                    color: wizardStorageMode === 'local' ? '#AC8E66' : '#666',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                  }}
                 >
-                  <FontAwesomeIcon icon={faFolderOpen} /> Ordner wählen
+                  Lokal / Web-Ordner
                 </button>
+                <button
+                  onClick={() => {
+                    const settings = loadZenStudioSettings();
+                    const defaultCloudId = settings.cloudProjectId ?? getCloudProjects()[0]?.id ?? null;
+                    setWizardStorageMode('cloud');
+                    setWizardCloudProjectId(defaultCloudId);
+                  }}
+                  style={{
+                    padding: '6px 10px',
+                    border: `1px solid ${wizardStorageMode === 'cloud' ? '#AC8E66' : 'rgba(172,142,102,0.35)'}`,
+                    borderRadius: '6px',
+                    background: wizardStorageMode === 'cloud' ? 'rgba(172,142,102,0.14)' : 'transparent',
+                    cursor: 'pointer',
+                    color: wizardStorageMode === 'cloud' ? '#AC8E66' : '#666',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                  }}
+                >
+                  ZenCloud-Projekt
+                </button>
+              </div>
+              <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#666', marginBottom: '12px', minHeight: '20px', wordBreak: 'break-all' }}>
+                {wizardStorageMode === 'cloud'
+                  ? (wizardCloudProjectId
+                    ? `${encodeCloudProjectPath(wizardCloudProjectId)}${getCloudProjectName(encodeCloudProjectPath(wizardCloudProjectId)) ? ` (${getCloudProjectName(encodeCloudProjectPath(wizardCloudProjectId))})` : ''}`
+                    : 'Kein ZenCloud-Projekt ausgewählt')
+                  : (wizardPath || 'Kein Ordner ausgewählt')}
+              </div>
+              {wizardStorageMode === 'local' ? (
+                <>
+                  <button
+                    onClick={isTauri() ? handleWizardSelectFolder : handleWizardSelectFolderWeb}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', border: '1px solid rgba(172,142,102,0.5)', borderRadius: '6px', background: 'transparent', cursor: 'pointer', color: '#AC8E66', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', marginBottom: '12px' }}
+                  >
+                    <FontAwesomeIcon icon={faFolderOpen} /> Ordner wählen
+                  </button>
+                  {!isTauri() && (
+                    <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#999', marginBottom: '12px' }}>
+                      Web-Modus: Es wird ein Browser-Ordner als Referenz gespeichert.
+                    </p>
+                  )}
+                </>
               ) : (
-                <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#999', marginBottom: '12px' }}>
-                  Ordner-Auswahl nur in der Desktop-App + Zencloud verfügbar.
-                </p>
+                <div style={{ marginBottom: '12px' }}>
+                  <select
+                    value={wizardCloudProjectId ? String(wizardCloudProjectId) : ''}
+                    onChange={(e) => setWizardCloudProjectId(e.target.value ? Number(e.target.value) : null)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      border: '1px solid rgba(172,142,102,0.4)',
+                      borderRadius: '6px',
+                      background: 'transparent',
+                      fontSize: '10px',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      color: '#333',
+                      outline: 'none',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <option value="">ZenCloud-Projekt wählen…</option>
+                    {getCloudProjects().map((project) => (
+                      <option key={project.id} value={String(project.id)}>
+                        {project.name} (#{project.id})
+                      </option>
+                    ))}
+                    {(() => {
+                      const settings = loadZenStudioSettings();
+                      if (!settings.cloudProjectId) return null;
+                      const existsInList = getCloudProjects().some((project) => project.id === settings.cloudProjectId);
+                      if (existsInList) return null;
+                      return (
+                        <option value={String(settings.cloudProjectId)}>
+                          {settings.cloudProjectName ?? `Projekt #${settings.cloudProjectId}`} (aktiv)
+                        </option>
+                      );
+                    })()}
+                  </select>
+                  <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#999', marginTop: '8px' }}>
+                    Speichert diesen Blog als Cloud-Ziel `@cloud:ID` statt lokalem Pfad.
+                  </p>
+                </div>
               )}
               <div style={{ marginTop: '10px' }}>
                 <p style={{ margin: '0 0 6px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>
@@ -1626,8 +1803,8 @@ export const ZenSocialMediaSettingsContent = ({
                 </button>
                 <button
                   onClick={handleWizardSave}
-                  disabled={!wizardPath.trim()}
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid rgba(172,142,102,0.6)', borderRadius: '6px', background: wizardPath.trim() ? '#AC8E66' : 'transparent', cursor: wizardPath.trim() ? 'pointer' : 'not-allowed', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: wizardPath.trim() ? '#fff' : '#AC8E66', opacity: wizardPath.trim() ? 1 : 0.4 }}
+                  disabled={wizardStorageMode === 'cloud' ? !wizardCloudProjectId : !wizardPath.trim()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 14px', border: '1px solid rgba(172,142,102,0.6)', borderRadius: '6px', background: (wizardStorageMode === 'cloud' ? !!wizardCloudProjectId : !!wizardPath.trim()) ? '#AC8E66' : 'transparent', cursor: (wizardStorageMode === 'cloud' ? !!wizardCloudProjectId : !!wizardPath.trim()) ? 'pointer' : 'not-allowed', fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: (wizardStorageMode === 'cloud' ? !!wizardCloudProjectId : !!wizardPath.trim()) ? '#fff' : '#AC8E66', opacity: (wizardStorageMode === 'cloud' ? !!wizardCloudProjectId : !!wizardPath.trim()) ? 1 : 0.4 }}
                 >
                   <FontAwesomeIcon icon={faCheck} /> Speichern
                 </button>
@@ -1637,8 +1814,8 @@ export const ZenSocialMediaSettingsContent = ({
 
           <ZenInfoBox
             type="info"
-            title="Blog-Workflow"
-            description="Content AI Studio → Export → Direkt veröffentlichen → Blog wählen. Der Post landet direkt im Ordner (posts/*.md + manifest.json)."
+            title="Publish-Workflow"
+            description="EXPORT // Content AI Studio → Export → Direkt veröffentlichen → Quelle wählen. Der Transportweg entscheidet, ob lokal, per Git/FTP oder per PHP-Endpoint gespeichert wird."
           />
         </div>
       )}

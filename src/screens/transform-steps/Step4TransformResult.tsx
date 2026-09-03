@@ -204,6 +204,7 @@ const platformLabels: Record<ContentPlatform, string> = {
   twitter: 'Twitter Thread',
   medium: 'Medium Blog',
   reddit: 'Reddit Post',
+  substack: 'Substack Newsletter',
   'github-discussion': 'GitHub Discussion',
   'github-blog': 'GitHub Blog Post',
   youtube: 'YouTube Description',
@@ -217,10 +218,11 @@ const platformMapping: Record<ContentPlatform, SocialPlatform | null> = {
   linkedin: 'linkedin',
   devto: 'devto',
   medium: 'medium',
+  substack: null,
   'github-discussion': 'github',
   'github-blog': 'github',
-  youtube: null, // YouTube doesn't have direct posting API in this implementation
-  'blog-post': null, // Generic blog post doesn't have direct posting
+  youtube: null,
+  'blog-post': null,
 };
 
 const socialToContentPlatform: Record<SocialPlatform, ContentPlatform> = {

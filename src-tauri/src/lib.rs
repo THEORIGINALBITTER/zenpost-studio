@@ -87,6 +87,66 @@ async fn sftp_upload(req: SftpUploadRequest) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SftpDeleteRequest {
+    pub host: String,
+    pub port: Option<u16>,
+    pub user: String,
+    pub password: String,
+    pub remote_path: String, // full remote path incl. filename
+}
+
+#[tauri::command]
+async fn sftp_delete(req: SftpDeleteRequest) -> Result<(), String> {
+    use ssh2::Session;
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::path::Path;
+    use std::time::Duration;
+
+    let port = req.port.unwrap_or(22);
+    let addr = format!("{}:{}", req.host, port);
+
+    let sock_addr = addr.to_socket_addrs()
+        .map_err(|e| format!("Adresse konnte nicht aufgelöst werden ({}): {}", addr, e))?
+        .next()
+        .ok_or_else(|| format!("Keine Adresse gefunden für {}", addr))?;
+
+    let tcp = TcpStream::connect_timeout(&sock_addr, Duration::from_secs(30))
+        .map_err(|e| format!("Verbindung zu {} fehlgeschlagen: {}", addr, e))?;
+    tcp.set_read_timeout(Some(Duration::from_secs(60)))
+        .map_err(|e| format!("Read-Timeout konnte nicht gesetzt werden: {}", e))?;
+    tcp.set_write_timeout(Some(Duration::from_secs(60)))
+        .map_err(|e| format!("Write-Timeout konnte nicht gesetzt werden: {}", e))?;
+
+    let mut sess = Session::new()
+        .map_err(|e| format!("SSH Session konnte nicht erstellt werden: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH Handshake fehlgeschlagen: {}", e))?;
+    sess.userauth_password(&req.user, &req.password)
+        .map_err(|e| format!("SFTP Authentifizierung fehlgeschlagen: {}", e))?;
+
+    if !sess.authenticated() {
+        return Err("SFTP: Authentifizierung abgelehnt (falsches Passwort oder Benutzer)".into());
+    }
+
+    let sftp = sess.sftp()
+        .map_err(|e| format!("SFTP Subsystem konnte nicht gestartet werden: {}", e))?;
+
+    let remote = Path::new(&req.remote_path);
+    match sftp.unlink(remote) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Treat "file not found" as success — deletion goal already satisfied.
+            if e.to_string().to_lowercase().contains("no such file") {
+                Ok(())
+            } else {
+                Err(format!("Löschen fehlgeschlagen ({}): {}", req.remote_path, e))
+            }
+        }
+    }
+}
+
 /// Persistenter ZenEngine-V2-Handle — einmal beim App-Start erzeugt,
 /// wird als Tauri-State gehalten. Rules werden nur bei Änderung neu geladen.
 pub struct ZenEngineState(pub Mutex<rules::EngineHandleV2>);
@@ -262,6 +322,7 @@ pub fn run() {
         http_fetch,
         print_current_window,
         sftp_upload,
+        sftp_delete,
         // ZenEngine
         engine_version,
         engine_render_markdown,

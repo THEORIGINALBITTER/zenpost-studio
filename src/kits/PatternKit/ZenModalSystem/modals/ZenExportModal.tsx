@@ -1,10 +1,10 @@
 import { useState, useMemo, useRef } from 'react';
 import {
   loadSocialConfig, isPlatformConfigured,
-  postToDevTo, postToMedium, postToLinkedIn,
+  postToDevTo, postToMedium, postToLinkedIn, postToReddit, postToTwitter,
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
-import { preparePostContent } from '../../../../config/platformPostRules';
+import { preparePostContent, PLATFORM_POST_RULES } from '../../../../config/platformPostRules';
 import { readFile, writeFile, writeTextFile, readTextFile, readDir, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '@tauri-apps/api/core';
@@ -31,6 +31,7 @@ import {
   faExternalLinkAlt,
   faImage,
   faBoxArchive,
+  faEnvelope,
 } from '@fortawesome/free-solid-svg-icons';
 import { transformContent, type ContentTone, type ContentPlatform } from '../../../../services/aiService';
 
@@ -47,6 +48,8 @@ import {
   faDev,
   faHashnode,
   faGithub,
+  faRedditAlien,
+  faXTwitter,
 } from '@fortawesome/free-brands-svg-icons';
 import { ZenModal } from '../components/ZenModal';
 import { useOpenExternal } from '../../../../hooks/useOpenExternal';
@@ -202,16 +205,21 @@ const SOCIAL_PLATFORM_IDS: Record<string, SocialPlatform> = {
   'devto':       'devto',
   'linkedin':    'linkedin',
   'github-gist': 'github',
+  'reddit':      'reddit',
+  'twitter':     'twitter',
 };
 
 // Map PublishOption IDs to ContentPlatform
 const PLATFORM_MAP: Record<string, ContentPlatform> = {
-  'medium': 'medium',
-  'wordpress': 'blog-post',
-  'devto': 'devto',
-  'hashnode': 'blog-post',
-  'linkedin': 'linkedin',
+  'medium':      'medium',
+  'wordpress':   'blog-post',
+  'devto':       'devto',
+  'hashnode':    'blog-post',
+  'linkedin':    'linkedin',
   'github-gist': 'github-blog',
+  'reddit':      'reddit',
+  'substack':    'substack',
+  'twitter':     'twitter',
 };
 
 const PUBLISH_OPTIONS: PublishOption[] = [
@@ -257,6 +265,27 @@ const PUBLISH_OPTIONS: PublishOption[] = [
     url: 'https://gist.github.com/',
     color: '#AC8E66',
   },
+  {
+    id: 'twitter',
+    label: 'X / Twitter',
+    icon: faXTwitter,
+    url: 'https://twitter.com/compose/tweet',
+    color: '#000000',
+  },
+  {
+    id: 'reddit',
+    label: 'Reddit',
+    icon: faRedditAlien,
+    url: 'https://www.reddit.com/submit',
+    color: '#FF4500',
+  },
+  {
+    id: 'substack',
+    label: 'Substack',
+    icon: faEnvelope,
+    url: 'https://substack.com/publish/post',
+    color: '#FF6719',
+  },
 ];
 
 // Ersetzt alle opfs://-Bildpfade im Markdown durch Cloud-URLs (documents_upload.php).
@@ -288,6 +317,64 @@ const resolveOpfsImagesInContent = async (markdown: string): Promise<string> => 
   return resolved;
 };
 
+// ── Serie-Split ─────────────────────────────────────────────────────────────
+
+function splitIntoSeries(text: string, maxChars: number, platformId: string): string[] {
+  if (platformId === 'twitter') {
+    const limit = 265;
+    const raw = text.replace(/\n+/g, ' ').trim();
+    const tokens = raw.match(/[^.!?]+[.!?]*\s*/g) ?? [raw];
+    const tweets: string[] = [];
+    let cur = '';
+    for (const tok of tokens) {
+      const candidate = cur ? cur + tok : tok.trim();
+      if (candidate.length <= limit) { cur = candidate; }
+      else { if (cur.trim()) tweets.push(cur.trim()); cur = tok.trim(); }
+    }
+    if (cur.trim()) tweets.push(cur.trim());
+    const total = tweets.length;
+    return total <= 1 ? tweets : tweets.map((t, i) => `${i + 1}/${total} ${t}`);
+  }
+
+  // LinkedIn & andere: an Absatz-Grenzen splitten
+  const SUFFIX = '\n\n→ Fortsetzung folgt …';
+  const PREFIX_RESERVE = 16; // "Teil XX/XX:\n\n"
+  const effectiveMax = maxChars - PREFIX_RESERVE - SUFFIX.length;
+  const paras = text.split(/\n\n+/);
+  const parts: string[] = [];
+  let cur = '';
+
+  for (const para of paras) {
+    const candidate = cur ? `${cur}\n\n${para}` : para;
+    if (candidate.length <= effectiveMax) {
+      cur = candidate;
+    } else {
+      if (cur) parts.push(cur);
+      if (para.length > effectiveMax) {
+        const sentences = para.match(/[^.!?]+[.!?]+\s*/g) ?? [para];
+        let buf = '';
+        for (const s of sentences) {
+          const c = buf ? `${buf} ${s.trim()}` : s.trim();
+          if (c.length <= effectiveMax) { buf = c; }
+          else { if (buf) parts.push(buf); buf = s.trim(); }
+        }
+        cur = buf;
+      } else {
+        cur = para;
+      }
+    }
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  if (parts.length <= 1) return parts;
+
+  const total = parts.length;
+  return parts.map((part, i) => {
+    const prefix = `Teil ${i + 1}/${total}:\n\n`;
+    const suffix = i < total - 1 ? SUFFIX : '';
+    return `${prefix}${part}${suffix}`;
+  });
+}
+
 export function ZenExportModal({ isOpen, onClose, content, platform: _platform, documentName, tags = [], subtitle, imageUrl, onNavigateToTransform: _onNavigateToTransform, onBlogPublished }: ZenExportModalProps) {
   const [exportingId, setExportingId] = useState<string | null>(null);
   const [exportedId, setExportedId] = useState<string | null>(null);
@@ -311,6 +398,12 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [linkedInImage, setLinkedInImage] = useState<File | null>(null);
   const [linkedInImagePreview, setLinkedInImagePreview] = useState<string | null>(null);
   const linkedInFileInputRef = useRef<HTMLInputElement>(null);
+  // Reddit subreddit (per-post override)
+  const [redditSubreddit, setRedditSubreddit] = useState<string>('');
+  // Serie-Split
+  const [seriesFor, setSeriesFor] = useState<string | null>(null);
+  const [seriesParts, setSeriesParts] = useState<string[]>([]);
+  const [copiedSeriesIdx, setCopiedSeriesIdx] = useState<number | null>(null);
   const socialConfig = useMemo<SocialMediaConfig>(() => loadSocialConfig(), [isOpen]);
   const blogs = useMemo<BlogConfig[]>(() => loadZenStudioSettings().blogs ?? [], [isOpen]);
   const { openExternal } = useOpenExternal();
@@ -1883,6 +1976,27 @@ ${renderedHtml}
           if (!resp.ok) throw new Error('Gist konnte nicht erstellt werden');
           const gistData = await resp.json();
           result = { success: true, url: gistData.html_url };
+        } else if (option.id === 'reddit') {
+          const prepared = preparePostContent('reddit', content, meta);
+          const subreddit = redditSubreddit.trim() || socialConfig.reddit?.username || '';
+          if (!subreddit) throw new Error('Bitte Subreddit eingeben (z.B. r/programming)');
+          result = await postToReddit(
+            {
+              subreddit: subreddit.replace(/^r\//, ''),
+              title: prepared.title ?? title,
+              text: prepared.text,
+            },
+            socialConfig.reddit!,
+          );
+        } else if (option.id === 'twitter') {
+          const tweets = splitIntoSeries(content, 280, 'twitter');
+          result = await postToTwitter(
+            {
+              text: tweets[0] ?? content.substring(0, 280),
+              thread: tweets.length > 1 ? tweets.slice(1) : undefined,
+            },
+            socialConfig.twitter!,
+          );
         } else {
           result = { success: false, error: 'Nicht implementiert' };
         }
@@ -2250,6 +2364,14 @@ ${renderedHtml}
               const borderColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? 'rgba(172,142,102,0.6)' : hasError ? '#e05c5c' : isConfigured ? 'rgba(172,142,102,0.3)' : '#3A3A3A';
               const iconColor = isPublished ? '#4caf50' : isSelected ? '#AC8E66' : hasCopyFallback ? '#AC8E66' : (isConfigured || isPublishing) ? '#AC8E66' : '#555';
 
+              // Char-Limit Berechnung
+              const ruleKey = (option.id === 'github-gist' ? 'github' : option.id) as keyof typeof PLATFORM_POST_RULES;
+              const maxChars = PLATFORM_POST_RULES[ruleKey]?.maxChars;
+              const charCount = content.length;
+              const charPct = maxChars ? Math.min(110, (charCount / maxChars) * 100) : 0;
+              const isOverLimit = !!maxChars && charCount > maxChars;
+              const charBarColor = isOverLimit ? '#e05c5c' : charPct > 80 ? '#f0a040' : '#4caf50';
+
               // Copy-fallback handler: copy content + open platform URL
               const handleCopyAndOpen = async (e: React.MouseEvent) => {
                 e.stopPropagation();
@@ -2383,6 +2505,32 @@ ${renderedHtml}
                       )}
                     </button>
 
+                    {/* Char-Bar LinkedIn */}
+                    {maxChars && (
+                      <div style={{ padding: '0 12px 8px', pointerEvents: 'none' }}>
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                          color: isOverLimit ? '#e05c5c' : charPct > 80 ? '#f0a040' : '#555',
+                          marginBottom: '3px',
+                        }}>
+                          <span>{charCount.toLocaleString('de-DE')}</span>
+                          <span>{maxChars.toLocaleString('de-DE')}</span>
+                        </div>
+                        <div style={{ width: '100%', height: '2px', backgroundColor: '#2a2a2a', borderRadius: '1px', overflow: 'hidden' }}>
+                          <div style={{
+                            width: `${Math.min(100, charPct)}%`, height: '100%',
+                            backgroundColor: charBarColor, borderRadius: '1px', transition: 'width 0.3s',
+                          }} />
+                        </div>
+                        {isOverLimit && (
+                          <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', marginTop: '3px', textAlign: 'center' }}>
+                            +{(charCount - maxChars).toLocaleString('de-DE')} · wird gekürzt
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Configured dot */}
                     {!isPublishing && !isPublished && (
                       <span style={{
@@ -2395,6 +2543,73 @@ ${renderedHtml}
                 );
               }
 
+              // ── Reddit: special card with subreddit input ──────────────────
+              if (option.id === 'reddit' && isConfigured && !hasCopyFallback) {
+                return (
+                  <div
+                    key={option.id}
+                    style={{
+                      position: 'relative',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      border: `0.5px solid ${borderColor}`,
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      backgroundColor: isPublished ? 'rgba(76,175,80,0.07)' : 'transparent',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    <input
+                      type="text"
+                      placeholder="r/subreddit"
+                      value={redditSubreddit}
+                      onChange={(e) => setRedditSubreddit(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        borderBottom: '0.5px solid #3A3A3A',
+                        color: '#AC8E66',
+                        fontFamily: 'IBM Plex Mono, monospace',
+                        fontSize: '11px',
+                        padding: '8px 12px',
+                        outline: 'none',
+                        width: '100%',
+                        boxSizing: 'border-box',
+                      }}
+                    />
+                    <button
+                      onClick={() => !isPublishing && !isPublished && void handlePublish(option)}
+                      disabled={isPublishing || isPublished}
+                      style={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '10px',
+                        padding: '16px 12px',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: isPublishing || isPublished ? 'default' : 'pointer',
+                      }}
+                    >
+                      <FontAwesomeIcon
+                        icon={isPublishing ? faSpinner : isPublished ? faCheck : option.icon}
+                        spin={isPublishing}
+                        style={{ fontSize: '22px', color: iconColor }}
+                      />
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: isPublished ? '#4caf50' : iconColor, fontWeight: 500 }}>
+                        {isPublishing ? 'Wird gepostet …' : isPublished ? 'Gepostet!' : option.label}
+                      </span>
+                    </button>
+                    {!isPublishing && !isPublished && (
+                      <span style={{ position: 'absolute', top: 8, right: 8, width: 6, height: 6, borderRadius: '50%', backgroundColor: '#AC8E66' }} />
+                    )}
+                  </div>
+                );
+              }
+
               return (
                 <button
                   key={option.id}
@@ -2402,6 +2617,17 @@ ${renderedHtml}
                     if (isPublishing || isPublished) return;
                     if (hasCopyFallback) { void handlePublish(option); return; }
                     if (!isConfigured) { void handlePublish(option); return; }
+                    // Bei überschrittenem Limit: Serie-Panel öffnen/schließen
+                    if (isOverLimit) {
+                      if (seriesFor === option.id) {
+                        setSeriesFor(null);
+                      } else {
+                        setSeriesFor(option.id);
+                        setSeriesParts(splitIntoSeries(content, maxChars!, option.id));
+                        setCopiedSeriesIdx(null);
+                      }
+                      return;
+                    }
                     // Toggle selection for configured platforms
                     setSelectedPlatformIds(prev => {
                       const next = new Set(prev);
@@ -2517,10 +2743,117 @@ ${renderedHtml}
                       <FontAwesomeIcon icon={faExternalLinkAlt} style={{ fontSize: '8px' }} />
                     </button>
                   )}
+
+                  {/* Zeichen-Limit Bar */}
+                  {maxChars && (
+                    <div style={{ width: '100%', marginTop: '6px', pointerEvents: 'none' }}>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                        color: isOverLimit ? '#e05c5c' : charPct > 80 ? '#f0a040' : '#555',
+                        marginBottom: '3px',
+                      }}>
+                        <span>{charCount.toLocaleString('de-DE')}</span>
+                        <span>{maxChars.toLocaleString('de-DE')}</span>
+                      </div>
+                      <div style={{ width: '100%', height: '2px', backgroundColor: '#2a2a2a', borderRadius: '1px', overflow: 'hidden' }}>
+                        <div style={{
+                          width: `${Math.min(100, charPct)}%`, height: '100%',
+                          backgroundColor: charBarColor, borderRadius: '1px',
+                          transition: 'width 0.3s',
+                        }} />
+                      </div>
+                      {isOverLimit && (
+                        <div style={{
+                          fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px',
+                          color: '#e05c5c', marginTop: '3px', textAlign: 'center',
+                        }}>
+                          +{(charCount - maxChars).toLocaleString('de-DE')} · Serie →
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </button>
               );
             })}
           </div>
+
+          {/* Serie-Panel */}
+          {seriesFor && seriesParts.length > 1 && (
+            <div style={{
+              marginTop: '12px',
+              border: '0.5px solid rgba(172,142,102,0.35)',
+              borderRadius: '10px',
+              overflow: 'hidden',
+            }}>
+              <div style={{
+                padding: '8px 12px',
+                borderBottom: '0.5px solid #3A3A3A',
+                fontFamily: 'IBM Plex Mono, monospace',
+                fontSize: '11px',
+                color: '#AC8E66',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}>
+                <span>Serie · {seriesParts.length} Teile · je kopieren &amp; posten</span>
+                <button
+                  onClick={() => setSeriesFor(null)}
+                  style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}
+                >×</button>
+              </div>
+              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {seriesParts.map((part, i) => (
+                  <div key={i} style={{ border: '0.5px solid #2a2a2a', borderRadius: '8px', overflow: 'hidden' }}>
+                    <div style={{
+                      padding: '5px 10px',
+                      borderBottom: '0.5px solid #2a2a2a',
+                      fontFamily: 'IBM Plex Mono, monospace',
+                      fontSize: '10px',
+                      color: '#666',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      backgroundColor: '#1c1c1c',
+                    }}>
+                      <span>Teil {i + 1}/{seriesParts.length} · {part.length.toLocaleString('de-DE')} Zeichen</span>
+                      <button
+                        onClick={() => {
+                          void navigator.clipboard.writeText(part);
+                          setCopiedSeriesIdx(i);
+                          setTimeout(() => setCopiedSeriesIdx(null), 2000);
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '4px',
+                          padding: '3px 8px',
+                          backgroundColor: copiedSeriesIdx === i ? 'rgba(76,175,80,0.15)' : 'rgba(172,142,102,0.1)',
+                          border: `0.5px solid ${copiedSeriesIdx === i ? '#4caf50' : 'rgba(172,142,102,0.3)'}`,
+                          borderRadius: '4px',
+                          color: copiedSeriesIdx === i ? '#4caf50' : '#AC8E66',
+                          fontFamily: 'IBM Plex Mono, monospace',
+                          fontSize: '9px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <FontAwesomeIcon icon={copiedSeriesIdx === i ? faCheck : faCopy} style={{ fontSize: '8px' }} />
+                        {copiedSeriesIdx === i ? 'Kopiert!' : 'Kopieren'}
+                      </button>
+                    </div>
+                    <pre style={{
+                      margin: 0, padding: '8px 10px',
+                      fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                      color: '#777', lineHeight: 1.6,
+                      whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                      maxHeight: '72px', overflow: 'hidden',
+                    }}>
+                      {part.length > 220 ? part.substring(0, 220) + ' …' : part}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
             </div>
           )}
         </div>

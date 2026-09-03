@@ -9,6 +9,13 @@ import {
   patchZenStudioSettings,
   type ZenStudioSettings,
 } from '../../../../../services/zenStudioSettingsService';
+import {
+  getCloudSettingsSyncStatus,
+  loadSettingsBackupFromCloud,
+  saveSettingsBackupToCloud,
+  setCloudSettingsSyncStatus,
+  type CloudSettingsSyncStatus,
+} from '../../../../../services/cloudSettingsSyncService';
 import { ZenDropdown } from '../../components/ZenDropdown';
 
 const DEFAULT_BASE_URL = 'https://denisbitter.de/stage02/api';
@@ -104,6 +111,8 @@ export const ZenCloudSettingsContent = () => {
   const [creatingProject, setCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [showNewProjectInput, setShowNewProjectInput] = useState(false);
+  const [syncBusy, setSyncBusy] = useState<'save' | 'load' | null>(null);
+  const [syncStatus, setSyncStatus] = useState<CloudSettingsSyncStatus | null>(() => getCloudSettingsSyncStatus());
 
   const baseUrl = useMemo(() => {
     const raw = settings.cloudApiBaseUrl ?? DEFAULT_BASE_URL;
@@ -219,6 +228,16 @@ export const ZenCloudSettingsContent = () => {
     const token = settings.cloudAuthToken;
     if (token) void loadUserProjects(token);
   }, [loadUserProjects, settings.cloudAuthToken]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<CloudSettingsSyncStatus>).detail;
+      if (!detail) return;
+      setSyncStatus(detail);
+    };
+    window.addEventListener('zenpost:cloud-settings-sync-status', handler);
+    return () => window.removeEventListener('zenpost:cloud-settings-sync-status', handler);
+  }, []);
 
   const zenFetch = async (url: string, method: string, headers: Record<string, string>, body?: string) => {
     if (isTauri()) {
@@ -397,6 +416,87 @@ export const ZenCloudSettingsContent = () => {
     } finally { setCreatingProject(false); }
   };
 
+  const handleSaveSettingsToCloud = async () => {
+    setSyncBusy('save');
+    try {
+      const ok = await saveSettingsBackupToCloud();
+      if (ok) {
+        const status: CloudSettingsSyncStatus = {
+          timestamp: new Date().toISOString(),
+          source: 'manual-save',
+          result: 'success',
+          message: 'Einstellungen in ZenCloud gespeichert.',
+        };
+        setCloudSettingsSyncStatus(status);
+        setSyncStatus(status);
+        setResult(status.message, 'success');
+      } else {
+        const status: CloudSettingsSyncStatus = {
+          timestamp: new Date().toISOString(),
+          source: 'manual-save',
+          result: 'error',
+          message: 'Cloud-Export fehlgeschlagen.',
+        };
+        setCloudSettingsSyncStatus(status);
+        setSyncStatus(status);
+        setResult(status.message, 'error');
+      }
+    } catch (err) {
+      const status: CloudSettingsSyncStatus = {
+        timestamp: new Date().toISOString(),
+        source: 'manual-save',
+        result: 'error',
+        message: `Cloud-Export Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`,
+      };
+      setCloudSettingsSyncStatus(status);
+      setSyncStatus(status);
+      setResult(status.message, 'error');
+    } finally {
+      setSyncBusy(null);
+    }
+  };
+
+  const handleLoadSettingsFromCloud = async () => {
+    setSyncBusy('load');
+    try {
+      const ok = await loadSettingsBackupFromCloud();
+      if (ok) {
+        setSettings(loadZenStudioSettings());
+        const status: CloudSettingsSyncStatus = {
+          timestamp: new Date().toISOString(),
+          source: 'manual-load',
+          result: 'success',
+          message: 'Einstellungen aus ZenCloud geladen.',
+        };
+        setCloudSettingsSyncStatus(status);
+        setSyncStatus(status);
+        setResult(status.message, 'success');
+      } else {
+        const status: CloudSettingsSyncStatus = {
+          timestamp: new Date().toISOString(),
+          source: 'manual-load',
+          result: 'empty',
+          message: 'Keine Cloud-Einstellungen gefunden.',
+        };
+        setCloudSettingsSyncStatus(status);
+        setSyncStatus(status);
+        setResult(status.message, 'info');
+      }
+    } catch (err) {
+      const status: CloudSettingsSyncStatus = {
+        timestamp: new Date().toISOString(),
+        source: 'manual-load',
+        result: 'error',
+        message: `Cloud-Import Fehler: ${err instanceof Error ? err.message : 'Unbekannt'}`,
+      };
+      setCloudSettingsSyncStatus(status);
+      setSyncStatus(status);
+      setResult(status.message, 'error');
+    } finally {
+      setSyncBusy(null);
+    }
+  };
+
   const isLoggedIn = !!settings.cloudAuthToken;
 
   return (
@@ -408,7 +508,7 @@ export const ZenCloudSettingsContent = () => {
           <div style={{ fontFamily: fontMono, fontSize: 9, letterSpacing: '0.12em', color: gold, textTransform: 'uppercase', marginBottom: 4 }}>
             ZenCloud
           </div>
-          <div style={{ fontFamily: fontMono, fontSize: 13, color: '#1a1a1a' }}>
+          <div style={{ fontFamily: fontMono, fontSize: 10, color: '#1a1a1a' }}>
             {isLoggedIn ? `Eingeloggt als ${settings.cloudUserEmail ?? 'User'}` : 'Anmelden'}
           </div>
           <div style={{ fontFamily: fontMono, fontSize: 10, color: '#777', marginTop: 3 }}>
@@ -524,6 +624,38 @@ export const ZenCloudSettingsContent = () => {
                 ) : (
                   <div style={{ fontFamily: fontMono, fontSize: 11, color: '#555', border: '1px solid rgba(172,142,102,0.3)', borderRadius: 8, padding: '10px 12px', background: 'rgba(255,255,255,0.35)' }}>
                     {settings.cloudProjectId ? `${settings.cloudProjectName ?? 'Projekt'} (#${settings.cloudProjectId})` : 'Kein Projekt gesetzt'}
+                  </div>
+                )}
+              </div>
+
+              <Divider />
+
+              <div>
+                <SectionLabel>Settings Sync</SectionLabel>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => void handleSaveSettingsToCloud()}
+                    disabled={syncBusy !== null}
+                    style={{ ...primaryBtn, minWidth: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  >
+                    {syncBusy === 'save' ? <FontAwesomeIcon icon={faSpinner} spin /> : null}
+                    In ZenCloud speichern
+                  </button>
+                  <button
+                    onClick={() => void handleLoadSettingsFromCloud()}
+                    disabled={syncBusy !== null}
+                    style={{ ...ghostBtn, minWidth: 210, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                  >
+                    {syncBusy === 'load' ? <FontAwesomeIcon icon={faSpinner} spin /> : null}
+                    Aus ZenCloud laden
+                  </button>
+                </div>
+                <div style={{ marginTop: 8, fontFamily: fontMono, fontSize: 10, color: '#666' }}>
+                  Cloud-Backup enthält Studio-, AI-, Editor- und Social-Settings.
+                </div>
+                {syncStatus && (
+                  <div style={{ marginTop: 8, fontFamily: fontMono, fontSize: 10, color: '#555' }}>
+                    Letzter Sync: {new Date(syncStatus.timestamp).toLocaleString('de-DE')} · Quelle: {syncStatus.source} · Ergebnis: {syncStatus.result}
                   </div>
                 )}
               </div>

@@ -86,7 +86,7 @@ export const MODAL_CONTENT = {
     subtitle: 'AI Provider & Social Media APIs konfigurieren',
   },
   about: {
-    title: 'ZenPost Studio',
+    title: '禅 ZenPost Studio',
     subtitle: `Version ${packageJson.version}`,
   },
     docload: {

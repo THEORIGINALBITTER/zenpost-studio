@@ -31,3 +31,6 @@ fi
 
 echo "==> Done"
 ls -la src-tauri/target/universal-apple-darwin/release/bundle || true
+
+echo "==> Build .pkg Installer (xattr)"
+bash "$ROOT_DIR/build_installer.sh"
