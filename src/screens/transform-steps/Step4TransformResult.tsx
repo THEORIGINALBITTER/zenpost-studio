@@ -49,6 +49,8 @@ import {
   postToSocialMedia,
   loadSocialConfig,
   isPlatformConfigured,
+  checkRecentDuplicatePost,
+  recordPostAttempt,
   SocialPlatform,
   PostResult,
 } from '../../services/socialMediaService';
@@ -942,6 +944,17 @@ const handleDownload = async () => {
       return;
     }
 
+    const recentSecs = checkRecentDuplicatePost(socialPlatform, contentForPost);
+    if (recentSecs !== null) {
+      const proceed = window.confirm(
+        `Du hast diesen Inhalt vor ${recentSecs}s schon an ${platformLabels[platform]} gesendet.\n\nTrotzdem nochmal senden? (Risiko eines Doppel-Posts)`
+      );
+      if (!proceed) return;
+    }
+    // Record before the actual send (not after) — same string checked above —
+    // so a duplicate is still caught even if this attempt times out.
+    recordPostAttempt(socialPlatform, contentForPost);
+
     setIsPosting(true);
     setPostResult(null);
 
@@ -1125,15 +1138,40 @@ const handleDownload = async () => {
   };
 
   const handleMultiDirectPost = async (platformsOverride?: SocialPlatform[]) => {
+    const currentConfig = loadSocialConfig();
+    const targetPlatforms = platformsOverride && platformsOverride.length > 0
+      ? platformsOverride
+      : selectedPostPlatforms;
+
+    // One combined duplicate check up-front, using each platform's actually
+    // prepared text — asking per-platform inside the loop below would mean
+    // up to N confirm() popups in a row for a single "post to all" click.
+    // The same computed text is reused below to record each attempt, so
+    // check and record always agree on what "this content" means.
+    const preparedTextByPlatform = new Map<SocialPlatform, string>();
+    const duplicateFlags = targetPlatforms
+      .map((targetPlatform) => {
+        const postContent = prepareContentForPlatform(targetPlatform, currentContent);
+        const text: string = postContent.body_markdown ?? postContent.content ?? postContent.text ?? postContent.body ?? '';
+        preparedTextByPlatform.set(targetPlatform, text);
+        const secs = checkRecentDuplicatePost(targetPlatform, text);
+        return secs !== null ? { targetPlatform, secs } : null;
+      })
+      .filter((v): v is { targetPlatform: SocialPlatform; secs: number } => v !== null);
+
+    if (duplicateFlags.length > 0) {
+      const list = duplicateFlags.map((d) => `- ${platformLabels[socialToContentPlatform[d.targetPlatform]]} (vor ${d.secs}s)`).join('\n');
+      const proceed = window.confirm(
+        `Diesen Inhalt hast du gerade erst gesendet an:\n${list}\n\nTrotzdem nochmal an alle ausgewählten Plattformen senden? (Risiko von Doppel-Posts)`
+      );
+      if (!proceed) return;
+    }
+
     setShowPostMethodModal(false);
     setIsMultiPosting(true);
     setMultiPostResults([]);
 
     const results: PostResult[] = [];
-    const currentConfig = loadSocialConfig();
-    const targetPlatforms = platformsOverride && platformsOverride.length > 0
-      ? platformsOverride
-      : selectedPostPlatforms;
 
     for (const targetPlatform of targetPlatforms) {
       if (!isPlatformConfigured(targetPlatform, currentConfig)) {
@@ -1170,6 +1208,9 @@ const handleDownload = async () => {
           });
           continue;
         }
+        // Record right before sending — same text checked in the up-front
+        // pass above — so a duplicate is still caught even on a timeout.
+        recordPostAttempt(targetPlatform, preparedTextByPlatform.get(targetPlatform) ?? '');
         const result = await postToSocialMedia(targetPlatform, postContent, currentConfig);
         results.push(result);
 

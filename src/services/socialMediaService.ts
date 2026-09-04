@@ -17,6 +17,51 @@ async function httpFetch(url: string, init?: RequestInit): Promise<Response> {
 }
 
 // ============================================================================
+// Duplicate-Post Safety Net
+// ============================================================================
+//
+// None of these platforms' public APIs support an idempotency key, so a
+// network failure after the server already processed a post looks identical
+// to a failure before it did — there is no reliable way to know which
+// happened. What this CAN catch: the common case where the same content gets
+// sent to the same platform again shortly after a previous attempt (a retry
+// click after a network blip, or an accidental double-submit). Session-only,
+// in-memory — not persisted, not a security boundary.
+
+const recentPostAttempts = new Map<string, number>(); // `${platform}:${contentKey}` -> timestamp (ms)
+const DUPLICATE_POST_WINDOW_MS = 60_000;
+
+function contentKey(content: string): string {
+  // Cheap non-cryptographic hash — collisions are an acceptable trade-off
+  // here, this only drives a confirmation prompt, nothing destructive.
+  let hash = 0;
+  for (let i = 0; i < content.length; i++) {
+    hash = (hash * 31 + content.charCodeAt(i)) | 0;
+  }
+  return `${content.length}:${hash}`;
+}
+
+/**
+ * Returns how many seconds ago the same content was last sent to this
+ * platform, if that was within the last minute — otherwise null.
+ */
+export function checkRecentDuplicatePost(platform: SocialPlatform, content: string): number | null {
+  const last = recentPostAttempts.get(`${platform}:${contentKey(content)}`);
+  if (last === undefined) return null;
+  const elapsedMs = Date.now() - last;
+  return elapsedMs < DUPLICATE_POST_WINDOW_MS ? Math.round(elapsedMs / 1000) : null;
+}
+
+/**
+ * Records that a send to this platform is starting — call this right before
+ * the network request, not after, so a duplicate is still caught even if the
+ * request times out or the response never arrives.
+ */
+export function recordPostAttempt(platform: SocialPlatform, content: string): void {
+  recentPostAttempts.set(`${platform}:${contentKey(content)}`, Date.now());
+}
+
+// ============================================================================
 // Types & Interfaces
 // ============================================================================
 

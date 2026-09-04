@@ -2,6 +2,7 @@ import { useState, useMemo, useRef } from 'react';
 import {
   loadSocialConfig, isPlatformConfigured,
   postToDevTo, postToMedium, postToLinkedIn, postToReddit, postToTwitter,
+  checkRecentDuplicatePost, recordPostAttempt,
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
 import { preparePostContent, PLATFORM_POST_RULES } from '../../../../config/platformPostRules';
@@ -1916,6 +1917,17 @@ ${renderedHtml}
     const socialPlatformId = SOCIAL_PLATFORM_IDS[option.id];
 
     if (socialPlatformId && isPlatformConfigured(socialPlatformId, socialConfig)) {
+      const recentSecs = checkRecentDuplicatePost(socialPlatformId, content);
+      if (recentSecs !== null) {
+        const proceed = window.confirm(
+          `Du hast diesen Inhalt vor ${recentSecs}s schon an ${option.label} gesendet.\n\nTrotzdem nochmal senden? (Risiko eines Doppel-Posts)`
+        );
+        if (!proceed) return;
+      }
+      // Record before the actual send (not after) — same string checked
+      // above — so a duplicate is still caught even on a timeout.
+      recordPostAttempt(socialPlatformId, content);
+
       setPublishingId(option.id);
       setPublishError(null);
       try {
