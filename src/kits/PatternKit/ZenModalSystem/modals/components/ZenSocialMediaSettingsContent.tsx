@@ -123,6 +123,7 @@ export const ZenSocialMediaSettingsContent = ({
   const [ftpTestMsg, setFtpTestMsg] = useState<Record<string, string>>({});
   const [phpTestState, setPhpTestState] = useState<Record<string, 'idle' | 'testing' | 'ok' | 'error'>>({});
   const [phpTestMsg, setPhpTestMsg] = useState<Record<string, string>>({});
+  const [blogDiagnostics, setBlogDiagnostics] = useState<Record<string, { level: 'ok' | 'warning'; text: string }[]>>({});
   const [wizardStep, setWizardStep] = useState<'hidden' | 'name' | 'folder'>('hidden');
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
   const [wizardName, setWizardName] = useState('');
@@ -251,6 +252,7 @@ export const ZenSocialMediaSettingsContent = ({
     if (!blog.phpApiUrl || !blog.phpApiKey) return;
     setPhpTestState((p) => ({ ...p, [blog.id]: 'testing' }));
     setPhpTestMsg((p) => ({ ...p, [blog.id]: '' }));
+    setBlogDiagnostics((p) => ({ ...p, [blog.id]: [] }));
     try {
       // GET zenpost-upload.php → returns manifest JSON (no auth needed)
       const endpointUrl = normalizePhpUploadUrl(blog.phpApiUrl);
@@ -261,20 +263,69 @@ export const ZenSocialMediaSettingsContent = ({
         return;
       }
       const json = await response.json() as { site?: unknown; posts?: unknown; documents?: unknown };
-      if ('documents' in json) {
-        const count = Array.isArray(json.documents) ? json.documents.length : 0;
-        const info = count > 0 ? ` — ${count} Dokumente` : '';
-        setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
-        setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
-      } else if ('posts' in json) {
-        const count = Array.isArray(json.posts) ? json.posts.length : 0;
-        const info = count > 0 ? ` — ${count} Posts` : '';
-        setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
-        setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
-      } else {
+      const postsCount = Array.isArray(json.posts) ? json.posts.length : 0;
+      const docsCount = Array.isArray(json.documents) ? json.documents.length : 0;
+
+      if (!('posts' in json) && !('documents' in json)) {
         setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
         setPhpTestMsg((p) => ({ ...p, [blog.id]: 'Unbekannte Server-Antwort' }));
+        return;
       }
+
+      const countParts: string[] = [];
+      if (postsCount > 0) countParts.push(`${postsCount} Posts`);
+      if (docsCount > 0) countParts.push(`${docsCount} Dokumente`);
+      const info = countParts.length > 0 ? ` — ${countParts.join(', ')}` : '';
+      setPhpTestState((p) => ({ ...p, [blog.id]: 'ok' }));
+      setPhpTestMsg((p) => ({ ...p, [blog.id]: `Server erreichbar${info}` }));
+
+      // ── Blog-Diagnose: vergleicht, was tatsächlich auf dem Server liegt,
+      // mit dem, was hier konfiguriert ist — genau die Art von Mismatch
+      // (Docs/Blog-Verwechslung), die heute mehrfach zu verschwundenen
+      // Posts geführt hat, sichtbar machen statt den Nutzer suchen zu lassen.
+      const findings: { level: 'ok' | 'warning'; text: string }[] = [];
+      const isDocsConfigured = blog.siteType === 'docs';
+
+      if (isDocsConfigured && postsCount > 0) {
+        findings.push({
+          level: 'warning',
+          text: `Als "Docs" konfiguriert, aber der Server hat ${postsCount} Blog-Post${postsCount === 1 ? '' : 's'}, die dadurch nicht angezeigt werden. Falls das eigentlich ein Blog ist: Site-Typ auf "Blog" umstellen.`,
+        });
+      }
+      if (!isDocsConfigured && docsCount > 0) {
+        findings.push({
+          level: 'warning',
+          text: `Als "Blog" konfiguriert, aber der Server hat ${docsCount} Dokument${docsCount === 1 ? '' : 'e'} im docs/-Ordner, die dadurch nicht angezeigt werden. Falls das eigentlich eine Docs-Seite ist: Site-Typ auf "Docs" umstellen.`,
+        });
+      }
+
+      if (isTauri() && blog.path) {
+        try {
+          const localDocsDir = await join(blog.path, 'docs');
+          const localPostsDir = await join(blog.path, 'posts');
+          const hasLocalDocs = await exists(localDocsDir);
+          const hasLocalPosts = await exists(localPostsDir);
+          if (isDocsConfigured && !hasLocalDocs && hasLocalPosts) {
+            findings.push({
+              level: 'warning',
+              text: `Lokal gibt es noch keinen docs/-Ordner, aber schon einen posts/-Ordner unter "${blog.path}" — starke Hinweise, dass dieser Blog eigentlich "Blog" sein sollte, nicht "Docs".`,
+            });
+          }
+          if (!isDocsConfigured && hasLocalDocs && !hasLocalPosts) {
+            findings.push({
+              level: 'warning',
+              text: `Lokal gibt es einen docs/-Ordner, aber keinen posts/-Ordner unter "${blog.path}" — starke Hinweise, dass dieser Blog eigentlich "Docs" sein sollte, nicht "Blog".`,
+            });
+          }
+        } catch {
+          /* lokale Prüfung ist optional — Fehler hier sind nicht kritisch */
+        }
+      }
+
+      if (findings.length === 0) {
+        findings.push({ level: 'ok', text: 'Konfiguration und Server-Inhalt passen zusammen.' });
+      }
+      setBlogDiagnostics((p) => ({ ...p, [blog.id]: findings }));
     } catch (e) {
       setPhpTestState((p) => ({ ...p, [blog.id]: 'error' }));
       setPhpTestMsg((p) => ({ ...p, [blog.id]: 'Endpoint nicht erreichbar' }));
@@ -1411,6 +1462,31 @@ export const ZenSocialMediaSettingsContent = ({
                                 {phpTestMsg[blog.id]}
                               </span>
                             )}
+                          </div>
+                        )}
+
+                        {/* Blog-Diagnose: Klartext-Ergebnisse aus handlePhpTest */}
+                        {(blogDiagnostics[blog.id]?.length ?? 0) > 0 && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '2px' }}>
+                            {blogDiagnostics[blog.id].map((finding, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  display: 'flex', alignItems: 'flex-start', gap: '6px',
+                                  padding: '6px 8px', borderRadius: '5px',
+                                  background: finding.level === 'warning' ? 'rgba(217,164,6,0.08)' : 'rgba(31,138,65,0.06)',
+                                  border: `0.5px solid ${finding.level === 'warning' ? 'rgba(217,164,6,0.35)' : 'rgba(31,138,65,0.25)'}`,
+                                }}
+                              >
+                                <FontAwesomeIcon
+                                  icon={finding.level === 'warning' ? faCircleInfo : faCheck}
+                                  style={{ color: finding.level === 'warning' ? '#9a6b00' : '#1F8A41', fontSize: '9px', marginTop: '1px', flexShrink: 0 }}
+                                />
+                                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#333', lineHeight: 1.5 }}>
+                                  {finding.text}
+                                </span>
+                              </div>
+                            ))}
                           </div>
                         )}
 
