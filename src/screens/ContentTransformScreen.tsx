@@ -1931,6 +1931,21 @@ export const ContentTransformScreen = ({
         const wordCount = actualContent.trim().split(/\s+/).length;
         const readingTime = Math.max(1, Math.round(wordCount / 220));
         const postsDir = await join(blogSaveTarget.path, isDocsSite ? 'docs' : 'posts');
+        // Only ever auto-creates posts/ (the normal, always-safe default for
+        // a blog). docs/ is never created on demand — if the config says
+        // "docs" but no docs/ folder exists yet locally, that's very likely
+        // a stale/misconfigured siteType, not an intentional new docs site.
+        // Silently creating it here is exactly what routed saves into the
+        // wrong place tonight; failing loudly lets the mismatch get fixed
+        // before anything is written to the wrong folder.
+        if (isDocsSite && !(await exists(postsDir))) {
+          alert(
+            `Dieser Blog ist als "Docs" konfiguriert, aber lokal existiert noch kein docs/-Ordner unter\n${blogSaveTarget.path}.\n\n` +
+            `Falls das eigentlich ein normaler Blog ist: Site-Typ in den Einstellungen auf "Blog" umstellen.\n` +
+            `Falls docs/ bewusst neu angelegt werden soll: den Ordner einmalig manuell anlegen, dann erneut speichern.`
+          );
+          return;
+        }
         if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
         // If meta image is base64 or local path, extract and save as image file next to the post
         const prefersPlaceholderVisual = postMeta.visualMode === 'placeholder';

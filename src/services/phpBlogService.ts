@@ -299,8 +299,14 @@ function read_blog_manifest(): array {
     return $rescanned;
 }
 
+// Deliberately does NOT create DOCS_DIR — writing here is only valid once
+// docs/ already exists (see safe_doc_path()/the caller checks below). A
+// docs-shaped save arriving for a site that was never actually set up as a
+// docs site (e.g. a client with a stale/misconfigured siteType) should fail
+// loudly here instead of silently creating docs/ and, from that point on,
+// permanently starving posts/ of new content.
 function write_manifest(array $manifest): bool {
-    if (!is_dir(DOCS_DIR)) mkdir(DOCS_DIR, 0755, true);
+    if (!is_dir(DOCS_DIR)) return false;
     return file_put_contents(MANIFEST_PATH, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) !== false;
 }
 
@@ -430,11 +436,21 @@ function resolve_doc_file(string $requested): ?string {
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $requested = trim((string)($_GET['file'] ?? $_GET['slug'] ?? ''));
     if ($requested === '') {
-        if (docs_file_count() > 0 || file_exists(MANIFEST_PATH)) {
-            echo json_encode(read_manifest(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        } else {
-            echo json_encode(read_blog_manifest(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        }
+        // Always report both shapes, each freshly self-healed from its own
+        // folder on disk. Previously this picked ONE shape based on whether
+        // docs/ happened to contain any file at all — a single doc/*.md
+        // (even a stray one, or one from before a site type was corrected)
+        // flipped the whole endpoint into "docs mode" and made every
+        // tracked blog post in posts/ invisible to callers reading this
+        // response, even though write_blog_manifest() kept them intact.
+        // Returning both means a client can never lose visibility into one
+        // folder just because the other has content.
+        $docsManifest = read_manifest();
+        $blogManifest = read_blog_manifest();
+        $combined = $blogManifest;
+        $combined['documents'] = $docsManifest['documents'] ?? [];
+        $combined['content'] = $docsManifest['content'] ?? ['format' => 'markdown', 'directory' => 'docs'];
+        echo json_encode($combined, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
 
@@ -523,7 +539,12 @@ if (!isset($body['filename']) && !isset($body['content']) && isset($body['manife
         echo json_encode(['error' => 'Could not write manifest']);
         exit;
     }
-    if (isset($body['manifest']['posts']) && !isset($body['manifest']['documents']) && docs_file_count() === 0) {
+    // Routed purely by payload shape — a blog payload (posts, no documents)
+    // always goes to the blog manifest, regardless of whether docs/ happens
+    // to contain files. Gating this on docs_file_count() used to mean a
+    // single stray file in docs/ would silently reroute every future blog
+    // save into docs/ too, starving posts/ of new content.
+    if (isset($body['manifest']['posts']) && !isset($body['manifest']['documents'])) {
         if (!write_blog_manifest($body['manifest'])) {
             http_response_code(500);
             echo json_encode(['error' => 'Could not write manifest']);
@@ -542,7 +563,7 @@ if (!isset($body['filename']) && !isset($body['content']) && isset($body['manife
     exit;
 }
 
-$isBlogPayload = isset($body['manifest']) && is_array($body['manifest']) && isset($body['manifest']['posts']) && !isset($body['manifest']['documents']) && docs_file_count() === 0;
+$isBlogPayload = isset($body['manifest']) && is_array($body['manifest']) && isset($body['manifest']['posts']) && !isset($body['manifest']['documents']);
 if ($isBlogPayload) {
     $filename = isset($body['filename']) ? basename((string)$body['filename']) : '';
     $content = $body['content'] ?? null;
@@ -572,6 +593,16 @@ if ($filename === null || !is_string($content)) {
     exit;
 }
 
+// Only ever writes into an ALREADY existing docs/ — never creates it from
+// scratch. Reaching this fallback usually means the payload didn't match
+// the blog shape (posts[] manifest); if that happened because a site was
+// never actually meant to be a docs site, this fails loudly instead of
+// quietly establishing docs/ and rerouting all future saves into it.
+if (!is_dir(DOCS_DIR)) {
+    http_response_code(409);
+    echo json_encode(['error' => 'This site has no docs/ folder yet. If this should be a blog post, check the client is sending a posts[]-shaped manifest.']);
+    exit;
+}
 $targetPath = DOCS_DIR . $filename;
 $targetDir = dirname($targetPath);
 if (!is_dir($targetDir)) mkdir($targetDir, 0755, true);
