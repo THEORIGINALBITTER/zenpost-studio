@@ -143,6 +143,8 @@ interface Step1SourceInputProps {
   }) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
+  /** Aus vergangenen Posts gelernte Tag-Vorschläge für die aktuellen Content-Keywords */
+  learnedTagSuggestions?: string[];
   seoData?: SEOData | null;
   onApplySeoDataToPostMeta?: (data: SEOData) => void;
   metadataPanelOpenRequest?: number;
@@ -327,6 +329,7 @@ export const Step1SourceInput = ({
   postMeta,
   onMetaChange,
   analysisKeywords = [],
+  learnedTagSuggestions = [],
   onAnalysisKeywordsChange,
   seoData = null,
   onApplySeoDataToPostMeta,
@@ -1810,6 +1813,40 @@ export const Step1SourceInput = ({
                   <div className="font-mono text-[9px] text-[#1a1a1a]" style={{ lineHeight: '11px' }}>
                     Enter oder Komma zum Hinzufügen · Wird als YAML tags + keywords gespeichert
                   </div>
+                  {learnedTagSuggestions.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
+                      <div className="font-mono text-[8px] text-[#7a7060]" style={{ letterSpacing: '0.03em' }}>
+                        GELERNT AUS DEINEN BISHERIGEN POSTS
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {learnedTagSuggestions.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => {
+                              if (!(postMeta?.tags ?? []).includes(tag)) {
+                                updatePostMetaTags([...(postMeta?.tags ?? []), tag]);
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 3,
+                              background: 'rgba(172, 142, 102, 0.12)',
+                              border: '1px dashed rgba(172, 142, 102, 0.6)',
+                              borderRadius: 4,
+                              padding: '2px 7px',
+                              fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: 9,
+                              color: '#1a1a1a',
+                              cursor: 'pointer',
+                            }}
+                            title={`"${tag}" als Tag übernehmen`}
+                          >
+                            + {tag}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

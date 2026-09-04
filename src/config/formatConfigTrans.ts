@@ -1060,6 +1060,25 @@ export function validateSteuerFormatContent(
     }
   }
 
+  // LinkedIn folds everything after ~210 Zeichen hinter "…mehr anzeigen" (auf
+  // Mobile schon ab ~140). Ohne einen Absatzbruch vor dieser Marke wird der
+  // sichtbare Teil mitten im Satz abgeschnitten, statt bewusst als Hook zu
+  // enden — der Rest des Posts wird dann oft gar nicht mehr gelesen.
+  if (platform === "linkedin") {
+    const LINKEDIN_FOLD_CHARS = 210;
+    if (textForCount.length > LINKEDIN_FOLD_CHARS) {
+      const visiblePart = textForCount.slice(0, LINKEDIN_FOLD_CHARS);
+      const hasLineBreakBeforeFold = visiblePart.includes("\n");
+      if (!hasLineBreakBeforeFold) {
+        issues.push({
+          level: "warning",
+          code: "linkedin-hook-cut-off",
+          message: `LinkedIn schneidet nach ca. ${LINKEDIN_FOLD_CHARS} Zeichen hinter "…mehr anzeigen" ab — ohne Absatzbruch davor wird mitten im Satz gekappt. Baue einen Hook mit Zeilenumbruch vor dieser Marke ein.`,
+        });
+      }
+    }
+  }
+
   if (platform === "medium" || platform === "devto" || platform === "github-blog" || platform === "blog-post") {
     const firstLine = text.split("\n").find((line) => line.trim().length > 0) ?? "";
     if (!/^\s{0,3}#\s+/.test(firstLine)) {

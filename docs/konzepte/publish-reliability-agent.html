@@ -368,7 +368,53 @@
     </div>
 
     <section>
-      <h2><span class="num">01</span>Ausgangslage</h2>
+      <h2><span class="num">00</span>Welches Problem lösen wir wirklich?</h2>
+      <p>Bevor irgendeine Funktion gebaut wird — auch die in diesem Papier —, muss diese Frage beantwortet sein. Sonst bauen wir Dinge, die niemand benutzt, weil das eigentliche Problem woanders liegt.</p>
+      <p><strong>„Text besser formulieren“ ist kein Alleinstellungsmerkmal mehr.</strong> Das kann jeder kostenlos direkt bei ChatGPT oder Claude bekommen, ohne Umweg über irgendeine App. Wenn der Wert von ZenPost Studio „die KI macht deinen Text perfekt“ wäre, gäbe es keinen Grund, dafür ein eigenes Tool zu nutzen.</p>
+      <div class="callout">
+        <p class="callout-head">Die eigentliche Lücke</p>
+        <p>Eine generische KI hat <strong>kein Gedächtnis für eine bestimmte Marke</strong>. Jede Sitzung beginnt bei null — wie du/deine Marke klingt, muss man ihr immer wieder neu erklären, oder man tut es gar nicht und bekommt generischen KI-Einheitsbrei. Genau das ist der ungelöste Schmerzpunkt: nicht Textqualität, sondern <strong>Konsistenz der Stimme über Zeit, über mehrere Plattformen und über mehrere Autoren hinweg</strong>.</p>
+      </div>
+      <p>Die Brücke zu <strong>ZenOrbit</strong> trägt hier direkt: ZenOrbit macht Navigation markenspezifisch statt austauschbar — ein Hamburger-Menü ist überall gleich und damit unsichtbar, ein Orbit-Menü ist wiedererkennbar. Dieselbe Logik gilt fürs Schreiben. Nicht „korrekteres Deutsch“, sondern: die charakteristischen Wortentscheidungen einer Marke bleiben erkennbar — im LinkedIn-Post genauso wie im Reddit-Thread, in Woche 1 genauso wie in Woche 20.</p>
+      <p>Für Teams ist das keine Komfortfunktion, sondern eine Notwendigkeit: Mehrere Autoren für eine Marke brauchen eine gemeinsame Stimme (eine CI), nicht N individuelle Stile nebeneinander, die sich gegenseitig verwässern.</p>
+      <div class="callout">
+        <p class="callout-head">Arbeitsthese für alles Weitere</p>
+        <p>ZenPost Studio löst nicht „schreib besser“, sondern <strong>„bleib erkennbar“</strong> — bei jedem der neun Transform-Ziele, bei jedem Team-Mitglied, über Monate hinweg, ohne das bei jedem Prompt neu erklären zu müssen. Jede Funktion in diesem Papier (auch die Publish-Reliability-Arbeit unten) muss sich daran messen lassen, ob sie dieser These dient — oder ob sie nur Fleißarbeit ist, die niemand vermisst hätte.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">01</span>Kernentscheidung: portables Stimm-Profil statt eigenes LLM</h2>
+      <p>Aus der These in <span class="num" style="margin:0 4px 0 0;">00</span> folgt eine naheliegende, aber gefährliche Versuchung: „Dann bauen wir eben ein eigenes, personalisiertes LLM.“ Das haben wir bewusst durchdacht und verworfen — nicht weil die Idee einer personalisierten, portablen KI-Instanz falsch wäre (im Gegenteil, das ist branchenweit die Richtung: ChatGPT Memory, Claude Projects, Custom GPTs), sondern weil <strong>ein trainiertes Modell der falsche Hebel für dieses Ziel ist</strong>.</p>
+
+      <div class="split">
+        <div class="card bad">
+          <p class="card-head"><span class="dot-mark"></span>Eigenes LLM — verworfen</p>
+          <ul>
+            <li><b>Kosten/Aufwand außer Verhältnis:</b> ein Foundation-Modell von Grund auf zu trainieren kostet Millionen an Compute — für ein Content-Tool illusorisch.</li>
+            <li><b>Selbst Fine-Tuning einer bestehenden API</b> (OpenAI/Anthropic/Google bieten das bereits an) bräuchte einen Datenumfang, den die Texte einer Person oder eines kleinen Teams schlicht nicht liefern — Risiko von Overfitting, dazu laufende ML-Infrastruktur und Wartung, die kein Kernkompetenzgewinn für ZenPost Studio ist.</li>
+            <li><b>Nicht portabler, als es klingt:</b> ein neues Spitzenmodell erscheint, das eigene trainierte Modell zieht nicht automatisch nach — Neutraining nötig.</li>
+          </ul>
+        </div>
+        <div class="card good">
+          <p class="card-head"><span class="dot-mark"></span>Portables Stimm-Profil — Kurs</p>
+          <ul>
+            <li><b>Kein Modell, sondern strukturierte Daten:</b> Vokabular-Präferenzen, gelernte Synonym-Entscheidungen, typische Satzmuster, Tonalitäts-Beschreibung, Beispielabsätze — als JSON/Markdown exportierbar.</li>
+            <li><b>Wird als Kontext mitgeschickt</b>, nicht trainiert — funktioniert sofort mit GPT, Claude, Gemini <em>und</em> innerhalb von ZenPost Studio, ohne Provider-Lock-in.</li>
+            <li><b>Sofort portabel bei neuen Modellen:</b> kein Neutraining — das Profil wandert einfach mit in den nächsten Prompt.</li>
+            <li><b>Nichts verschenkt für später:</b> genau dieses gesammelte Profil wäre exakt der Trainingsdatensatz, falls Fine-Tuning irgendwann doch lohnt — der Weg dorthin bleibt offen, nur eben nicht als Startpunkt.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p class="callout-head">Damit ist die Lern-Engine aus der vorherigen Diskussion neu gerahmt</p>
+        <p>Nicht „Synonyme merken, damit Wortwiederholungen weniger nerven" (eine kleine Grammatik-Nettigkeit), sondern der erste Baustein eines <strong>portablen Marken-Stimm-Profils</strong> — pro ZenCloud-Projekt geteilt, damit ein Team dieselbe erkennbare Stimme trägt, exportierbar für den Einsatz außerhalb von ZenPost Studio.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2><span class="num">02</span>Ausgangslage</h2>
       <p>ZenPost Studio hat bereits eine KI-Integration für das Schreiben und das plattformspezifische Transformieren eines Artikels (bis zu neun Ziele: Blog, LinkedIn, Reddit, Twitter, dev.to, Medium, GitHub …). Die heutige Debugging-Session hat aber gezeigt: Die eigentlichen Fehler passieren nicht beim Schreiben oder Transformieren, sondern danach — beim tatsächlichen Ausliefern und Synchronhalten.</p>
       <div class="evidence">
         <div class="ev-row">
@@ -392,13 +438,13 @@
     </section>
 
     <section>
-      <h2><span class="num">02</span>Kernthese</h2>
+      <h2><span class="num">03</span>Kernthese</h2>
       <p>Eine Transformation „ein Artikel → neun Plattformversionen“ ist kein Agent. Es ist ein Batch-Job: Text rein, pro Ziel ein Prompt mit Formatregeln, Text raus. Kein Entscheidungsspielraum, kein mehrstufiges Vorgehen — das als „Agent“ zu bezeichnen wäre Etikettenschwindel.</p>
       <p>Ein Agent lohnt sich dort, wo <strong>Entscheidungen unter Unsicherheit</strong> nötig sind: Ist die Antwort der Plattform ein Erfolg oder eine versteckte Ablehnung? Passt der Text noch, oder muss er nachbearbeitet werden? Soll bei einem Fehler automatisch erneut versucht werden oder die Nutzerin informiert werden? Genau das ist der Bereich zwischen Transformation und tatsächlicher Veröffentlichung — und genau dort lagen heute alle vier Funde.</p>
     </section>
 
     <section>
-      <h2><span class="num">03</span>Architekturkonzept</h2>
+      <h2><span class="num">04</span>Architekturkonzept</h2>
       <p>Ein dreistufiger Ablauf, der die bereits vorhandene KI-Transformation und die eigene ZenEngine (C++) als deterministische Prüfinstanz kombiniert, bevor ein Agent-Loop die Zustellung selbst übernimmt.</p>
 
       <div class="pipeline">
@@ -433,7 +479,7 @@
     </section>
 
     <section>
-      <h2><span class="num">04</span>Abwägung</h2>
+      <h2><span class="num">05</span>Abwägung</h2>
       <div class="split">
         <div class="card good">
           <p class="card-head"><span class="dot-mark"></span>Dafür</p>
@@ -457,7 +503,7 @@
     </section>
 
     <section>
-      <h2><span class="num">05</span>Bestandsaufnahme: ZenEngine (C++)</h2>
+      <h2><span class="num">06</span>Bestandsaufnahme: ZenEngine (C++)</h2>
       <p>Vor der Umsetzung von <code>analyze_readability</code> wurde die bestehende Engine-Architektur geprüft — Ziel: die neue Funktion ins vorhandene Muster einfügen statt einen Fremdkörper zu bauen.</p>
 
       <div class="evidence">
@@ -487,7 +533,7 @@
     </section>
 
     <section>
-      <h2><span class="num">06</span>Empfehlung</h2>
+      <h2><span class="num">07</span>Empfehlung</h2>
       <div class="callout">
         <p class="callout-head">Nicht den ganzen Agenten auf einmal</p>
         <p>Zuerst die deterministische <strong>Validate</strong>-Stufe isolieren und mit der ZenEngine unabhängig testbar machen — das ist der Teil mit dem größten Alleinstellungsmerkmal und dem geringsten Risiko. Der Agent-Loop (Stufe 3) kommt erst, wenn Transform und Validate zuverlässig stehen.</p>

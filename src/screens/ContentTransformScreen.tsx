@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { readFile, readTextFile, writeTextFile, writeFile, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -47,6 +47,7 @@ import {
   type DevToPostOptions,
   type MediumPostOptions,
 } from '../services/socialMediaService';
+import { suggestTagsForKeywords, recordTagAssociation } from '../services/tagLearningService';
 import {
   defaultEditorSettings,
   loadEditorSettings,
@@ -1355,6 +1356,10 @@ export const ContentTransformScreen = ({
     () => contentTransformSessionCache?.postMetaByTab ?? {}
   );
   const [analysisKeywords, setAnalysisKeywords] = useState<string[]>([]);
+  const learnedTagSuggestions = useMemo(
+    () => suggestTagsForKeywords(analysisKeywords, 5, postMeta.tags ?? []),
+    [analysisKeywords, postMeta.tags],
+  );
   const pendingContentOwnerTabIdRef = useRef<string | null>(null);
   const lastProgrammaticLoadAtRef = useRef<number>(0);
 
@@ -1882,6 +1887,10 @@ export const ContentTransformScreen = ({
       alert('Kein Inhalt zum Speichern.');
       return;
     }
+
+    // Lernt, welche Tags der Nutzer zu welchen Content-Keywords vergibt —
+    // Grundlage für die "Gelernt aus deinen bisherigen Posts"-Vorschläge.
+    recordTagAssociation(analysisKeywords, postMeta.tags ?? []);
 
     const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
     const activeDisplayPath = activeTab?.displayPath ?? activeTab?.filePath ?? projectPath ?? null;
@@ -2685,6 +2694,8 @@ export const ContentTransformScreen = ({
         alert('Kein Inhalt zum Export auf den Server.');
         return;
       }
+
+      recordTagAssociation(analysisKeywords, postMeta.tags ?? []);
 
       // Always resolve latest settings from storage to avoid stale in-memory state.
       const currentZenSettings = loadZenStudioSettings();
@@ -4757,6 +4768,7 @@ export const ContentTransformScreen = ({
               onMetaChange={handleMetaChange}
               analysisKeywords={analysisKeywords}
               onAnalysisKeywordsChange={setAnalysisKeywords}
+              learnedTagSuggestions={learnedTagSuggestions}
               seoData={seoData}
               onApplySeoDataToPostMeta={applySeoDataToPostMeta}
               metadataPanelOpenRequest={metadataPanelOpenRequest}
