@@ -1720,3 +1720,70 @@ JSON-Format:
     return { success: false, error: 'KI-Antwort konnte nicht als SEO-Daten gelesen werden.' };
   }
 }
+
+export interface AiFailureDiagnosis {
+  cause: string;
+  suggestion: string;
+}
+
+/**
+ * Übersetzt einen rohen AI-Provider-Fehler (HTTP-Codes, Timeouts, fehlende
+ * Keys, falsche Modellnamen) in Ursache + nächsten Schritt — dasselbe Muster
+ * wie die Post-Fehlschlag-Diagnose für Social Media, nur für KI-Aufrufe.
+ * Rohe Fehler wie "404" oder "AI request timed out after 90 seconds" sagen
+ * einer Nutzerin nicht, was sie konkret tun soll.
+ */
+export function diagnoseAiDraftFailure(rawError: string): AiFailureDiagnosis | null {
+  const msg = rawError.toLowerCase();
+
+  if (msg.includes('key fehlt') || msg.includes('api-key') && msg.includes('fehlt')) {
+    return {
+      cause: 'Für den gewählten AI-Provider ist noch kein Zugangs-Key hinterlegt.',
+      suggestion: 'Rechts oben auf den Status klicken und einen Key eintragen — oder auf Ollama (lokal, kostenlos) wechseln.',
+    };
+  }
+
+  if (/\b404\b/.test(msg) && msg.includes('model')) {
+    return {
+      cause: 'Das eingestellte Modell existiert bei diesem Provider nicht (oder wird nicht mehr unterstützt).',
+      suggestion: 'Provider einmal neu auswählen — das setzt das Modell automatisch auf einen gültigen Standard zurück.',
+    };
+  }
+
+  if (/\b401\b/.test(msg) || msg.includes('unauthorized') || msg.includes('invalid') && msg.includes('key')) {
+    return {
+      cause: 'Der hinterlegte API-Key wird vom Provider abgelehnt (falsch, abgelaufen oder ohne Berechtigung).',
+      suggestion: 'Key im Provider-Popover neu eintragen — ggf. einen frischen Key bei OpenAI/Anthropic/Google erzeugen.',
+    };
+  }
+
+  if (/\b429\b/.test(msg) || msg.includes('rate limit') || msg.includes('quota')) {
+    return {
+      cause: 'Das kostenlose Kontingent bzw. Rate-Limit des Providers ist gerade ausgeschöpft.',
+      suggestion: 'Kurz warten und erneut versuchen, oder auf Ollama (lokal, kein Limit) wechseln.',
+    };
+  }
+
+  if (msg.includes('timed out') || msg.includes('timeout')) {
+    return {
+      cause: 'Der Provider hat nicht rechtzeitig geantwortet.',
+      suggestion: 'Bei Ollama: prüfen, ob Ollama wirklich läuft (Status oben rechts). Sonst: erneut versuchen.',
+    };
+  }
+
+  if (msg.includes('failed to fetch') || msg.includes('network') || msg.includes('econnrefused')) {
+    return {
+      cause: 'Keine Verbindung zum AI-Provider möglich.',
+      suggestion: 'Internetverbindung prüfen — bei Ollama zusätzlich, ob die App lokal wirklich gestartet ist.',
+    };
+  }
+
+  if (msg.includes('does not support chat') || msg.includes('does not support generate') || msg.includes('does not support messages')) {
+    return {
+      cause: 'Das installierte Ollama-Modell unterstützt das benötigte Textformat nicht (z. B. ein reines Embedding-Modell statt eines Chat-Modells).',
+      suggestion: 'Ein Chat-fähiges Modell laden, z. B. im Terminal: ollama pull llama3.1 — danach den Provider im Popover einmal neu auswählen.',
+    };
+  }
+
+  return null;
+}

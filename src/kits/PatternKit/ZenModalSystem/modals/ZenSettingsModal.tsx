@@ -33,7 +33,7 @@ type TabType = 'ai' | 'localai' | 'social' | 'editor' | 'license' | 'api' | 'zen
 
 const TABS: { id: TabType; label: string; icon: typeof faRobot }[] = [
   { id: 'cloud', label: 'ZenCloud', icon: faCloud },
-  { id: 'ai', label: 'AI', icon: faRobot },
+  { id: 'ai', label: 'Cloude AI', icon: faRobot },
   { id: 'localai', label: 'Lokale AI', icon: faServer },
   { id: 'social', label: 'Media API', icon: faShareNodes },
   { id: 'api', label: 'Server API', icon: faPlug },

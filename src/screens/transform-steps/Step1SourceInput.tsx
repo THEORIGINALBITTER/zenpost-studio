@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { faArrowRight, faFileUpload, faCheckCircle, faCheck, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faCheck, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen, faGear } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
 import { isTauri } from '@tauri-apps/api/core';
@@ -19,7 +19,7 @@ import { buildLineDiffRows, type LineDiffRow } from '../../services/documentComp
 import { buildComparisonUiLabels } from '../../services/documentComparisonUiService';
 import { defaultEditorSettings, saveEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
-import { generateFromPrompt, loadAIConfig, saveAIConfig, getAvailableProviders, checkOllamaStatus, type AIProvider } from '../../services/aiService';
+import { generateFromPrompt, loadAIConfig, saveAIConfig, getAvailableProviders, checkOllamaStatus, diagnoseAiDraftFailure, type AIProvider } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
 import { ZenSideTab } from '../../components/ZenSideTab';
 import { DocumentComparisonPanel } from '../../components/DocumentComparisonPanel';
@@ -146,6 +146,8 @@ interface Step1SourceInputProps {
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
   /** Aus vergangenen Posts gelernte Tag-Vorschläge für die aktuellen Content-Keywords */
   learnedTagSuggestions?: string[];
+  /** Öffnet die Einstellungen direkt im AI-Tab — für den Zahnrad-Button bei nicht konfiguriertem Provider */
+  onOpenAISettings?: () => void;
   seoData?: SEOData | null;
   onApplySeoDataToPostMeta?: (data: SEOData) => void;
   metadataPanelOpenRequest?: number;
@@ -331,6 +333,7 @@ export const Step1SourceInput = ({
   onMetaChange,
   analysisKeywords = [],
   learnedTagSuggestions = [],
+  onOpenAISettings,
   onAnalysisKeywordsChange,
   seoData = null,
   onApplySeoDataToPostMeta,
@@ -370,22 +373,30 @@ export const Step1SourceInput = ({
       if (ollamaStatus.models.length === 0) return { ok: false, label: 'Ollama läuft, kein Modell installiert' };
       return { ok: true, label: `Nutzt: Ollama (${ollamaStatus.models[0]})` };
     }
-    if (cfg.provider === 'openai') return cfg.apiKey ? { ok: true, label: 'Nutzt: ChatGPT' } : { ok: false, label: 'Kein OpenAI-Key hinterlegt' };
-    if (cfg.provider === 'anthropic') return cfg.apiKey ? { ok: true, label: 'Nutzt: Claude' } : { ok: false, label: 'Kein Anthropic-Key hinterlegt' };
+    if (cfg.provider === 'openai') return cfg.apiKey ? { ok: true, label: 'Nutzt: ChatGPT' } : { ok: false, label: 'ChatGPT ausgewählt — Key unten eintragen ↓' };
+    if (cfg.provider === 'anthropic') return cfg.apiKey ? { ok: true, label: 'Nutzt: Claude' } : { ok: false, label: 'Claude ausgewählt — Key unten eintragen ↓' };
+    if (cfg.provider === 'gemini') return cfg.apiKey ? { ok: true, label: 'Nutzt: Gemini' } : { ok: false, label: 'Gemini ausgewählt — Key unten eintragen ↓' };
     // 'auto' / 'custom': grob prüfen, ob überhaupt ein Key hinterlegt ist
     return cfg.apiKey ? { ok: true, label: 'Nutzt: automatische Auswahl' } : { ok: false, label: 'Kein AI-Provider konfiguriert' };
   }, [aiConfigState, ollamaStatus]);
 
   const handleSelectAiProvider = (provider: AIProvider) => {
     const requiresKey = getAvailableProviders().find((p) => p.value === provider)?.requiresApiKey;
-    if (requiresKey && !aiProviderKeyDraft.trim() && aiConfigState.provider !== provider) {
-      // Erst Key eintragen lassen, bevor umgeschaltet wird
-      setAiConfigState((prev) => ({ ...prev, provider }));
+    const providerChanged = aiConfigState.provider !== provider;
+    if (requiresKey && !aiProviderKeyDraft.trim() && providerChanged) {
+      // Erst Key eintragen lassen, bevor umgeschaltet wird — model schon hier
+      // zurücksetzen, sonst würde z.B. ein Ollama-Modellname wie
+      // "gemma4:latest" an die Gemini-API durchgereicht (404).
+      setAiConfigState((prev) => ({ ...prev, provider, model: undefined }));
       return;
     }
     const next = {
       ...aiConfigState,
       provider,
+      // Modelle sind pro Provider unterschiedlich benannt — beim
+      // Providerwechsel zurücksetzen, damit jeder Call-Handler auf seinen
+      // eigenen sinnvollen Standard fällt, statt ein fremdes Modell zu erben.
+      model: providerChanged ? undefined : aiConfigState.model,
       apiKey: aiProviderKeyDraft.trim() || aiConfigState.apiKey,
     };
     saveAIConfig(next);
@@ -1528,8 +1539,8 @@ export const Step1SourceInput = ({
                 gap: '8px',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', position: 'relative' }}>
-                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#7a7060' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', position: 'relative' }}>
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
                   Worum soll's gehen?
                 </span>
                 <button
@@ -1537,13 +1548,28 @@ export const Step1SourceInput = ({
                   onClick={() => setShowAiProviderPicker((o) => !o)}
                   style={{
                     background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
-                    color: aiProviderStatus.ok ? '#7a7060' : '#d0524a', textDecoration: 'underline dotted',
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px',
+                    color: aiProviderStatus.ok ? '#d0cbb8' : '#d0cbb8', textDecoration: 'underline dotted',
                   }}
                   title="AI-Provider wechseln"
                 >
                   {aiProviderStatus.label}
                 </button>
+                {!aiProviderStatus.ok && onOpenAISettings && (
+                  <button
+                    type="button"
+                    onClick={onOpenAISettings}
+                    title="AI-Einstellungen öffnen"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: '20px', height: '20px', borderRadius: '4px',
+                      border: '0.5px solid rgba(208,82,74,0.5)', background: 'rgba(208,82,74,0.1)',
+                      color: '#d0524a', cursor: 'pointer', padding: 0, flexShrink: 0,
+                    }}
+                  >
+                    <FontAwesomeIcon icon={faGear} style={{ fontSize: '10px' }} />
+                  </button>
+                )}
                 {showAiProviderPicker && (
                   <div
                     style={{
@@ -1607,7 +1633,7 @@ export const Step1SourceInput = ({
                             </code>
                           </>
                         ) : (
-                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060' }}>
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
                             Bereit — {ollamaStatus.models.length} Modell{ollamaStatus.models.length === 1 ? '' : 'e'} installiert.
                           </span>
                         )}
@@ -1617,7 +1643,7 @@ export const Step1SourceInput = ({
                           style={{
                             alignSelf: 'flex-start', padding: '4px 8px', borderRadius: '4px',
                             border: '0.5px solid rgba(172,142,102,0.4)', background: 'transparent',
-                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', cursor: 'pointer',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66', cursor: 'pointer',
                           }}
                         >
                           Erneut prüfen
@@ -1626,7 +1652,7 @@ export const Step1SourceInput = ({
                     )}
                     {getAvailableProviders().find((p) => p.value === aiConfigState.provider)?.requiresApiKey && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px', paddingTop: '8px', borderTop: '0.5px solid rgba(172,142,102,0.2)' }}>
-                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060' }}>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
                           API-Key {aiConfigState.apiKey ? '(hinterlegt — überschreiben optional)' : ''}
                         </span>
                         <div style={{ display: 'flex', gap: '4px' }}>
@@ -1650,7 +1676,7 @@ export const Step1SourceInput = ({
                             style={{
                               padding: '5px 9px', borderRadius: '4px', border: 'none',
                               background: '#AC8E66', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace',
-                              fontSize: '9px', fontWeight: 600, cursor: 'pointer',
+                              fontSize: '10px', fontWeight: 600, cursor: 'pointer',
                             }}
                           >
                             Speichern
@@ -1666,14 +1692,14 @@ export const Step1SourceInput = ({
                                 : 'https://platform.openai.com/api-keys'
                           )}
                           style={{
-                            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66',
+                            background: 'transparent', border: 'none', paddingTop: 10, paddingLeft: 0, cursor: 'pointer',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#AC8E66',
                             textAlign: 'left', textDecoration: 'underline',
                           }}
                         >
                           Wo bekomme ich einen Key? →
                         </button>
-                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060', lineHeight: 1.4 }}>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8', lineHeight: 1.4 }}>
                           {aiConfigState.provider === 'gemini'
                             ? 'Kostenlos über ein Google-Konto — keine Kreditkarte, kein Abo nötig (bis zum kostenlosen Kontingent).'
                             : `Achtung: Ein API-Key ist etwas anderes als ein ${aiConfigState.provider === 'anthropic' ? 'Claude Pro' : 'ChatGPT Plus'}-Abo — API-Nutzung wird separat nach Verbrauch abgerechnet.`}
@@ -1733,11 +1759,44 @@ export const Step1SourceInput = ({
                   Noch {10 - aiDraftPrompt.trim().length} Zeichen, dann geht's los.
                 </span>
               )}
-              {aiDraftError && (
-                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#d0524a' }}>
-                  {aiDraftError}
-                </span>
-              )}
+              {aiDraftError && (() => {
+                const diagnosis = diagnoseAiDraftFailure(aiDraftError);
+                if (!diagnosis) {
+                  return (
+                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#d0524a' }}>
+                      {aiDraftError}
+                    </span>
+                  );
+                }
+                const isConfigIssue = /key|provider/i.test(diagnosis.cause);
+                return (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#d0524a', lineHeight: 1.5 }}>
+                        {diagnosis.cause}
+                      </span>
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#7a7060', lineHeight: 1.5 }}>
+                        → {diagnosis.suggestion}
+                      </span>
+                    </div>
+                    {isConfigIssue && onOpenAISettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenAISettings}
+                        title="AI-Einstellungen öffnen"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: '20px', height: '20px', borderRadius: '4px', flexShrink: 0,
+                          border: '0.5px solid rgba(208,82,74,0.5)', background: 'rgba(208,82,74,0.1)',
+                          color: '#d0524a', cursor: 'pointer', padding: 0,
+                        }}
+                      >
+                        <FontAwesomeIcon icon={faGear} style={{ fontSize: '10px' }} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 

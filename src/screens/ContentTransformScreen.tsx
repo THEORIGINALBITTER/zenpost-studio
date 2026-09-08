@@ -4704,6 +4704,10 @@ export const ContentTransformScreen = ({
               onFileNameChange={handleStep1FileNameChange}
               onNext={handleNextFromStep1}
               onOpenMetadata={() => setShowMetadata(true)}
+              onOpenAISettings={() => {
+                setSettingsDefaultTab('ai');
+                setShowSettings(true);
+              }}
               onError={setError}
               onPreview={(latestContent) => {
                 void openStep4FromSource(latestContent, 'preview');

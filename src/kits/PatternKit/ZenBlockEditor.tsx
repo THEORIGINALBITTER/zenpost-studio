@@ -2920,6 +2920,18 @@ export const ZenBlockEditor = ({
           return;
         }
         if (currentMarkdown !== value) {
+          // Externe Inhalts-Ersetzung (KI-Entwurf, Datei-Import, Tab-Wechsel,
+          // "Änderungen übernehmen" …) — ohne das hier landet der bisherige
+          // Inhalt nirgends auf dem Undo-Stack und ist beim Überschreiben
+          // unwiederbringlich weg, obwohl die Undo-Anzeige weiterhin sichtbar ist.
+          if (currentMarkdown.trim() !== '') {
+            const stack = undoStackRef.current;
+            if (stack.length === 0 || stack[stack.length - 1] !== currentMarkdown) {
+              stack.push(currentMarkdown);
+              if (stack.length > 50) stack.shift();
+              setUndoCount(stack.length);
+            }
+          }
           suppressOnChangeRef.current = true;
           await editorRef.current!.render(markdownToEditorJS(value));
           lastLocalMarkdownRef.current = value;
