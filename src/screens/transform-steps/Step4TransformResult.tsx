@@ -54,6 +54,7 @@ import {
   SocialPlatform,
   PostResult,
 } from '../../services/socialMediaService';
+import { diagnosePostFailure } from '../../services/postFailureDiagnosticsService';
 
 import {
   defaultEditorSettings,
@@ -1482,36 +1483,59 @@ const handleDownload = async () => {
                       border: '1px solid rgba(255,180,171,0.35)',
                       background: 'rgba(20,20,20,0.65)',
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
+                      flexDirection: 'column',
+                      gap: 4,
                     }}
                   >
-                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
-                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
-                      {platformLabels[platform]}: {postResult.error || 'Unbekannter Fehler'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
+                      <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
+                        {platformLabels[platform]}: {postResult.error || 'Unbekannter Fehler'}
+                      </span>
+                    </div>
+                    {(() => {
+                      const diagnosis = postResult.error ? diagnosePostFailure(postResult.platform, postResult.error) : null;
+                      if (!diagnosis) return null;
+                      return (
+                        <div style={{ marginLeft: '18px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#a99d89', lineHeight: 1.5 }}>
+                          <strong style={{ color: '#d0cbb8' }}>Wahrscheinliche Ursache:</strong> {diagnosis.cause}<br />
+                          <strong style={{ color: '#d0cbb8' }}>Nächster Schritt:</strong> {diagnosis.suggestion}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 
-                {failedMultiPostResults.map((result, index) => (
-                  <div
-                    key={`posting-error-${result.platform}-${index}`}
-                    style={{
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      border: 'none',
-                      background: 'rgba(20,20,20,0.65)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                    }}
-                  >
-                    <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
-                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
-                      {result.platform}: {result.error || 'Unbekannter Fehler'}
-                    </span>
-                  </div>
-                ))}
+                {failedMultiPostResults.map((result, index) => {
+                  const diagnosis = result.error ? diagnosePostFailure(result.platform, result.error) : null;
+                  return (
+                    <div
+                      key={`posting-error-${result.platform}-${index}`}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        border: 'none',
+                        background: 'rgba(20,20,20,0.65)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 4,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <FontAwesomeIcon icon={faRotateLeft} style={{ color: '#d0cbb8', fontSize: '10px' }} />
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#d0cbb8' }}>
+                          {result.platform}: {result.error || 'Unbekannter Fehler'}
+                        </span>
+                      </div>
+                      {diagnosis && (
+                        <div style={{ marginLeft: '18px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#a99d89', lineHeight: 1.5 }}>
+                          <strong style={{ color: '#d0cbb8' }}>Wahrscheinliche Ursache:</strong> {diagnosis.cause}<br />
+                          <strong style={{ color: '#d0cbb8' }}>Nächster Schritt:</strong> {diagnosis.suggestion}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
 
               <div style={{ marginTop: 10, marginLeft: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>

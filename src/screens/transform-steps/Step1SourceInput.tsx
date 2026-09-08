@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 
-import { faArrowRight, faFileUpload, faCheckCircle, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
+import { faArrowRight, faFileUpload, faCheckCircle, faCheck, faExternalLinkAlt, faInfoCircle, faCode, faAlignLeft, faFileLines, faSave, faMoon, faSun, faFolderOpen } from '@fortawesome/free-solid-svg-icons';
 import { faApple, faLinkedin, faTwitter, faDev, faMedium, faReddit, faGithub, faHashnode } from '@fortawesome/free-brands-svg-icons';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
 import { isTauri } from '@tauri-apps/api/core';
@@ -19,6 +19,7 @@ import { buildLineDiffRows, type LineDiffRow } from '../../services/documentComp
 import { buildComparisonUiLabels } from '../../services/documentComparisonUiService';
 import { defaultEditorSettings, saveEditorSettings, type EditorSettings } from '../../services/editorSettingsService';
 import type { ContentPlatform } from '../../services/aiService';
+import { generateFromPrompt, loadAIConfig, saveAIConfig, getAvailableProviders, checkOllamaStatus, type AIProvider } from '../../services/aiService';
 import { ZenThoughtLine } from '../../components/ZenThoughtLine';
 import { ZenSideTab } from '../../components/ZenSideTab';
 import { DocumentComparisonPanel } from '../../components/DocumentComparisonPanel';
@@ -340,6 +341,59 @@ export const Step1SourceInput = ({
   const { openExternal } = useOpenExternal();
   const [_isConverting, setIsConverting] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [aiDraftPrompt, setAiDraftPrompt] = useState('');
+  const [aiDraftGenerating, setAiDraftGenerating] = useState(false);
+  const [aiDraftError, setAiDraftError] = useState<string | null>(null);
+  const [aiConfigState, setAiConfigState] = useState(() => loadAIConfig());
+  const [showAiProviderPicker, setShowAiProviderPicker] = useState(false);
+  const [aiProviderKeyDraft, setAiProviderKeyDraft] = useState('');
+  const [ollamaStatus, setOllamaStatus] = useState<{ checking: boolean; reachable: boolean; models: string[] } | null>(null);
+
+  const refreshOllamaStatus = useCallback(async (baseUrl?: string) => {
+    setOllamaStatus({ checking: true, reachable: false, models: [] });
+    const result = await checkOllamaStatus(baseUrl);
+    setOllamaStatus({ checking: false, ...result });
+  }, []);
+
+  // Beim Laden einmal prüfen, wenn Ollama der aktive Provider ist — damit
+  // der Status oben sofort stimmt, nicht erst nach Öffnen des Popovers.
+  useEffect(() => {
+    if (aiConfigState.provider === 'ollama') void refreshOllamaStatus(aiConfigState.baseUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const aiProviderStatus = useMemo(() => {
+    const cfg = aiConfigState;
+    if (cfg.provider === 'ollama') {
+      if (!ollamaStatus || ollamaStatus.checking) return { ok: true, label: 'Prüfe Ollama…' };
+      if (!ollamaStatus.reachable) return { ok: false, label: 'Ollama läuft nicht — einrichten' };
+      if (ollamaStatus.models.length === 0) return { ok: false, label: 'Ollama läuft, kein Modell installiert' };
+      return { ok: true, label: `Nutzt: Ollama (${ollamaStatus.models[0]})` };
+    }
+    if (cfg.provider === 'openai') return cfg.apiKey ? { ok: true, label: 'Nutzt: ChatGPT' } : { ok: false, label: 'Kein OpenAI-Key hinterlegt' };
+    if (cfg.provider === 'anthropic') return cfg.apiKey ? { ok: true, label: 'Nutzt: Claude' } : { ok: false, label: 'Kein Anthropic-Key hinterlegt' };
+    // 'auto' / 'custom': grob prüfen, ob überhaupt ein Key hinterlegt ist
+    return cfg.apiKey ? { ok: true, label: 'Nutzt: automatische Auswahl' } : { ok: false, label: 'Kein AI-Provider konfiguriert' };
+  }, [aiConfigState, ollamaStatus]);
+
+  const handleSelectAiProvider = (provider: AIProvider) => {
+    const requiresKey = getAvailableProviders().find((p) => p.value === provider)?.requiresApiKey;
+    if (requiresKey && !aiProviderKeyDraft.trim() && aiConfigState.provider !== provider) {
+      // Erst Key eintragen lassen, bevor umgeschaltet wird
+      setAiConfigState((prev) => ({ ...prev, provider }));
+      return;
+    }
+    const next = {
+      ...aiConfigState,
+      provider,
+      apiKey: aiProviderKeyDraft.trim() || aiConfigState.apiKey,
+    };
+    saveAIConfig(next);
+    setAiConfigState(next);
+    setAiProviderKeyDraft('');
+    if (provider === 'ollama') void refreshOllamaStatus(next.baseUrl);
+    if (!requiresKey || next.apiKey) setShowAiProviderPicker(false);
+  };
   const [isImageDragActive, setIsImageDragActive] = useState(false);
   const [isMetaImageDragActive, setIsMetaImageDragActive] = useState(false);
   const blockImageInserterRef = useRef<((images: Array<{ url: string; alt?: string }>) => void) | null>(null);
@@ -381,6 +435,29 @@ export const Step1SourceInput = ({
   const emitSourceContentChange = (content: string) => {
     latestContentRef.current = content;
     onSourceContentChange(content);
+  };
+
+  // Ruft den vom Nutzer konfigurierten AI-Provider (ChatGPT/Claude/...) über
+  // die bestehende aiService-Funktion auf — kein eigener Service, keine
+  // eigene Provider-Logik, nur ein Einstiegspunkt direkt im leeren Editor.
+  const handleGenerateAiDraft = async () => {
+    const prompt = aiDraftPrompt.trim();
+    if (prompt.length < 10) return;
+    setAiDraftGenerating(true);
+    setAiDraftError(null);
+    try {
+      const result = await generateFromPrompt(prompt);
+      if (result.success && result.data) {
+        emitSourceContentChange(result.data);
+        setAiDraftPrompt('');
+      } else {
+        setAiDraftError(result.error || 'Entwurf konnte nicht erstellt werden. AI-Provider in den Einstellungen prüfen.');
+      }
+    } catch (err) {
+      setAiDraftError(err instanceof Error ? err.message : 'Entwurf konnte nicht erstellt werden.');
+    } finally {
+      setAiDraftGenerating(false);
+    }
   };
 
   const resolveLiveContent = useCallback(async (): Promise<string> => {
@@ -1434,6 +1511,233 @@ export const Step1SourceInput = ({
               <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '11px', color: '#1a1a1a' }}>
                 .md · .txt · .docx · .html · .pdf
               </span>
+            </div>
+          )}
+
+          {/* KI-Entwurf — nutzt den bereits konfigurierten AI-Provider (ChatGPT/Claude/...) aus aiService */}
+          {!sourceContent.trim() && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                border: '1px solid rgba(172,142,102,0.4)',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', position: 'relative' }}>
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '10px', color: '#7a7060' }}>
+                  Worum soll's gehen?
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowAiProviderPicker((o) => !o)}
+                  style={{
+                    background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                    fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                    color: aiProviderStatus.ok ? '#7a7060' : '#d0524a', textDecoration: 'underline dotted',
+                  }}
+                  title="AI-Provider wechseln"
+                >
+                  {aiProviderStatus.label}
+                </button>
+                {showAiProviderPicker && (
+                  <div
+                    style={{
+                      position: 'absolute', top: '16px', right: 0, zIndex: 30,
+                      width: '250px', padding: '10px', borderRadius: '8px',
+                      background: '#1a1a1a', border: '0.5px solid rgba(172,142,102,0.4)',
+                      boxShadow: '0 8px 20px rgba(0,0,0,0.35)', display: 'flex', flexDirection: 'column', gap: '6px',
+                    }}
+                  >
+                    {getAvailableProviders().map((p) => {
+                      const isActive = aiConfigState.provider === p.value;
+                      return (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => handleSelectAiProvider(p.value)}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '6px 8px', borderRadius: '5px',
+                            border: `0.5px solid ${isActive ? '#AC8E66' : 'rgba(172,142,102,0.25)'}`,
+                            background: isActive ? 'rgba(172,142,102,0.15)' : 'transparent',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                            color: isActive ? '#AC8E66' : '#d0cbb8', cursor: 'pointer', textAlign: 'left',
+                          }}
+                        >
+                          {p.label}
+                          {isActive && <FontAwesomeIcon icon={faCheck} style={{ fontSize: '8px' }} />}
+                        </button>
+                      );
+                    })}
+                    {aiConfigState.provider === 'ollama' && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', marginTop: '4px', paddingTop: '8px', borderTop: '0.5px solid rgba(172,142,102,0.2)' }}>
+                        {ollamaStatus?.checking ? (
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060' }}>
+                            Prüfe, ob Ollama läuft…
+                          </span>
+                        ) : !ollamaStatus?.reachable ? (
+                          <>
+                            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#d0524a', lineHeight: 1.4 }}>
+                              Ollama läuft gerade nicht. Kostenlos, lokal, kein Account, kein Abo — einmal installieren, dann läuft's im Hintergrund.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void openExternal('https://ollama.com/download')}
+                              style={{
+                                background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                                fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66',
+                                textAlign: 'left', textDecoration: 'underline',
+                              }}
+                            >
+                              Ollama herunterladen →
+                            </button>
+                          </>
+                        ) : ollamaStatus.models.length === 0 ? (
+                          <>
+                            <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#d0524a', lineHeight: 1.4 }}>
+                              Ollama läuft, aber es ist noch kein Modell heruntergeladen. Im Terminal einmalig:
+                            </span>
+                            <code style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#d0cbb8', background: 'rgba(172,142,102,0.1)', padding: '4px 6px', borderRadius: '4px' }}>
+                              ollama pull llama3.1
+                            </code>
+                          </>
+                        ) : (
+                          <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060' }}>
+                            Bereit — {ollamaStatus.models.length} Modell{ollamaStatus.models.length === 1 ? '' : 'e'} installiert.
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => void refreshOllamaStatus(aiConfigState.baseUrl)}
+                          style={{
+                            alignSelf: 'flex-start', padding: '4px 8px', borderRadius: '4px',
+                            border: '0.5px solid rgba(172,142,102,0.4)', background: 'transparent',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66', cursor: 'pointer',
+                          }}
+                        >
+                          Erneut prüfen
+                        </button>
+                      </div>
+                    )}
+                    {getAvailableProviders().find((p) => p.value === aiConfigState.provider)?.requiresApiKey && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '4px', paddingTop: '8px', borderTop: '0.5px solid rgba(172,142,102,0.2)' }}>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060' }}>
+                          API-Key {aiConfigState.apiKey ? '(hinterlegt — überschreiben optional)' : ''}
+                        </span>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <input
+                            type="password"
+                            value={aiProviderKeyDraft}
+                            onChange={(e) => setAiProviderKeyDraft(e.target.value)}
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="sk-…"
+                            style={{
+                              flex: 1, background: 'transparent', border: '0.5px solid #3A3A3A', borderRadius: '4px',
+                              padding: '5px 7px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px',
+                              color: '#d0cbb8', outline: 'none',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSelectAiProvider(aiConfigState.provider)}
+                            disabled={!aiProviderKeyDraft.trim() && !aiConfigState.apiKey}
+                            style={{
+                              padding: '5px 9px', borderRadius: '4px', border: 'none',
+                              background: '#AC8E66', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace',
+                              fontSize: '9px', fontWeight: 600, cursor: 'pointer',
+                            }}
+                          >
+                            Speichern
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void openExternal(
+                            aiConfigState.provider === 'anthropic'
+                              ? 'https://console.anthropic.com/settings/keys'
+                              : aiConfigState.provider === 'gemini'
+                                ? 'https://aistudio.google.com/apikey'
+                                : 'https://platform.openai.com/api-keys'
+                          )}
+                          style={{
+                            background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+                            fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#AC8E66',
+                            textAlign: 'left', textDecoration: 'underline',
+                          }}
+                        >
+                          Wo bekomme ich einen Key? →
+                        </button>
+                        <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#7a7060', lineHeight: 1.4 }}>
+                          {aiConfigState.provider === 'gemini'
+                            ? 'Kostenlos über ein Google-Konto — keine Kreditkarte, kein Abo nötig (bis zum kostenlosen Kontingent).'
+                            : `Achtung: Ein API-Key ist etwas anderes als ein ${aiConfigState.provider === 'anthropic' ? 'Claude Pro' : 'ChatGPT Plus'}-Abo — API-Nutzung wird separat nach Verbrauch abgerechnet.`}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  value={aiDraftPrompt}
+                  onChange={(e) => setAiDraftPrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !aiDraftGenerating && aiDraftPrompt.trim().length >= 10) {
+                      void handleGenerateAiDraft();
+                    }
+                  }}
+                  placeholder="z.B. Ein Blogpost darüber, warum wir auf FTP-Uploads verzichten"
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{
+                    flex: 1,
+                    background: 'transparent',
+                    border: '0.5px solid #3A3A3A',
+                    borderRadius: '6px',
+                    padding: '8px 10px',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '11px',
+                    color: '#d0cbb8',
+                    outline: 'none',
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={aiDraftGenerating || aiDraftPrompt.trim().length < 10}
+                  onClick={() => void handleGenerateAiDraft()}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    background: aiDraftGenerating || aiDraftPrompt.trim().length < 10 ? 'rgba(172,142,102,0.3)' : '#AC8E66',
+                    color: '#1a1a1a',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    cursor: aiDraftGenerating || aiDraftPrompt.trim().length < 10 ? 'default' : 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {aiDraftGenerating ? 'Schreibt…' : 'Entwurf schreiben lassen'}
+                </button>
+              </div>
+              {!aiDraftError && aiDraftPrompt.trim().length > 0 && aiDraftPrompt.trim().length < 10 && (
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#7a7060' }}>
+                  Noch {10 - aiDraftPrompt.trim().length} Zeichen, dann geht's los.
+                </span>
+              )}
+              {aiDraftError && (
+                <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#d0524a' }}>
+                  {aiDraftError}
+                </span>
+              )}
             </div>
           )}
 

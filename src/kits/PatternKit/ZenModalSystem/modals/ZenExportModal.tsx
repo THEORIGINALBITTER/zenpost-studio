@@ -5,6 +5,7 @@ import {
   checkRecentDuplicatePost, recordPostAttempt,
   type SocialPlatform, type SocialMediaConfig,
 } from '../../../../services/socialMediaService';
+import { diagnosePostFailure } from '../../../../services/postFailureDiagnosticsService';
 import { preparePostContent, PLATFORM_POST_RULES } from '../../../../config/platformPostRules';
 import { readFile, writeFile, writeTextFile, readTextFile, readDir, exists, mkdir } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -2733,11 +2734,18 @@ ${renderedHtml}
                   }}>
                     {isPublishing ? 'Wird gepostet …' : isPublished ? publishedLabel : hasError ? 'Fehler' : option.label}
                   </span>
-                  {hasError && !hasCopyFallback && (
-                    <span style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', textAlign: 'center', lineHeight: 1.4 }}>
-                      {publishError!.message.substring(0, 45)}
-                    </span>
-                  )}
+                  {hasError && !hasCopyFallback && (() => {
+                    const errSocialPid = SOCIAL_PLATFORM_IDS[option.id];
+                    const diagnosis = errSocialPid ? diagnosePostFailure(errSocialPid, publishError!.message) : null;
+                    return (
+                      <span
+                        title={diagnosis ? `Wahrscheinliche Ursache: ${diagnosis.cause}\nNächster Schritt: ${diagnosis.suggestion}` : undefined}
+                        style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '8px', color: '#e05c5c', textAlign: 'center', lineHeight: 1.4 }}
+                      >
+                        {diagnosis ? diagnosis.cause : publishError!.message.substring(0, 45)}
+                      </span>
+                    );
+                  })()}
                   {/* Copy & Open fallback button */}
                   {hasCopyFallback && (
                     <button

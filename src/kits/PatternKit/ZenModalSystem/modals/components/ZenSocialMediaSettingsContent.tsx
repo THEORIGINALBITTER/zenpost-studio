@@ -29,6 +29,7 @@ import {
   validateGitHubConfig,
 } from '../../../../../services/socialMediaService';
 import { ZenInfoBox } from '../../components/ZenInfoBox';
+import { ZenInlineHint } from '../../../../DesignKit/ZenInlineHint';
 
 type TabType = 'twitter' | 'reddit' | 'linkedin' | 'devto' | 'medium' | 'github' | 'blog';
 
@@ -1654,7 +1655,13 @@ export const ZenSocialMediaSettingsContent = ({
                 {editingBlogId ? 'Bearbeiten — Quelle' : 'Schritt 1 / 2 — Quelle'}
               </p>
               {/* Site-Typ Auswahl */}
-              <p style={{ margin: '0 0 6px 0', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>Typ *</p>
+              <p style={{ margin: '0 0 6px 0', display: 'flex', alignItems: 'center', gap: '5px', fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#777' }}>
+                Typ *
+                <ZenInlineHint
+                  title="Blog vs. Docs"
+                  text={'"Blog / Posts" speichert in posts/ + manifest.json (klassischer Blog mit /post/{slug}-URLs). "Docs / Statische Site" speichert in docs/ + docs/manifest.json (Dokuseiten). Beide Ordner können nicht gleichzeitig aktiv genutzt werden — falscher Typ heißt, dass gespeicherte Inhalte im falschen Ordner landen und auf der Website nicht erscheinen. Nach einer Änderung: ZenPost Studio einmal komplett neu starten, sonst greift die neue Einstellung nicht zuverlässig.'}
+                />
+              </p>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
                 {(['blog', 'docs'] as const).map((t) => {
                   const isActive = wizardSiteType === t;

@@ -51,7 +51,7 @@ export async function universalFetch(url: string, options?: RequestInit): Promis
   return fetch(url, options);
 }
 
-export type AIProvider = 'openai' | 'anthropic' | 'ollama' | 'custom' | 'auto';
+export type AIProvider = 'openai' | 'anthropic' | 'gemini' | 'ollama' | 'custom' | 'auto';
 
 export interface AIConfig {
   provider: AIProvider;
@@ -147,6 +147,28 @@ export function loadAIConfig(): AIConfig {
 /**
  * AI-Konfiguration in LocalStorage speichern
  */
+export interface OllamaStatus {
+  reachable: boolean;
+  models: string[];
+}
+
+/**
+ * Prüft, ob Ollama lokal erreichbar ist und welche Modelle bereits
+ * heruntergeladen sind — Grundlage für eine geführte Einrichtung statt
+ * eines rohen Timeout-Fehlers ("kostenlos, kein Key, kein Abo" bleibt so
+ * der tatsächlich reibungslose Standardweg statt nur die Theorie).
+ */
+export async function checkOllamaStatus(baseUrl = 'http://127.0.0.1:11434'): Promise<OllamaStatus> {
+  try {
+    const res = await universalFetch(`${baseUrl}/api/tags`, { method: 'GET' });
+    if (!res.ok) return { reachable: false, models: [] };
+    const data = await res.json() as { models?: Array<{ name: string }> };
+    return { reachable: true, models: (data.models ?? []).map((m) => m.name) };
+  } catch {
+    return { reachable: false, models: [] };
+  }
+}
+
 export function saveAIConfig(config: AIConfig): void {
   try {
     localStorage.setItem('zenpost_ai_config', JSON.stringify(config));
@@ -322,6 +344,67 @@ async function callOpenAI(
     return {
       success: false,
       error: `OpenAI Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
+    };
+  }
+}
+
+/**
+ * Google Gemini API Aufruf — hat einen echten kostenlosen Zugang ohne
+ * Kreditkarte über Google AI Studio (aistudio.google.com/apikey), anders als
+ * OpenAI/Anthropic, die eine bezahlte Abrechnung voraussetzen.
+ */
+async function callGemini(
+  config: AIConfig,
+  prompt: string
+): Promise<CodeAnalysisResult> {
+  if (!config.apiKey) {
+    return {
+      success: false,
+      error: 'Gemini API-Key fehlt. Kostenlos erhältlich über aistudio.google.com/apikey.',
+    };
+  }
+
+  const model = config.model || 'gemini-1.5-flash';
+
+  try {
+    const response = await universalFetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${config.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: config.temperature || 0.3, maxOutputTokens: 4000 },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        success: false,
+        error: `Gemini API Fehler: ${response.status} - ${errorData.error?.message || response.statusText}`,
+      };
+    }
+
+    const data = await response.json();
+    const readme = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!readme) {
+      return {
+        success: false,
+        error: 'Keine Antwort von Gemini erhalten',
+      };
+    }
+
+    return {
+      success: true,
+      readme: readme.trim(),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: `Gemini Fehler: ${error instanceof Error ? error.message : 'Unbekannter Fehler'}`,
     };
   }
 }
@@ -663,6 +746,8 @@ export async function codeToReadme(
       return await callOpenAI(config, prompt);
     case 'anthropic':
       return await callAnthropic(config, prompt);
+    case 'gemini':
+      return await callGemini(config, prompt);
     case 'ollama':
       return await callOllama(config, prompt);
     case 'custom':
@@ -700,6 +785,11 @@ export function getAvailableProviders(): Array<{
       requiresApiKey: true,
     },
     {
+      value: 'gemini',
+      label: 'Google Gemini (kostenloser Zugang)',
+      requiresApiKey: true,
+    },
+    {
       value: 'ollama',
       label: 'Ollama (lokal)',
       requiresApiKey: false,
@@ -728,6 +818,8 @@ export function getModelsForProvider(provider: AIProvider): string[] {
         'claude-3-sonnet-20240229',
         'claude-3-haiku-20240307',
       ];
+    case 'gemini':
+      return ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b'];
     case 'ollama':
       return [
         'llama3.2',
@@ -1077,6 +1169,9 @@ async function callAIForTransform(
         break;
       case 'anthropic':
         result = await withTimeout(callAnthropic(config, prompt));
+        break;
+      case 'gemini':
+        result = await withTimeout(callGemini(config, prompt));
         break;
       case 'ollama':
         result = await withTimeout(callOllama(config, prompt));

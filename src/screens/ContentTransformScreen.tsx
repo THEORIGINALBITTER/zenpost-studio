@@ -48,6 +48,7 @@ import {
   type MediumPostOptions,
 } from '../services/socialMediaService';
 import { suggestTagsForKeywords, recordTagAssociation } from '../services/tagLearningService';
+import { verifyPostIsLive } from '../services/postLiveVerificationService';
 import {
   defaultEditorSettings,
   loadEditorSettings,
@@ -3519,6 +3520,27 @@ export const ContentTransformScreen = ({
   const [saveSuccessPathsLabel, setSaveSuccessPathsLabel] = useState<string | undefined>(undefined);
   const [saveSuccessPrimaryActionLabel, setSaveSuccessPrimaryActionLabel] = useState<string | undefined>(undefined);
   const [saveSuccessPrimaryActionUrl, setSaveSuccessPrimaryActionUrl] = useState<string | null>(null);
+  const verifiedUrlRef = useRef<string | null>(null);
+
+  // "Warum ist mein Post nicht online?" — nach jedem erfolgreichen Speichern
+  // mit einer bekannten Ansicht-URL wird geprüft, ob die Seite tatsächlich
+  // erreichbar ist, statt nur dem Upload-Erfolg zu vertrauen. Ergänzt das
+  // Ergebnis als zusätzliche Zeile im bereits offenen Erfolgs-Dialog.
+  useEffect(() => {
+    if (!showSaveSuccess || !saveSuccessPrimaryActionUrl) return;
+    if (verifiedUrlRef.current === saveSuccessPrimaryActionUrl) return;
+    verifiedUrlRef.current = saveSuccessPrimaryActionUrl;
+    const urlToVerify = saveSuccessPrimaryActionUrl;
+    void verifyPostIsLive(urlToVerify).then((result) => {
+      if (verifiedUrlRef.current !== urlToVerify) return; // ein neuerer Save lief inzwischen
+      if (result.status === 'live') {
+        setSavedFilePaths((prev) => [...(prev ?? []), '✓ Live bestätigt']);
+      } else if (result.status === 'unreachable') {
+        setSavedFilePaths((prev) => [...(prev ?? []), `⚠ Server hat Erfolg gemeldet, aber die Seite ist gerade nicht erreichbar: ${result.reason}`]);
+      }
+    });
+  }, [showSaveSuccess, saveSuccessPrimaryActionUrl]);
+
   const { openExternal } = useOpenExternal();
   const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>(createDefaultProjectMetadata());
   const metadata = externalMetadata ?? localMetadata;
@@ -5318,6 +5340,7 @@ export const ContentTransformScreen = ({
           setSaveSuccessPathsLabel(undefined);
           setSaveSuccessPrimaryActionLabel(undefined);
           setSaveSuccessPrimaryActionUrl(null);
+          verifiedUrlRef.current = null;
         }}
         fileName={savedFileName}
         filePath={savedFilePath}
