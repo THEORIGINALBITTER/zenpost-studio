@@ -1,6 +1,6 @@
 import { useState, type DragEvent } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDownload, faFile, faFolderOpen, faArrowRight, faNoteSticky, faXmark } from '@fortawesome/free-solid-svg-icons';
+import { faDownload, faFile, faFolderOpen, faArrowRight, faNoteSticky, faXmark, faImage } from '@fortawesome/free-solid-svg-icons';
 import type { SupportedFormat } from '../../utils/fileConverter';
 import { getCloudDocumentUrl } from '../../services/cloudStorageService';
 import  { ZenBackButton as _ZenBackButton } from '../../kits/DesignKit';
@@ -69,6 +69,7 @@ export const Step1FormatSelection = ({
   onPreviewRecentItem,
   onUploadFile,
   onConvert,
+  onOpenImageGallery,
 }: Step1FormatSelectionProps) => {
   const [isDropActive, setIsDropActive] = useState(false);
   const [previewItem, setPreviewItem] = useState<Step1FormatSelectionProps['recentConversions'][number] | null>(null);
@@ -175,70 +176,107 @@ export const Step1FormatSelection = ({
             boxShadow: '4px 4px 20px rgba(0,0,0,0.28)',
           }}
         >
-          {/* Drop zone */}
-          <div
-            onDragOver={(e) => { e.preventDefault(); setIsDropActive(true); }}
-            onDragEnter={(e) => { e.preventDefault(); setIsDropActive(true); }}
-            onDragLeave={() => setIsDropActive(false)}
-            onDrop={handleDrop}
-            onClick={() => !isPreparingInput && fileInputRef.current?.click()}
-            style={{
-              borderRadius: '10px',
-              border: isDropActive
-                ? '1px dashed #3A3A3A'
-                : hasInputContent
-                ? '1px solid rgba(#3e362c)'
-                : '1px dashed rgba(#3e362c)',
-              background: isDropActive
-                ? 'rgba(#d2cabd)'
-                : hasInputContent
-                ? 'rgba(#e8e3d8)'
-                : 'rgba(255,255,255,0.28)',
-              padding: '20px 14px',
-              minHeight: '86px',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '7px',
-              cursor: isPreparingInput ? 'wait' : 'pointer',
-              transition: 'border-color 0.2s, background 0.2s',
-            }}
-          >
-            <FontAwesomeIcon
-              icon={isDropActive ? faFolderOpen : faFile}
+          {/* Input source: drag & drop / file picker, or pick straight from
+              ZenImage — previously the only way to convert an image already
+              sitting in ZenImage was to re-download it first, since this
+              area only ever accepted a local file drop or the OS picker. */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setIsDropActive(true); }}
+              onDragEnter={(e) => { e.preventDefault(); setIsDropActive(true); }}
+              onDragLeave={() => setIsDropActive(false)}
+              onDrop={handleDrop}
+              onClick={() => !isPreparingInput && fileInputRef.current?.click()}
               style={{
-                fontSize: '16px',
-                color: isDropActive ? '#1a1a1a' : hasInputContent ? '#3e362c' : '#3e362c',
-                transition: 'color 0.2s',
-              }}
-            />
-            <span
-              style={{
-                fontSize: '11px',
-                fontFamily: 'IBM Plex Mono, monospace',
-                color: isDropActive ? '#1a1a1a' : '#252525',
-                textAlign: 'center',
-                fontWeight: isDropActive ? 500 : 400,
+                flex: 1,
+                borderRadius: '10px',
+                border: isDropActive
+                  ? '1px dashed #3A3A3A'
+                  : hasInputContent
+                  ? '1px solid rgba(#3e362c)'
+                  : '1px dashed rgba(#3e362c)',
+                background: isDropActive
+                  ? 'rgba(#d2cabd)'
+                  : hasInputContent
+                  ? 'rgba(#e8e3d8)'
+                  : 'rgba(255,255,255,0.28)',
+                padding: '20px 14px',
+                minHeight: '86px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '7px',
+                cursor: isPreparingInput ? 'wait' : 'pointer',
+                transition: 'border-color 0.2s, background 0.2s',
               }}
             >
-              {isPreparingInput
-                ? 'Datei wird vorbereitet…'
-                : isDropActive
-                ? 'Loslassen zum Importieren'
-                : hasInputContent
-                ? fileName
-                : 'Datei hier ablegen oder klicken'}
-            </span>
-            <span style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'center' }}>
-              {isPreparingInput
-                ? ''
-                : isDropActive
-                ? ''
-                : hasInputContent
-                ? `${detectedFormatLabel} erkannt · klicken zum Wechseln`
-                : 'Formate · .md .txt .json .html .pdf .docx .pages .png .jpg .jpeg .webp .svg'}
-            </span>
+              <FontAwesomeIcon
+                icon={isDropActive ? faFolderOpen : faFile}
+                style={{
+                  fontSize: '16px',
+                  color: isDropActive ? '#1a1a1a' : hasInputContent ? '#3e362c' : '#3e362c',
+                  transition: 'color 0.2s',
+                }}
+              />
+              <span
+                style={{
+                  fontSize: '11px',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  color: isDropActive ? '#1a1a1a' : '#252525',
+                  textAlign: 'center',
+                  fontWeight: isDropActive ? 500 : 400,
+                }}
+              >
+                {isPreparingInput
+                  ? 'Datei wird vorbereitet…'
+                  : isDropActive
+                  ? 'Loslassen zum Importieren'
+                  : hasInputContent
+                  ? fileName
+                  : 'Datei hier ablegen oder klicken'}
+              </span>
+              <span style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'center' }}>
+                {isPreparingInput
+                  ? ''
+                  : isDropActive
+                  ? ''
+                  : hasInputContent
+                  ? `${detectedFormatLabel} erkannt · klicken zum Wechseln`
+                  : 'Formate · .md .txt .json .html .pdf .docx .pages .png .jpg .jpeg .webp .svg'}
+              </span>
+            </div>
+
+            {onOpenImageGallery ? (
+              <button
+                type="button"
+                onClick={onOpenImageGallery}
+                disabled={isPreparingInput}
+                style={{
+                  flex: 1,
+                  borderRadius: '10px',
+                  border: '1px dashed rgba(#3e362c)',
+                  background: 'rgba(255,255,255,0.28)',
+                  padding: '20px 14px',
+                  minHeight: '86px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '7px',
+                  cursor: isPreparingInput ? 'wait' : 'pointer',
+                  transition: 'border-color 0.2s, background 0.2s',
+                }}
+              >
+                <FontAwesomeIcon icon={faImage} style={{ fontSize: '16px', color: '#3e362c' }} />
+                <span style={{ fontSize: '11px', fontFamily: 'IBM Plex Mono, monospace', color: '#252525', textAlign: 'center' }}>
+                  ZenImage
+                </span>
+                <span style={{ fontSize: '9px', color: '#1a1a1a', fontFamily: 'IBM Plex Mono, monospace', textAlign: 'center' }}>
+                  Aus der Cloud wählen
+                </span>
+              </button>
+            ) : null}
           </div>
 
           {/* Format selection */}

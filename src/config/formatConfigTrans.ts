@@ -565,6 +565,7 @@ const Config: ZenpostStudioConfig = {
 export default Config;
 
 export type TransformPlatformId =
+  | "linkedin-article"
   | "linkedin"
   | "devto"
   | "twitter"
@@ -714,17 +715,9 @@ const stripTwitterThreadPrefix = (input: string): string => {
 const normalizeTwitterBodyText = (input: string): string =>
   stripTwitterThreadPrefix(input).replace(/^\s*(?:\d+\s*\/\s*\d+\s+)+/, "").trim();
 
-const formatTwitterThreadPlain = (segments: string[], maxCharsPerTweet: number): string => {
-  const cleanSegments = segments.map((segment) => normalizeTwitterBodyText(segment)).filter(Boolean);
-
-  return cleanSegments
-    .map((tweet) => {
-      const body = tweet.length > maxCharsPerTweet
-        ? `${tweet.slice(0, Math.max(0, maxCharsPerTweet - 1)).trimEnd()}...`
-        : tweet;
-      return normalizeTwitterBodyText(body);
-    })
-    .join("\n\n");
+const formatTwitterThreadPlain = (segments: string[], _maxCharsPerTweet: number): string => {
+  // Formatting must not discard text. Publishing validates each complete segment.
+  return segments.map(normalizeTwitterBodyText).filter(Boolean).join("\n\n");
 };
 
 const asTwitterThread = (input: string, maxCharsPerTweet: number): string => {
@@ -772,6 +765,11 @@ export const steuerFormatConfig: SteuerFormatConfig = {
     trimTrailingWhitespace: true,
   },
   platforms: {
+    'linkedin-article': {
+      id: 'linkedin-article', label: 'LinkedIn-Artikel', outputMode: 'markdown',
+      stripFrontmatter: true, keepMarkdownHeadings: true,
+      splitLongParagraphs: false, ensureTitleHeading: true,
+    },
     linkedin: {
       id: "linkedin",
       label: "LinkedIn",

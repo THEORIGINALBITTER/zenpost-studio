@@ -117,7 +117,7 @@ export const getDefaultTime = () => {
   return `${hh}:${mm}`;
 };
 
-export const getTodayDate = () => new Date().toISOString().split('T')[0];
+export const getTodayDate = () => toLocalDateKey(new Date());
 
 export const sanitizeBaseName = (input: string): string =>
   input

@@ -1,3 +1,4 @@
+import { validateXPosts } from './xPostContent';
 /**
  * Social Media API Service
  * Handles API integrations for Twitter, Reddit, LinkedIn, and other platforms
@@ -229,6 +230,7 @@ export async function postToTwitter(
   config: TwitterConfig
 ): Promise<PostResult> {
   try {
+    validateXPosts([content.text, ...(content.thread ?? [])]);
     // Twitter API v2 - Create Tweet
     const response = await httpFetch('https://api.twitter.com/2/tweets', {
       method: 'POST',
@@ -261,31 +263,36 @@ export async function postToTwitter(
       let previousTweetId = tweetId;
 
       for (let i = 0; i < content.thread.length; i++) {
-        const threadResponse = await httpFetch('https://api.twitter.com/2/tweets', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${config.bearerToken}`,
-          },
-          body: JSON.stringify({
-            text: content.thread[i],
-            reply: {
-              in_reply_to_tweet_id: previousTweetId,
+        try {
+          const threadResponse = await httpFetch('https://api.twitter.com/2/tweets', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.bearerToken}`,
             },
-          }),
-        });
+            body: JSON.stringify({
+              text: content.thread[i],
+              reply: {
+                in_reply_to_tweet_id: previousTweetId,
+              },
+            }),
+          });
 
-        if (!threadResponse.ok) {
-          threadFailedAt = i + 1; // 1-based: "Folge-Tweet 1" = content.thread[0]
-          break;
-        }
-        const threadData = await threadResponse.json();
-        const nextId: string | undefined = threadData?.data?.id;
-        if (!nextId) {
+          if (!threadResponse.ok) {
+            threadFailedAt = i + 1; // 1-based: "Folge-Tweet 1" = content.thread[0]
+            break;
+          }
+          const threadData = await threadResponse.json();
+          const nextId: string | undefined = threadData?.data?.id;
+          if (!nextId) {
+            threadFailedAt = i + 1;
+            break;
+          }
+          previousTweetId = nextId;
+        } catch {
           threadFailedAt = i + 1;
           break;
         }
-        previousTweetId = nextId;
       }
     }
 
@@ -411,22 +418,34 @@ async function getLinkedInPersonUrn(accessToken: string, personId?: string): Pro
     return /^\d+$/.test(id) ? `urn:li:member:${id}` : `urn:li:person:${id}`;
   }
 
-  // 2. /v2/me → numeric id (r_liteprofile scope)
-  const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (meRes.ok) {
-    const data = await meRes.json();
-    if (data.id) return `urn:li:member:${data.id}`;
-  }
+  // 2./3. LinkedIn does not send CORS headers, so the browser build can't call
+  // api.linkedin.com directly — go through our server proxy there. Tauri
+  // bypasses CORS via the native HTTP plugin, so it can call LinkedIn directly.
+  if (isTauri()) {
+    const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (meRes.ok) {
+      const data = await meRes.json();
+      if (data.id) return `urn:li:member:${data.id}`;
+    }
 
-  // 3. /v2/userinfo → OIDC sub (openid scope) — use urn:li:person: format
-  const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (uiRes.ok) {
-    const data = await uiRes.json();
-    if (data.sub) return `urn:li:person:${data.sub}`;
+    const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (uiRes.ok) {
+      const data = await uiRes.json();
+      if (data.sub) return `urn:li:person:${data.sub}`;
+    }
+  } else {
+    const proxyRes = await fetch('https://denisbitter.de/stage02/api/linkedin_me.php', {
+      headers: { 'X-Auth-Token': accessToken },
+    });
+    if (proxyRes.ok) {
+      const data = await proxyRes.json();
+      if (data.id) return `urn:li:member:${data.id}`;
+      if (data.sub) return `urn:li:person:${data.sub}`;
+    }
   }
 
   throw new Error(

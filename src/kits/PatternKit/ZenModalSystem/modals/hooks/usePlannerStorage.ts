@@ -46,6 +46,9 @@ export interface UsePlannerStorageReturn {
   setSchedules: React.Dispatch<React.SetStateAction<ScheduleMap>>;
   checklistItems: ChecklistItem[];
   setChecklistItems: React.Dispatch<React.SetStateAction<ChecklistItem[]>>;
+  /** True when the last cloud autosave attempt failed — surfaced in the UI so a
+   * silently-lost edit isn't the only sign something went wrong. */
+  cloudSaveError: boolean;
 }
 
 export function usePlannerStorage({
@@ -64,7 +67,12 @@ export function usePlannerStorage({
   const [schedules, setSchedules] = useState<ScheduleMap>({});
   const [checklistItems, setChecklistItems] = useState<ChecklistItem[]>([]);
   const [cloudSessionRevision, setCloudSessionRevision] = useState(0);
+  const [cloudSaveError, setCloudSaveError] = useState(false);
   const lastLoadedPathRef = useRef<string | null>(null);
+  // Guards subscribeToCloudPlannerSync below from overwriting manualPosts/schedules
+  // with a stale snapshot while a local edit's autosave is still in flight —
+  // same race as the one fixed via pendingCloudScheduleWritesRef in App1.tsx.
+  const pendingCloudWritesRef = useRef(0);
 
   const reconcileSchedules = (
     nextManualPosts: PlannerPost[],
@@ -265,10 +273,15 @@ export function usePlannerStorage({
 
       // Cloud save (if logged in)
       if (isCloudPlannerAvailable()) {
+        pendingCloudWritesRef.current += 1;
         try {
           await savePlannerToCloud(manualPosts, schedules, checklistItems);
+          setCloudSaveError(false);
         } catch (error) {
           console.error('[Planner] Failed to autosave planner storage (cloud)', error);
+          setCloudSaveError(true);
+        } finally {
+          pendingCloudWritesRef.current = Math.max(0, pendingCloudWritesRef.current - 1);
         }
       }
     }, 500);
@@ -280,6 +293,11 @@ export function usePlannerStorage({
     if (!isOpen || !plannerLoaded || !isCloudPlannerAvailable()) return;
 
     return subscribeToCloudPlannerSync(({ planner }) => {
+      if (pendingCloudWritesRef.current > 0) {
+        // A local edit is still being persisted — applying this snapshot now
+        // would overwrite it with the pre-edit server state.
+        return;
+      }
       setManualPosts(planner.manualPosts);
       setChecklistItems(planner.checklistItems);
       setSchedules(reconcileSchedules(planner.manualPosts, planner.schedules));
@@ -317,6 +335,7 @@ export function usePlannerStorage({
     setSchedules,
     checklistItems,
     setChecklistItems,
+    cloudSaveError,
   };
 }
 

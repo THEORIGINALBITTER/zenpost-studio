@@ -142,6 +142,11 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   );
   const [editorTheme, setEditorTheme] = useState<'dark' | 'light'>(readStoredEditorTheme);
   const [notes, setNotes] = useState<ZenNote[]>([]);
+  // Tombstone for optimistically deleted notes: a reload triggered while the
+  // cloud delete is still in flight (e.g. eventual-consistency lag, or a
+  // focus/login reload firing right after the click) would otherwise list
+  // the note again — same race pattern as the planner's schedule delete.
+  const deletedNoteIdsRef = useRef<Set<number>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<number | null>(null);
   const [editorContent, setEditorContent] = useState('');
   const [editorTitle, setEditorTitle] = useState('');
@@ -285,25 +290,42 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
 
     const zenNotes = docs
       .filter((d) => d.mimeType === ZEN_NOTE_MIME || d.fileName.endsWith('.zennote'))
+      .filter((d) => !deletedNoteIdsRef.current.has(d.id))
       .map((d) => {
         const { title, tag, folder } = parseZenNoteFileName(d.fileName);
         return { id: d.id, title, tag, folder, createdAt: d.createdAt };
       });
+    // A note no longer present server-side means the delete has landed —
+    // stop tombstoning it so the id can be reused/re-added later.
+    const presentIds = new Set(docs.map((d) => d.id));
+    deletedNoteIdsRef.current.forEach((id) => {
+      if (!presentIds.has(id)) deletedNoteIdsRef.current.delete(id);
+    });
     setNotes(zenNotes);
     setLoading(false);
   }, [settings.cloudProjectId]);
+
+  // Guards subscribeToZenNoteMetaSync below from overwriting tags/colors with a
+  // stale snapshot while a local edit is still being persisted to the cloud —
+  // same race pattern fixed for the planner via pendingCloudScheduleWritesRef.
+  const pendingMetaWritesRef = useRef(0);
 
   const syncZenNoteMetaToCloud = useCallback(async (
     nextCustomTags: string[],
     nextTagColors: Record<string, string>,
     nextFolderColors: Record<string, string>,
   ) => {
-    const nextDocId = await persistZenNoteMeta({
-      customTags: nextCustomTags,
-      tagColors: nextTagColors,
-      folderColors: nextFolderColors,
-    }, metaDocId);
-    if (nextDocId) setMetaDocId(nextDocId);
+    pendingMetaWritesRef.current += 1;
+    try {
+      const nextDocId = await persistZenNoteMeta({
+        customTags: nextCustomTags,
+        tagColors: nextTagColors,
+        folderColors: nextFolderColors,
+      }, metaDocId);
+      if (nextDocId) setMetaDocId(nextDocId);
+    } finally {
+      pendingMetaWritesRef.current = Math.max(0, pendingMetaWritesRef.current - 1);
+    }
   }, [metaDocId]);
 
   useEffect(() => { void loadNotes(); }, [loadNotes]);
@@ -315,6 +337,11 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   useEffect(() => {
     if (!settings.cloudProjectId) return;
     return subscribeToZenNoteMetaSync(settings.cloudProjectId, ({ docId, meta }) => {
+      if (pendingMetaWritesRef.current > 0) {
+        // A local tag/color edit is still being saved — applying this
+        // snapshot now would overwrite it with the pre-edit server state.
+        return;
+      }
       setMetaDocId(docId);
       const next = toZenNoteMetaState(meta);
       setCustomTags(next.customTags);
@@ -497,16 +524,25 @@ export function ZenNoteStudioScreen({ insertTargetActive = false, requestedNoteI
   const deleteNote = async (noteId: number, e: React.MouseEvent) => {
     e.stopPropagation();
     setDeletingNoteId(noteId);
-    await deleteCloudDocument(noteId);
-    setNotes((prev) => prev.filter((n) => n.id !== noteId));
-    if (activeNoteId === noteId) {
-      setActiveNoteId(null);
-      setEditorContent('');
-      setEditorTitle('');
-      setEditorTag('');
-      setEditorFolder('');
+    deletedNoteIdsRef.current.add(noteId);
+    try {
+      await deleteCloudDocument(noteId);
+      setNotes((prev) => prev.filter((n) => n.id !== noteId));
+      if (activeNoteId === noteId) {
+        setActiveNoteId(null);
+        setEditorContent('');
+        setEditorTitle('');
+        setEditorTag('');
+        setEditorFolder('');
+      }
+    } catch (error) {
+      console.error('[ZenNoteStudio] Failed to delete note:', error);
+      // Delete never landed — undo the tombstone so a later reload doesn't
+      // permanently hide a note that's still on the server.
+      deletedNoteIdsRef.current.delete(noteId);
+    } finally {
+      setDeletingNoteId(null);
     }
-    setDeletingNoteId(null);
   };
 
   // ── Rename ─────────────────────────────────────────────────────────────────

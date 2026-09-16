@@ -1,3 +1,5 @@
+import { DiscussionComposer } from './transform-steps/DiscussionComposer';
+import { prepareXPostContent } from '../services/xPostContent';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { readFile, readTextFile, writeTextFile, writeFile, exists, mkdir } from '@tauri-apps/plugin-fs';
@@ -42,13 +44,12 @@ import {
   isPlatformConfigured,
   type SocialPlatform,
   type LinkedInPostOptions,
-  type TwitterPostOptions,
   type RedditPostOptions,
   type DevToPostOptions,
   type MediumPostOptions,
 } from '../services/socialMediaService';
 import { suggestTagsForKeywords, recordTagAssociation } from '../services/tagLearningService';
-import { verifyPostIsLive } from '../services/postLiveVerificationService';
+import { verifyPostIsLive, verifyPostInManifest } from '../services/postLiveVerificationService';
 import {
   defaultEditorSettings,
   loadEditorSettings,
@@ -85,9 +86,11 @@ type PlatformStyleConfig = {
 };
 
 const platformOptions: PlatformOption[] = [
+  { value: 'linkedin-article', label: 'LinkedIn-Artikel', icon: faLinkedin,
+    description: 'Ausführlicher Artikel mit Wissen, Argumenten und Beispielen' },
   {
     value: 'linkedin',
-    label: 'LinkedIn Post',
+    label: 'LinkedIn-Beitrag',
     icon: faLinkedin,
     description: 'Professional business network post',
   },
@@ -99,15 +102,21 @@ const platformOptions: PlatformOption[] = [
   },
   {
     value: 'twitter',
-    label: 'Twitter Thread',
+    label: 'X / Twitter Thread',
     icon: faTwitter,
     description: 'Concise, engaging thread',
   },
   {
     value: 'medium',
-    label: 'Medium Blog',
+    label: 'Medium-Artikel',
     icon: faMedium,
     description: 'Long-form storytelling blog',
+  },
+  {
+    value: 'substack',
+    label: 'Substack-Newsletter',
+    icon: faNewspaper,
+    description: 'Newsletter mit persönlicher Einleitung und ausführlicher Einordnung',
   },
   {
     value: 'reddit',
@@ -142,6 +151,7 @@ const platformOptions: PlatformOption[] = [
 ];
 
 const defaultPlatformStyles: Record<ContentPlatform, PlatformStyleConfig> = {
+  'linkedin-article': { tone: 'professional', length: 'long', audience: 'intermediate' },
   linkedin: { tone: 'professional', length: 'medium', audience: 'intermediate' },
   devto: { tone: 'technical', length: 'long', audience: 'intermediate' },
   twitter: { tone: 'enthusiastic', length: 'short', audience: 'intermediate' },
@@ -194,7 +204,7 @@ interface ContentTransformScreenProps {
   onFileRequestHandled?: () => void;
   metadata?: ProjectMetadata;
   onMetadataChange?: (metadata: ProjectMetadata) => void;
-  headerAction?: "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "post_all" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "save_server" | "transform" | "format_only" | "goto_platforms" | null;
+  headerAction?: "discussion" | "create_article_posts" | "preview" | "next" | "copy" | "download" | "edit" | "post" | "posten" | "post_direct" | "post_all" | "reset" | "back_doc" | "back_dashboard" | "back_posting" | "save" | "save_as" | "save_server" | "transform" | "format_only" | "goto_platforms" | null;
   onHeaderActionHandled?: () => void;
   onStep1BackToPostingChange?: (visible: boolean) => void;
   onStep2SelectionChange?: (count: number, canProceed: boolean) => void;
@@ -225,6 +235,10 @@ interface ContentTransformScreenProps {
   /** When set, Speichern writes to the blog's posts/ folder and updates manifest.json */
   blogSaveTarget?: import('../services/zenStudioSettingsService').BlogConfig | null;
   onBlogPostSaved?: (slug: string) => void;
+  // Opens the shared ZenImage gallery modal (owned by App1) for picking a
+  // post's cover image; onInsert is called with the chosen image's URL and
+  // filename once the user picks one there.
+  onOpenImageGalleryForMeta?: (onInsert: (url: string, fileName: string) => void) => void;
 }
 
 type ContentDocTab = {
@@ -296,7 +310,7 @@ const isPlaceholderDraftTab = (tab: ContentDocTab) =>
   tab.kind === 'draft' && tab.title === 'Entwurf';
 
 const DERIVED_TAB_ID_PATTERN =
-  /^derived:(.+):(linkedin|devto|twitter|medium|reddit|github-discussion|github-blog|youtube|blog-post|single):\d+$/;
+  /^derived:(.+):(linkedin-article|linkedin|devto|twitter|medium|reddit|substack|github-discussion|github-blog|youtube|blog-post|single):\d+$/;
 
 const parseDerivedTabId = (tabId: string): { sourceKey: string; platform: string } | null => {
   const match = tabId.match(DERIVED_TAB_ID_PATTERN);
@@ -1323,14 +1337,18 @@ export const ContentTransformScreen = ({
   onContentChange: onExternalContentChange,
   editorType = "block",
   onEditorTypeChange,
-  multiPlatformMode = false,
+  multiPlatformMode: externalMultiPlatformMode = false,
   onMultiPlatformModeChange,
   onFileSaved,
   onOpenZenThoughtsEditor,
   serverArticleSlug,
   blogSaveTarget,
   onBlogPostSaved,
+  onOpenImageGalleryForMeta,
 }: ContentTransformScreenProps) => {
+  const [showDiscussion, setShowDiscussion] = useState(false);
+  const [articlePostsMode, setArticlePostsMode] = useState(false);
+  const multiPlatformMode = externalMultiPlatformMode || articlePostsMode;
   // Step Management
   const [currentStep, setCurrentStep] = useState<number>(externalStep ?? 1);
   const effectiveStep = externalStep ?? currentStep;
@@ -2169,6 +2187,7 @@ export const ContentTransformScreen = ({
             setSaveSuccessPathsLabel('Details:');
             setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Dokument anschauen' : undefined);
             setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+            setSaveSuccessManifestCheck(!phpErr && blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug } : null);
             setShowSaveSuccess(true);
             onBlogPostSaved?.(slug);
             return;
@@ -2198,6 +2217,12 @@ export const ContentTransformScreen = ({
             }
           } catch { /* server fetch non-fatal */ }
         }
+        // See the matching comment further down: strip a leftover
+        // documents[]/content — either from an older local docs-shaped save
+        // or from a server GET that always merges both shapes — so this
+        // posts[] payload can't get misrouted into the docs/ fallback.
+        delete (manifest as Record<string, unknown>).documents;
+        delete (manifest as Record<string, unknown>).content;
         const existingEntry = manifest.posts.find((p) => p.slug === slug) ?? {};
         const frontmatterExtras = extractManifestExtrasFromFrontmatter(actualContent);
         const entry: Record<string, unknown> = {
@@ -2300,6 +2325,7 @@ export const ContentTransformScreen = ({
             setSaveSuccessPathsLabel('Details:');
             setSaveSuccessPrimaryActionLabel(viewUrl ? 'Im Blog anschauen' : undefined);
             setSaveSuccessPrimaryActionUrl(viewUrl ?? null);
+            setSaveSuccessManifestCheck(blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug } : null);
             setShowSaveSuccess(true);
           }
           onBlogPostSaved?.(slug);
@@ -2343,6 +2369,7 @@ export const ContentTransformScreen = ({
           setSaveSuccessPathsLabel('Details:');
           setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Im Blog anschauen' : undefined);
           setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+          setSaveSuccessManifestCheck(!phpErr && blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug } : null);
           setShowSaveSuccess(true);
           onBlogPostSaved?.(slug);
           return;
@@ -2447,9 +2474,13 @@ export const ContentTransformScreen = ({
                 }
               } catch { /* server fetch non-fatal */ }
             }
+            delete (manifest as Record<string, unknown>).documents;
+            delete (manifest as Record<string, unknown>).content;
             const wordCountFtp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
             const readingTimeFtp = Math.max(1, Math.round(wordCountFtp / 220));
-            const existingEntry = manifest.posts.find((p) => p.slug === slug) ?? {};
+            // See the PHP-upload branch below for why: match by the file
+            // actually on disk, not a slug that shifts with the title.
+            const existingEntry = manifest.posts.find((p) => p.localFileName === savedName || p.slug === slug) ?? {};
             const frontmatterExtras = extractManifestExtrasFromFrontmatter(contentToWrite);
             const entry: Record<string, unknown> = {
               ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
@@ -2471,7 +2502,7 @@ export const ContentTransformScreen = ({
             if (postMeta.today.trim()) entry.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
             if (postMeta.blockers.trim()) entry.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
             if (postMeta.next.trim()) entry.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
-            const idx = manifest.posts.findIndex((p) => p.slug === slug);
+            const idx = manifest.posts.findIndex((p) => p.localFileName === savedName || p.slug === slug);
             if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
             await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
             await ftpUpload(manifestPath, 'manifest.json', {
@@ -2494,6 +2525,7 @@ export const ContentTransformScreen = ({
           setSaveSuccessPathsLabel('Details:');
           setSaveSuccessPrimaryActionLabel(viewUrl ? 'Im Blog anschauen' : undefined);
           setSaveSuccessPrimaryActionUrl(viewUrl ?? null);
+          setSaveSuccessManifestCheck(blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug: savedName.replace(/\.md$/i, '') } : null);
           setShowSaveSuccess(true);
         }
         onFileSaved?.(activeTab.filePath, contentToSave, savedName);
@@ -2579,6 +2611,7 @@ export const ContentTransformScreen = ({
           setSaveSuccessPathsLabel('Details:');
           setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Dokument anschauen' : undefined);
           setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+          setSaveSuccessManifestCheck(!phpErr && blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug: docId } : null);
           setShowSaveSuccess(true);
           onFileSaved?.(activeTab.filePath, contentToSave, docFileName);
           return;
@@ -2603,10 +2636,25 @@ export const ContentTransformScreen = ({
               }
             }
           } catch { /* server fetch non-fatal */ }
+          // A manifest carrying a leftover documents[] (from a time this
+          // blog was saved as docs, or from the server's GET response which
+          // always merges both shapes together) makes the upload endpoint's
+          // isBlogPayload check fail and reroute this posts[] save into the
+          // docs/ fallback — which then 409s once docs/ doesn't exist. This
+          // save is unambiguously a blog post here, so those keys never
+          // belong in what gets sent.
+          delete (manifest as Record<string, unknown>).documents;
+          delete (manifest as Record<string, unknown>).content;
           const slug2 = sanitizeBlogFilename(savedName);
           const wordCountPhp = contentToSave.replace(/^---[\s\S]*?---/, '').trim().split(/\s+/).length;
           const readingTimePhp = Math.max(1, Math.round(wordCountPhp / 220));
-          const existingEntry = manifest.posts.find((p) => p.slug === slug2) ?? {};
+          // Match by the actual filename on disk first, not the freshly
+          // (re-)sanitized slug — a title edit or a slug computed with a
+          // different sanitization rule than whatever created the existing
+          // entry (e.g. the server's self-heal, which slugs by raw filename
+          // with no sanitization at all) must still find and update the
+          // same post instead of silently appending a duplicate.
+          const existingEntry = manifest.posts.find((p) => p.localFileName === savedName || p.slug === slug2) ?? {};
           const frontmatterExtras = extractManifestExtrasFromFrontmatter(contentToWrite);
           const entry2: Record<string, unknown> = {
             ...(typeof existingEntry === 'object' && existingEntry ? existingEntry : {}),
@@ -2644,7 +2692,7 @@ export const ContentTransformScreen = ({
           if (postMeta.today.trim()) entry2.today = postMeta.today.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
           if (postMeta.blockers.trim()) entry2.blockers = postMeta.blockers.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
           if (postMeta.next.trim()) entry2.next = postMeta.next.split(/\n|,/).map((v) => v.trim()).filter(Boolean);
-          const idx2 = manifest.posts.findIndex((p) => p.slug === slug2);
+          const idx2 = manifest.posts.findIndex((p) => p.localFileName === savedName || p.slug === slug2);
           if (idx2 >= 0) manifest.posts[idx2] = entry2; else manifest.posts.unshift(entry2);
           await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
           phpManifest = manifest;
@@ -2691,6 +2739,7 @@ export const ContentTransformScreen = ({
         setSaveSuccessPathsLabel('Details:');
         setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Im Blog anschauen' : undefined);
         setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
+        setSaveSuccessManifestCheck(!phpErr && blogSaveTarget.siteUrl ? { siteUrl: blogSaveTarget.siteUrl, slug } : null);
         setShowSaveSuccess(true);
         onFileSaved?.(activeTab.filePath, contentToSave, savedName);
         return;
@@ -2971,6 +3020,7 @@ export const ContentTransformScreen = ({
       setSaveSuccessPathsLabel('Server-Details:');
       setSaveSuccessPrimaryActionLabel(serverViewUrl ? 'Auf Server anschauen' : undefined);
       setSaveSuccessPrimaryActionUrl(serverViewUrl || null);
+      setSaveSuccessManifestCheck(null);
       setShowSaveSuccess(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unbekannter Fehler beim Server-Export.';
@@ -3427,7 +3477,7 @@ export const ContentTransformScreen = ({
   }, [requestedFilePath, onFileRequestHandled]);
 
   // Step 2: Platform Selection
-  const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin');
+  const [selectedPlatform, setSelectedPlatform] = useState<ContentPlatform>(initialPlatform || 'linkedin-article');
 
   // Multi-platform selection (for multi-select mode)
   const [selectedPlatforms, setSelectedPlatforms] = useState<ContentPlatform[]>([]);
@@ -3520,6 +3570,12 @@ export const ContentTransformScreen = ({
   const [saveSuccessPathsLabel, setSaveSuccessPathsLabel] = useState<string | undefined>(undefined);
   const [saveSuccessPrimaryActionLabel, setSaveSuccessPrimaryActionLabel] = useState<string | undefined>(undefined);
   const [saveSuccessPrimaryActionUrl, setSaveSuccessPrimaryActionUrl] = useState<string | null>(null);
+  // When set, live-verification checks manifest.json for this slug instead
+  // of GET-ing the page URL — the page URL alone is useless on a server that
+  // answers every path with 200 (SPA fallback for unknown routes), which is
+  // exactly what let "Erfolgreich gespeichert" show for posts that never
+  // actually reached posts/ on the server.
+  const [saveSuccessManifestCheck, setSaveSuccessManifestCheck] = useState<{ siteUrl: string; slug: string } | null>(null);
   const verifiedUrlRef = useRef<string | null>(null);
 
   // "Warum ist mein Post nicht online?" — nach jedem erfolgreichen Speichern
@@ -3531,15 +3587,19 @@ export const ContentTransformScreen = ({
     if (verifiedUrlRef.current === saveSuccessPrimaryActionUrl) return;
     verifiedUrlRef.current = saveSuccessPrimaryActionUrl;
     const urlToVerify = saveSuccessPrimaryActionUrl;
-    void verifyPostIsLive(urlToVerify).then((result) => {
+    const manifestCheck = saveSuccessManifestCheck;
+    const verification = manifestCheck
+      ? verifyPostInManifest(manifestCheck.siteUrl, manifestCheck.slug)
+      : verifyPostIsLive(urlToVerify);
+    void verification.then((result) => {
       if (verifiedUrlRef.current !== urlToVerify) return; // ein neuerer Save lief inzwischen
       if (result.status === 'live') {
         setSavedFilePaths((prev) => [...(prev ?? []), '✓ Live bestätigt']);
       } else if (result.status === 'unreachable') {
-        setSavedFilePaths((prev) => [...(prev ?? []), `⚠ Server hat Erfolg gemeldet, aber die Seite ist gerade nicht erreichbar: ${result.reason}`]);
+        setSavedFilePaths((prev) => [...(prev ?? []), `⚠ Server hat Erfolg gemeldet, aber der Artikel ist tatsächlich nicht live: ${result.reason}`]);
       }
     });
-  }, [showSaveSuccess, saveSuccessPrimaryActionUrl]);
+  }, [showSaveSuccess, saveSuccessPrimaryActionUrl, saveSuccessManifestCheck]);
 
   const { openExternal } = useOpenExternal();
   const [localMetadata, setLocalMetadata] = useState<ProjectMetadata>(createDefaultProjectMetadata());
@@ -3693,7 +3753,9 @@ export const ContentTransformScreen = ({
     const baseTitle = baseTitleRaw.replace(/\s·\s(Neu|AI|AI Überarbeitung|Übersetzt|LinkedIn Post|dev\.to Article|Twitter Thread|Medium Blog|Reddit Post|GitHub Discussion|GitHub Blog Post|YouTube Description|Blog Post)$/i, '');
     const tabPlatformSuffix = platformHint
       ? ({
-          linkedin: 'LinkedIn',
+          'linkedin-article': 'LinkedIn-Artikel',
+          substack: 'Substack',
+          linkedin: 'LinkedIn-Beitrag',
           devto: 'dev.to',
           twitter: 'Twitter',
           medium: 'Medium',
@@ -3756,7 +3818,22 @@ export const ContentTransformScreen = ({
     return { tabId: resultTabId, title: nextTitle };
   };
 
+  const handleCreateArticlePosts = (content: string) => {
+    if (!content.trim()) {
+      setError('Schreibe oder öffne zuerst einen Artikel.');
+      return;
+    }
+    setSourceContent(content);
+    setArticlePostsMode(true);
+    onMultiPlatformModeChange?.(true);
+    setSelectedPlatforms(['linkedin', 'twitter']);
+    setSelectedPlatform('linkedin');
+    setError(null);
+    setStep(2);
+  };
+
   const handleNextFromStep1 = () => {
+    setArticlePostsMode(false);
     if (!sourceContent.trim()) {
       setError('Bitte gib Inhalt ein oder lade eine Datei hoch');
     
@@ -4232,6 +4309,7 @@ export const ContentTransformScreen = ({
             audience: styleConfig.audience,
             targetLanguage,
             allowEmoji,
+            purpose: articlePostsMode && ['linkedin', 'twitter'].includes(platform) ? 'article-companion' : undefined,
           });
           if (!isRunActive()) return;
 
@@ -4270,7 +4348,7 @@ export const ContentTransformScreen = ({
         if (Object.keys(results).length > 0) {
           setTransformedContents(results);
           // Set the first platform as active tab
-          const firstPlatform = selectedPlatforms[0];
+          const firstPlatform = selectedPlatforms.find(platform => results[platform])!;
           setActiveResultTab(firstPlatform);
           setTransformedContent(results[firstPlatform] || '');
           captureStep4Original();
@@ -4279,6 +4357,7 @@ export const ContentTransformScreen = ({
             setAutoSelectedModel(firstAutoModel);
           }
           setStep(4);
+          if (failedPlatforms.length) setError(failedPlatforms.map(({ platform, error }) => `${getPlatformLabel(platform)}: ${error}`).join(' | '));
         } else {
           const detail = failedPlatforms
             .slice(0, 2)
@@ -4403,6 +4482,7 @@ export const ContentTransformScreen = ({
   };
 
   const handleReset = () => {
+    setArticlePostsMode(false);
     setStep(1);
     setSourceContent('');
     setFileName('');
@@ -4431,6 +4511,7 @@ export const ContentTransformScreen = ({
 
       // Map ContentPlatform to SocialPlatform
       const platformMap: Record<ContentPlatform, SocialPlatform | null> = {
+        'linkedin-article': null,
         'linkedin': 'linkedin',
         'twitter': 'twitter',
         'reddit': 'reddit',
@@ -4474,32 +4555,7 @@ export const ContentTransformScreen = ({
           break;
 
         case 'twitter':
-          // Split content into thread if too long
-          const maxTweetLength = 280;
-          if (sourceContent.length > maxTweetLength) {
-            const sentences = sourceContent.split(/[.!?]+/).filter(s => s.trim());
-            const thread: string[] = [];
-            let currentTweet = '';
-
-            for (const sentence of sentences) {
-              if ((currentTweet + sentence).length > maxTweetLength) {
-                if (currentTweet) thread.push(currentTweet.trim());
-                currentTweet = sentence;
-              } else {
-                currentTweet += sentence + '.';
-              }
-            }
-            if (currentTweet) thread.push(currentTweet.trim());
-
-            postContent = {
-              text: thread[0],
-              thread: thread.slice(1),
-            } as TwitterPostOptions;
-          } else {
-            postContent = {
-              text: sourceContent,
-            } as TwitterPostOptions;
-          }
+          postContent = prepareXPostContent(sourceContent);
           break;
 
         case 'reddit':
@@ -4572,7 +4628,7 @@ export const ContentTransformScreen = ({
 
       if (result.success) {
         // Show success message
-        alert(`✓ Erfolgreich auf ${selectedPlatform} gepostet!\n${result.url || ''}`);
+        alert(`✓ Erfolgreich auf ${selectedPlatform} gepostet!\n${result.url || ''}${result.warning ? `\n${result.warning}` : ''}`);
         handleReset();
       } else {
         setError(toUserFacingError(result.error || 'Posting fehlgeschlagen', 'post'));
@@ -4593,6 +4649,11 @@ export const ContentTransformScreen = ({
 
   useEffect(() => {
     if (!headerAction) return;
+    if (headerAction === "discussion") {
+      setShowDiscussion(true);
+      onHeaderActionHandled?.();
+      return;
+    }
     if (headerAction === "preview") {
       void (async () => {
         await openStep4FromSource();
@@ -4620,6 +4681,13 @@ export const ContentTransformScreen = ({
     if (headerAction === "goto_platforms" && effectiveStep === 4) {
       openPlatformSelectionFromStep4();
       onHeaderActionHandled?.();
+      return;
+    }
+    if (headerAction === "create_article_posts" && effectiveStep === 1) {
+      onHeaderActionHandled?.();
+      void resolveLatestSourceContent().then(handleCreateArticlePosts).catch(() => {
+        setError('Der Editorinhalt konnte nicht gelesen werden. Bitte erneut versuchen.');
+      });
       return;
     }
     if (headerAction === "next") {
@@ -4703,6 +4771,7 @@ export const ContentTransformScreen = ({
               onSourceContentChange={handleSourceContentChange}
               onFileNameChange={handleStep1FileNameChange}
               onNext={handleNextFromStep1}
+              onCreateArticlePosts={handleCreateArticlePosts}
               onOpenMetadata={() => setShowMetadata(true)}
               onOpenAISettings={() => {
                 setSettingsDefaultTab('ai');
@@ -4807,6 +4876,7 @@ export const ContentTransformScreen = ({
               showZenThoughtInHeader={zenStudioSettings.showInContentAIStudio}
               postMeta={postMeta}
               onMetaChange={handleMetaChange}
+              onOpenImageGalleryForMeta={onOpenImageGalleryForMeta}
               analysisKeywords={analysisKeywords}
               onAnalysisKeywordsChange={setAnalysisKeywords}
               learnedTagSuggestions={learnedTagSuggestions}
@@ -4823,6 +4893,7 @@ export const ContentTransformScreen = ({
           <Step2PlatformSelection
             selectedPlatform={selectedPlatform}
             platformOptions={platformOptions}
+            articlePostsMode={articlePostsMode}
             onPlatformChange={setSelectedPlatform}
             onBack={() => setStep(1)}
             onNext={handleNextFromStep2}
@@ -4947,6 +5018,11 @@ export const ContentTransformScreen = ({
               transformedContent={transformedContent}
               platform={multiPlatformMode && activeResultTab ? activeResultTab : selectedPlatform}
               autoSelectedModel={autoSelectedModel}
+              onCreateRelatedContent={(content) => {
+                const resultPlatform = multiPlatformMode && activeResultTab ? activeResultTab : selectedPlatform;
+                upsertResultVersionTab(content, step4LastChangeSource, resultPlatform);
+                handleCreateArticlePosts(content);
+              }}
               onReset={() => {
                 handleReset();
                 // Reset multi-platform state
@@ -4966,6 +5042,7 @@ export const ContentTransformScreen = ({
                   let preferredTabTitle = '';
                   selectedPlatforms.forEach((platform) => {
                     const platformContent = transformedContents[platform] ?? '';
+                    if (!platformContent.trim()) return;
                     const upserted = upsertResultVersionTab(
                       platformContent,
                       step4LastChangeSource,
@@ -5085,6 +5162,22 @@ export const ContentTransformScreen = ({
         style={{ paddingTop: effectiveStep === 2 || effectiveStep === 3 ? '70px' : '22px' }}
       >
         {renderStepContent()}
+        <DiscussionComposer open={showDiscussion} onClose={() => setShowDiscussion(false)} onUsePost={(content, platform) => {
+          const id = `draft-discussion-${Date.now()}`;
+          const title = platform === 'linkedin' ? 'Diskussion · LinkedIn-Beitrag' : 'Diskussion · X-Beitrag';
+          setOpenDocTabs(prev => [...prev, { id, title, kind: 'draft', platform }]);
+          setDocTabContents(prev => ({ ...prev, [id]: content }));
+          setDirtyDocTabs(prev => ({ ...prev, [id]: true }));
+          activeDocTabIdRef.current = id;
+          setActiveDocTabId(id);
+          setSourceContent(content);
+          setFileName(title);
+          setPostMeta(EMPTY_POST_META);
+          setSelectedPlatform(platform);
+          setArticlePostsMode(false);
+          onMultiPlatformModeChange?.(false);
+          setStep(1);
+        }} />
       </div>
 
       {/* Blog Meta Hint Banner */}

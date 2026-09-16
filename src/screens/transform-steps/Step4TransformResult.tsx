@@ -1,3 +1,5 @@
+import './articleActions.css';
+import { prepareXPostContent } from '../../services/xPostContent';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ZenEngine, { type MarkdownResult, type RuleAnalysisResult, generatePlatformThumbnail, type PlatformThumbnailResult, adaptV2ToV1 } from '../../services/zenEngineService';
 import { recordAnalysisRun } from '../../services/zenEngineStatsService';
@@ -75,6 +77,7 @@ interface Step4TransformResultProps {
   transformedContent: string;
   platform: ContentPlatform;
   autoSelectedModel?: string | null;
+  onCreateRelatedContent?: (content: string) => void;
   onReset: () => void;
   onBack: () => void;
   onOpenSettings: (targetSocialPlatform?: SocialPlatform) => void;
@@ -202,10 +205,11 @@ const IMPROVE_OPTIONS: ImproveOption[] = [
 ];
 
 const platformLabels: Record<ContentPlatform, string> = {
-  linkedin: 'LinkedIn Post',
+  'linkedin-article': 'LinkedIn-Artikel',
+  linkedin: 'LinkedIn-Beitrag',
   devto: 'dev.to Artikel',
   twitter: 'Twitter Thread',
-  medium: 'Medium Blog',
+  medium: 'Medium-Artikel',
   reddit: 'Reddit Post',
   substack: 'Substack Newsletter',
   'github-discussion': 'GitHub Discussion',
@@ -216,6 +220,7 @@ const platformLabels: Record<ContentPlatform, string> = {
 
 // Map ContentPlatform to SocialPlatform
 const platformMapping: Record<ContentPlatform, SocialPlatform | null> = {
+  'linkedin-article': null,
   twitter: 'twitter',
   reddit: 'reddit',
   linkedin: 'linkedin',
@@ -242,6 +247,7 @@ export const Step4TransformResult = ({
   platform,
   autoSelectedModel,
   onReset,
+  onCreateRelatedContent,
   onBack,
   onOpenSettings,
   onContentChange,
@@ -901,7 +907,21 @@ const handleDownload = async () => {
     showDownloadFeedback(false, 'Fehler beim Speichern');
   }
 };
+  const handleLinkedInArticle = async () => {
+    try {
+      await navigator.clipboard.writeText(currentContent);
+      await openExternal('https://www.linkedin.com/');
+      showDownloadFeedback(true, 'Artikel kopiert. Auf LinkedIn „Artikel schreiben“ wählen und Titel sowie Inhalt einfügen.');
+    } catch {
+      showDownloadFeedback(false, 'Artikel konnte nicht kopiert oder LinkedIn nicht geöffnet werden. Bitte den Artikel herunterladen und manuell übertragen.');
+    }
+  };
+
   const handlePost = async () => {
+    if (platform === 'linkedin-article') {
+      await handleLinkedInArticle();
+      return;
+    }
     if (!socialPlatform) {
       alert('Diese Plattform unterstützt derzeit kein direktes Posten. Bitte kopiere den Content manuell.');
       return;
@@ -967,12 +987,7 @@ const handleDownload = async () => {
 
       switch (platform) {
         case 'twitter': {
-          const preparedTwitter = preparePostContent('twitter', formattedContent, {});
-          const tweets = preparedTwitter.text.split('\n\n').filter((t) => t.trim());
-          postContent = {
-            text: tweets[0],
-            thread: tweets.length > 1 ? tweets.slice(1) : undefined,
-          };
+          postContent = prepareXPostContent(formattedContent);
           break;
         }
 
@@ -1090,12 +1105,7 @@ const handleDownload = async () => {
 
     switch (targetPlatform) {
       case 'twitter': {
-        const preparedTwit = preparePostContent('twitter', preparedContent, {});
-        const tweets = preparedTwit.text.split('\n\n').filter((t) => t.trim());
-        return {
-          text: tweets[0],
-          thread: tweets.length > 1 ? tweets.slice(1) : undefined,
-        };
+        return prepareXPostContent(preparedContent);
       }
       case 'reddit': {
         const preparedRed = preparePostContent('reddit', body, { title: title.substring(0, 300) });
@@ -1287,7 +1297,9 @@ const handleDownload = async () => {
         handlePost();
       }
     } else if (headerAction === "posten") {
-      if (isPreview && onOpenPlatformSelection) {
+      if (platform === 'linkedin-article') {
+        void handleLinkedInArticle();
+      } else if (isPreview && onOpenPlatformSelection) {
         onOpenPlatformSelection();
       } else {
         setShowPostenModal(true);
@@ -1748,6 +1760,13 @@ const handleDownload = async () => {
               padding: '0.9rem 0',
             }}
           >
+          {['linkedin-article', 'medium', 'blog-post', 'devto'].includes(platform) && (
+            <div className="zen-article-actions">
+              <p className="zen-article-actions__title">Artikel · Wissen ausführlich vermitteln</p>
+              {onCreateRelatedContent && <button type="button" onClick={() => onCreateRelatedContent(currentContent)} className="zen-article-actions__button zen-article-actions__button--primary">Artikelfassung oder Begleitbeiträge erstellen</button>}
+              {platform === 'linkedin-article' && <p className="zen-article-actions__hint">Zum Veröffentlichen oben „Export“ öffnen und „LinkedIn-Artikel“ wählen.</p>}
+            </div>
+          )}
           {/* ── Header: platform + status + stats ─────────────────── */}
           <div style={{ 
             padding: '0.75rem 1.5rem 0.75rem 1.75rem', 

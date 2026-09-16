@@ -1,3 +1,4 @@
+import { prepareXPostContent } from '../../../../services/xPostContent';
 import { useState, useMemo, useRef } from 'react';
 import {
   loadSocialConfig, isPlatformConfigured,
@@ -213,6 +214,7 @@ const SOCIAL_PLATFORM_IDS: Record<string, SocialPlatform> = {
 
 // Map PublishOption IDs to ContentPlatform
 const PLATFORM_MAP: Record<string, ContentPlatform> = {
+  'linkedin-article': 'linkedin-article',
   'medium':      'medium',
   'wordpress':   'blog-post',
   'devto':       'devto',
@@ -226,8 +228,15 @@ const PLATFORM_MAP: Record<string, ContentPlatform> = {
 
 const PUBLISH_OPTIONS: PublishOption[] = [
   {
+    id: 'linkedin-article',
+    label: 'LinkedIn-Artikel',
+    icon: faLinkedin,
+    url: 'https://www.linkedin.com/',
+    color: '#0077B5',
+  },
+  {
     id: 'medium',
-    label: 'Medium',
+    label: 'Medium-Artikel',
     icon: faMedium,
     url: 'https://medium.com/new-story',
     color: '#000000',
@@ -255,7 +264,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
   {
     id: 'linkedin',
-    label: 'LinkedIn',
+    label: 'LinkedIn-Beitrag',
     icon: faLinkedin,
     url: 'https://www.linkedin.com/feed/?shareActive=true',
     color: '#0077B5',
@@ -269,7 +278,7 @@ const PUBLISH_OPTIONS: PublishOption[] = [
   },
   {
     id: 'twitter',
-    label: 'X / Twitter',
+    label: 'X-Beitrag / Thread',
     icon: faXTwitter,
     url: 'https://twitter.com/compose/tweet',
     color: '#000000',
@@ -402,6 +411,22 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   // LinkedIn cover image
   const [linkedInImage, setLinkedInImage] = useState<File | null>(null);
   const [linkedInImagePreview, setLinkedInImagePreview] = useState<string | null>(null);
+  const [linkedInPreviewText, setLinkedInPreviewText] = useState<string | null>(null);
+  const linkedInPreviewResolveRef = useRef<((ok: boolean) => void) | null>(null);
+
+  /** Shows the sanitized (markdown-stripped) text and waits for the user to
+   *  confirm or cancel before the actual LinkedIn API call is made. */
+  const confirmLinkedInPreview = (text: string): Promise<boolean> => {
+    setLinkedInPreviewText(text);
+    return new Promise<boolean>((resolve) => {
+      linkedInPreviewResolveRef.current = resolve;
+    });
+  };
+  const resolveLinkedInPreview = (ok: boolean) => {
+    linkedInPreviewResolveRef.current?.(ok);
+    linkedInPreviewResolveRef.current = null;
+    setLinkedInPreviewText(null);
+  };
   const linkedInFileInputRef = useRef<HTMLInputElement>(null);
   // Reddit subreddit (per-post override)
   const [redditSubreddit, setRedditSubreddit] = useState<string>('');
@@ -1690,6 +1715,22 @@ ${renderedHtml}
   };
 
   const handlePublish = async (option: PublishOption) => {
+    if (option.id === 'linkedin' && content.length > 3000) {
+      setPublishError({ id: option.id, message: 'Dieser Text ist zu lang für einen LinkedIn-Beitrag. Öffne den abgeleiteten Beitrag oder wähle LinkedIn-Artikel. Der Text wurde nicht gesendet.' });
+      return;
+    }
+    if (option.id === 'linkedin-article') {
+      setPublishError(null);
+      try {
+        await navigator.clipboard.writeText(content);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        await openExternal(option.url);
+      } catch {
+        setPublishError({ id: option.id, message: 'Artikel konnte nicht kopiert oder LinkedIn nicht geöffnet werden. Bitte erneut versuchen oder den Artikel als Datei exportieren.' });
+      }
+      return;
+    }
     // Local blog: write to configured folder
     if (option.id.startsWith('blog:')) {
       const blogId = option.id.slice(5);
@@ -1962,10 +2003,14 @@ ${renderedHtml}
             socialConfig.medium!,
           );
         } else if (option.id === 'linkedin') {
-          const prepared = preparePostContent('linkedin', content, {
+          // LinkedIn renders no markdown — strip it so headings/bold/links
+          // don't show up as literal `#`/`**`/`[text](url)` in the post.
+          const prepared = preparePostContent('linkedin', markdownToPlainText(content), {
             ...meta,
             imageUrl: linkedInImage ? URL.createObjectURL(linkedInImage) : imageUrl ?? undefined,
           });
+          const confirmed = await confirmLinkedInPreview(prepared.text);
+          if (!confirmed) return;
           result = await postToLinkedIn(
             {
               text: prepared.text,
@@ -2005,12 +2050,8 @@ ${renderedHtml}
             socialConfig.reddit!,
           );
         } else if (option.id === 'twitter') {
-          const tweets = splitIntoSeries(content, 280, 'twitter');
           result = await postToTwitter(
-            {
-              text: tweets[0] ?? content.substring(0, 280),
-              thread: tweets.length > 1 ? tweets.slice(1) : undefined,
-            },
+            prepareXPostContent(content),
             socialConfig.twitter!,
           );
         } else {
@@ -2357,7 +2398,7 @@ ${renderedHtml}
             color: '#777',
             marginBottom: '16px',
           }}>
-            Plattformen mit API-Key (goldener Punkt) werden direkt gepostet. Andere: Content kopieren & Seite öffnen.
+            Veröffentlicht wird die aktuell geöffnete Fassung. Öffne für LinkedIn-Beiträge und X zuerst den passenden abgeleiteten Entwurf. Goldener Punkt: Konto eingerichtet. LinkedIn-Artikel werden kopiert und auf LinkedIn fertig veröffentlicht.
           </p>
 
           <div style={{
@@ -2399,6 +2440,19 @@ ${renderedHtml}
                 const url = option.url || 'https://www.linkedin.com/feed/';
                 try { await openExternal(url); } catch { window.open(url, '_blank', 'noopener,noreferrer'); }
               };
+
+              if (option.id === 'linkedin-article') {
+                return (
+                  <button key={option.id} type="button" onClick={() => void handlePublish(option)}
+                    style={{ padding: '20px 16px', border: `1px solid ${hasError ? '#e05c5c' : '#777'}`, borderRadius: 14, background: 'transparent', color: '#353229', fontFamily: 'IBM Plex Mono, monospace', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+                    <FontAwesomeIcon icon={faLinkedin} style={{ fontSize: 24 }} />
+                    <span style={{ fontSize: 12, fontWeight: 600 }}>LinkedIn-Artikel</span>
+                    <span style={{ fontSize: 11, lineHeight: 1.6 }}>Vollständigen Artikel kopieren und LinkedIn öffnen</span>
+                    <span style={{ fontSize: 10, lineHeight: 1.6 }}>Dort „Artikel schreiben“ wählen, Titel und Inhalt einfügen und veröffentlichen.</span>
+                    {hasError && <span style={{ fontSize: 11, color: '#9b2929' }}>{publishError?.message}</span>}
+                  </button>
+                );
+              }
 
               // ── LinkedIn: special card with image preview ──────────────────
               if (option.id === 'linkedin' && isConfigured && !hasCopyFallback) {
@@ -3127,6 +3181,98 @@ ${renderedHtml}
             >
               Abbrechen
             </button>
+          </div>
+        )}
+
+        {/* LinkedIn Pre-Send Preview Overlay */}
+        {linkedInPreviewText !== null && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(26, 26, 26, 0.95)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 110,
+              borderRadius: '12px',
+              padding: '24px',
+            }}
+          >
+            <h3 style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '18px',
+              color: '#AC8E66',
+              marginBottom: '4px',
+              textDecoration: 'underline',
+              textUnderlineOffset: '4px',
+            }}>
+              So kommt der Post bei LinkedIn an
+            </h3>
+            <p style={{
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+              color: '#777',
+              marginBottom: '16px',
+            }}>
+              Markdown wurde entfernt — LinkedIn zeigt reinen Text. {linkedInPreviewText.length} / 3000 Zeichen
+            </p>
+
+            <div style={{
+              width: '100%',
+              maxWidth: '520px',
+              maxHeight: '320px',
+              overflowY: 'auto',
+              backgroundColor: '#1A1A1A',
+              border: '1px solid #555',
+              borderRadius: '8px',
+              padding: '16px',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '12px',
+              color: '#ddd',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}>
+              {linkedInPreviewText}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
+              <button
+                onClick={() => resolveLinkedInPreview(false)}
+                style={{
+                  padding: '10px 24px',
+                  backgroundColor: 'transparent',
+                  border: '1px solid #555',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '12px',
+                  color: '#777',
+                }}
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={() => resolveLinkedInPreview(true)}
+                style={{
+                  padding: '10px 24px',
+                  backgroundColor: '#AC8E66',
+                  border: '1px solid #AC8E66',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontFamily: 'IBM Plex Mono, monospace',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: '#1A1A1A',
+                }}
+              >
+                Jetzt senden
+              </button>
+            </div>
           </div>
         )}
       </div>

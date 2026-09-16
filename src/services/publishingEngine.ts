@@ -1,3 +1,4 @@
+import { prepareXPostContent } from './xPostContent';
 /**
  * Publishing Engine
  * Polls scheduled posts, detects due posts and publishes them via social media APIs.
@@ -109,7 +110,11 @@ export async function publishScheduledPost(post: ScheduledPost): Promise<PostRes
       );
 
     case 'twitter':
-      return postToTwitter({ text: post.content.slice(0, 280) }, config.twitter!);
+      try {
+        return await postToTwitter(prepareXPostContent(post.content), config.twitter!);
+      } catch (error) {
+        return { success: false, platform: 'twitter', error: error instanceof Error ? error.message : 'X-Beitrag ungültig' };
+      }
 
     case 'medium':
       return postToMedium(
@@ -215,6 +220,13 @@ export function usePublishingEngine(
         );
         onChangeRef.current(updated);
       }
+    } catch (error) {
+      console.error('[PublishingEngine] Failed to publish post:', error);
+      setResults((prev) => new Map(prev).set(post.id, {
+        success: false,
+        platform: post.platform as Parameters<typeof isPlatformConfigured>[0],
+        error: error instanceof Error ? error.message : String(error),
+      }));
     } finally {
       setPublishing((prev) => {
         const next = new Set(prev);

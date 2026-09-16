@@ -334,6 +334,21 @@ export const AI_PROVIDER_INFO: Record<string, InfoBoxConfig> = {
     ],
     type: 'info',
   },
+  grok: {
+    title: 'xAI Grok',
+    description: 'Benötigt API-Key von console.x.ai (self-serve, $25 Startguthaben)',
+    links: [
+      {
+        label: 'API-Key erstellen',
+        url: 'https://console.x.ai',
+      },
+      {
+        label: 'Setup-Anleitung',
+        url: 'https://zenpostdocs.denisbitter.de/ai/cloud.html',
+      },
+    ],
+    type: 'info',
+  },
   ollama: {
     title: 'Ollama',
     description: 'Lokale AI, keine API-Key benötigt. Nutze den Tab "Lokale KI" um Ollama Schritt für Schritt einzurichten.',

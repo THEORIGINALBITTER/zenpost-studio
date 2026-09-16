@@ -946,6 +946,20 @@ export const ConverterScreen = ({
     }
   };
 
+  const handleZenImageInsert = async (url: string, fileName: string) => {
+    setIsImageGalleryOpen(false);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const safeName = fileName || url.split('/').pop() || 'zenimage.png';
+      const file = new File([blob], safeName, { type: blob.type || 'image/png' });
+      await handleFileUpload(file);
+    } catch {
+      // network hiccup — the user can just try again from the gallery
+    }
+  };
+
   const handleFileUpload = async (file: File, sourceHint?: string) => {
     const cloudDocId = parseCloudDocIdFromSource(sourceHint);
     const projectId = loadZenStudioSettings().cloudProjectId ?? null;
@@ -1765,10 +1779,16 @@ export const ConverterScreen = ({
         onClose={() => setIsConverting(false)}
       />
 
-      {/* ZenImage Gallery */}
+      {/* ZenImage Gallery — onInsertUrl was never wired here, so both
+          callers of "onOpenImageGallery" (Step1's new input picker and
+          Step4's existing button) opened a pure browse-only modal with no
+          way to actually use the picture for anything. Fetching the picked
+          image back down as a File and feeding it into the same upload path
+          as a drag & drop makes the button do what its label always implied. */}
       <ZenImageGalleryModal
         isOpen={isImageGalleryOpen}
         onClose={() => setIsImageGalleryOpen(false)}
+        onInsertUrl={(url, fileName) => { void handleZenImageInsert(url, fileName); }}
       />
     </div>
   );

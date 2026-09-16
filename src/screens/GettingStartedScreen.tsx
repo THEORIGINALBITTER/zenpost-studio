@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useOpenExternal } from '../hooks/useOpenExternal';
-import { loadMobileDrafts, type MobileDraft } from '../services/mobileInboxService';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { listCloudDocuments, canUploadToZenCloud } from '../services/cloudStorageService';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -9,7 +9,6 @@ import {
   faCalendarDays,
   faCode,
   faFileLines,
-  faFolderOpen,
   faGear,
   faImages,
   faMobileScreen,
@@ -53,8 +52,6 @@ interface GettingStartedScreenProps {
   onOpenConverterSettings?: () => void;
   onOpenImageGallery?: () => void;
   onOpenZenNote?: () => void;
-  onOpenMobileInbox?: () => void;
-  onOpenMobileSettings?: () => void;
   onOpenApiSettings?: () => void;
   onOpenServerArticle?: (slug: string) => void;
 }
@@ -251,8 +248,6 @@ export function GettingStartedScreen({
   onOpenConverterSettings,
   onOpenImageGallery,
   onOpenZenNote,
-  onOpenMobileInbox,
-  onOpenMobileSettings,
   onOpenApiSettings,
   onOpenServerArticle,
 }: GettingStartedScreenProps) {
@@ -265,7 +260,6 @@ export function GettingStartedScreen({
   const [showPlannerModal, setShowPlannerModal] = useState(false);
   const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>([]);
   const [activeStudio, setActiveStudio] = useState<StudioId>('content-ai');
-  const [mobileDrafts, setMobileDrafts] = useState<MobileDraft[]>([]);
   const [serverArticles, setServerArticles] = useState<ServerSlugItem[] | null>(null);
   const [serverLoading, setServerLoading] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -294,12 +288,6 @@ export function GettingStartedScreen({
       return 'Keine Verbindung. Stelle Deine Verbindung im Zahnrad unter API ein.';
     }
     return rawError;
-  };
-
-  const refreshMobileDrafts = () => {
-    loadMobileDrafts().then(({ drafts }) => {
-      setMobileDrafts(drafts.slice(0, 3));
-    });
   };
 
   const loadServerArticles = async () => {
@@ -387,10 +375,6 @@ export function GettingStartedScreen({
       setConfirmingDeleteSlug(null);
     }
   };
-
-  useEffect(() => {
-    refreshMobileDrafts();
-  }, []);
 
   useEffect(() => {
     if (activeStudio !== 'zen-note') return;
@@ -746,16 +730,15 @@ export function GettingStartedScreen({
                   }}
                 >
                   <StudioActionCard
-                    onClick={() => onOpenMobileInbox?.()}
+                    onClick={() => {
+                      const url = 'https://zenpostpocket.denisbitter.de';
+                      if (isTauri()) void openUrl(url);
+                      else window.open(url, '_blank', 'noopener,noreferrer');
+                    }}
                     surface="paper"
-                    title="Inbox abrufen"
-                    description="Mobile Entwürfe öffnen und in Content AI weiterbearbeiten."
+                    title="ZenPost Pocket öffnen"
+                    description="Entwürfe mobil schreiben — synchronisiert automatisch über ZenCloud, kein Ordner oder AirDrop nötig."
                     icon={<FontAwesomeIcon icon={faMobileScreen} />}
-                    statusText={
-                      isTauri()
-                        ? `${mobileDrafts.length} Entwurf${mobileDrafts.length !== 1 ? 'e' : ''} gefunden`
-                        : 'Desktop-App oder ZenCloud erforderlich'
-                    }
                   >
                   </StudioActionCard>
 
@@ -784,14 +767,6 @@ export function GettingStartedScreen({
                       <img src={devBlogQrSrc} alt="QR-Code Dev Blog" style={{ width: '100%', height: '100%' }} />
                     </div>
                   </StudioActionCard>
-
-                  <StudioActionCard
-                    onClick={() => onOpenMobileSettings?.()}
-                    surface="paper"
-                    title="Mobile Inbox Ordner einstellen"
-                    description="Öffnet direkt die Systemeinstellungen im Tab Mobile."
-                    icon={<FontAwesomeIcon icon={faFolderOpen} />}
-                  />
                 </div>
               </div>
             ) : (

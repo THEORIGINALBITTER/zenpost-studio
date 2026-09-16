@@ -193,10 +193,10 @@ export const ZenNewsletterSettingsContent = () => {
               <div style={{
                 width: 18, height: 18, borderRadius: '50%', flexShrink: 0, marginTop: 2,
                 border: `1.5px solid ${selected ? gold : goldDim}`,
-                background: selected ? gold : 'transparent',
+                background: selected ? '#262626' : 'transparent',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
-                {selected && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 8, color: '#fff' }} />}
+                {selected && <FontAwesomeIcon icon={faCheck} style={{ fontSize: 8, color: 'gold' }} />}
               </div>
               <div>
                 <div style={{ fontFamily: mono, fontSize: 12, fontWeight: 500, color: '#1a1a1a', marginBottom: 4 }}>{p.label}</div>
@@ -295,7 +295,7 @@ export const ZenNewsletterSettingsContent = () => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <FontAwesomeIcon icon={faWandMagicSparkles} style={{ color: gold, fontSize: 13 }} />
           <span style={{ fontFamily: mono, fontSize: 12, color: '#1a1a1a' }}>PHP Backend generieren</span>
-          <span style={{ background: gold, color: '#fff', fontFamily: mono, fontSize: 8, padding: '2px 7px', borderRadius: 2, letterSpacing: 0.5 }}>STARTER</span>
+          <span style={{ background: '#262626', color: 'gold', fontFamily: mono, fontSize: 8, padding: '2px 7px', borderRadius: 5, letterSpacing: 0.5 }}>STARTER</span>
         </div>
         <div style={{ fontFamily: sans, fontSize: 11, color: '#666', lineHeight: 1.6, marginBottom: 22 }}>
           Fülle die Felder aus — ZenPost Studio erstellt dein komplettes Newsletter-Backend als ZIP-Datei.
@@ -320,8 +320,8 @@ export const ZenNewsletterSettingsContent = () => {
                   onClick={() => patchGen({ emailMethod: val })}
                   style={{
                     flex: 1, padding: '8px 12px', fontFamily: mono, fontSize: 10,
-                    background: active ? 'rgba(172,142,102,0.15)' : 'transparent',
-                    color: active ? black : '#888', border: 'none', cursor: 'pointer',
+                    background: active ? '#262626' : 'transparent',
+                    color: active ? gold : '#888', border: 'none', cursor: 'pointer',
                     borderRight: val === 'php-mail' ? `1px solid ${goldDim}` : 'none',
                     transition: 'all 0.15s',
                   }}

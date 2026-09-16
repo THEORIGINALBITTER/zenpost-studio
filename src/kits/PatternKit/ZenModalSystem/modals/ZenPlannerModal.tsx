@@ -97,6 +97,11 @@ export function ZenPlannerModal({
   const [rescheduleDate, setRescheduleDate] = useState('');
   const [rescheduleTime, setRescheduleTime] = useState('');
   const [dismissedSuggestionKeys, setDismissedSuggestionKeys] = useState<Record<string, true>>({});
+  // Tombstone for optimistically deleted posts: a stale cloud-poll snapshot
+  // that still contains a post whose delete is in flight would otherwise
+  // resurrect it in `effectiveScheduledPosts` (same race as the schedule
+  // override above, but there's nothing in `schedules` to overwrite with).
+  const [deletedPostIds, setDeletedPostIds] = useState<Set<string>>(new Set());
   const [suggestedImportPlatform, setSuggestedImportPlatform] = useState<SocialPlatform>('linkedin');
 
   
@@ -116,6 +121,7 @@ export function ZenPlannerModal({
     setSchedules,
     checklistItems,
     setChecklistItems,
+    cloudSaveError,
   } = usePlannerStorage({ isOpen, projectPath, posts, scheduledPosts, initialDate, initialSchedules, bootstrapState });
 
   // ==================== MANUAL PLAN POSTS ====================
@@ -442,8 +448,51 @@ export function ZenPlannerModal({
       });
     });
 
+    // Apply the local optimistic `schedules` override to ANY post that has one,
+    // not just posts currently enumerated in `planningPosts`. Posts already on
+    // the calendar (moved via drag & drop or "verschieben") are edited straight
+    // from `scheduledPosts` and are often not part of `planningPosts` (e.g. while
+    // an unrelated draft is open in the editor) — without this, their display
+    // falls straight back to the raw `scheduledPosts` prop and reverts the
+    // instant a cloud-poll tick lands with a snapshot that predates the edit.
+    Object.keys(schedules).forEach((postId) => {
+      const existing = merged.get(postId);
+      if (!existing) return;
+      const schedule = schedules[postId];
+      const scheduledDate = schedule.date ? new Date(schedule.date) : undefined;
+      const scheduledTime = schedule.time || undefined;
+      const status: PublishingStatus = (schedule.date && schedule.time) ? 'scheduled' : 'draft';
+      merged.set(postId, {
+        ...existing,
+        scheduledDate,
+        scheduledTime,
+        status,
+      });
+    });
+
+    deletedPostIds.forEach((postId) => merged.delete(postId));
+
     return Array.from(merged.values());
-  }, [planningPosts, schedules, scheduledPosts]);
+  }, [planningPosts, schedules, scheduledPosts, deletedPostIds]);
+
+  // Once the raw prop no longer contains a tombstoned id, the delete has
+  // landed (or was never actually needed) — drop it so the set doesn't grow
+  // unbounded and doesn't mask a legitimate future re-add of the same id.
+  useEffect(() => {
+    setDeletedPostIds((prev) => {
+      if (prev.size === 0) return prev;
+      const stillPresent = new Set(scheduledPosts.map((p) => p.id));
+      let changed = false;
+      const next = new Set(prev);
+      prev.forEach((id) => {
+        if (!stillPresent.has(id)) {
+          next.delete(id);
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, [scheduledPosts]);
 
   // ==================== INLINE POST EDITOR ====================
   const [editingPost, setEditingPost] = useState<ScheduledPost | null>(null);
@@ -955,6 +1004,11 @@ export function ZenPlannerModal({
     setSchedules(prev => {
       const next = { ...prev };
       delete next[postId];
+      return next;
+    });
+    setDeletedPostIds(prev => {
+      const next = new Set(prev);
+      next.add(postId);
       return next;
     });
 
@@ -4726,12 +4780,27 @@ export function ZenPlannerModal({
                   </button>
                 ))}
               </div>
-            <div style={{ 
-              marginLeft: 'auto', 
-          
-              display: 'flex', 
-              gap: '10px', 
+            <div style={{
+              marginLeft: 'auto',
+
+              display: 'flex',
+              gap: '10px',
               alignItems: 'center' }}>
+              {cloudSaveError && (
+                <span
+                  title="Cloud-Speichern fehlgeschlagen — Änderungen sind nur lokal gesichert."
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontFamily: 'IBM Plex Mono, monospace',
+                    fontSize: '9px',
+                    color: '#e07070',
+                  }}
+                >
+                  ⚠ Cloud-Sync fehlgeschlagen
+                </span>
+              )}
               {activeTab === 'planen' && (
                 <button
                   type="button"

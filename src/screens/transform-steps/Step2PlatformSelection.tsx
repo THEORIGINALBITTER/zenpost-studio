@@ -12,6 +12,7 @@ interface PlatformOption {
 }
 
 interface Step2PlatformSelectionProps {
+  articlePostsMode?: boolean;
   selectedPlatform: ContentPlatform;
   platformOptions: PlatformOption[];
   onPlatformChange: (platform: ContentPlatform) => void;
@@ -24,6 +25,7 @@ interface Step2PlatformSelectionProps {
 }
 
 export const Step2PlatformSelection = ({
+  articlePostsMode = false,
   selectedPlatform,
   platformOptions,
   onPlatformChange,
@@ -69,13 +71,13 @@ export const Step2PlatformSelection = ({
         <div className="flex flex-col items-center space-y-1">
           {/* Title */}
           <h1 className="font-mono font-bold text-[#1a1a1a] text-center" style={{ fontSize: '22px', letterSpacing: '-0.5px', marginBottom: '4px' }}>
-            1mal schreiben. {multiSelectMode ? `${selectedPlatforms.length > 0 ? selectedPlatforms.length : '9'}mal` : '9x'} transformieren.
+            {articlePostsMode ? 'Artikelfassungen und Begleitbeiträge' : 'Einmal schreiben. Für deine Kanäle aufbereiten.'}
           </h1>
 
           {/* Subtitle */}
           <div>
             <ZenSubtitleDark>
-              {multiSelectMode
+              {articlePostsMode ? 'Artikel vermitteln dein Wissen. Feed-Beiträge machen darauf aufmerksam. Wähle die gewünschten Ausgaben.' : multiSelectMode
                 ? 'Wähle deine Zielplattformen — dein Text wird für jede einzeln optimiert'
                 : 'Wähle die Zielplattform — dein Text wird plattformgerecht transformiert'
               }
@@ -159,6 +161,9 @@ export const Step2PlatformSelection = ({
                   />
                 </div>
 
+                <p className="font-mono text-[10px] text-[#777] mb-2">
+                  {['linkedin-article', 'medium', 'devto', 'blog-post', 'github-blog'].includes(option.value) ? 'Artikel · Wissen vertiefen' : option.value === 'substack' ? 'Newsletter' : 'Beitrag · Im Feed teilen'}
+                </p>
                 {/* Label */}
                 <p className={`font-mono text-[12px] mb-2 ${selected ? 'text-[#1a1a1a]' : 'text-[#777]'}`}>
                   {option.label}

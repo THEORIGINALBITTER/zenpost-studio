@@ -144,9 +144,9 @@ export const ZenConverterSettingsContent = () => {
       )}
 
       {isWeb && !opfsEnabled && !canUseDirectoryPicker() && (
-        <div style={{ ...card, background: 'rgba(180,140,80,0.1)', border: '1px solid rgba(172,142,102,0.4)', marginBottom: 16 }}>
-          <div style={{ ...mono, fontSize: 10, color: '#7a5a20', lineHeight: 1.6 }}>
-            Ordner-Picker in diesem Browser nicht verfügbar.<br />
+        <div style={{ ...card, border: '1px solid rgba(172,142,102,0.4)', marginBottom: 16 }}>
+          <div style={{ ...mono, fontSize: 10, color: '#a1a1a1', lineHeight: 1.6 }}>
+            Ordner-Picker in diesem Browser nicht verfügbar aus Sicherheitsgründen.<br />
             Chrome oder Edge wird benötigt.
           </div>
         </div>

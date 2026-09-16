@@ -7,6 +7,25 @@ and this project adheres to a calm, intentional release philosophy.
 
 ---
 
+## [1.0.10] – 2026-09-16
+
+### Fixed
+
+#### Content Planner
+- Kalender-Edits (Datum/Uhrzeit, Drag & Drop, Löschen) konnten durch einen verzögerten Cloud-Poll-Snapshot wieder rückgängig gemacht werden, wenn `reloadScheduledPosts` (z.B. beim Öffnen des Planers oder nach Login/Fokus-Wechsel) den bestehenden Schutz gegen laufende Saves umging.
+- Gelöschte Posts konnten durch einen veralteten Cloud-Snapshot wieder im Kalender auftauchen (neues Tombstone-Set als Schutz).
+- Ein zweiter, unabhängiger Cloud-Sync-Pfad in `usePlannerStorage` hatte dieselbe Race Condition wie oben beschrieben noch einmal – jetzt mit eigenem In-Flight-Schutz abgesichert.
+- `getTodayDate()` nutzte UTC statt lokaler Zeit, was je nach Zeitzone zu einem falschen "heute"-Datum im Kalender führen konnte.
+- Fehlgeschlagene Cloud-Saves im Planer werden jetzt sichtbar gemacht (Warnhinweis im Kalender-Header) statt nur im Log zu verschwinden.
+
+#### Zen Note Studio
+- Tags/Farben konnten durch einen Cloud-Poll überschrieben werden, während eine lokale Änderung noch gespeichert wurde.
+- Gelöschte Notizen konnten durch einen verzögerten Reload wieder in der Liste auftauchen.
+- Ein fehlgeschlagenes Löschen einer Notiz ließ den Lösch-Button dauerhaft im Lade-Zustand hängen.
+
+#### Publishing Engine
+- Ein Fehler beim Veröffentlichen eines geplanten Posts (z.B. Netzwerkfehler) wurde nicht abgefangen und blieb dem Nutzer als unbehandelter Fehler verborgen, statt als fehlgeschlagener Post markiert zu werden.
+
 ## [Unreleased]
 
 ### Changed

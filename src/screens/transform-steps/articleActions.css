@@ -1,0 +1,66 @@
+.zen-article-actions {
+  padding: 16px 28px 20px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #a49d89;
+  color: #26241f;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.zen-article-actions .zen-article-actions__title {
+  margin: 0 0 12px;
+  color: #26241f;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.zen-article-actions .zen-article-actions__hint {
+  max-width: 78ch;
+  margin: 18px 0 10px;
+  color: #454136;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.zen-article-actions .zen-article-actions__button {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 10px 16px;
+  border: 1px solid #625a48;
+  border-radius: 8px;
+  background: #e7e2d3;
+  color: #26241f;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.zen-article-actions .zen-article-actions__button--primary {
+  background: #302c24;
+  color: #fff8e9;
+  border-color: #302c24;
+}
+
+.zen-article-actions .zen-article-actions__button:hover {
+  background: #f3eedf;
+  border-color: #302c24;
+}
+
+.zen-article-actions .zen-article-actions__button--primary:hover {
+  background: #484033;
+}
+
+.zen-article-actions .zen-article-actions__button:focus-visible {
+  outline: 2px solid #302c24;
+  outline-offset: 3px;
+}
+
+@media (max-width: 640px) {
+  .zen-article-actions { padding: 12px 16px 16px; }
+  .zen-article-actions .zen-article-actions__button { width: 100%; }
+}

@@ -1,6 +1,6 @@
 [package]
 name = "zenpost-studio"
-version = "1.0.4"
+version = "1.0.10"
 description = "ZenStudio Publisher - AI-powered content transformation and documentation generator"
 authors = ["Denis Bitter <saghallo@denisbitter.de>"]
 license = "MIT"

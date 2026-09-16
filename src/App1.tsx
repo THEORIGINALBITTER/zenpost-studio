@@ -29,7 +29,6 @@ import { ContentStudioDashboardScreen } from "./screens/ContentStudio/ContentStu
 import { ContentStudioProjectMapScreen } from "./screens/ContentStudio/ContentStudioProjectMapScreen";
 import { ZenNoteStudioScreen } from "./screens/ZenNoteStudio/ZenNoteStudioScreen";
 import { GettingStartedScreen } from "./screens/GettingStartedScreen";
-import { MobileInboxScreen } from "./screens/MobileInboxScreen";
 import { ZenHeader } from "./kits/PatternKit/ZenHeader";
 import { ZenSettingsModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenSettingsModal";
 import { ZenAboutModal } from "./kits/PatternKit/ZenModalSystem/modals/ZenAboutModal";
@@ -87,7 +86,6 @@ import {
 import { navigateToAppScreen, openAppSettings, subscribeToAppNavigation, subscribeToOpenAppSettings } from "./services/appShellBridgeService";
 import { subscribeToOpenPlannerWithScheduledPost } from "./services/plannerBridgeService";
 import { loadZenStudioSettings, parseZenThoughtsFromEditor, patchZenStudioSettings, initZenStudioSettings, type BlogConfig } from "./services/zenStudioSettingsService";
-import { getWebMobileDraftFileContent, getWebMobilePhotoDataUrl, type MobileDraft } from "./services/mobileInboxService";
 import { subscribeToCloudSessionSync } from "./services/cloudSessionSyncService";
 import { loadSettingsBackupFromCloud, setCloudSettingsSyncStatus } from "./services/cloudSettingsSyncService";
 import {
@@ -247,7 +245,7 @@ const blocksToMarkdown = (blocks: Array<{ type: string; data: Record<string, unk
   return lines.join('\n').trim();
 };
 
-type Screen = "welcome" | "converter" | "content-transform" | "getting-started" | "mobile-inbox" | "zen-note";
+type Screen = "welcome" | "converter" | "content-transform" | "getting-started" | "zen-note";
 
 // Files that make no sense to open as text documents in Content AI Studio
 const BINARY_EXTENSIONS = new Set([
@@ -287,6 +285,10 @@ function AppContent() {
   const [showAISettingsModal, setShowAISettingsModal] = useState(false);
   const [showImageGalleryModal, setShowImageGalleryModal] = useState(false);
   const [imageGalleryFocusDocId, setImageGalleryFocusDocId] = useState<number | null>(null);
+  // Set right before opening the gallery for the "ZenImage" button next to
+  // a post's Bild-URL field, so a single shared modal instance can serve
+  // both "just browse" and "pick an image for this field" callers.
+  const imageGalleryInsertHandlerRef = useRef<((url: string, fileName: string) => void) | null>(null);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState<'ai' | 'social' | 'editor' | 'license' | 'localai' | 'api' | 'zenstudio' | 'mobile' | 'cloud' | 'converter'>('ai');
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [showBugReportModal, setShowBugReportModal] = useState(false);
@@ -303,7 +305,7 @@ function AppContent() {
   // Content transfer between Content AI Studio
   const [transferContent, setTransferContent] = useState<string | null>(null);
   const [transferFileName, setTransferFileName] = useState<string | null>(null);
-  const [transferPostMeta, setTransferPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string } | null>(null);
+  const [transferPostMeta, setTransferPostMeta] = useState<{ title: string; subtitle: string; imageUrl: string; date: string; tags?: string[]; imageAlt?: string; imageTitle?: string; imageCaption?: string } | null>(null);
   const [contentStudioInitialRequestId, setContentStudioInitialRequestId] = useState<string | null>(null);
   const [_cameFromDocStudio, setCameFromDocStudio] = useState(false);
   const [cameFromDashboard, setCameFromDashboard] = useState(false);
@@ -318,6 +320,23 @@ function AppContent() {
   const [contentStudioServerArticlesError, setContentStudioServerArticlesError] = useState<string | null>(null);
   const [activeServerArticleSlug, setActiveServerArticleSlug] = useState<string | null>(null);
   const [activeBlogForEditor, setActiveBlogForEditor] = useState<import('./services/zenStudioSettingsService').BlogConfig | null>(null);
+  // Kept in real state (not read inline from loadZenStudioSettings() on
+  // every render) because nothing here previously listened for
+  // 'zen-studio-settings-updated' — the event initZenStudioSettings() fires
+  // once the on-disk settings file is loaded into localStorage on startup.
+  // Without a listener, every render before the next unrelated re-render
+  // kept serving whatever blogs[] localStorage held at mount, so a fixed
+  // siteType on disk could still show up as the old value for a long time
+  // (or indefinitely, if nothing else happened to re-render) after a full
+  // app restart.
+  const [zenStudioBlogs, setZenStudioBlogs] = useState<import('./services/zenStudioSettingsService').BlogConfig[]>(
+    () => loadZenStudioSettings().blogs ?? []
+  );
+  useEffect(() => {
+    const sync = () => setZenStudioBlogs(loadZenStudioSettings().blogs ?? []);
+    window.addEventListener('zen-studio-settings-updated', sync);
+    return () => window.removeEventListener('zen-studio-settings-updated', sync);
+  }, []);
   const [contentStudioServerCachePath, setContentStudioServerCachePath] = useState<string | null>(null);
   const [contentStudioRequestedArticleId, setContentStudioRequestedArticleId] = useState<string | null>(null);
   const [contentStudioRequestedFilePath, setContentStudioRequestedFilePath] = useState<string | null>(null);
@@ -351,6 +370,8 @@ function AppContent() {
     | "transform"
     | "format_only"
     | "post_all"
+    | "discussion"
+    | "create_article_posts"
     | "goto_platforms"
     | null
   >(null);
@@ -388,6 +409,10 @@ function AppContent() {
     } catch { /* ignore */ }
     return [];
   });
+  // Count of in-flight cloud schedule saves. While > 0, the cloud planner poll
+  // is skipped so it can't clobber a pending local edit with a snapshot that
+  // predates the write still in flight.
+  const pendingCloudScheduleWritesRef = useRef(0);
   // On mount: if logged into cloud, load from cloud (overrides localStorage fallback)
   useEffect(() => {
     void loadPlannerCloudBridgeState(getLastProjectPath()).then((nextState) => {
@@ -403,6 +428,10 @@ function AppContent() {
     if (!isCloudLoggedIn()) return;
     return subscribeToPlannerCloudBridge((nextState) => {
       if (nextState.source !== 'cloud') return;
+      // Skip clobbering a schedule the user just edited locally: while a save
+      // is still in flight, the cloud snapshot behind this poll tick can
+      // predate it.
+      if (pendingCloudScheduleWritesRef.current > 0) return;
       setPlannerBootstrapState(nextState);
       setScheduledPosts(nextState.posts);
       try { localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(nextState.posts)); } catch { /* ignore */ }
@@ -1110,10 +1139,23 @@ function AppContent() {
       const markdown = (await postRes.text()).trim();
       if (!markdown) return null;
 
+      // The manifest entry is the more reliable source for coverImage/tags
+      // than the raw .md's own frontmatter — e.g. a cover image picked via
+      // ZenImage updates the manifest entry but isn't always mirrored back
+      // into the file's frontmatter, which left these fields blank in the
+      // metadata panel even though the live site clearly showed an image.
+      const asStringArray = (value: unknown): string[] | undefined =>
+        Array.isArray(value) ? value.map((v) => String(v)).filter(Boolean) : undefined;
       return {
         title: String(postEntry?.title ?? slug).trim() || slug,
         subtitle: String(postEntry?.subtitle ?? '').trim(),
         markdown,
+        coverImage: postEntry?.coverImage ? String(postEntry.coverImage).trim() : undefined,
+        coverImageAlt: postEntry?.coverImageAlt ? String(postEntry.coverImageAlt).trim() : undefined,
+        coverImageTitle: postEntry?.coverImageTitle ? String(postEntry.coverImageTitle).trim() : undefined,
+        coverImageCaption: postEntry?.coverImageCaption ? String(postEntry.coverImageCaption).trim() : undefined,
+        tags: asStringArray(postEntry?.tags),
+        date: postEntry?.date ? String(postEntry.date).trim() : undefined,
       };
     }
 
@@ -1364,9 +1406,27 @@ function AppContent() {
     try {
       localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts));
     } catch { /* ignore quota errors */ }
-    // Cloud sync if logged in (fire-and-forget, non-blocking)
+    // Cloud sync if logged in. Not awaited by the caller (persistScheduledPosts
+    // itself still returns once the local file write below is done), but the
+    // in-flight counter keeps the cloud poll from overwriting this edit with a
+    // stale snapshot until the write actually lands (success or failure).
     if (isCloudLoggedIn()) {
-      void saveScheduleToCloud(posts);
+      pendingCloudScheduleWritesRef.current += 1;
+      void (async () => {
+        try {
+          let ok = await saveScheduleToCloud(posts);
+          if (!ok) {
+            // One retry — covers a single transient network/API hiccup instead
+            // of silently leaving the cloud stale until the next edit.
+            ok = await saveScheduleToCloud(posts);
+          }
+          if (!ok) console.error('[PublishingService] Cloud schedule save did not succeed');
+        } catch (error) {
+          console.error('[PublishingService] Cloud schedule save failed:', error);
+        } finally {
+          pendingCloudScheduleWritesRef.current = Math.max(0, pendingCloudScheduleWritesRef.current - 1);
+        }
+      })();
     }
     const projectPath =
       contentStudioProjectPath ||
@@ -1434,6 +1494,11 @@ function AppContent() {
     setPlannerBootstrapState(nextState);
     const { posts, source } = nextState;
     if (source === 'empty') return;
+    if (pendingCloudScheduleWritesRef.current > 0) {
+      // A save triggered by a local edit is still in flight — applying this
+      // snapshot now would overwrite that edit with a stale server state.
+      return;
+    }
     setScheduledPosts(posts);
     try {
       localStorage.setItem(SCHEDULED_POSTS_LS_KEY, JSON.stringify(posts));
@@ -1458,318 +1523,6 @@ function AppContent() {
 
   const handleSelectGettingStarted = () => {
     setCurrentScreen("getting-started");
-  };
-
-  const handleSelectMobileInbox = () => {
-    setCurrentScreen("mobile-inbox");
-  };
-
-  const MOBILE_INLINE_IMAGE_MAX_DIMENSION = 1800;
-  const MOBILE_INLINE_IMAGE_MAX_LENGTH = 280000;
-  const MOBILE_INLINE_IMAGE_JPEG_QUALITY = 0.82;
-  const MOBILE_DEFAULT_IMAGE_WIDTH_PERCENT = 25;
-  const isDevRuntime = typeof import.meta !== "undefined" && !!import.meta.env?.DEV;
-  const mobileInlineBlobUrlCacheRef = useRef<Map<string, string>>(new Map());
-
-  useEffect(() => {
-    return () => {
-      mobileInlineBlobUrlCacheRef.current.forEach((blobUrl) => {
-        try {
-          URL.revokeObjectURL(blobUrl);
-        } catch {
-          // ignore
-        }
-      });
-      mobileInlineBlobUrlCacheRef.current.clear();
-    };
-  }, []);
-
-  const loadImageFromDataUrl = (dataUrl: string): Promise<HTMLImageElement> =>
-    new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error("image_load_failed"));
-      image.src = dataUrl;
-    });
-
-  const optimizeInlineImageDataUrl = async (dataUrl: string): Promise<string> => {
-    if (!dataUrl.startsWith("data:image/")) return dataUrl;
-
-    // Mobile drafts may contain line breaks inside base64 payload.
-    // Normalize first so size checks + canvas decoding are reliable.
-    const commaIdx = dataUrl.indexOf(",");
-    if (commaIdx <= 0) return dataUrl;
-    const header = dataUrl.slice(0, commaIdx + 1);
-    const payload = dataUrl.slice(commaIdx + 1).replace(/\s+/g, "");
-    const normalizedDataUrl = `${header}${payload}`;
-
-    if (normalizedDataUrl.length < MOBILE_INLINE_IMAGE_MAX_LENGTH) return normalizedDataUrl;
-
-    const mime = normalizedDataUrl.slice(5, normalizedDataUrl.indexOf(";"));
-    if (!mime || mime.includes("gif") || mime.includes("svg")) return normalizedDataUrl;
-
-    try {
-      const image = await loadImageFromDataUrl(normalizedDataUrl);
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      if (!width || !height) return normalizedDataUrl;
-
-      const scale = Math.min(
-        1,
-        MOBILE_INLINE_IMAGE_MAX_DIMENSION / width,
-        MOBILE_INLINE_IMAGE_MAX_DIMENSION / height
-      );
-      const targetWidth = Math.max(1, Math.round(width * scale));
-      const targetHeight = Math.max(1, Math.round(height * scale));
-
-      const canvas = document.createElement("canvas");
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return dataUrl;
-      ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
-
-      const optimized = canvas.toDataURL("image/jpeg", MOBILE_INLINE_IMAGE_JPEG_QUALITY);
-      if (!optimized || optimized.length >= normalizedDataUrl.length) return normalizedDataUrl;
-      return optimized;
-    } catch {
-      return normalizedDataUrl;
-    }
-  };
-
-  const optimizeMobileInlineImagesInMarkdown = async (markdown: string): Promise<string> => {
-    const imageMatches = Array.from(
-      markdown.matchAll(/!\[[^\]]*\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/gi)
-    );
-    if (imageMatches.length === 0) return markdown;
-
-    const uniqueDataUrls = Array.from(
-      new Set(imageMatches.map((match) => String(match[1] ?? "")))
-    ).filter(Boolean);
-    let nextContent = markdown;
-    let changedCount = 0;
-    let totalSavedChars = 0;
-
-    for (const originalDataUrl of uniqueDataUrls) {
-      if (originalDataUrl.length < MOBILE_INLINE_IMAGE_MAX_LENGTH) continue;
-      const optimizedDataUrl = await optimizeInlineImageDataUrl(originalDataUrl);
-      if (optimizedDataUrl !== originalDataUrl) {
-        nextContent = nextContent.split(originalDataUrl).join(optimizedDataUrl);
-        changedCount += 1;
-        totalSavedChars += originalDataUrl.length - optimizedDataUrl.length;
-      }
-
-      if (isDevRuntime) {
-        const delta = originalDataUrl.length - optimizedDataUrl.length;
-        const percent = originalDataUrl.length > 0
-          ? Math.round((Math.max(delta, 0) / originalDataUrl.length) * 100)
-          : 0;
-        console.info(
-          `[MobileInlineImage][debug] image processed: before=${originalDataUrl.length} chars, after=${optimizedDataUrl.length} chars, saved=${Math.max(delta, 0)} chars (${percent}%)`
-        );
-      }
-    }
-
-    if (isDevRuntime) {
-      console.info(
-        `[MobileInlineImage][debug] markdown processed: images=${uniqueDataUrls.length}, optimized=${changedCount}, savedTotal=${totalSavedChars} chars, markdownBefore=${markdown.length}, markdownAfter=${nextContent.length}`
-      );
-    }
-
-    return nextContent;
-  };
-
-  const applyDefaultMobileImageWidth = (markdown: string, widthPercent: number): string => {
-    const clamped = Math.max(10, Math.min(100, Math.round(widthPercent)));
-    let next = markdown;
-
-    // Markdown image syntax -> HTML img with explicit width
-    next = next.replace(/!\[([^\]]*)\]\((data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+)\)/gi, (_m, alt, src) => {
-      const safeAlt = String(alt ?? '').replace(/"/g, '&quot;');
-      const safeSrc = String(src ?? '').trim();
-      return `<img src="${safeSrc}" alt="${safeAlt}" style="width:${clamped}%">`;
-    });
-
-    // Existing HTML image: force width if it is a data URL image
-    next = next.replace(/<img\b([^>]*?)\bsrc=["'](data:image\/[^"']+)["']([^>]*)\/?>/gi, (_m, beforeSrc, src, afterSrc) => {
-      const before = String(beforeSrc ?? '').replace(/\s*\bstyle=["'][^"']*["']/gi, '');
-      const after = String(afterSrc ?? '').replace(/\s*\bstyle=["'][^"']*["']/gi, '');
-      return `<img${before} src="${String(src).trim()}"${after} style="width:${clamped}%">`;
-    });
-
-    return next;
-  };
-
-  const dataUrlToBlobUrl = async (dataUrl: string): Promise<string> => {
-    const cached = mobileInlineBlobUrlCacheRef.current.get(dataUrl);
-    if (cached) return cached;
-
-    const response = await fetch(dataUrl);
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    mobileInlineBlobUrlCacheRef.current.set(dataUrl, blobUrl);
-    return blobUrl;
-  };
-
-  const replaceLargeInlineImagesWithBlobUrls = async (markdown: string): Promise<string> => {
-    if (isTauri()) return markdown;
-
-    const imgMatches = Array.from(
-      markdown.matchAll(/<img\b([^>]*?)\bsrc=["'](data:image\/[^"']+)["']([^>]*)\/?>/gi)
-    );
-    if (imgMatches.length === 0) return markdown;
-
-    const uniqueLargeDataUrls = Array.from(
-      new Set(
-        imgMatches
-          .map((match) => String(match[2] ?? ""))
-          .filter((src) => src.startsWith("data:image/"))
-      )
-    );
-    if (uniqueLargeDataUrls.length === 0) return markdown;
-
-    let next = markdown;
-    for (const dataUrl of uniqueLargeDataUrls) {
-      try {
-        const blobUrl = await dataUrlToBlobUrl(dataUrl);
-        next = next.split(dataUrl).join(blobUrl);
-      } catch {
-        // keep original data URL if conversion fails
-      }
-    }
-
-    return next;
-  };
-
-  const handleOpenMobileDraftInContentAI = async (draft: MobileDraft, photoReference: string | null) => {
-    const dateStr = new Date(draft.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "short" });
-    const cleanMobileDraftTitle = (raw: string) => {
-      const firstLine = raw
-        .split('\n')
-        .map((line) => line.trim())
-        .find((line) => line.length > 0) ?? '';
-      if (!firstLine) return '';
-
-      // Markdown/Notation bereinigen
-      const withoutMarkdown = firstLine
-        .replace(/^#{1,6}\s+/, '') // heading prefix
-        .replace(/!\[[^\]]*\]\([^)]+\)/g, '') // image markdown
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
-        .replace(/[`*_~>#-]+/g, ' ') // inline markdown chars
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      const maxLen = 64;
-      if (withoutMarkdown.length <= maxLen) return withoutMarkdown;
-      return `${withoutMarkdown.slice(0, maxLen - 1).trimEnd()}…`;
-    };
-
-    const draftTitleFromText = cleanMobileDraftTitle(draft.text || "");
-    const transferTitle = draftTitleFromText || `Mobil-Entwurf ${dateStr}${draft.platform ? ` · ${draft.platform}` : ""}`;
-    const stripUnsupportedAssetImageUrls = (input: string, replacementDataUrl?: string) => {
-      let fallbackUsed = false;
-      const applyFallback = (altText: string) => {
-        if (replacementDataUrl && !fallbackUsed) {
-          fallbackUsed = true;
-          return `![${altText}](${replacementDataUrl})`;
-        }
-        return '';
-      };
-
-      let next = input;
-
-      // Markdown image syntax
-      next = next.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (_match, alt, url) => {
-        const rawUrl = String(url ?? '').trim();
-        if (!/^asset:\/\//i.test(rawUrl)) return `![${String(alt ?? '').trim()}](${rawUrl})`;
-        return applyFallback(String(alt ?? '').trim());
-      });
-
-      // HTML img syntax (single or double quoted src)
-      next = next.replace(/<img\b[^>]*\bsrc=["'](asset:\/\/[^"']+)["'][^>]*\/?>/gi, () => {
-        return applyFallback('');
-      });
-
-      // Any remaining naked asset:// image URLs
-      next = next.replace(/asset:\/\/[^\s)"'>]+\.(?:png|jpe?g|gif|webp|bmp|heic|heif|avif)/gi, '');
-
-      // Keep markdown clean after removals.
-      return next.replace(/\n{3,}/g, '\n\n').trim();
-    };
-
-    let content = draft.text || "";
-    let inlinePhotoDataUrl: string | null = null;
-
-    // Web runtime: avoid loading huge embedded base64 payloads from .md.
-    // Use sidecar photo file (photo:) as the canonical image source.
-    const shouldReadEmbeddedFallback =
-      draft.hasEmbeddedImage &&
-      draft.filePath &&
-      (isTauri() || !photoReference || (!isTauri() && !draft.webPhotoDataUrl));
-
-    if (shouldReadEmbeddedFallback) {
-      // Lazy: base64 jetzt erst aus der .md lesen (wurde beim Laden der Liste bewusst übersprungen)
-      try {
-        const mdContent = isTauri()
-          ? await readTextFile(draft.filePath)
-          : await getWebMobileDraftFileContent(draft.filePath);
-        if (!mdContent) throw new Error("missing markdown content");
-        const trimmed = mdContent.trimStart();
-        const bodyStart = trimmed.indexOf("\n---");
-        const fullBody = bodyStart !== -1 ? trimmed.slice(bodyStart + 4).trimStart() : trimmed;
-        content = fullBody; // enthält ![](data:image/...) + Text
-      } catch {
-        // fallthrough: nur Text übertragen
-      }
-    }
-
-    const hasDataImageInContent = /!\[[^\]]*\]\(data:image\/[a-zA-Z0-9.+-]+;base64,[^)]+\)/i.test(content);
-    if (!hasDataImageInContent && photoReference) {
-      // Fallback für alte Drafts ohne embedded base64: .jpg vom Mac lesen
-      try {
-        if (isTauri()) {
-          const bytes = await readFile(photoReference);
-          const CHUNK = 8192;
-          let binary = "";
-          for (let i = 0; i < bytes.length; i += CHUNK) {
-            binary += String.fromCharCode(...(bytes.subarray(i, i + CHUNK) as unknown as number[]));
-          }
-          const base64 = btoa(binary);
-          const ext = photoReference.split(".").pop()?.toLowerCase() ?? "jpg";
-          const mime =
-            ext === "png" ? "image/png" :
-            ext === "webp" ? "image/webp" :
-            ext === "gif" ? "image/gif" :
-            ext === "bmp" ? "image/bmp" :
-            "image/jpeg";
-          inlinePhotoDataUrl = `data:${mime};base64,${base64}`;
-        } else {
-          inlinePhotoDataUrl = draft.webPhotoDataUrl ?? await getWebMobilePhotoDataUrl(photoReference);
-        }
-        if (!inlinePhotoDataUrl) throw new Error("missing photo");
-        content = `![](${inlinePhotoDataUrl})\n\n${content}`;
-      } catch {
-        // Foto nicht lesbar — nur Text übertragen
-      }
-    }
-
-    // Mobile Drafts enthalten teils asset://-URLs, die in der Desktop-WebView nicht ladbar sind.
-    // Ersetze diese durch das eingebettete Fallback-Bild (wenn vorhanden) oder entferne sie.
-    content = stripUnsupportedAssetImageUrls(content, inlinePhotoDataUrl ?? undefined);
-
-    const optimizedContent = await optimizeMobileInlineImagesInMarkdown(content);
-    const widthAdjustedContent = applyDefaultMobileImageWidth(optimizedContent, MOBILE_DEFAULT_IMAGE_WIDTH_PERCENT);
-    const blobSafeContent = await replaceLargeInlineImagesWithBlobUrls(widthAdjustedContent);
-    setTransferContent(blobSafeContent);
-    setTransferFileName(transferTitle);
-    setTransferPostMeta(null);
-    setContentStudioRequestedFilePath(null);
-    setContentStudioRequestedArticleId(null);
-    setCameFromDocStudio(false);
-    setCameFromDashboard(false);
-    setContentStudioDashboardView("dashboard");
-    setContentTransformStep(1);
-    setCurrentScreen("content-transform");
   };
 
   // Open Content AI from Dashboard with blog-post preset
@@ -2018,16 +1771,33 @@ function AppContent() {
       }
       return;
     }
-    const imageFromBlocks = '';
     const markdown = preview.markdown;
+    // The fetched markdown carries its own YAML frontmatter (coverImage,
+    // tags, ...) from whatever was last saved — read it back out instead of
+    // hardcoding imageUrl blank and dropping tags entirely, which left the
+    // metadata panel looking wiped even though the live post clearly has a
+    // cover image and tags.
+    const fm = markdown.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
+    const fmValue = (key: string) => fm.match(new RegExp(`^${key}:\\s*"([^"]*)"\\s*$`, 'm'))?.[1]
+      ?? fm.match(new RegExp(`^${key}:\\s*(.+)$`, 'm'))?.[1]?.trim().replace(/^["']|["']$/g, '');
+    const fmTags = fm.match(/^tags:\s*\[([^\]]*)\]$/m)?.[1]
+      ?.split(',').map((t) => t.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
     persistWebDocument(markdown, `${slug}.md`);
     setTransferContent(markdown);
     setTransferFileName(`${slug}.md`);
     setTransferPostMeta({
       title: preview.title,
       subtitle: preview.subtitle,
-      imageUrl: imageFromBlocks,
-      date: '',
+      // Manifest-provided values win when present — they're the more
+      // reliably maintained source (see fetchServerArticlePreview); the
+      // frontmatter parse is only the fallback for a manifest that never
+      // got these fields (e.g. an image added by hand outside Studio).
+      imageUrl: preview.coverImage ?? fmValue('coverImage') ?? '',
+      date: preview.date ?? fmValue('date') ?? '',
+      tags: preview.tags ?? fmTags,
+      imageAlt: preview.coverImageAlt ?? fmValue('coverImageAlt'),
+      imageTitle: preview.coverImageTitle ?? fmValue('coverImageTitle'),
+      imageCaption: preview.coverImageCaption ?? fmValue('coverImageCaption'),
     });
     const activeServer = settings.servers?.[settings.activeServerIndex ?? 0];
     const resolvedServerCachePath = (
@@ -2355,7 +2125,6 @@ function AppContent() {
       "converter": "ZenConverter Studio",
       "content-transform": "Content AI Studio",
       "getting-started": "Getting Started",
-      "mobile-inbox": "Mobile Inbox",
       "zen-note": "ZenNote Studio",
     };
 
@@ -2385,8 +2154,6 @@ function AppContent() {
         return <>Step {contentTransformStep === 0 ? 1 : contentTransformStep}/4 • <span style={{ color: "#AC8E66" }}>{transformText}</span></>;
       case "getting-started":
         return <> <span style={{ color: "#d0cbb8" }}>Getting Started</span> · <span style={{ color: "#d0cbb8",  }}>Was möchtest du tun?</span></>;
-      case "mobile-inbox":
-        return <>Mobile · <span style={{ color: "#AC8E66" }}>iPhone Entwürfe</span></>;
       case "zen-note":
         return <>ZenNote · <span style={{ color: "#AC8E66" }}>Notizen & Snippets</span></>;
       default:
@@ -2469,9 +2236,14 @@ function AppContent() {
         {contentTransformStep === 1 && (
           <div className="flex flex-wrap gap-2 ml-auto">
               <StudioBarButton
-                label="Transformieren"
+                label="Artikel + Beiträge"
                 icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
-                onClick={handleNavigateToMultiPlatformTransform}
+                onClick={() => setContentTransformHeaderAction("create_article_posts")}
+              />
+              <StudioBarButton
+                label="Diskussion aufgreifen"
+                icon={<FontAwesomeIcon icon={faWandMagicSparkles} />}
+                onClick={() => setContentTransformHeaderAction("discussion")}
               />
               <div ref={contentSaveMenuRef} style={{ position: "relative" }}>
                 <StudioBarButton
@@ -2734,6 +2506,16 @@ function AppContent() {
     };
   })();
 
+  // Re-resolve the active blog by id from current settings on every render
+  // instead of trusting the object captured once in activeBlogForEditor —
+  // that object goes stale whenever settings.json is edited or reloaded
+  // (e.g. by initZenStudioSettings' async file->localStorage sync) after
+  // the blog tab was selected, silently sending saves to the wrong
+  // deployType/siteType (see docs vs posts upload bug).
+  const liveActiveBlog = activeBlogForEditor
+    ? zenStudioBlogs.find((b) => b.id === activeBlogForEditor.id) ?? activeBlogForEditor
+    : null;
+
   return (
     <>
       <Helmet>
@@ -2790,7 +2572,6 @@ function AppContent() {
             onSelectConverter={handleSelectConverter}
             onSelectContentTransform={handleSelectContentTransform}
             onSelectGettingStarted={handleSelectGettingStarted}
-            onSelectMobileInbox={handleSelectMobileInbox}
           />
         )}
         {currentScreen === "converter" && (
@@ -3084,7 +2865,7 @@ function AppContent() {
                   }
                   // web: Dokumente werden nur aus webDocuments entfernt (kein echter Delete nötig)
                 }}
-                blogs={loadZenStudioSettings().blogs ?? []}
+                blogs={zenStudioBlogs}
               />
             )
           ) : (
@@ -3106,7 +2887,7 @@ function AppContent() {
                 setCurrentScreen("converter");
                 setConverterStep(1);
               }}
-              projectPath={activeServerArticleSlug ? (contentStudioServerCachePath ?? contentStudioProjectPath) : activeBlogForEditor ? `${activeBlogForEditor.path}/posts` : contentStudioProjectPath}
+              projectPath={activeServerArticleSlug ? (contentStudioServerCachePath ?? contentStudioProjectPath) : liveActiveBlog ? `${liveActiveBlog.path}/posts` : contentStudioProjectPath}
               requestedArticleId={contentStudioRequestedArticleId}
               onArticleRequestHandled={() => setContentStudioRequestedArticleId(null)}
               requestedFilePath={contentStudioRequestedFilePath}
@@ -3128,8 +2909,13 @@ function AppContent() {
               onFileSaved={handleFileSavedWhileEditing}
               onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
               serverArticleSlug={activeServerArticleSlug}
-              blogSaveTarget={activeBlogForEditor}
+              blogSaveTarget={liveActiveBlog}
               onBlogPostSaved={() => setActiveBlogForEditor(null)}
+              onOpenImageGalleryForMeta={(onInsert) => {
+                imageGalleryInsertHandlerRef.current = onInsert;
+                setImageGalleryFocusDocId(null);
+                setShowImageGalleryModal(true);
+              }}
             />
           )
         )}
@@ -3147,20 +2933,12 @@ function AppContent() {
               setShowImageGalleryModal(true);
             }}
             onOpenZenNote={handleSelectZenNote}
-            onOpenMobileInbox={handleSelectMobileInbox}
-            onOpenMobileSettings={() => {
-              setSettingsDefaultTab('mobile');
-              setShowAISettingsModal(true);
-            }}
             onOpenApiSettings={() => {
               setSettingsDefaultTab('api');
               setShowAISettingsModal(true);
             }}
             onOpenServerArticle={(slug) => { void handleOpenServerArticle(slug); }}
           />
-        )}
-        {currentScreen === "mobile-inbox" && (
-          <MobileInboxScreen onOpenInContentAI={handleOpenMobileDraftInContentAI} />
         )}
         {currentScreen === "zen-note" && (
           <ZenNoteStudioScreen
@@ -3260,7 +3038,14 @@ function AppContent() {
         onClose={() => {
           setShowImageGalleryModal(false);
           setImageGalleryFocusDocId(null);
+          imageGalleryInsertHandlerRef.current = null;
         }}
+        onInsertUrl={imageGalleryInsertHandlerRef.current ? (url, fileName) => {
+          imageGalleryInsertHandlerRef.current?.(url, fileName);
+          setShowImageGalleryModal(false);
+          setImageGalleryFocusDocId(null);
+          imageGalleryInsertHandlerRef.current = null;
+        } : undefined}
       />
 
       <ZenWebProjectPickerModal

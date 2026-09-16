@@ -11,14 +11,12 @@ interface WelcomeScreenProps {
   onSelectConverter?: () => void;
   onSelectContentTransform?: () => void;
   onSelectGettingStarted?: () => void;
-  onSelectMobileInbox?: () => void;
 }
 
 export const WelcomeScreen = ({
   onSelectConverter: _onSelectConverter,
   onSelectContentTransform: _onSelectContentTransform,
   onSelectGettingStarted,
-  onSelectMobileInbox,
 }: WelcomeScreenProps) => {
 
 
@@ -44,12 +42,6 @@ export const WelcomeScreen = ({
             icon={<FontAwesomeIcon icon={faLayerGroup} className="text-[#AC8E66]" />}
             onClick={onSelectGettingStarted}
             title="Was möchtest du heute machen?"
-          />
-          <ZenRoughButton
-            label="Mobile Inbox"
-            icon={<span style={{ fontSize: 14 }}>📱</span>}
-            onClick={onSelectMobileInbox}
-            title="iPhone Entwürfe via iCloud anzeigen"
           />
         </div>
 

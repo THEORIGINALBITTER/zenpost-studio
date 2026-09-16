@@ -1,3 +1,5 @@
+import { PHP_BLOG_UPLOAD_TEMPLATE } from './phpBlogUploadTemplate';
+
 /**
  * PHP Blog Upload Service
  * Uploads blog posts via HTTP POST to a user-deployed PHP script.
@@ -15,6 +17,19 @@ export function normalizePhpUploadUrl(url: string): string {
   const withProtocol = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
   const withoutSlash = withProtocol.replace(/\/$/, '');
   return /\.php(?:$|\?)/i.test(withoutSlash) ? withoutSlash : `${withoutSlash}/zenpost-upload.php`;
+}
+
+/** Deletes one post and its manifest entry on the server. */
+export async function phpBlogDelete(slug: string, config: PhpBlogConfig): Promise<void> {
+  const response = await fetch(normalizePhpUploadUrl(config.apiUrl), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': config.apiKey },
+    body: JSON.stringify({ action: 'delete-post', slug }),
+  });
+  const result = await response.json() as { success?: boolean; deletedSlug?: string; error?: string };
+  if (!response.ok || !result.success || result.deletedSlug !== slug) {
+    throw new Error(result.error ?? 'Löschen nicht bestätigt. Bitte zenpost-upload.php auf dem Blog-Server aktualisieren.');
+  }
 }
 
 export interface PhpBlogUploadPayload {
@@ -148,11 +163,13 @@ export async function phpBlogNewsletterNotify(
  */
 export type PhpUploadMode = 'blog' | 'docs';
 
-// `mode` is kept for call-site compatibility but no longer branches the
-// output: the generated script auto-detects docs vs. blog at runtime
-// (via docs_file_count()), so there is only one template.
-export function getPhpUploadScript(apiKey = 'DEIN_GEHEIMER_KEY', _mode: PhpUploadMode = 'blog'): string {
+// Blog downloads use the verified standalone endpoint; docs keep their own template.
+export function getPhpUploadScript(apiKey = 'DEIN_GEHEIMER_KEY', mode: PhpUploadMode = 'blog'): string {
   const phpApiKey = apiKey.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+  if (mode === 'blog') {
+    return PHP_BLOG_UPLOAD_TEMPLATE.replace('__ZENPOST_API_KEY__', () => phpApiKey);
+  }
 
   return `<?php
 /**
@@ -344,8 +361,23 @@ function delete_docs_removed_from_manifest(array $newManifest): void {
 
 function title_from_markdown(string $path): string {
     $raw = file_get_contents($path);
-    if (is_string($raw) && preg_match('/^#\\s+(.+)$/m', $raw, $m)) {
-        return trim((string)$m[1]);
+    // Only reads the first ~4KB and only matches a title: line directly
+    // (no dotall/backreference scan across the whole file) — a prior
+    // version here matched frontmatter with a dotall .*? spanning
+    // potentially the entire file, which crashed PCRE outright (no
+    // catchable PHP error, just a blank response) on at least one real
+    // host for a large enough post. This is deliberately simple.
+    if (is_string($raw)) {
+        $head = substr($raw, 0, 4000);
+        if (preg_match('/^title:\\s*"([^"]*)"\\s*$/m', $head, $m)) {
+            return trim((string)$m[1]);
+        }
+        if (preg_match('/^title:\\s*(.+)$/m', $head, $m)) {
+            return trim((string)$m[1], chr(32) . chr(9) . chr(34) . chr(39));
+        }
+        if (preg_match('/^#\\s+(.+)$/m', $raw, $m)) {
+            return trim((string)$m[1]);
+        }
     }
     return preg_replace('/\\.md$/', '', basename($path));
 }
@@ -497,6 +529,50 @@ $body = json_decode(file_get_contents('php://input'), true);
 if (!is_array($body)) {
     http_response_code(400);
     echo json_encode(['error' => 'Invalid JSON body']);
+    exit;
+}
+
+// Explicit deletion: never infer deletions from an incomplete client manifest.
+if (($body['action'] ?? '') === 'delete-post') {
+    $slug = $body['slug'] ?? null;
+    if (!is_string($slug) || $slug === '' || basename($slug) !== $slug || strpos($slug, chr(92)) !== false || strpos($slug, chr(0)) !== false) {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid slug']);
+        exit;
+    }
+    $manifest = json_decode((string)@file_get_contents(BLOG_MANIFEST_PATH), true);
+    if (!is_array($manifest) || !isset($manifest['posts']) || !is_array($manifest['posts'])) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not read blog manifest']);
+        exit;
+    }
+    $filename = $slug . '.md';
+    foreach ($manifest['posts'] as $post) {
+        if (($post['slug'] ?? '') === $slug) {
+            $filename = $post['localFileName'] ?? $filename;
+            break;
+        }
+    }
+    if (!is_string($filename) || basename($filename) !== $filename || strpos($filename, chr(92)) !== false || strpos($filename, chr(0)) !== false || substr($filename, -3) !== '.md') {
+        http_response_code(400);
+        echo json_encode(['error' => 'Invalid post filename']);
+        exit;
+    }
+    $target = POSTS_DIR . $filename;
+    if ((file_exists($target) || is_link($target)) && !unlink($target)) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Could not delete post file']);
+        exit;
+    }
+    $manifest['posts'] = array_values(array_filter($manifest['posts'], function ($post) use ($slug) {
+        return ($post['slug'] ?? '') !== $slug;
+    }));
+    if (file_put_contents(BLOG_MANIFEST_PATH, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX) === false) {
+        http_response_code(500);
+        echo json_encode(['error' => 'Post file removed, but manifest update failed. Please retry.']);
+        exit;
+    }
+    echo json_encode(['success' => true, 'deletedSlug' => $slug]);
     exit;
 }
 

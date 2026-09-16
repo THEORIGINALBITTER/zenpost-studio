@@ -35,7 +35,8 @@ import type { SEOData } from '../../services/aiService';
 
 // Platform display info for tabs
 const PLATFORM_TAB_INFO: Record<ContentPlatform, { label: string; icon: any }> = {
-  linkedin: { label: 'LinkedIn', icon: faLinkedin },
+  'linkedin-article': { label: 'LinkedIn-Artikel', icon: faLinkedin },
+  linkedin: { label: 'LinkedIn-Beitrag', icon: faLinkedin },
   twitter: { label: 'Twitter', icon: faTwitter },
   devto: { label: 'Dev.to', icon: faDev },
   medium: { label: 'Medium', icon: faMedium },
@@ -55,6 +56,7 @@ interface Step1SourceInputProps {
   onSourceContentChange: (content: string) => void;
   onFileNameChange: (name: string) => void;
   onNext: () => void;
+  onCreateArticlePosts?: (content: string) => void;
   onOpenMetadata?: () => void;
   onError?: (error: string) => void;
   onPreview?: (content?: string) => void;
@@ -142,6 +144,8 @@ interface Step1SourceInputProps {
     blockers: string;
     next: string;
   }) => void;
+  /** Opens the shared ZenImage gallery for picking this post's cover image */
+  onOpenImageGalleryForMeta?: (onInsert: (url: string, fileName: string) => void) => void;
   analysisKeywords?: string[];
   onAnalysisKeywordsChange?: (keywords: string[]) => void;
   /** Aus vergangenen Posts gelernte Tag-Vorschläge für die aktuellen Content-Keywords */
@@ -284,6 +288,7 @@ export const Step1SourceInput = ({
   onSourceContentChange,
   onFileNameChange,
   onNext,
+  onCreateArticlePosts,
   onOpenMetadata: _onOpenMetadata,
   onError,
   onPreview,
@@ -331,6 +336,7 @@ export const Step1SourceInput = ({
   showZenThoughtInHeader = false,
   postMeta,
   onMetaChange,
+  onOpenImageGalleryForMeta,
   analysisKeywords = [],
   learnedTagSuggestions = [],
   onOpenAISettings,
@@ -411,6 +417,26 @@ export const Step1SourceInput = ({
   const [showPagesHelp, setShowPagesHelp] = useState(false);
   const [showTipModal, setShowTipModal] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
+
+  /** "#BringYourOwnAI #BYOAI, AI" → ['BringYourOwnAI', 'BYOAI', 'AI'] — trennt an
+   *  Leerzeichen/Kommas/Zeilenumbrüchen und entfernt ein führendes '#'. */
+  const parseTagList = (raw: string): string[] => {
+    return raw
+      .split(/[\s,]+/)
+      .map((t) => t.trim().replace(/^#+/, ''))
+      .filter(Boolean);
+  };
+
+  const addTagsFromRawText = (raw: string) => {
+    const parsed = parseTagList(raw);
+    if (parsed.length === 0) return;
+    const current = postMeta?.tags ?? [];
+    const merged = [...current];
+    for (const tag of parsed) {
+      if (!merged.includes(tag)) merged.push(tag);
+    }
+    if (merged.length !== current.length) updatePostMetaTags(merged);
+  };
   const [showComparison, setShowComparison] = useState(false);
   const [seoApplyMessage, setSeoApplyMessage] = useState<string | null>(null);
   const latestContentRef = useRef(sourceContent);
@@ -2139,13 +2165,21 @@ export const Step1SourceInput = ({
                       type="text"
                       value={newTagInput}
                       onChange={(e) => setNewTagInput(e.target.value)}
+                      onPaste={(e) => {
+                        const pasted = e.clipboardData.getData('text');
+                        if (parseTagList(pasted).length > 1) {
+                          // Mehrere Tags auf einmal eingefügt (z.B. eine
+                          // Hashtag-Liste) — jeden als eigenen Tag anlegen,
+                          // statt den ganzen Text als einen Block zu übernehmen.
+                          e.preventDefault();
+                          addTagsFromRawText(pasted);
+                          setNewTagInput('');
+                        }
+                      }}
                       onKeyDown={(e) => {
                         if ((e.key === 'Enter' || e.key === ',') && newTagInput.trim()) {
                           e.preventDefault();
-                          const tag = newTagInput.trim().replace(/^,+|,+$/g, '');
-                          if (tag && !(postMeta?.tags ?? []).includes(tag)) {
-                            updatePostMetaTags([...(postMeta?.tags ?? []), tag]);
-                          }
+                          addTagsFromRawText(newTagInput);
                           setNewTagInput('');
                         }
                       }}
@@ -2160,10 +2194,7 @@ export const Step1SourceInput = ({
                     <button
                       type="button"
                       onClick={() => {
-                        const tag = newTagInput.trim();
-                        if (tag && !(postMeta?.tags ?? []).includes(tag)) {
-                          updatePostMetaTags([...(postMeta?.tags ?? []), tag]);
-                        }
+                        addTagsFromRawText(newTagInput);
                         setNewTagInput('');
                       }}
                       style={{
@@ -2360,6 +2391,24 @@ export const Step1SourceInput = ({
                     )}
                     {field === 'imageUrl' && (
                       <>
+                        {onOpenImageGalleryForMeta && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenImageGalleryForMeta((url, fileName) => applyImageMetaForUrl(url, fileName))}
+                            className="font-mono text-[9px]"
+                            style={{
+                              alignSelf: 'flex-start',
+                              background: '#e4e3cb',
+                              border: '0.5px solid #3A3A3A',
+                              borderRadius: 4,
+                              padding: '4px 8px',
+                              color: '#1a1a1a',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Aus ZenImage wählen...
+                          </button>
+                        )}
                         <div className="font-mono text-[9px]" style={{ color: '#1a1a1a' }}>
                           {(postMeta?.imageUrl ?? '').trim() ? 'Bild erkannt' : 'Kein Bild gesetzt'}
                         </div>
@@ -3050,6 +3099,14 @@ export const Step1SourceInput = ({
                 {saveToServerLabel ?? 'Auf Server speichern'}
               </button>
               <div style={{ flex: 1 }} />
+              {onCreateArticlePosts && (
+                <button
+                  onClick={() => { void resolveLiveContent().then(onCreateArticlePosts); }}
+                  style={{ padding: '8px 16px', border: '1px solid #AC8E66', borderRadius: 6, background: 'transparent', color: '#AC8E66', cursor: 'pointer', fontFamily: 'IBM Plex Mono, monospace', fontSize: 11 }}
+                >
+                  Artikelfassungen und Beiträge erstellen
+                </button>
+              )}
               <button
                 onClick={onNext}
                 style={{

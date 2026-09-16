@@ -1445,13 +1445,12 @@ export const ZenBlockEditor = ({
         e.stopPropagation();
         closeSearch();
       }
-      // ? → Shortcuts Overlay (nur wenn kein Input/Textarea fokussiert)
-      if (e.key === '?' && !showSearch) {
-        const tag = (document.activeElement as HTMLElement)?.tagName?.toLowerCase();
-        if (tag !== 'input' && tag !== 'textarea') {
-          e.preventDefault();
-          setShowShortcuts(p => !p);
-        }
+      // Option/Alt + ? → Shortcuts Overlay. Reines "?" kollidierte mit dem
+      // Tippen eines Fragezeichens im Editor (contenteditable, kein
+      // input/textarea — der alte Tag-Check griff dort nicht).
+      if (e.altKey && (e.key === '?' || e.code === 'Slash') && !showSearch) {
+        e.preventDefault();
+        setShowShortcuts(p => !p);
       }
     };
     document.addEventListener('keydown', onKeyDown, true);

@@ -151,7 +151,7 @@ export const ZenSocialMediaSettingsContent = ({
   const handleDownloadPhpPackage = async (blog?: BlogConfig) => {
     const effectiveSiteType = blog?.id && editingBlogId === blog.id ? wizardSiteType : blog?.siteType;
     let uploadMode: 'blog' | 'docs' = effectiveSiteType === 'docs' ? 'docs' : 'blog';
-    if (uploadMode === 'blog' && isTauri() && blog?.path) {
+    if (!effectiveSiteType && isTauri() && blog?.path) {
       try {
         if (await exists(await join(blog.path, 'docs', 'manifest.json'))) uploadMode = 'docs';
       } catch { /* keep configured mode */ }
@@ -384,7 +384,7 @@ export const ZenSocialMediaSettingsContent = ({
             slug,
             title: fm.title ?? slug.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/-/g, ' '),
             ...(fm.subtitle ? { subtitle: fm.subtitle } : {}),
-            date: fm.date ?? slug.slice(0, 10),
+            date: fm.date ?? slug.match(/^(\d{4}-\d{2}-\d{2})/)?.[1] ?? new Date().toISOString().slice(0, 10),
             tags: fm.tags ?? ['devlog'],
             readingTime: fm.readingTime ?? Math.max(1, Math.round(wordCount / 220)),
             ...(fm.coverImage ? { coverImage: fm.coverImage } : {}),
@@ -878,36 +878,56 @@ export const ZenSocialMediaSettingsContent = ({
           setLinkedInDetectMsg(null);
           try {
             const token = li?.accessToken || '';
-            const httpFetch = isTauri()
-              ? (await import('@tauri-apps/plugin-http')).fetch
-              : window.fetch.bind(window);
 
-            // Try /v2/me (r_liteprofile scope)
-            const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (meRes.ok) {
-              const d = await meRes.json();
-              if (d.id) {
-                updateLinkedInConfig('personId', String(d.id));
-                setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.id}` });
-                setLinkedInWizardStep(3);
-                setLinkedInDetecting(false);
-                return;
+            // LinkedIn sends no CORS headers, so the browser build can't call
+            // api.linkedin.com directly — go through our server proxy there.
+            // Tauri bypasses CORS via the native HTTP plugin, so it can call
+            // LinkedIn directly.
+            if (isTauri()) {
+              const httpFetch = (await import('@tauri-apps/plugin-http')).fetch;
+
+              // Try /v2/me (r_liteprofile scope)
+              const meRes = await httpFetch('https://api.linkedin.com/v2/me', {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (meRes.ok) {
+                const d = await meRes.json();
+                if (d.id) {
+                  updateLinkedInConfig('personId', String(d.id));
+                  setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.id}` });
+                  setLinkedInWizardStep(3);
+                  setLinkedInDetecting(false);
+                  return;
+                }
               }
-            }
-            // Try /v2/userinfo (openid scope)
-            const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (uiRes.ok) {
-              const d = await uiRes.json();
-              if (d.sub) {
-                updateLinkedInConfig('personId', String(d.sub));
-                setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.sub}` });
-                setLinkedInWizardStep(3);
-                setLinkedInDetecting(false);
-                return;
+              // Try /v2/userinfo (openid scope)
+              const uiRes = await httpFetch('https://api.linkedin.com/v2/userinfo', {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              if (uiRes.ok) {
+                const d = await uiRes.json();
+                if (d.sub) {
+                  updateLinkedInConfig('personId', String(d.sub));
+                  setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${d.sub}` });
+                  setLinkedInWizardStep(3);
+                  setLinkedInDetecting(false);
+                  return;
+                }
+              }
+            } else {
+              const proxyRes = await window.fetch('https://denisbitter.de/stage02/api/linkedin_me.php', {
+                headers: { 'X-Auth-Token': token },
+              });
+              if (proxyRes.ok) {
+                const d = await proxyRes.json();
+                const detected = d.id ?? d.sub;
+                if (detected) {
+                  updateLinkedInConfig('personId', String(detected));
+                  setLinkedInDetectMsg({ ok: true, text: `Member ID erkannt: ${detected}` });
+                  setLinkedInWizardStep(3);
+                  setLinkedInDetecting(false);
+                  return;
+                }
               }
             }
             setLinkedInDetectMsg({ ok: false, text: 'Automatisch nicht möglich — bitte manuell eintragen (siehe Anleitung unten).' });
@@ -947,7 +967,7 @@ export const ZenSocialMediaSettingsContent = ({
             {linkedInWizardStep === 1 && (
               <div>
                 <p style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: 11, color: '#999', marginBottom: 20, lineHeight: 1.6 }}>
-                  Erstelle eine App auf dem LinkedIn Developer Portal und generiere dort einen Access Token mit dem Scope <span style={{ color: '#AC8E66' }}>w_member_social</span>.
+                  Erstelle eine App auf dem LinkedIn Developer Portal und generiere dort einen Access Token mit den Scopes <span style={{ color: '#AC8E66' }}>w_member_social</span> (zum Posten) <strong>und</strong> <span style={{ color: '#AC8E66' }}>openid</span> + <span style={{ color: '#AC8E66' }}>profile</span> (für die automatische Member-ID-Erkennung im nächsten Schritt — ohne diese beiden Scopes schlägt sie fehl und du landest beim manuellen DevTools-Weg).
                 </p>
                 <div style={{ marginBottom: 16 }}>
                   <InputField type="password" value={li?.clientId || ''} onChange={(v) => updateLinkedInConfig('clientId', v)} placeholder="Client ID" />

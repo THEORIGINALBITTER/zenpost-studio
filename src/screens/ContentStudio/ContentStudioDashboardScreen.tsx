@@ -18,7 +18,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isTauri } from '@tauri-apps/api/core';
 import { readTextFile, writeTextFile, exists, readDir, remove } from '@tauri-apps/plugin-fs';
 import { ftpUpload, ftpDelete } from '../../services/ftpService';
-import { normalizePhpUploadUrl, phpBlogManifestUpdate } from '../../services/phpBlogService';
+import { normalizePhpUploadUrl, phpBlogManifestUpdate, phpBlogDelete } from '../../services/phpBlogService';
 import { join } from '@tauri-apps/api/path';
 import { openAppSettings } from '../../services/appShellBridgeService';
 import { loadZenStudioSettings, type BlogConfig } from '../../services/zenStudioSettingsService';
@@ -319,7 +319,7 @@ export function ContentStudioDashboardScreen({
 
     const parseDocs = (raw: unknown) => {
       const rawRecord = raw as Record<string, unknown>;
-      const documents = Array.isArray(rawRecord?.documents)
+      const documents = Array.isArray(rawRecord?.documents) && rawRecord.documents.length > 0
         ? (rawRecord as { documents: Record<string, unknown>[] }).documents
         : Array.isArray(rawRecord?.posts)
           ? (rawRecord as { posts: Record<string, unknown>[] }).posts.map((post) => ({
@@ -345,9 +345,13 @@ export function ContentStudioDashboardScreen({
     const hasDocsManifest = (raw: unknown) => Array.isArray((raw as Record<string, unknown>)?.documents);
     const hasPostsManifest = (raw: unknown) => Array.isArray((raw as Record<string, unknown>)?.posts);
     let treatAsDocsSite = blog.siteType === 'docs';
+    // A blog configured as "blog" always prefers posts[], even if a stray
+    // documents[] array is also present (leftover from a manifest that was
+    // once written by the docs-save path) — otherwise a single orphaned
+    // doc entry silently hides every real post from the dashboard.
     const parseManifest = (raw: unknown) => {
+      if (!treatAsDocsSite && hasPostsManifest(raw)) return parsePosts(raw);
       if (treatAsDocsSite || hasDocsManifest(raw)) return parseDocs(raw);
-      if (hasPostsManifest(raw)) return parsePosts(raw);
       return [];
     };
 
@@ -355,7 +359,7 @@ export function ContentStudioDashboardScreen({
       try {
         let serverPosts: Array<{ slug: string; title: string; date?: string; synced: true; localFileName?: string }> = [];
 
-        if (!treatAsDocsSite && isTauri() && blog.path) {
+        if (!blog.siteType && isTauri() && blog.path) {
           try {
             treatAsDocsSite = await exists(await join(blog.path, 'docs', 'manifest.json'));
           } catch { /* keep configured type */ }
@@ -363,8 +367,13 @@ export function ContentStudioDashboardScreen({
 
         // PHP-API blogs: fetch manifest from PHP endpoint
         if (blog.deployType === 'php-api' && blog.phpApiUrl) {
-          const res = await fetch(normalizePhpUploadUrl(blog.phpApiUrl), { method: 'GET' });
-          if (res.ok) serverPosts = parseManifest(await res.json());
+          try {
+            const res = await fetch(normalizePhpUploadUrl(blog.phpApiUrl), { method: 'GET', cache: 'no-store' });
+            if (res.ok) serverPosts = parseManifest(await res.json());
+          } catch (error) {
+            // An unavailable PHP endpoint must not prevent the public manifest fallback.
+            console.warn('[Dashboard] PHP manifest unavailable, trying public manifest:', error);
+          }
         }
         // Any blog with a siteUrl: fetch manifest.json from the public site
         if ((serverPosts.length === 0 || treatAsDocsSite) && blog.siteUrl) {
@@ -396,17 +405,21 @@ export function ContentStudioDashboardScreen({
             if (await exists(manifestPath)) localManifestPosts = parseManifest(JSON.parse(await readTextFile(manifestPath)));
           } catch { /* non-fatal */ }
         }
+        // Entries the local manifest.json claims exist but the server (when
+        // it answered at all) doesn't confirm — e.g. because the file was
+        // deleted directly on the server via FTP/Finder, bypassing the
+        // local project's manifest entirely. Shown as unsynced rather than
+        // silently trusted as "live", which previously kept dead articles
+        // in the list forever after a server-side-only deletion.
+        let staleLocalOnlyPosts: Array<{ slug: string; title: string; date?: string; localFileName?: string }> = [];
         if (serverPosts.length === 0) {
           serverPosts = localManifestPosts;
         } else if (localManifestPosts.length > 0) {
           // Merge: for slugs in both, prefer local manifest data (title/date up-to-date after local save)
           const localBySlug = new Map(localManifestPosts.map((p) => [p.slug, p]));
           serverPosts = serverPosts.map((sp) => localBySlug.get(sp.slug) ?? sp);
-          // Add local-manifest-only entries that server doesn't know about yet
           const serverSlugsSet = new Set(serverPosts.map((p) => p.slug));
-          for (const lp of localManifestPosts) {
-            if (!serverSlugsSet.has(lp.slug)) serverPosts.push(lp);
-          }
+          staleLocalOnlyPosts = localManifestPosts.filter((lp) => !serverSlugsSet.has(lp.slug));
         }
 
         // Scan local posts folder for unsynced files not in any manifest (Tauri only)
@@ -431,6 +444,15 @@ export function ContentStudioDashboardScreen({
               const title = await readLocalTitle(fp, slug);
               localOnlyPosts.push({ slug, title, synced: false, localPath: fp });
             }
+          }
+          // Entries the local manifest still lists but the server just
+          // denied (deleted server-side outside of Studio) — shown as
+          // unsynced too, not silently dropped or trusted as live.
+          const scannedSlugs = new Set(localOnlyPosts.map((p) => p.slug));
+          for (const sp of staleLocalOnlyPosts) {
+            if (scannedSlugs.has(sp.slug)) continue;
+            const fp = await join(postsDir, sp.localFileName ?? `${sp.slug}.md`);
+            localOnlyPosts.push({ slug: sp.slug, title: sp.title, synced: false, localPath: fp });
           }
         }
 
@@ -831,7 +853,7 @@ export function ContentStudioDashboardScreen({
                   >
                     <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: '0 0 4px 0', textTransform: 'uppercase', letterSpacing: '1px', flexShrink: 0 }}>
                       {activeBlog?.siteType === 'docs' ? 'Docs' : 'Blog'} · {activeBlog?.name ?? ''}
-                      {blogPostsLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
+                      {blogPostsLoading && <span style={{ color: '#AC8E66', marginLeft: '10px' }}>Lädt…</span>}
                     </p>
                     {activeBlog?.siteUrl && (
                       <div style={{ fontFamily: 'IBM Plex Mono, monospace', fontSize: '9px', color: '#3e362c', marginBottom: '8px', flexShrink: 0 }}>
@@ -943,6 +965,7 @@ export function ContentStudioDashboardScreen({
                             </p>
                           </div>
                           <button
+                            disabled={deletingSlug !== null}
                             onClick={async () => {
                               if (!activeBlog) return;
                               // First click: ask for confirmation
@@ -953,62 +976,74 @@ export function ContentStudioDashboardScreen({
                               }
                               // Second click: actually delete
                               setConfirmingDeleteSlug(null);
-                              setBlogPosts(blogPosts.filter((p) => p.slug !== post.slug));
+                              setDeletingSlug(post.slug);
                               try {
-                                // Delete the .md file from disk
-                                const filePath = ('localPath' in post && post.localPath)
-                                  ? post.localPath
-                                  : activeBlog.siteType === 'docs'
-                                    ? await resolveLocalDocsPostPath(activeBlog.path, post)
-                                    : await join(activeBlog.path, 'posts', `${post.slug}.md`);
-                                if (await exists(filePath)) await remove(filePath);
-                                // Remove from local manifest.json
-                                const manifestPath = activeBlog.siteType === 'docs'
-                                  ? await join(activeBlog.path, 'docs', 'manifest.json')
-                                  : await join(activeBlog.path, 'manifest.json');
-                                let updatedManifest: { posts?: Array<{ slug: string }>; documents?: Array<{ id?: string; path?: string }> } | null = null;
-                                if (await exists(manifestPath)) {
-                                  const manifest = JSON.parse(await readTextFile(manifestPath)) as { posts?: Array<{ slug: string }>; documents?: Array<{ id?: string; path?: string }> };
-                                  if (activeBlog.siteType === 'docs') {
-                                    manifest.documents = (manifest.documents ?? []).filter((doc) => doc.id !== post.slug && doc.path !== post.localFileName);
-                                  } else {
-                                    manifest.posts = (manifest.posts ?? []).filter((p) => p.slug !== post.slug);
-                                  }
-                                  await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
-                                  updatedManifest = manifest;
+                                const usesPhpDelete = activeBlog.siteType !== 'docs' && activeBlog.deployType === 'php-api';
+                                if (usesPhpDelete) {
+                                  if (!activeBlog.phpApiUrl || !activeBlog.phpApiKey) throw new Error('PHP-API URL oder Schlüssel fehlt.');
+                                  await phpBlogDelete(post.slug, { apiUrl: activeBlog.phpApiUrl, apiKey: activeBlog.phpApiKey });
                                 }
-
-                                // Sync manifest to server
-                                if (updatedManifest) {
-                                  if (activeBlog.deployType === 'ftp' && activeBlog.ftpHost && activeBlog.ftpUser && activeBlog.ftpPassword) {
-                                    const blogRoot = (activeBlog.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
-                                    const ftpConfig = {
-                                      host: activeBlog.ftpHost,
-                                      user: activeBlog.ftpUser,
-                                      password: activeBlog.ftpPassword,
-                                      remotePath: blogRoot + '/',
-                                      protocol: activeBlog.ftpProtocol ?? 'ftp',
-                                    };
-                                    // Remove the post/doc file from the remote server too —
-                                    // uploading the trimmed manifest alone leaves it orphaned there.
-                                    const remoteFileName = activeBlog.siteType === 'docs'
-                                      ? (post.localFileName ?? `${post.slug}.md`)
-                                      : `posts/${post.slug}.md`;
-                                    await ftpDelete(remoteFileName, ftpConfig).catch(() => {}); // non-fatal
-                                    await ftpUpload(manifestPath, 'manifest.json', ftpConfig).catch(() => {}); // non-fatal
-                                  } else if (activeBlog.deployType === 'php-api' && activeBlog.phpApiUrl && activeBlog.phpApiKey) {
-                                    await phpBlogManifestUpdate(
-                                      updatedManifest,
-                                      { apiUrl: activeBlog.phpApiUrl, apiKey: activeBlog.phpApiKey },
-                                    ).catch(() => {}); // non-fatal
+                                if (!isTauri() && !usesPhpDelete) throw new Error('Dieser Löschweg benötigt die Desktop-App.');
+                                if (isTauri()) {
+                                  // Delete the .md file from disk
+                                  const filePath = ('localPath' in post && post.localPath)
+                                    ? post.localPath
+                                    : activeBlog.siteType === 'docs'
+                                      ? await resolveLocalDocsPostPath(activeBlog.path, post)
+                                      : await resolveLocalBlogPostPath(activeBlog.path, post);
+                                  if (filePath && await exists(filePath)) await remove(filePath);
+                                  // Remove from local manifest.json
+                                  const manifestPath = activeBlog.siteType === 'docs'
+                                    ? await join(activeBlog.path, 'docs', 'manifest.json')
+                                    : await join(activeBlog.path, 'manifest.json');
+                                  let updatedManifest: { posts?: Array<{ slug: string }>; documents?: Array<{ id?: string; path?: string }> } | null = null;
+                                  if (await exists(manifestPath)) {
+                                    const manifest = JSON.parse(await readTextFile(manifestPath)) as { posts?: Array<{ slug: string }>; documents?: Array<{ id?: string; path?: string }> };
+                                    if (activeBlog.siteType === 'docs') {
+                                      manifest.documents = (manifest.documents ?? []).filter((doc) => doc.id !== post.slug && doc.path !== post.localFileName);
+                                    } else {
+                                      manifest.posts = (manifest.posts ?? []).filter((p) => p.slug !== post.slug);
+                                    }
+                                    await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+                                    updatedManifest = manifest;
                                   }
-                                }
 
+                                  // Sync manifest to server
+                                  if (updatedManifest && !usesPhpDelete) {
+                                    if (activeBlog.deployType === 'ftp' && activeBlog.ftpHost && activeBlog.ftpUser && activeBlog.ftpPassword) {
+                                      const blogRoot = (activeBlog.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
+                                      const ftpConfig = {
+                                        host: activeBlog.ftpHost,
+                                        user: activeBlog.ftpUser,
+                                        password: activeBlog.ftpPassword,
+                                        remotePath: blogRoot + '/',
+                                        protocol: activeBlog.ftpProtocol ?? 'ftp',
+                                      };
+                                      // Remove the post/doc file from the remote server too —
+                                      // uploading the trimmed manifest alone leaves it orphaned there.
+                                      const remoteFileName = activeBlog.siteType === 'docs'
+                                        ? (post.localFileName ?? `${post.slug}.md`)
+                                        : `posts/${post.localFileName ?? `${post.slug}.md`}`;
+                                      await ftpDelete(remoteFileName, ftpConfig);
+                                      await ftpUpload(manifestPath, 'manifest.json', ftpConfig);
+                                    } else if (activeBlog.deployType === 'php-api' && activeBlog.phpApiUrl && activeBlog.phpApiKey) {
+                                      const error = await phpBlogManifestUpdate(
+                                        updatedManifest,
+                                        { apiUrl: activeBlog.phpApiUrl, apiKey: activeBlog.phpApiKey },
+                                      );
+                                      if (error) throw new Error(error);
+                                    }
+                                  }
+
+                                }
+                                setBlogPosts((posts) => posts.filter((p) => p.slug !== post.slug));
                                 setDeleteToast({ msg: 'Gelöscht', ok: true });
                                 setTimeout(() => setDeleteToast(null), 2500);
                               } catch (e) {
                                 setDeleteToast({ msg: `Fehler: ${e instanceof Error ? e.message : String(e)}`, ok: false });
                                 setTimeout(() => setDeleteToast(null), 4000);
+                              } finally {
+                                setDeletingSlug(null);
                               }
                             }}
                             style={{
@@ -1019,7 +1054,7 @@ export function ContentStudioDashboardScreen({
                               fontSize: '10px', cursor: 'pointer',
                             }}
                           >
-                            {confirmingDeleteSlug === post.slug ? 'Löschen?' : '×'}
+                            {deletingSlug === post.slug ? '…' : confirmingDeleteSlug === post.slug ? 'Löschen?' : '×'}
                           </button>
                         </div>
                       ))}
@@ -1074,7 +1109,7 @@ export function ContentStudioDashboardScreen({
                 >
                   <p style={{ fontSize: '9px', color: '#7a7060', fontFamily: 'IBM Plex Mono, monospace', margin: '0 0 8px 0', textTransform: 'uppercase', letterSpacing: '1px', flexShrink: 0 }}>
                     Server Artikel{serverName ? ` · ${serverName}` : ''}
-                    {serverArticlesLoading && <span style={{ color: '#AC8E66', marginLeft: '6px' }}>Lädt…</span>}
+                    {serverArticlesLoading && <span style={{ color: '#AC8E66', marginLeft: '10px' }}>Lädt…</span>}
                   </p>
                   <div
                     style={{
@@ -1555,7 +1590,7 @@ export function ContentStudioDashboardScreen({
           <div style={{ marginTop: '24px' }}>
             <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#3e362c', fontFamily: 'IBM Plex Mono, monospace' }}>
               Server Artikel{serverName ? ` · ${serverName}` : ''}
-              {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '8px' }}>Lädt…</span>}
+              {serverArticlesLoading && <span style={{ color: '#666', marginLeft: '10px' }}>Lädt…</span>}
             </p>
             <div
               style={{
