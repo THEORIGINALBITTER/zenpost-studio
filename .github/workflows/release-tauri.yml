@@ -86,6 +86,7 @@ jobs:
           fi
 
       - name: Signing mode info
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" != "macos-latest" ]; then
             echo "Release mode: unsigned (non-macOS target)"
@@ -157,4 +158,3 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload "${{ github.ref_name }}" "$PKG_PATH" --clobber
-
