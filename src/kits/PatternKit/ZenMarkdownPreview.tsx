@@ -22,6 +22,7 @@ import { writeFile } from '@tauri-apps/plugin-fs';
 import { PDFDocument, StandardFonts, type PDFFont } from 'pdf-lib';
 import { translateContent, type TargetLanguage } from '../../services/aiService';
 import { useOpenExternal } from '../../hooks/useOpenExternal';
+import { renderMermaidToSvg } from '../../utils/mermaidRenderer';
 
 // Stable module-level constants — never recreated, so ReactMarkdown skips re-parse
 const REMARK_PLUGINS = [remarkGfm];
@@ -48,6 +49,39 @@ const MemoizedMarkdownContent = memo(function MarkdownContent({
     >
       {content || '*Keine Vorschau verfügbar. Beginne mit dem Schreiben...*'}
     </ReactMarkdown>
+  );
+});
+
+let zenPreviewMermaidCounter = 0;
+
+// Renders a ```mermaid fenced block as an SVG diagram instead of highlighted code.
+const ZenMermaidDiagram = memo(function ZenMermaidDiagram({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const idRef = useRef(`zen-preview-mermaid-${zenPreviewMermaidCounter++}`);
+
+  useEffect(() => {
+    let cancelled = false;
+    setError(null);
+    renderMermaidToSvg(code, idRef.current)
+      .then((result) => { if (!cancelled) setSvg(result); })
+      .catch((err) => { if (!cancelled) setError(err instanceof Error ? err.message : String(err)); });
+    return () => { cancelled = true; };
+  }, [code]);
+
+  if (error) {
+    return (
+      <pre style={{ color: '#e05c5c', fontFamily: 'monospace', fontSize: '0.85em', whiteSpace: 'pre-wrap' }}>
+        Mermaid-Syntaxfehler: {error}
+      </pre>
+    );
+  }
+  if (!svg) return <div style={{ opacity: 0.6, fontSize: '0.85em' }}>Diagramm wird gerendert …</div>;
+  return (
+    <div
+      style={{ display: 'flex', justifyContent: 'center', background: '#fff', borderRadius: '6px', padding: '12px' }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 });
 
@@ -840,6 +874,9 @@ export const ZenMarkdownPreview = ({
     code: ({ node, className, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(className || '');
       const isInline = !match;
+      if (match?.[1] === 'mermaid') {
+        return <ZenMermaidDiagram code={getChildrenText(children).replace(/\n$/, '')} />;
+      }
       if (isInline) {
         return (
           <code

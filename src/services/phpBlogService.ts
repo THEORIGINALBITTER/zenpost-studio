@@ -78,6 +78,23 @@ export async function phpBlogImageUpload(
 }
 
 /**
+ * Uploads an image via phpBlogImageUpload if it's a base64 data URL.
+ * Returns the hosted URL on success, or the input unchanged (not a data URL,
+ * or upload failed) — safe to call unconditionally on any cover/inline image value.
+ */
+export async function uploadImageIfDataUrl(
+  imageValue: string,
+  fileNameBase: string,
+  config: PhpBlogConfig,
+): Promise<string> {
+  if (!imageValue.startsWith('data:image/')) return imageValue;
+  const extMatch = imageValue.match(/^data:image\/(png|jpe?g|webp|gif);/i);
+  const ext = extMatch ? (extMatch[1].toLowerCase() === 'jpeg' ? 'jpg' : extMatch[1].toLowerCase()) : 'jpg';
+  const uploadedUrl = await phpBlogImageUpload(imageValue, `${fileNameBase}.${ext}`, config);
+  return uploadedUrl ?? imageValue;
+}
+
+/**
  * Updates only manifest.json on the server (e.g. after deleting a post).
  * Requires a PHP script that supports manifest-only updates (no filename/content).
  * Returns an error string on failure, null on success.

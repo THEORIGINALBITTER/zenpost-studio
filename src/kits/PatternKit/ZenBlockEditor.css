@@ -890,6 +890,141 @@
   max-width: 100%;
 }
 
+.zen-code-block-tool__mermaid-toggle {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid rgba(172, 142, 102, 0.45);
+  border-radius: 6px;
+  background: rgba(217, 212, 197, 0.06);
+  color: #AC8E66;
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.zen-code-block-tool__mermaid-toggle:hover {
+  border-color: #AC8E66;
+  background: rgba(172, 142, 102, 0.15);
+}
+
+.zen-code-block-tool__mermaid-menu-wrap {
+  position: relative;
+  margin-left: 8px;
+}
+
+.zen-code-block-tool__mermaid-menu-wrap .zen-code-block-tool__mermaid-toggle {
+  margin-left: 0;
+}
+
+.zen-code-block-tool__mermaid-menu {
+  position: fixed;
+  z-index: 4100;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 240px;
+  max-height: min(320px, calc(100vh - 160px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid rgba(172, 142, 102, 0.45);
+  border-radius: 8px;
+  background: #1a1a1a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.zen-code-block-tool__mermaid-menu-item {
+  text-align: left;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 9px;
+  background: transparent;
+  color: #d9d4c5;
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.zen-code-block-tool__mermaid-menu-item:hover {
+  background: rgba(172, 142, 102, 0.18);
+  color: #AC8E66;
+}
+
+.zen-code-block-tool__mermaid-help {
+  position: fixed;
+  z-index: 4100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  max-height: min(360px, calc(100vh - 160px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border: 1px solid rgba(172, 142, 102, 0.45);
+  border-radius: 8px;
+  background: #1a1a1a;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.zen-code-block-tool__mermaid-help-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zen-code-block-tool__mermaid-help-row code {
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  color: #AC8E66;
+  background: rgba(172, 142, 102, 0.12);
+  border-radius: 4px;
+  padding: 3px 6px;
+  width: fit-content;
+  white-space: pre-wrap;
+}
+
+.zen-code-block-tool__mermaid-help-row span {
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  color: #999;
+  line-height: 1.4;
+}
+
+.zen-code-block-tool__mermaid-preview {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid rgba(172, 142, 102, 0.35);
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+}
+
+.zen-code-block-tool__mermaid-preview--dark {
+  background: #1a1a1a;
+  border-color: rgba(172, 142, 102, 0.5);
+}
+
+.zen-code-block-tool__mermaid-preview svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.zen-code-block-tool__mermaid-error {
+  font-family: "IBM Plex Mono", "Courier Prime", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  color: #e05c5c;
+  text-align: center;
+}
+
 .zen-code-block-tool__textarea {
   box-sizing: border-box;
   display: block;
@@ -1235,4 +1370,78 @@
 .zen-block-editor input::-webkit-grammar-error,
 .zen-block-editor textarea::-webkit-grammar-error {
   text-decoration: underline wavy #d63b3b;
+}
+
+/* Inline-Link Bearbeiten-Popover */
+.zen-inline-link-popover {
+  box-sizing: border-box;
+  z-index: 4100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  border: 1px solid rgba(208, 203, 184, 0.8);
+  border-radius: 10px;
+  background: rgba(18, 18, 18, 0.97);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 10px;
+}
+
+.zen-inline-link-popover__input {
+  box-sizing: border-box;
+  width: 100%;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: #E9DFC7;
+  background: rgba(217, 212, 197, 0.06);
+  border: 1px solid rgba(208, 203, 184, 0.45);
+  border-radius: 6px;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.zen-inline-link-popover__input:focus {
+  border-color: #d0cbb8;
+}
+
+.zen-inline-link-popover__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.zen-inline-link-popover__btn {
+  box-sizing: border-box;
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(208, 203, 184, 0.45);
+  background: rgba(217, 212, 197, 0.06);
+  color: #d9d4c5;
+  border-radius: 6px;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 9px;
+  font-family: "IBM Plex Mono", monospace;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.zen-inline-link-popover__btn:hover {
+  border-color: #d0cbb8;
+  color: #d0cbb8;
+}
+
+.zen-inline-link-popover__btn--primary {
+  background: #AC8E66;
+  border-color: #AC8E66;
+  color: #1a1a1a;
+}
+
+.zen-inline-link-popover__btn--primary:hover {
+  color: #1a1a1a;
+  border-color: #AC8E66;
 }

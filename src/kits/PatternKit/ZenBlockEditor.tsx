@@ -42,6 +42,7 @@ import { PREVIEW_THEME_EDITOR_TOKENS, type PreviewThemeId } from './zenMarkdownP
 import { canUploadToZenCloud, uploadCloudImageDataUrl } from '../../services/cloudStorageService';
 import { resolveEditorPaperStyle, type EditorPaperStyle } from '../../services/editorPaperStyleService';
 import type { EditorPaperIntensity } from '../../services/editorSettingsService';
+import { renderMermaidToSvg, setPreferredMermaidTheme, getPreferredMermaidTheme } from '../../utils/mermaidRenderer';
 import './ZenBlockEditor.css';
 
 const DEBUG_BLOCK_EDITOR_SYNC = false;
@@ -760,9 +761,16 @@ class ZenTableBlockTool {
   }
 }
 
+let zenMermaidBlockCounter = 0;
+
 class ZenCodeBlockTool {
   private data: { code: string; language: string };
   private dropdownRoot: Root | null = null;
+  private mermaidPreviewEl: HTMLDivElement | null = null;
+  private mermaidShowingPreview = false;
+  private mermaidId = `zen-mermaid-${Date.now()}-${zenMermaidBlockCounter++}`;
+  private mermaidDebounceHandle: ReturnType<typeof setTimeout> | null = null;
+  private mermaidDocClickCleanup: (() => void) | null = null;
   private static readonly LANGUAGE_OPTIONS = [
     { value: 'text', label: 'Plain Text' },
     { value: 'javascript', label: 'JavaScript' },
@@ -775,6 +783,34 @@ class ZenCodeBlockTool {
     { value: 'sql', label: 'SQL' },
     { value: 'yaml', label: 'YAML' },
     { value: 'markdown', label: 'Markdown' },
+    { value: 'mermaid', label: 'Mermaid' },
+  ];
+  private static readonly MERMAID_TEMPLATES = [
+    { label: 'Flowchart (oben → unten)', code: 'flowchart TD\n    A[Start] --> B[Schritt]\n    B --> C[Ende]' },
+    { label: 'Flowchart (links → rechts)', code: 'flowchart LR\n    A[Start] --> B[Schritt]\n    B --> C[Ende]' },
+    { label: 'Verzweigung', code: 'flowchart TD\n    A[Start] --> B{Entscheidung}\n    B -->|Ja| C[Option 1]\n    B -->|Nein| D[Option 2]' },
+    { label: 'Ein Knoten, mehrere Zweige', code: 'flowchart TD\n    A --> B\n    A --> C\n    A --> D' },
+    { label: 'Sequenzdiagramm', code: 'sequenceDiagram\n    Nutzer->>System: Anfrage\n    System-->>Nutzer: Antwort' },
+    { label: 'Klassendiagramm', code: 'classDiagram\n    class Tier {\n        +String name\n        +machGeraeusch()\n    }\n    class Hund\n    class Katze\n    Tier <|-- Hund\n    Tier <|-- Katze' },
+    { label: 'Zustandsdiagramm', code: 'stateDiagram-v2\n    [*] --> Entwurf\n    Entwurf --> InPruefung\n    InPruefung --> Veroeffentlicht\n    InPruefung --> Entwurf\n    Veroeffentlicht --> [*]' },
+    { label: 'Gantt (Zeitplan)', code: 'gantt\n    title Projektplan\n    dateFormat YYYY-MM-DD\n    section Planung\n    Konzept       :a1, 2026-01-01, 5d\n    section Umsetzung\n    Entwicklung   :a2, after a1, 10d\n    Test          :a3, after a2, 5d' },
+    { label: 'Pie-Chart', code: 'pie title Zeitaufteilung\n    "Schreiben" : 45\n    "Recherche" : 30\n    "Bearbeiten" : 25' },
+    { label: 'Mindmap', code: 'mindmap\n  root((Thema))\n    Idee 1\n      Detail A\n      Detail B\n    Idee 2\n    Idee 3' },
+  ];
+  private static readonly MERMAID_CHEATSHEET = [
+    ['flowchart TD', 'Diagramm, "TD" = oben nach unten (auch "LR" = links nach rechts)'],
+    ['A --> B', 'Pfeil von Knoten A zu Knoten B'],
+    ['A[Text]', 'Knoten mit Beschriftung (nötig bei Leerzeichen im Text)'],
+    ['A --> B\nA --> C', 'zwei Pfeile vom selben Knoten = Verzweigung'],
+    ['B -->|Ja| C', 'Pfeil mit Beschriftung (z.B. für Ja/Nein)'],
+    ['sequenceDiagram', 'Diagrammtyp für Nachrichten zwischen Teilnehmern (zeitlich von oben nach unten)'],
+    ['A->>B: Text', 'durchgezogener Pfeil = Anfrage/Aufruf von A an B'],
+    ['A-->>B: Text', 'gestrichelter Pfeil = Antwort von A an B'],
+    ['classDiagram', 'Diagrammtyp für Klassen/Objekte und ihre Beziehungen'],
+    ['stateDiagram-v2', 'Diagrammtyp für Zustände und Übergänge, [*] = Start/Ende'],
+    ['gantt', 'Diagrammtyp für Zeitpläne mit Balken pro Aufgabe'],
+    ['pie title X', 'Diagrammtyp für Kreisdiagramme, danach "Label" : Wert je Zeile'],
+    ['mindmap', 'Diagrammtyp für Mindmaps, Einrückung = Hierarchie-Ebene'],
   ];
 
   static get toolbox() {
@@ -853,6 +889,34 @@ class ZenCodeBlockTool {
     }
   }
 
+  private async renderMermaidPreview(code: string) {
+    if (!this.mermaidPreviewEl) return;
+    if (!code.trim()) {
+      this.mermaidPreviewEl.innerHTML = '';
+      return;
+    }
+    const isDark = getPreferredMermaidTheme() === 'dark';
+    this.mermaidPreviewEl.classList.toggle('zen-code-block-tool__mermaid-preview--dark', isDark);
+    try {
+      const svg = await renderMermaidToSvg(code, this.mermaidId, getPreferredMermaidTheme());
+      if (this.mermaidPreviewEl) this.mermaidPreviewEl.innerHTML = svg;
+    } catch (err) {
+      if (this.mermaidPreviewEl) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.mermaidPreviewEl.innerHTML = '';
+        const errEl = document.createElement('div');
+        errEl.className = 'zen-code-block-tool__mermaid-error';
+        errEl.textContent = `Mermaid-Syntaxfehler: ${message}`;
+        this.mermaidPreviewEl.appendChild(errEl);
+      }
+    }
+  }
+
+  private scheduleMermaidPreview(code: string) {
+    if (this.mermaidDebounceHandle) clearTimeout(this.mermaidDebounceHandle);
+    this.mermaidDebounceHandle = setTimeout(() => void this.renderMermaidPreview(code), 400);
+  }
+
   render() {
     const wrapper = document.createElement('div');
     wrapper.className = 'zen-code-block-tool';
@@ -863,14 +927,155 @@ class ZenCodeBlockTool {
     dropdownHost.className = 'zen-code-block-tool__dropdown-host';
     header.appendChild(dropdownHost);
 
+    const mermaidToggleBtn = document.createElement('button');
+    mermaidToggleBtn.type = 'button';
+    mermaidToggleBtn.className = 'zen-code-block-tool__mermaid-toggle';
+    mermaidToggleBtn.textContent = 'Vorschau';
+    mermaidToggleBtn.style.display = this.data.language === 'mermaid' ? 'inline-flex' : 'none';
+    header.appendChild(mermaidToggleBtn);
+
+    // Vorlagen-Dropdown: fertige Mermaid-Grundgerüste zum Einfügen, damit man
+    // sich die Syntax nicht merken muss.
+    const mermaidTemplatesWrap = document.createElement('div');
+    mermaidTemplatesWrap.className = 'zen-code-block-tool__mermaid-menu-wrap';
+    mermaidTemplatesWrap.style.display = this.data.language === 'mermaid' ? 'inline-block' : 'none';
+    const mermaidTemplatesBtn = document.createElement('button');
+    mermaidTemplatesBtn.type = 'button';
+    mermaidTemplatesBtn.className = 'zen-code-block-tool__mermaid-toggle';
+    mermaidTemplatesBtn.textContent = 'Vorlagen ▾';
+    const mermaidTemplatesMenu = document.createElement('div');
+    mermaidTemplatesMenu.className = 'zen-code-block-tool__mermaid-menu';
+    mermaidTemplatesMenu.style.display = 'none';
+    mermaidTemplatesWrap.appendChild(mermaidTemplatesBtn);
+    // An document.body angehängt (nicht in wrap), da .zen-code-block-tool
+    // overflow:hidden hat und das Panel sonst am Block-Rand abgeschnitten wird.
+    document.body.appendChild(mermaidTemplatesMenu);
+    header.appendChild(mermaidTemplatesWrap);
+
+    // Spickzettel: kurze Erklärung der wichtigsten Mermaid-Syntax-Bausteine.
+    const mermaidHelpWrap = document.createElement('div');
+    mermaidHelpWrap.className = 'zen-code-block-tool__mermaid-menu-wrap';
+    mermaidHelpWrap.style.display = this.data.language === 'mermaid' ? 'inline-block' : 'none';
+    const mermaidHelpBtn = document.createElement('button');
+    mermaidHelpBtn.type = 'button';
+    mermaidHelpBtn.className = 'zen-code-block-tool__mermaid-toggle';
+    mermaidHelpBtn.textContent = '? Syntax';
+    const mermaidHelpPanel = document.createElement('div');
+    mermaidHelpPanel.className = 'zen-code-block-tool__mermaid-help';
+    mermaidHelpPanel.style.display = 'none';
+    for (const [code, explanation] of ZenCodeBlockTool.MERMAID_CHEATSHEET) {
+      const row = document.createElement('div');
+      row.className = 'zen-code-block-tool__mermaid-help-row';
+      const codeEl = document.createElement('code');
+      codeEl.textContent = code;
+      const textEl = document.createElement('span');
+      textEl.textContent = explanation;
+      row.appendChild(codeEl);
+      row.appendChild(textEl);
+      mermaidHelpPanel.appendChild(row);
+    }
+    mermaidHelpWrap.appendChild(mermaidHelpBtn);
+    document.body.appendChild(mermaidHelpPanel);
+    header.appendChild(mermaidHelpWrap);
+
     const textarea = document.createElement('textarea');
     textarea.className = 'zen-code-block-tool__textarea';
     textarea.placeholder = 'Code eingeben...';
     textarea.value = this.data.code;
     textarea.addEventListener('keydown', (event) => this.handleCodeTextareaKeydown(event, textarea));
+    textarea.addEventListener('input', () => {
+      if (this.data.language === 'mermaid') this.scheduleMermaidPreview(textarea.value);
+    });
+
+    const mermaidPreview = document.createElement('div');
+    mermaidPreview.className = 'zen-code-block-tool__mermaid-preview';
+    mermaidPreview.style.display = 'none';
+    this.mermaidPreviewEl = mermaidPreview;
+
+    mermaidToggleBtn.addEventListener('click', () => {
+      this.mermaidShowingPreview = !this.mermaidShowingPreview;
+      mermaidToggleBtn.textContent = this.mermaidShowingPreview ? 'Code' : 'Vorschau';
+      textarea.style.display = this.mermaidShowingPreview ? 'none' : 'block';
+      mermaidPreview.style.display = this.mermaidShowingPreview ? 'block' : 'none';
+      if (this.mermaidShowingPreview) void this.renderMermaidPreview(textarea.value);
+    });
+
+    const closeMermaidPanels = () => {
+      mermaidTemplatesMenu.style.display = 'none';
+      mermaidHelpPanel.style.display = 'none';
+    };
+
+    const positionMermaidPanel = (panel: HTMLDivElement, anchor: HTMLElement) => {
+      const rect = anchor.getBoundingClientRect();
+      const panelWidth = panel.offsetWidth || 240;
+      const left = Math.min(rect.left, window.innerWidth - panelWidth - 12);
+      panel.style.left = `${Math.max(12, left)}px`;
+      panel.style.top = `${rect.bottom + 6}px`;
+    };
+
+    mermaidTemplatesBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const willOpen = mermaidTemplatesMenu.style.display === 'none';
+      closeMermaidPanels();
+      if (willOpen) {
+        mermaidTemplatesMenu.style.display = 'block';
+        positionMermaidPanel(mermaidTemplatesMenu, mermaidTemplatesBtn);
+      }
+    });
+
+    for (const template of ZenCodeBlockTool.MERMAID_TEMPLATES) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'zen-code-block-tool__mermaid-menu-item';
+      item.textContent = template.label;
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        textarea.value = template.code;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        closeMermaidPanels();
+        if (this.mermaidShowingPreview) void this.renderMermaidPreview(textarea.value);
+      });
+      mermaidTemplatesMenu.appendChild(item);
+    }
+
+    mermaidHelpBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const willOpen = mermaidHelpPanel.style.display === 'none';
+      closeMermaidPanels();
+      if (willOpen) {
+        mermaidHelpPanel.style.display = 'block';
+        positionMermaidPanel(mermaidHelpPanel, mermaidHelpBtn);
+      }
+    });
+
+    const onDocumentClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (
+        mermaidTemplatesWrap.contains(event.target) ||
+        mermaidHelpWrap.contains(event.target) ||
+        mermaidTemplatesMenu.contains(event.target) ||
+        mermaidHelpPanel.contains(event.target)
+      ) return;
+      closeMermaidPanels();
+    };
+    document.addEventListener('click', onDocumentClick, true);
+    // No scroll-based auto-close here: overscroll-behavior:contain isn't reliably
+    // honored in every WebView (real trackpad scroll gestures were closing the
+    // panel the instant the scrollable content bottomed out and the gesture
+    // chained to the page). Resize still closes it since its position would
+    // otherwise no longer line up with the trigger button.
+    const onWindowResize = () => closeMermaidPanels();
+    window.addEventListener('resize', onWindowResize);
+    this.mermaidDocClickCleanup = () => {
+      document.removeEventListener('click', onDocumentClick, true);
+      window.removeEventListener('resize', onWindowResize);
+      mermaidTemplatesMenu.remove();
+      mermaidHelpPanel.remove();
+    };
 
     wrapper.appendChild(header);
     wrapper.appendChild(textarea);
+    wrapper.appendChild(mermaidPreview);
 
     this.dropdownRoot = createRoot(dropdownHost);
 
@@ -881,10 +1086,22 @@ class ZenCodeBlockTool {
           onChange: (value: string) => {
             this.data.language = value;
             renderDropdown(value);
+            const isMermaid = value === 'mermaid';
+            mermaidToggleBtn.style.display = isMermaid ? 'inline-flex' : 'none';
+            mermaidTemplatesWrap.style.display = isMermaid ? 'inline-block' : 'none';
+            mermaidHelpWrap.style.display = isMermaid ? 'inline-block' : 'none';
+            if (!isMermaid) {
+              this.mermaidShowingPreview = false;
+              mermaidToggleBtn.textContent = 'Vorschau';
+              textarea.style.display = 'block';
+              mermaidPreview.style.display = 'none';
+              closeMermaidPanels();
+            }
           },
           options: ZenCodeBlockTool.LANGUAGE_OPTIONS,
           variant: 'compact',
           fullWidth: false,
+          width: 220,
           theme: 'dark',
         })
       );
@@ -903,6 +1120,10 @@ class ZenCodeBlockTool {
   destroy() {
     this.dropdownRoot?.unmount();
     this.dropdownRoot = null;
+    if (this.mermaidDebounceHandle) clearTimeout(this.mermaidDebounceHandle);
+    this.mermaidPreviewEl = null;
+    this.mermaidDocClickCleanup?.();
+    this.mermaidDocClickCleanup = null;
   }
 }
 
@@ -1268,6 +1489,10 @@ export const ZenBlockEditor = ({
   const [dotPosition, setDotPosition] = useState({ x: DOT_LEFT_OFFSET, y: 0 });
   const [overlayMenuHeight, setOverlayMenuHeight] = useState(420);
   const overlayMenuRef = useRef<HTMLDivElement | null>(null);
+  const [linkPopover, setLinkPopover] = useState<{ x: number; y: number; url: string; isNew: boolean } | null>(null);
+  const linkPopoverRef = useRef<HTMLDivElement | null>(null);
+  const linkEditAnchorElRef = useRef<HTMLAnchorElement | null>(null);
+  const linkEditSavedRangeRef = useRef<Range | null>(null);
   const lastActiveHeadingRef = useRef<number | null>(null);
   const lastActiveBlockIndexRef = useRef<number | null>(null);
   const toolbarActionBlockIndexRef = useRef<number | null>(null);
@@ -1427,6 +1652,13 @@ export const ZenBlockEditor = ({
     setSearchIndex(prev);
     applySearchHighlight(searchMatchRangesRef.current, prev);
   }, [searchIndex, applySearchHighlight]);
+
+  // Mermaid-Vorschau im Code-Block soll dem aktuellen Dark/Light-Modus folgen —
+  // ZenCodeBlockTool ist eine reine EditorJS-Toolklasse ohne React-Props, daher
+  // wird der aktuelle Modus hier nur an ein kleines Modul-Level-Signal gemeldet.
+  useEffect(() => {
+    setPreferredMermaidTheme(theme === 'dark' ? 'dark' : 'default');
+  }, [theme]);
 
   // Cmd+F / Ctrl+F → open search; Escape → close
   useEffect(() => {
@@ -2635,6 +2867,46 @@ export const ZenBlockEditor = ({
     };
   }, [isReady, menuOpen]);
 
+  // Klick auf einen bestehenden Inline-Link öffnet das Bearbeiten-Popover statt zu navigieren.
+  useEffect(() => {
+    if (!isReady || !holderRef.current) return;
+    const holder = holderRef.current;
+
+    const onLinkClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest('a');
+      if (!anchor || !holder.contains(anchor)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openLinkEditorForAnchor(anchor as HTMLAnchorElement);
+    };
+
+    holder.addEventListener('click', onLinkClick, true);
+    return () => {
+      holder.removeEventListener('click', onLinkClick, true);
+    };
+  }, [isReady]);
+
+  useEffect(() => {
+    if (!linkPopover) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeLinkPopover();
+    };
+    const onOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.zen-inline-link-popover')) return;
+      closeLinkPopover();
+    };
+
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('mousedown', onOutsideClick, true);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener('mousedown', onOutsideClick, true);
+    };
+  }, [linkPopover]);
+
   useEffect(() => {
     if (!isReady || !holderRef.current) return;
 
@@ -3582,6 +3854,123 @@ export const ZenBlockEditor = ({
     }
 
     setMenuOpen(false);
+  };
+
+  const dispatchEditableInput = (node: Node | null) => {
+    const editable = (node instanceof HTMLElement ? node : node?.parentElement)?.closest<HTMLElement>(
+      '.ce-paragraph, .ce-header, .cdx-header, .cdx-quote__text, .cdx-quote__caption, [contenteditable="true"]'
+    );
+    editable?.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+
+  const normalizeLinkUrl = (raw: string): string => {
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    if (/^(https?:|mailto:|tel:|\/|#)/i.test(trimmed)) return trimmed;
+    return `https://${trimmed}`;
+  };
+
+  const closeLinkPopover = () => {
+    setLinkPopover(null);
+    linkEditAnchorElRef.current = null;
+    linkEditSavedRangeRef.current = null;
+  };
+
+  /** Öffnet das Link-Popover für einen bereits bestehenden <a>-Tag im Editor. */
+  const openLinkEditorForAnchor = (anchor: HTMLAnchorElement) => {
+    linkEditAnchorElRef.current = anchor;
+    linkEditSavedRangeRef.current = null;
+    const rect = anchor.getBoundingClientRect();
+    setMenuOpen(false);
+    setLinkPopover({
+      x: rect.left,
+      y: rect.bottom + 6,
+      url: anchor.getAttribute('href') ?? '',
+      isNew: false,
+    });
+  };
+
+  /** Öffnet das Link-Popover für die aktuelle Selektion (Toolbar-Button "Link"). */
+  const openLinkEditorForSelection = () => {
+    const holder = holderRef.current;
+    const selection = window.getSelection();
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    if (!holder || !selection || !range || !holder.contains(range.commonAncestorContainer)) {
+      setMenuOpen(false);
+      return;
+    }
+
+    const findAnchorFromNode = (node: Node | null): HTMLAnchorElement | null => {
+      if (!node) return null;
+      const el = node instanceof HTMLElement ? node : node.parentElement;
+      return el?.closest('a') ?? null;
+    };
+
+    const existingAnchor = findAnchorFromNode(range.startContainer);
+    if (existingAnchor) {
+      openLinkEditorForAnchor(existingAnchor);
+      return;
+    }
+
+    if (range.collapsed) {
+      setMenuOpen(false);
+      return;
+    }
+
+    linkEditAnchorElRef.current = null;
+    linkEditSavedRangeRef.current = range.cloneRange();
+    const rangeRect = range.getBoundingClientRect();
+    setMenuOpen(false);
+    setLinkPopover({ x: rangeRect.left, y: rangeRect.bottom + 6, url: '', isNew: true });
+  };
+
+  const saveLinkPopover = (rawUrl: string) => {
+    const url = normalizeLinkUrl(rawUrl);
+    if (!url) {
+      closeLinkPopover();
+      return;
+    }
+
+    const anchor = linkEditAnchorElRef.current;
+    if (anchor) {
+      anchor.setAttribute('href', url);
+      dispatchEditableInput(anchor);
+      closeLinkPopover();
+      return;
+    }
+
+    const savedRange = linkEditSavedRangeRef.current;
+    if (savedRange) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(savedRange);
+
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      try {
+        savedRange.surroundContents(link);
+      } catch {
+        const fragment = savedRange.extractContents();
+        link.appendChild(fragment);
+        savedRange.insertNode(link);
+      }
+      dispatchEditableInput(link);
+    }
+
+    closeLinkPopover();
+  };
+
+  const removeLinkPopover = () => {
+    const anchor = linkEditAnchorElRef.current;
+    if (anchor) {
+      const parent = anchor.parentNode;
+      while (anchor.firstChild) {
+        parent?.insertBefore(anchor.firstChild, anchor);
+      }
+      parent?.removeChild(anchor);
+      dispatchEditableInput(parent);
+    }
+    closeLinkPopover();
   };
 
   const getViewportPosition = (position: { x: number; y: number }) => {
@@ -4875,6 +5264,7 @@ export const ZenBlockEditor = ({
               <button type="button" onMouseDown={keepSelection} onClick={() => applyInlineFormat('italic')}>I</button>
               <button type="button" onMouseDown={keepSelection} onClick={() => applyInlineFormat('underline')}>U</button>
               <button type="button" onMouseDown={keepSelection} onClick={() => applyInlineFormat('strikeThrough')}>S</button>
+              <button type="button" onMouseDown={keepSelection} title="Link setzen/bearbeiten" aria-label="Link setzen/bearbeiten" onClick={openLinkEditorForSelection}>Link</button>
               <button type="button" onMouseDown={keepSelection} title="Marker Gelb" aria-label="Marker Gelb" onClick={() => applyColorFormat('highlight', '#fff2a8')}>M1</button>
               <button type="button" onMouseDown={keepSelection} title="Marker Grün" aria-label="Marker Grün" onClick={() => applyColorFormat('highlight', '#bff6c3')}>M2</button>
               <button type="button" onMouseDown={keepSelection} title="Marker Blau" aria-label="Marker Blau" onClick={() => applyColorFormat('highlight', '#c8e7ff')}>M3</button>
@@ -4965,6 +5355,59 @@ export const ZenBlockEditor = ({
                 </div>
               </>
             )}
+          </div>,
+          document.body
+        )}
+
+      {linkPopover && typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            ref={linkPopoverRef}
+            className="zen-inline-link-popover"
+            style={{
+              position: 'fixed',
+              left: Math.min(linkPopover.x, Math.max(12, window.innerWidth - 352)),
+              top: linkPopover.y,
+            }}
+            role="dialog"
+            aria-label="Link bearbeiten"
+          >
+            <input
+              type="url"
+              className="zen-inline-link-popover__input"
+              placeholder="https://example.com"
+              autoFocus
+              defaultValue={linkPopover.url}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  saveLinkPopover((event.target as HTMLInputElement).value);
+                } else if (event.key === 'Escape') {
+                  event.preventDefault();
+                  closeLinkPopover();
+                }
+              }}
+            />
+            <div className="zen-inline-link-popover__actions">
+              <button
+                type="button"
+                className="zen-inline-link-popover__btn zen-inline-link-popover__btn--primary"
+                onClick={(event) => {
+                  const input = (event.currentTarget.closest('.zen-inline-link-popover')?.querySelector('input')) as HTMLInputElement | null;
+                  saveLinkPopover(input?.value ?? '');
+                }}
+              >
+                Übernehmen
+              </button>
+              {!linkPopover.isNew && (
+                <button type="button" className="zen-inline-link-popover__btn" onClick={removeLinkPopover}>
+                  Entfernen
+                </button>
+              )}
+              <button type="button" className="zen-inline-link-popover__btn" onClick={closeLinkPopover}>
+                Abbrechen
+              </button>
+            </div>
           </div>,
           document.body
         )}

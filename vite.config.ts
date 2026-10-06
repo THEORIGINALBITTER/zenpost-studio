@@ -39,6 +39,7 @@ export default defineConfig(async () => ({
           if (id.includes("codemirror")) return "codemirror";
           if (id.includes("roughjs")) return "roughjs";
           if (id.includes("framer-motion")) return "motion";
+          if (id.includes("mermaid")) return "mermaid";
 
           return "vendor";
         },

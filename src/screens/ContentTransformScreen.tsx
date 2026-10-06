@@ -65,7 +65,8 @@ import {
   type ZenStudioSettings,
 } from '../services/zenStudioSettingsService';
 import { ftpUpload } from '../services/ftpService';
-import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify } from '../services/phpBlogService';
+import { phpBlogUpload, phpBlogImageUpload, phpBlogNewsletterNotify, uploadImageIfDataUrl } from '../services/phpBlogService';
+import { replaceMermaidBlocksWithImages } from '../utils/mermaidRenderer';
 import { canUploadToZenCloud, downloadCloudDocumentText, uploadCloudDocument, updateCloudDocument } from '../services/cloudStorageService';
 import { subscribeToInsertContentStudioSnippet } from '../services/contentStudioBridgeService';
 import { isCloudProjectPath } from '../services/cloudProjectService';
@@ -1914,8 +1915,9 @@ export const ContentTransformScreen = ({
     const activeTab = activeDocTabId ? openDocTabs.find((tab) => tab.id === activeDocTabId) : null;
     const activeDisplayPath = activeTab?.displayPath ?? activeTab?.filePath ?? projectPath ?? null;
 
-    // ── Cloud-Projekt: Upload zu ZenPost Cloud Storage ──
-    if (activeDisplayPath && isCloudProjectPath(activeDisplayPath)) {
+    // ── Cloud-Projekt: normal save updates ZenCloud. An explicit server save
+    // continues to the blog target below and publishes through its Media API.
+    if (activeDisplayPath && isCloudProjectPath(activeDisplayPath) && !triggerFtp) {
       const suggestedName = (activeTab?.title || fileName || 'Entwurf').trim().replace(/\.md$/i, '');
       setCloudSaveInputName(suggestedName);
       setCloudSaveDialog({ content: contentToSave, suggestedName });
@@ -1923,7 +1925,23 @@ export const ContentTransformScreen = ({
     }
 
     // Blog-aware save: write to posts/ + update manifest.json
-    if (isTauri() && blogSaveTarget && (!activeTab || activeTab.kind !== 'file')) {
+    if (blogSaveTarget && (!activeTab || activeTab.kind !== 'file')) {
+      const runningInTauri = isTauri();
+      const webPhpCfg = (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey)
+        ? { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey }
+        : null;
+      // Im Browser gibt es keinen Dateisystemzugriff — nur der PHP-API-Server-Upload
+      // (Media API in den Einstellungen) funktioniert dort direkt, ohne Umweg über Download.
+      if (!runningInTauri) {
+        if (blogSaveTarget.siteType === 'docs') {
+          alert('Docs-Sites können aktuell nur in der Desktop-App gespeichert werden.');
+          return;
+        }
+        if (!webPhpCfg) {
+          alert('Dieser Blog ist nicht für Server-Speichern konfiguriert. In den Einstellungen unter Media API eine PHP-Upload-URL + Key hinterlegen, oder die Desktop-App für lokale Ordner nutzen.');
+          return;
+        }
+      }
       // Check if post meta is sparse — title can come from heading, but tags + subtitle missing is worth a nudge
       const metaSparse = !postMeta.subtitle.trim() && postMeta.tags.length === 0;
       if (metaSparse && !contentOverride) {
@@ -1949,7 +1967,7 @@ export const ContentTransformScreen = ({
           : `${date}-${titleText.replace(/[/\\:*?"<>|]/g, '-').trim()}.md`;
         const wordCount = actualContent.trim().split(/\s+/).length;
         const readingTime = Math.max(1, Math.round(wordCount / 220));
-        const postsDir = await join(blogSaveTarget.path, isDocsSite ? 'docs' : 'posts');
+        const postsDir = runningInTauri ? await join(blogSaveTarget.path, isDocsSite ? 'docs' : 'posts') : '';
         // Only ever auto-creates posts/ (the normal, always-safe default for
         // a blog). docs/ is never created on demand — if the config says
         // "docs" but no docs/ folder exists yet locally, that's very likely
@@ -1957,7 +1975,7 @@ export const ContentTransformScreen = ({
         // Silently creating it here is exactly what routed saves into the
         // wrong place tonight; failing loudly lets the mismatch get fixed
         // before anything is written to the wrong folder.
-        if (isDocsSite && !(await exists(postsDir))) {
+        if (runningInTauri && isDocsSite && !(await exists(postsDir))) {
           alert(
             `Dieser Blog ist als "Docs" konfiguriert, aber lokal existiert noch kein docs/-Ordner unter\n${blogSaveTarget.path}.\n\n` +
             `Falls das eigentlich ein normaler Blog ist: Site-Typ in den Einstellungen auf "Blog" umstellen.\n` +
@@ -1965,7 +1983,7 @@ export const ContentTransformScreen = ({
           );
           return;
         }
-        if (!(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
+        if (runningInTauri && !(await exists(postsDir))) await mkdir(postsDir, { recursive: true });
         // If meta image is base64 or local path, extract and save as image file next to the post
         const prefersPlaceholderVisual = postMeta.visualMode === 'placeholder';
         let coverImageValue = prefersPlaceholderVisual ? '' : postMeta.imageUrl.trim();
@@ -1975,7 +1993,16 @@ export const ContentTransformScreen = ({
           const fileName = localCoverImagePath.split(/[\\/]/).pop() || `${slug}-cover.jpg`;
           coverImageValue = `_assets/${fileName}`;
         }
-        if (coverImageValue && /^data:image\//i.test(coverImageValue)) {
+        if (!runningInTauri && /^(opfs:\/\/|blob:|file:\/\/)/i.test(coverImageValue)) {
+          // opfs://, blob: und lokale Dateipfade lassen sich im Browser nicht auflösen.
+          coverImageValue = '';
+        }
+        if (!runningInTauri && webPhpCfg && coverImageValue && /^data:image\//i.test(coverImageValue)) {
+          // Vorab hochladen, damit das Frontmatter die gehostete URL statt der rohen
+          // base64-Daten enthält (sonst würde die volle base64-URL ins .md geschrieben).
+          coverImageValue = await uploadImageIfDataUrl(coverImageValue, `cover-${slug}`, webPhpCfg);
+        }
+        if (runningInTauri && coverImageValue && /^data:image\//i.test(coverImageValue)) {
           try {
             const assetsDir = await join(postsDir, '_assets');
             if (!(await exists(assetsDir))) await mkdir(assetsDir, { recursive: true });
@@ -1992,18 +2019,18 @@ export const ContentTransformScreen = ({
             console.warn('[ZenPost] Cover-Bild konnte nicht als Datei gespeichert werden:', imgErr);
           }
         }
-        // Inline editor images: local paths/data URLs -> _assets (and upload on FTP/PHP)
+        // Inline editor images: data:/opfs:/lokale Pfade -> _assets (Desktop) oder direkt per PHP-API hochladen (Web + Desktop)
         let processedContent = actualContent;
         const assetsToUpload: Array<{ localPath: string; fileName: string }> = [];
-        if (isTauri()) {
-          const assetsDir = await join(postsDir, '_assets');
-          if (!(await exists(assetsDir))) await mkdir(assetsDir, { recursive: true });
+        if (runningInTauri || webPhpCfg) {
+          const assetsDir = runningInTauri ? await join(postsDir, '_assets') : '';
+          if (runningInTauri && !(await exists(assetsDir))) await mkdir(assetsDir, { recursive: true });
           const imageUrls = extractMarkdownImageUrls(actualContent);
           const replacements = new Map<string, string>();
           let imgIndex = 1;
-          const phpCfg = (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey)
+          const phpCfg = webPhpCfg ?? ((blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey)
             ? { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey }
-            : null;
+            : null);
 
           for (const rawUrl of imageUrls) {
             if (replacements.has(rawUrl)) continue;
@@ -2016,6 +2043,7 @@ export const ContentTransformScreen = ({
               const extM = rawUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);/i);
               ext = extM?.[1]?.toLowerCase() === 'jpeg' ? 'jpg' : (extM?.[1] ?? 'jpg');
             } else if (rawUrl.startsWith('opfs://')) {
+              // OPFS (navigator.storage) ist Browser-nativ — läuft in Web und Desktop gleich.
               try {
                 const { loadOpfsImageAsBlobUrl } = await import('../utils/editorImageCompression');
                 const blobUrl = await loadOpfsImageAsBlobUrl(rawUrl);
@@ -2026,10 +2054,10 @@ export const ContentTransformScreen = ({
               }
               const extM = dataUrl?.match(/^data:image\/([a-zA-Z0-9.+-]+);/i);
               ext = extM?.[1]?.toLowerCase() === 'jpeg' ? 'jpg' : (extM?.[1] ?? 'jpg');
-            } else if (rawUrl.startsWith('_assets/')) {
+            } else if (runningInTauri && rawUrl.startsWith('_assets/')) {
               localPath = await join(postsDir, rawUrl);
               ext = (localPath.split('.').pop() ?? 'jpg').toLowerCase();
-            } else if (isLocalFilesystemImageUrl(rawUrl)) {
+            } else if (runningInTauri && isLocalFilesystemImageUrl(rawUrl)) {
               localPath = normalizeLocalImagePath(rawUrl);
               ext = (localPath.split('.').pop() ?? 'jpg').toLowerCase();
               try {
@@ -2053,6 +2081,8 @@ export const ContentTransformScreen = ({
               continue;
             }
 
+            if (!runningInTauri) continue; // ohne PHP-API und ohne Dateisystem bleibt die URL unangetastet
+
             // Local/FTP path: ensure file exists in _assets and link relatively
             const targetPath = await join(assetsDir, baseName);
             if (dataUrl) {
@@ -2072,6 +2102,19 @@ export const ContentTransformScreen = ({
           if (replacements.size > 0) {
             processedContent = replaceMarkdownImageUrls(actualContent, replacements);
           }
+        }
+        // Mermaid-Diagramme als PNG hochladen (nur bei PHP-API-Ziel — die
+        // externe Blog-Seite kennt kein Mermaid und würde sonst nur den rohen
+        // Codeblock zeigen). Betrifft nur die veröffentlichte Kopie, nicht den Editor-Draft.
+        const mermaidPhpCfg = webPhpCfg ?? ((blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey)
+          ? { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey }
+          : null);
+        if (mermaidPhpCfg) {
+          processedContent = await replaceMermaidBlocksWithImages(
+            processedContent,
+            (png, name) => uploadImageIfDataUrl(png, name, mermaidPhpCfg),
+            `diagram-${slug}`,
+          );
         }
         const fmLines = [
           '---',
@@ -2096,8 +2139,8 @@ export const ContentTransformScreen = ({
           postMeta.imageCaption.trim() ? `coverImageCaption: "${postMeta.imageCaption.trim().replace(/"/g, '\\"')}"` : null,
           '---', '', '',
         ].filter((l): l is string => l !== null).join('\n');
-        const filePath = await join(postsDir, localFilename);
-        await writeTextFile(filePath, fmLines + processedContent);
+        const filePath = runningInTauri ? await join(postsDir, localFilename) : undefined;
+        if (runningInTauri && filePath) await writeTextFile(filePath, fmLines + processedContent);
 
         if (isDocsSite) {
           const manifestPath = await join(blogSaveTarget.path, 'docs', 'manifest.json');
@@ -2163,15 +2206,11 @@ export const ContentTransformScreen = ({
 
           if (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
             const phpCfg = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
-            if (coverImageValue.startsWith('data:image/')) {
-              const extM = coverImageValue.match(/^data:image\/(png|jpe?g|webp|gif);/i);
-              const ext2 = extM ? (extM[1].toLowerCase() === 'jpeg' ? 'jpg' : extM[1].toLowerCase()) : 'jpg';
-              const uploadedUrl = await phpBlogImageUpload(coverImageValue, `cover-${slug}.${ext2}`, phpCfg);
-              if (uploadedUrl) {
-                entry.coverImage = uploadedUrl;
-                const pi = manifest.documents.findIndex((doc) => doc.path === localFilename || doc.id === slug);
-                if (pi >= 0) manifest.documents[pi] = entry;
-              }
+            const uploadedCoverUrl = await uploadImageIfDataUrl(coverImageValue, `cover-${slug}`, phpCfg);
+            if (uploadedCoverUrl !== coverImageValue) {
+              entry.coverImage = uploadedCoverUrl;
+              const pi = manifest.documents.findIndex((doc) => doc.path === localFilename || doc.id === slug);
+              if (pi >= 0) manifest.documents[pi] = entry;
             }
             const phpErr = await phpBlogUpload(
               { filename: localFilename, content: fmLines + processedContent, manifest },
@@ -2198,12 +2237,14 @@ export const ContentTransformScreen = ({
         }
 
         // Update manifest.json
-        const manifestPath = await join(blogSaveTarget.path, 'manifest.json');
+        const manifestPath = runningInTauri ? await join(blogSaveTarget.path, 'manifest.json') : '';
         let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
           site: { title: blogSaveTarget.name, tagline: blogSaveTarget.tagline ?? '', author: blogSaveTarget.author ?? '', url: blogSaveTarget.siteUrl ?? '' },
           posts: [],
         };
-        try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new */ }
+        if (runningInTauri) {
+          try { manifest = JSON.parse(await readTextFile(manifestPath)); } catch { /* new */ }
+        }
         // Fetch server manifest as authoritative source to avoid losing posts
         if (blogSaveTarget.siteUrl) {
           try {
@@ -2262,10 +2303,10 @@ export const ContentTransformScreen = ({
         if (postMeta.imageCaption.trim()) entry.coverImageCaption = postMeta.imageCaption.trim();
         const idx = manifest.posts.findIndex((p) => p.slug === slug);
         if (idx >= 0) manifest.posts[idx] = entry; else manifest.posts.unshift(entry);
-        await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
+        if (runningInTauri) await writeTextFile(manifestPath, JSON.stringify(manifest, null, 2));
 
-        // FTP/SFTP Upload wenn konfiguriert
-        if (blogSaveTarget.deployType === 'ftp' && blogSaveTarget.ftpHost && blogSaveTarget.ftpUser && blogSaveTarget.ftpPassword) {
+        // FTP/SFTP Upload wenn konfiguriert (nur Desktop — kein Browser-Zugriff auf FTP/lokale Dateien)
+        if (runningInTauri && blogSaveTarget.deployType === 'ftp' && blogSaveTarget.ftpHost && blogSaveTarget.ftpUser && blogSaveTarget.ftpPassword) {
           const blogRoot = (blogSaveTarget.ftpRemotePath ?? '/public_html/blog').replace(/\/$/, '');
           const ftpConfig = {
             host: blogSaveTarget.ftpHost,
@@ -2290,7 +2331,7 @@ export const ContentTransformScreen = ({
               if (!ftpImageErr) ftpImageErr = err;
             });
           }
-          const ftpErr = await ftpUpload(filePath, `${slug}.md`, ftpConfig);
+          const ftpErr = await ftpUpload(filePath!, `${slug}.md`, ftpConfig);
           // Also upload manifest.json so server stays in sync
           if (!ftpErr) {
             await ftpUpload(manifestPath, 'manifest.json', {
@@ -2301,7 +2342,7 @@ export const ContentTransformScreen = ({
           if (ftpErr) {
             setSavedFileName(`${slug}.md`);
             setSavedFilePath(filePath);
-            setSavedFilePaths([filePath]);
+            setSavedFilePaths([filePath!]);
             setSaveSuccessMessage(`Lokal gespeichert. FTP-Upload fehlgeschlagen: ${ftpErr}`);
             setSaveSuccessPathsLabel(undefined);
             setSaveSuccessPrimaryActionLabel(undefined);
@@ -2336,15 +2377,10 @@ export const ContentTransformScreen = ({
         if (blogSaveTarget.deployType === 'php-api' && blogSaveTarget.phpApiUrl && blogSaveTarget.phpApiKey) {
           // Cover-Image: base64 → hochladen → URL in manifest entry ersetzen
           const phpCfg = { apiUrl: blogSaveTarget.phpApiUrl, apiKey: blogSaveTarget.phpApiKey };
-          if (coverImageValue.startsWith('data:image/')) {
-            const extM = coverImageValue.match(/^data:image\/(png|jpe?g|webp|gif);/i);
-            const ext2 = extM ? (extM[1].toLowerCase() === 'jpeg' ? 'jpg' : extM[1].toLowerCase()) : 'jpg';
-            const imgName = `cover-${slug}.${ext2}`;
-            const uploadedUrl = await phpBlogImageUpload(coverImageValue, imgName, phpCfg);
-            if (uploadedUrl) {
-              entry.coverImage = uploadedUrl;
-              manifest.posts[manifest.posts.findIndex((p) => p.slug === slug)] = entry;
-            }
+          const uploadedCoverUrl = await uploadImageIfDataUrl(coverImageValue, `cover-${slug}`, phpCfg);
+          if (uploadedCoverUrl !== coverImageValue) {
+            entry.coverImage = uploadedCoverUrl;
+            manifest.posts[manifest.posts.findIndex((p) => p.slug === slug)] = entry;
           }
           const phpErr = await phpBlogUpload(
             { filename: `${slug}.md`, content: fmLines + processedContent, manifest },
@@ -2363,9 +2399,11 @@ export const ContentTransformScreen = ({
           setSavedFileName(`${slug}.md`);
           setSavedFilePath(filePath);
           setSavedFilePaths(phpErr
-            ? [`Lokal: ${filePath}`, `PHP Upload fehlgeschlagen: ${phpErr}`]
+            ? [...(filePath ? [`Lokal: ${filePath}`] : []), `PHP Upload fehlgeschlagen: ${phpErr}`]
             : [`Blog: ${blogSaveTarget.name}`, blogSaveTarget.phpApiUrl, ...(viewUrl ? [`Ansicht: ${viewUrl}`] : [])]);
-          setSaveSuccessMessage(phpErr ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : 'Artikel lokal gespeichert und per PHP hochgeladen.');
+          setSaveSuccessMessage(phpErr
+            ? (runningInTauri ? `Lokal gespeichert. PHP Upload fehlgeschlagen: ${phpErr}` : `PHP Upload fehlgeschlagen: ${phpErr}`)
+            : (runningInTauri ? 'Artikel lokal gespeichert und per PHP hochgeladen.' : 'Artikel auf den Server hochgeladen.'));
           setSaveSuccessPathsLabel('Details:');
           setSaveSuccessPrimaryActionLabel(!phpErr && viewUrl ? 'Im Blog anschauen' : undefined);
           setSaveSuccessPrimaryActionUrl(!phpErr ? (viewUrl ?? null) : null);
@@ -2706,10 +2744,8 @@ export const ContentTransformScreen = ({
           const slugForImg = sanitizeBlogFilename(savedName);
           if (rawImg2.startsWith('data:image/')) {
             // Base64 → hochladen
-            const extM2 = rawImg2.match(/^data:image\/(png|jpe?g|webp|gif);/i);
-            const ext3 = extM2 ? (extM2[1].toLowerCase() === 'jpeg' ? 'jpg' : extM2[1].toLowerCase()) : 'jpg';
-            const imgName2 = `cover-${slugForImg}.${ext3}`;
-            uploadedUrl2 = await phpBlogImageUpload(rawImg2, imgName2, phpCfg2);
+            const uploaded = await uploadImageIfDataUrl(rawImg2, `cover-${slugForImg}`, phpCfg2);
+            uploadedUrl2 = uploaded !== rawImg2 ? uploaded : null;
           } else if (isLocalFilesystemImageUrl(rawImg2)) {
             // Lokaler Pfad → lesen → hochladen
             try {
@@ -2831,6 +2867,20 @@ export const ContentTransformScreen = ({
         if (inlineUploadCompleted !== inlineUploadExpected) {
           throw new Error(`Inline-Bild-Upload unvollstaendig (${inlineUploadCompleted}/${inlineUploadExpected}).`);
         }
+      }
+
+      // Mermaid-Diagramme als PNG hochladen — dieser generische Server kennt
+      // kein Mermaid, ohne das würde nur der rohe Codeblock ankommen.
+      if (/```mermaid\n/.test(markdownPrepared)) {
+        if (!uploadUrl) {
+          alert('Mermaid-Diagramm erkannt, aber kein Upload-Endpunkt konfiguriert (API -> Upload Endpoint).');
+          return;
+        }
+        markdownPrepared = await replaceMermaidBlocksWithImages(
+          markdownPrepared,
+          (png, name) => uploadImageDataUrlToServer(png, uploadUrl, apiKey, `${name}.png`).catch(() => null),
+          fallbackSlug,
+        );
       }
 
       // Meta-Felder: nutze explizit gesetzte Werte, sonst auto-extraktion
@@ -5199,7 +5249,7 @@ export const ContentTransformScreen = ({
             <button
               onClick={() => {
                 setShowBlogMetaHint(false);
-                setShowMetadata(true);
+                setMetadataPanelOpenRequest(Date.now());
               }}
               style={{
                 padding: '6px 12px', border: '1px solid rgba(172,142,102,0.6)',

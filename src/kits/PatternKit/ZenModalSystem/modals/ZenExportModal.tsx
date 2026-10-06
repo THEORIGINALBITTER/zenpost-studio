@@ -1,5 +1,5 @@
 import { prepareXPostContent } from '../../../../services/xPostContent';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import {
   loadSocialConfig, isPlatformConfigured,
   postToDevTo, postToMedium, postToLinkedIn, postToReddit, postToTwitter,
@@ -15,9 +15,11 @@ import { join } from '@tauri-apps/api/path';
 import { loadZenStudioSettings, type BlogConfig } from '../../../../services/zenStudioSettingsService';
 import { gitCommitAndPush } from '../../../../services/gitService';
 import { ftpUpload } from '../../../../services/ftpService';
-import { phpBlogImageUpload, phpBlogUpload } from '../../../../services/phpBlogService';
+import { phpBlogImageUpload, phpBlogUpload, normalizePhpUploadUrl, uploadImageIfDataUrl } from '../../../../services/phpBlogService';
 import ZenEngine from '../../../../services/zenEngineService';
 import { marked } from 'marked';
+import { createMermaidAwareRenderer, MERMAID_SCRIPT_TAG } from '../../../../services/markdownMermaidRenderer';
+import { replaceMermaidBlocksWithImages, embedMermaidAsDataUriImages, resolveMermaidForClipboard } from '../../../../utils/mermaidRenderer';
 import { Document as DocxDocument, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import JSZip from 'jszip';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -57,7 +59,7 @@ import {
 import { ZenModal } from '../components/ZenModal';
 import { useOpenExternal } from '../../../../hooks/useOpenExternal';
 import { loadOpfsImageAsBlobUrl, isOpfsImagePath } from '../../../../utils/editorImageCompression';
-import { uploadCloudDocument } from '../../../../services/cloudStorageService';
+import { uploadCloudDocument, uploadCloudImageDataUrl, canUploadToZenCloud } from '../../../../services/cloudStorageService';
 
 interface ZenExportModalProps {
   isOpen: boolean;
@@ -406,6 +408,29 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const [publishError, setPublishError] = useState<{ id: string; message: string } | null>(null);
   // Platforms where API failed → show persistent "Copy & Open" fallback button
   const [copyFallbackIds, setCopyFallbackIds] = useState<Set<string>>(new Set());
+
+  // Für Social-Plattformen (nur Zwischenablage, kein Markdown-Rendering): jeder
+  // ```mermaid-Block wird einmalig durch einen Platzhalter ersetzt, das Diagramm
+  // landet als PNG in ZenImage (oder als Download, falls ZenCloud nicht konfiguriert
+  // ist). Wird nur einmal pro geöffnetem Modal berechnet, nicht pro Plattform-Klick,
+  // damit eine Mehrfachauswahl dasselbe Diagramm nicht mehrfach hochlädt.
+  const [mermaidSafeContent, setMermaidSafeContent] = useState(content);
+  const [mermaidAssetNotice, setMermaidAssetNotice] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setMermaidSafeContent(content);
+    resolveMermaidForClipboard(content, (png, name) =>
+      canUploadToZenCloud() ? uploadCloudImageDataUrl(png, `${name}.png`).then((r) => r?.url ?? null) : Promise.resolve(null)
+    ).then(({ content: resolved, assetCount }) => {
+      if (cancelled) return;
+      setMermaidSafeContent(resolved);
+      if (assetCount > 0) {
+        setMermaidAssetNotice(`${assetCount} Diagramm(e) für Social-Posts vorbereitet — siehe ZenImage bzw. Downloads.`);
+        setTimeout(() => setMermaidAssetNotice(null), 5000);
+      }
+    });
+    return () => { cancelled = true; };
+  }, [content]);
   // Platform selection for bulk-post (user explicitly selects before posting)
   const [selectedPlatformIds, setSelectedPlatformIds] = useState<Set<string>>(new Set());
   // LinkedIn cover image
@@ -1306,7 +1331,8 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
 
     const heading = markdown.match(/^#\s+(.+)$/m)?.[1]?.trim();
     const title = heading || baseName || 'ZenPost Export';
-    const renderedHtml = await marked.parse(markdown, { gfm: true, breaks: true });
+    const embeddedMarkdown = await embedMermaidAsDataUriImages(markdown);
+    const renderedHtml = await marked.parse(embeddedMarkdown, { gfm: true, breaks: true });
     const xhtmlBody = renderedHtml
       .replace(/<br>/g, '<br />')
       .replace(/<hr>/g, '<hr />')
@@ -1397,7 +1423,8 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
   const printRenderedMarkdownAsPdf = async (markdown: string, title: string) => {
     if (typeof document === 'undefined') throw new Error('Print is not available in this environment.');
 
-    const renderedHtml = await marked.parse(markdown, { gfm: true, breaks: true });
+    const embeddedMarkdown = await embedMermaidAsDataUriImages(markdown);
+    const renderedHtml = await marked.parse(embeddedMarkdown, { gfm: true, breaks: true });
     const safeTitle = title.replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
     const iframe = document.createElement('iframe');
@@ -1569,6 +1596,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
           const renderedHtml = await marked.parse(normalizedContent, {
             gfm: true,
             breaks: true,
+            renderer: createMermaidAwareRenderer(),
           });
           const htmlTitle = normalizedContent.match(/^#\s+(.+)$/m)?.[1]?.trim()
             ?? deriveExportBaseName(documentName, normalizedContent);
@@ -1599,6 +1627,7 @@ export function ZenExportModal({ isOpen, onClose, content, platform: _platform, 
 </head>
 <body>
 ${renderedHtml}
+${MERMAID_SCRIPT_TAG}
 </body>
 </html>`;
           extension = 'html';
@@ -1714,15 +1743,125 @@ ${renderedHtml}
     }
   };
 
+  // Browser-Pfad fürs Blog-Speichern: kein Dateisystemzugriff, also direkt per
+  // HTTP an den in den Einstellungen (Media API) hinterlegten PHP-Upload-Endpoint.
+  const handleWebPhpBlogPublish = async (
+    option: PublishOption,
+    blog: BlogConfig,
+    phpCfg: { apiUrl: string; apiKey: string },
+  ) => {
+    setPublishingId(option.id);
+    setPublishError(null);
+    try {
+      const date = new Date().toISOString().split('T')[0];
+      const firstHeading = content.match(/^#+\s+(.+)/m)?.[1] ?? (documentName || 'Blog Post');
+      const titleText = firstHeading.trim().slice(0, 80);
+      const slug = `${date}-${titleText.toLowerCase()
+        .replace(/[äöüß]/g, (c) => ({ ä: 'ae', ö: 'oe', ü: 'ue', ß: 'ss' }[c] ?? c))
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+      const tag = tags[0] ?? 'devlog';
+      const wordCount = content.trim().split(/\s+/).length;
+      const readingTime = Math.max(1, Math.round(wordCount / 220));
+      const allTags = tags.length > 0 ? tags.join(', ') : tag;
+
+      let coverImageValue = imageUrl ?? '';
+      // opfs:///blob:/file: lassen sich im Browser nicht auflösen — nur data:-URLs
+      // (die kann phpBlogImageUpload direkt annehmen) und bereits gehostete URLs bleiben.
+      if (coverImageValue.startsWith('opfs://') || coverImageValue.startsWith('file://')) {
+        coverImageValue = '';
+      }
+      coverImageValue = await uploadImageIfDataUrl(coverImageValue, `cover-${slug}`, phpCfg);
+
+      // Mermaid-Diagramme als PNG hochladen — die externe Blog-Seite kennt
+      // kein Mermaid, ohne das würde nur der rohe Codeblock erscheinen.
+      const uploadedContent = await replaceMermaidBlocksWithImages(
+        content,
+        (png, name) => uploadImageIfDataUrl(png, name, phpCfg),
+        `diagram-${slug}`,
+      );
+
+      const frontmatter = [
+        '---',
+        `title: "${titleText.replace(/"/g, '\\"')}"`,
+        subtitle ? `subtitle: "${subtitle.replace(/"/g, '\\"')}"` : null,
+        `date: "${date}"`,
+        `tags: [${allTags}]`,
+        `readingTime: ${readingTime}`,
+        coverImageValue ? `coverImage: "${coverImageValue}"` : null,
+        '---',
+        '',
+        '',
+      ].filter((l): l is string => l !== null).join('\n');
+
+      // Aktuelles Manifest vom Server holen (statt aus lokaler Datei) und mergen.
+      let manifest: { site: Record<string, string>; posts: Array<Record<string, unknown>> } = {
+        site: { title: blog.name, tagline: blog.tagline ?? '', author: blog.author ?? '', url: blog.siteUrl ?? '' },
+        posts: [],
+      };
+      try {
+        const res = await fetch(normalizePhpUploadUrl(phpCfg.apiUrl), { headers: { 'X-Api-Key': phpCfg.apiKey } });
+        if (res.ok) {
+          const remote = await res.json();
+          if (remote && Array.isArray(remote.posts)) manifest = remote;
+        }
+      } catch { /* neues Manifest, falls Server nicht erreichbar */ }
+
+      manifest.site = {
+        ...manifest.site,
+        title: blog.name,
+        ...(blog.tagline ? { tagline: blog.tagline } : {}),
+        ...(blog.author ? { author: blog.author } : {}),
+        ...(blog.siteUrl ? { url: blog.siteUrl } : {}),
+      };
+      const newEntry: Record<string, unknown> = { slug, title: titleText, date, tags: tags.length > 0 ? tags : [tag], readingTime };
+      if (subtitle) newEntry.subtitle = subtitle;
+      if (coverImageValue) newEntry.coverImage = coverImageValue;
+      const thought = deriveThoughtFromContent(uploadedContent);
+      newEntry.placeholder = {
+        word: (tags[0] ?? 'build').toUpperCase(),
+        status: 'In Arbeit',
+        focus: subtitle?.trim() || thought || 'Clarity',
+      };
+      if (thought) newEntry.thought = thought;
+      const existingIdx = manifest.posts.findIndex((p) => p.slug === slug);
+      if (existingIdx >= 0) manifest.posts[existingIdx] = newEntry;
+      else manifest.posts.unshift(newEntry);
+
+      const phpErr = await phpBlogUpload(
+        {
+          filename: `${slug}.md`,
+          content: frontmatter + uploadedContent,
+          manifest,
+          thought,
+          placeholder: newEntry.placeholder as { word?: string; status?: string; focus?: string },
+        },
+        phpCfg,
+      );
+      if (phpErr) {
+        setPublishError({ id: option.id, message: `Server Upload fehlgeschlagen: ${phpErr}` });
+        setTimeout(() => setPublishError(null), 6000);
+      } else {
+        setPublishedId(option.id);
+        onBlogPublished?.({ blogId: blog.id, blogPath: blog.path, blogName: blog.name });
+        setTimeout(() => setPublishedId(null), 3000);
+      }
+    } catch (err) {
+      setPublishError({ id: option.id, message: err instanceof Error ? err.message : 'Fehler beim Blog-Publish' });
+      setTimeout(() => setPublishError(null), 4000);
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
   const handlePublish = async (option: PublishOption) => {
-    if (option.id === 'linkedin' && content.length > 3000) {
+    if (option.id === 'linkedin' && mermaidSafeContent.length > 3000) {
       setPublishError({ id: option.id, message: 'Dieser Text ist zu lang für einen LinkedIn-Beitrag. Öffne den abgeleiteten Beitrag oder wähle LinkedIn-Artikel. Der Text wurde nicht gesendet.' });
       return;
     }
     if (option.id === 'linkedin-article') {
       setPublishError(null);
       try {
-        await navigator.clipboard.writeText(content);
+        await navigator.clipboard.writeText(mermaidSafeContent);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
         await openExternal(option.url);
@@ -1731,11 +1870,27 @@ ${renderedHtml}
       }
       return;
     }
-    // Local blog: write to configured folder
+    // Local blog: write to configured folder (Tauri-Dateisystem) — oder, im Browser,
+    // direkt über die in den Einstellungen hinterlegte Media API (PHP-Upload-Endpoint).
     if (option.id.startsWith('blog:')) {
       const blogId = option.id.slice(5);
       const blog = blogs.find((b) => b.id === blogId);
       if (!blog) return;
+
+      const webDeployType = blog.deployType ?? (blog.gitAutoPush ? 'git' : 'none');
+      const webPhpCfg = webDeployType === 'php-api' && blog.phpApiUrl && blog.phpApiKey
+        ? { apiUrl: blog.phpApiUrl, apiKey: blog.phpApiKey }
+        : null;
+
+      if (!isTauri()) {
+        if (!webPhpCfg) {
+          setPublishError({ id: option.id, message: 'Dieser Blog ist nicht für Server-Speichern konfiguriert. In den Einstellungen unter Media API eine PHP-Upload-URL + Key hinterlegen.' });
+          return;
+        }
+        await handleWebPhpBlogPublish(option, blog, webPhpCfg);
+        return;
+      }
+
       setPublishingId(option.id);
       setPublishError(null);
       try {
@@ -1861,8 +2016,8 @@ ${renderedHtml}
             await ftpUpload(localCoverImagePath, imageFileName, { ...ftpBase, remotePath: `${blogRoot}/_assets/` }).catch(() => {});
           }
           // Convert markdown to HTML and upload
-          const htmlBody = await marked(content);
-          const fullHtml = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>${titleText}</title></head><body>${htmlBody}</body></html>`;
+          const htmlBody = await marked(content, { renderer: createMermaidAwareRenderer() });
+          const fullHtml = `<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>${titleText}</title></head><body>${htmlBody}${MERMAID_SCRIPT_TAG}</body></html>`;
           const htmlFilePath = await join(blog.path, 'posts', `${slug}.html`);
           await writeTextFile(htmlFilePath, fullHtml);
           const ftpErr = await ftpUpload(htmlFilePath, `${slug}.html`, {
@@ -1911,6 +2066,13 @@ ${renderedHtml}
               } catch { /* non-fatal: Bild wird übersprungen */ }
             }
           }
+          // Mermaid-Diagramme als PNG hochladen — die externe Blog-Seite kennt
+          // kein Mermaid, ohne das würde nur der rohe Codeblock erscheinen.
+          uploadedContent = await replaceMermaidBlocksWithImages(
+            uploadedContent,
+            (png, name) => uploadImageIfDataUrl(png, name, phpCfg),
+            `diagram-${slug}`,
+          );
           // Frontmatter mit ggf. aktualisierter coverImageValue (volle Server-URL nach Bild-Upload)
           const serverFrontmatter = [
             '---',
@@ -1979,7 +2141,7 @@ ${renderedHtml}
         const meta = { title, subtitle: subtitle ?? undefined, imageUrl: imageUrl ?? undefined, tags };
 
         if (option.id === 'devto') {
-          const prepared = preparePostContent('devto', content, meta);
+          const prepared = preparePostContent('devto', mermaidSafeContent, meta);
           result = await postToDevTo(
             {
               title: prepared.title ?? title,
@@ -1991,7 +2153,7 @@ ${renderedHtml}
             socialConfig.devto!,
           );
         } else if (option.id === 'medium') {
-          const prepared = preparePostContent('medium', content, meta);
+          const prepared = preparePostContent('medium', mermaidSafeContent, meta);
           result = await postToMedium(
             {
               title: prepared.title ?? title,
@@ -2005,7 +2167,7 @@ ${renderedHtml}
         } else if (option.id === 'linkedin') {
           // LinkedIn renders no markdown — strip it so headings/bold/links
           // don't show up as literal `#`/`**`/`[text](url)` in the post.
-          const prepared = preparePostContent('linkedin', markdownToPlainText(content), {
+          const prepared = preparePostContent('linkedin', markdownToPlainText(mermaidSafeContent), {
             ...meta,
             imageUrl: linkedInImage ? URL.createObjectURL(linkedInImage) : imageUrl ?? undefined,
           });
@@ -2020,7 +2182,7 @@ ${renderedHtml}
             socialConfig.linkedin!,
           );
         } else if (option.id === 'github-gist') {
-          const prepared = preparePostContent('github', content, meta);
+          const prepared = preparePostContent('github', mermaidSafeContent, meta);
           const gistTitle = prepared.title ?? title;
           const description = prepared.tags?.length
             ? `${gistTitle} [${prepared.tags.join(', ')}]`
@@ -2038,7 +2200,7 @@ ${renderedHtml}
           const gistData = await resp.json();
           result = { success: true, url: gistData.html_url };
         } else if (option.id === 'reddit') {
-          const prepared = preparePostContent('reddit', content, meta);
+          const prepared = preparePostContent('reddit', mermaidSafeContent, meta);
           const subreddit = redditSubreddit.trim() || socialConfig.reddit?.username || '';
           if (!subreddit) throw new Error('Bitte Subreddit eingeben (z.B. r/programming)');
           result = await postToReddit(
@@ -2051,7 +2213,7 @@ ${renderedHtml}
           );
         } else if (option.id === 'twitter') {
           result = await postToTwitter(
-            prepareXPostContent(content),
+            prepareXPostContent(mermaidSafeContent),
             socialConfig.twitter!,
           );
         } else {
@@ -2085,7 +2247,7 @@ ${renderedHtml}
 
     // Fallback: copy + open
     try {
-      await navigator.clipboard.writeText(content);
+      await navigator.clipboard.writeText(mermaidSafeContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -2147,7 +2309,7 @@ ${renderedHtml}
       } else {
         console.error('AI optimization failed:', result.error);
         // Fallback: copy original content and open platform
-        await navigator.clipboard.writeText(content);
+        await navigator.clipboard.writeText(mermaidSafeContent);
         try {
           await openExternal(option.url);
         } catch (err) {
@@ -2191,6 +2353,22 @@ ${renderedHtml}
             }}
           >
             {exportError}
+          </div>
+        )}
+        {mermaidAssetNotice && (
+          <div
+            style={{
+              marginBottom: '12px',
+              padding: '10px 12px',
+              border: '0.5px solid rgba(172,142,102,0.6)',
+              borderRadius: '10px',
+              backgroundColor: 'rgba(172,142,102,0.12)',
+              color: '#AC8E66',
+              fontFamily: 'IBM Plex Mono, monospace',
+              fontSize: '11px',
+            }}
+          >
+            {mermaidAssetNotice}
           </div>
         )}
         {/* Schnell-Export - Accordion */}
@@ -2697,7 +2875,7 @@ ${renderedHtml}
                         setSeriesFor(null);
                       } else {
                         setSeriesFor(option.id);
-                        setSeriesParts(splitIntoSeries(content, maxChars!, option.id));
+                        setSeriesParts(splitIntoSeries(mermaidSafeContent, maxChars!, option.id));
                         setCopiedSeriesIdx(null);
                       }
                       return;

@@ -857,7 +857,11 @@ function AppContent() {
     setTransferPostMeta(null);
     setActiveServerArticleSlug(null);
     setContentStudioServerCachePath(null);
-    setActiveBlogForEditor(null);
+    // A blog can use a ZenCloud project as its working folder. Keep that
+    // Media-API destination attached while editing documents from the project,
+    // otherwise "Auf Server speichern" incorrectly falls back to Server API.
+    const cloudBlog = zenStudioBlogs.find((blog) => blog.path === contentStudioProjectPath) ?? null;
+    setActiveBlogForEditor(cloudBlog);
     setCameFromDocStudio(false);
     setCameFromDashboard(false);
     setMultiPlatformMode(false);
@@ -1986,6 +1990,7 @@ function AppContent() {
       setCloudDocuments([]);
     }
     setContentStudioProjectPath(path);
+    setActiveBlogForEditor(zenStudioBlogs.find((blog) => blog.path === path) ?? null);
     if (isTauri() && !isCloudProjectPath(path) && !isWebProjectPath(path)) {
       await updateLastProjectPath(path);
     }
@@ -2054,6 +2059,7 @@ function AppContent() {
     rememberProjectPath(path);
     setContentStudioRecentProjectPaths(getRecentProjectPaths());
     setContentStudioProjectPath(path);
+    setActiveBlogForEditor(zenStudioBlogs.find((blog) => blog.path === path) ?? null);
     setContentStudioAllFiles([]);
     setWebDocuments([]);
     const docs = await listCloudDocuments(project.id);
@@ -2312,8 +2318,9 @@ function AppContent() {
                       <span>Speichern unter...</span>
                     </button>
                     )}
-                    {/* "Auf Server speichern" als extra Option nur für lokale Tabs */}
-                    {!activeTabIsCloud && !activeTabIsServer && (
+                    {/* Veröffentlichung ist ein eigenes Ziel: Bei einem mit
+                        ZenCloud verknüpften Blog bleibt Cloud-Speichern separat. */}
+                    {!activeTabIsServer && (!activeTabIsCloud || activeBlogForEditor) && (
                     <button
                       type="button"
                       onClick={() => {
@@ -2331,7 +2338,7 @@ function AppContent() {
                       }}
                     >
                       <FontAwesomeIcon icon={faFileExport} />
-                      <span>Auf Server speichern</span>
+                      <span>{activeBlogForEditor ? 'Im Blog veröffentlichen' : 'Auf Server speichern'}</span>
                     </button>
                     )}
                   </div>
@@ -2753,7 +2760,9 @@ function AppContent() {
                 onStartWriting={() => {
                   setActiveServerArticleSlug(null);
                   setContentStudioServerCachePath(null);
-                  setActiveBlogForEditor(null);
+                  setActiveBlogForEditor(
+                    zenStudioBlogs.find((blog) => blog.path === contentStudioProjectPath) ?? null
+                  );
                   setContentStudioDashboardView("dashboard");
                   setContentTransformStep(1);
                 }}
@@ -2910,7 +2919,11 @@ function AppContent() {
               onOpenZenThoughtsEditor={handleOpenZenThoughtsEditor}
               serverArticleSlug={activeServerArticleSlug}
               blogSaveTarget={liveActiveBlog}
-              onBlogPostSaved={() => setActiveBlogForEditor(null)}
+              onBlogPostSaved={() => {
+                setActiveBlogForEditor(
+                  zenStudioBlogs.find((blog) => blog.path === contentStudioProjectPath) ?? liveActiveBlog
+                );
+              }}
               onOpenImageGalleryForMeta={(onInsert) => {
                 imageGalleryInsertHandlerRef.current = onInsert;
                 setImageGalleryFocusDocId(null);
