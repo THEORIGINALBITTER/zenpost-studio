@@ -5,6 +5,17 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to upload installers to"
+        required: true
+        default: "v1.0.10"
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
 jobs:
   build:
@@ -111,10 +122,10 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "ZenPost Studio ${{ github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "ZenPost Studio ${{ env.RELEASE_TAG }}"
           releaseBody: |
-            Automated build for ${{ github.ref_name }}
+            Automated build for ${{ env.RELEASE_TAG }}
             macOS build signed and notarized.
           prerelease: false
           args: ${{ matrix.tauri_args }}
@@ -125,10 +136,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "ZenPost Studio ${{ github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "ZenPost Studio ${{ env.RELEASE_TAG }}"
           releaseBody: |
-            Automated build for ${{ github.ref_name }}
+            Automated build for ${{ env.RELEASE_TAG }}
 
             ## macOS Hinweis
             Diese Version ist aktuell nicht notarisiert.
@@ -157,4 +168,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" "$PKG_PATH" --clobber
+          gh release upload "${{ env.RELEASE_TAG }}" "$PKG_PATH" --clobber
